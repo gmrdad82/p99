@@ -2,6 +2,16 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.6 — 2026-10-14
+
+### Fixed
+
+- Screen captures draw the image a page is actually showing inside a `<picture>` with responsive sources, instead of an empty frame.
+
+### Changed
+
+- The README and the docs show P99 on PITO MD's own site, pitomd.com: filing an idea on the Splicer page, the "?" kept clear of the site's back-to-top button, and the panel over light and dark sections.
+
 ## v1.0.5 — 2026-10-14
 
 ### Changed
