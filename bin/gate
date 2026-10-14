@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+case "${1:-}" in
+  --fast | '') ;;
+  *)
+    echo "usage: bin/gate [--fast]" >&2
+    exit 2
+    ;;
+esac
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo nextest run --no-tests=pass
+if [ "${1:-}" = --fast ]; then
+  echo "fast gate: green (the full gate is plain bin/gate)"
+  exit 0
+fi
+cargo build --release
+echo "gate: green"

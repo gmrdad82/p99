@@ -1,0 +1,9 @@
+[package]
+name = "p99"
+version = "0.1.0"
+authors = ["Gamer Dad"]
+edition = "2024"
+publish = false
+
+[dependencies]
+pito-tui = { git = "https://github.com/gmrdad82/pito-tui", tag = "v0.4.1" }
