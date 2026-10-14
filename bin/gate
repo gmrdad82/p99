@@ -11,7 +11,7 @@ case "${1:-}" in
 esac
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
-cargo nextest run --no-tests=pass
+if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --no-tests=pass; else cargo test --quiet; fi
 if [ "${1:-}" = --fast ]; then
   echo "fast gate: green (the full gate is plain bin/gate)"
   exit 0

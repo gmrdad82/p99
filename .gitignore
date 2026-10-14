@@ -1,6 +1,9 @@
 tmp/
 target/
 node_modules/
+.wrangler/
+/.claude/
+/.dev
 /.dev/
 /AGENTS.md
 /CLAUDE.md

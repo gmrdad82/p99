@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+limit=2048
+loader=worker/src/web/p99.js
+raw=$(wc -c < "$loader")
+packed=$(gzip -9 -c "$loader" | wc -c)
+echo "budget: $loader is $raw bytes, $packed gzipped (at most $limit)"
+[ "$packed" -le "$limit" ] || { echo "budget: the loader is over $limit bytes gzipped" >&2; exit 1; }
