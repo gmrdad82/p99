@@ -59,6 +59,46 @@ pub struct Host {
     pub theme: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub strings: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<Offset>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub above: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub off: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Offset {
+    pub x: i64,
+    pub y: i64,
+}
+
+pub const CORNERS: [&str; 4] = ["bottom-right", "bottom-left", "top-right", "top-left"];
+
+impl Host {
+    pub fn pushed(&self) -> serde_json::Value {
+        let mut config = serde_json::Map::new();
+        config.insert("theme".into(), serde_json::json!(self.theme));
+        config.insert("strings".into(), serde_json::json!(self.strings));
+        if let Some(corner) = &self.corner {
+            config.insert("corner".into(), corner.clone().into());
+        }
+        if let Some(offset) = self.offset {
+            config.insert(
+                "offset".into(),
+                serde_json::json!({"x": offset.x, "y": offset.y}),
+            );
+        }
+        if let Some(above) = &self.above {
+            config.insert("above".into(), above.clone().into());
+        }
+        if !self.off.is_empty() {
+            config.insert("off".into(), serde_json::json!(self.off));
+        }
+        serde_json::Value::Object(config)
+    }
 }
 
 fn p99() -> String {

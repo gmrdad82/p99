@@ -73,3 +73,34 @@ pub fn parse_log(log: &str) -> Vec<Item> {
     }
     items
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{FIELD, RECORD, keys, parse_log};
+
+    #[test]
+    fn trailers_name_items_of_every_prefix() {
+        assert_eq!(
+            keys("BUG-12, FEAT-3,IMP-40 Q-7 TASK-9"),
+            vec![3, 7, 9, 12, 40]
+        );
+        assert!(keys("#12, bug-4, 15, FEP-, -3, PR-45, GH-7, BUG-1234567890123456").is_empty());
+        let log = format!(
+            "a1{FIELD}Totals refresh{FIELD}BUG-12, FEAT-3{FIELD}IMP-40{RECORD}\nb2{FIELD}Nothing named{FIELD}{FIELD}{RECORD}\nc3{FIELD}Work on it{FIELD}{FIELD}Q-7,TASK-9{RECORD}\n"
+        );
+        let found: Vec<(i64, &str, &str)> = parse_log(&log)
+            .iter()
+            .map(|i| (i.id, i.rel, if i.sha == "a1" { "a1" } else { "c3" }))
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                (3, "fixes", "a1"),
+                (12, "fixes", "a1"),
+                (40, "refs", "a1"),
+                (7, "refs", "c3"),
+                (9, "refs", "c3"),
+            ]
+        );
+    }
+}
