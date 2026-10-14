@@ -479,7 +479,7 @@ fn thread(id: i64, item: &Item) -> Thread {
         status: item.status.into(),
         title: item.title.into(),
         host: Some(item.host.into()),
-        origin_env: env_of(item.host).into(),
+        env: env_of(item.host).into(),
         page: PageRef {
             url: format!("https://{}{}", item.host, item.path),
             path: item.path.into(),
@@ -540,7 +540,7 @@ pub fn summary(issue: &Issue) -> Summary {
         status: issue.status.clone(),
         title: issue.title.clone(),
         host: issue.host.clone(),
-        origin_env: issue.origin_env.clone(),
+        env: issue.env.clone(),
         page: issue.page.clone(),
         reporter: Person {
             email: text("email"),

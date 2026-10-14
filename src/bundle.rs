@@ -45,8 +45,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/art/concrete-dark.svg", TEXT),
 ];
 
-pub const MIGRATIONS: &[(&str, &str)] =
-    &[migration!("0001_p99.sql")];
+pub const MIGRATIONS: &[(&str, &str)] = &[migration!("0001_p99.sql")];
 
 pub fn modules() -> Vec<Module<'static>> {
     MODULES

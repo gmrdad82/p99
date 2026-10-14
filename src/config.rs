@@ -224,9 +224,9 @@ impl Config {
                 a.resend_key.as_ref(),
                 a.access_client_secret.as_ref(),
             ]
-                .into_iter()
-                .flatten()
-                .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
+            .into_iter()
+            .flatten()
+            .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
         })
     }
 }

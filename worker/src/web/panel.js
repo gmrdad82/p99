@@ -562,7 +562,7 @@ function thread(t) {
   const byId = new Map(files.map((a) => [a.id, a]));
   const meta = [say("filed_by", { who: who(i.reporter), when: when(i.created_at) }), " · ", say("updated", { when: when(i.updated_at) })];
   if (manager && i.reporter && i.reporter.email) meta.push(" · ", h("span", { text: i.reporter.email }));
-  if (manager && i.origin_env) meta.push(" · ", h("span", { text: i.origin_env }));
+  if (manager && i.env) meta.push(" · ", h("span", { text: i.env }));
   if (i.assignee) meta.push(" · ", say("assigned_to", { who: i.assignee }));
   if (i.duplicate_of) meta.push(" · ", say("duplicate_of", { n: i.duplicate_of }));
   const page = i.page || {};

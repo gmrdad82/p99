@@ -68,10 +68,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     let source = if options.demo {
         Source::demo(if headless { Duration::ZERO } else { PACE })
     } else {
-        Source::live(
-            global.account.as_deref(),
-            global.agent.as_deref(),
-        )
+        Source::live(global.account.as_deref(), global.agent.as_deref())
     };
     let fixture = || tui(Source::demo(Duration::ZERO));
     if let Some(dir) = &options.capture {

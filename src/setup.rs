@@ -1522,13 +1522,7 @@ mod tests {
             names(pending(&all, &["0001_p99.sql".to_owned()])),
             ["0002_y.sql", "0003_x.sql"]
         );
-        assert!(
-            pending(
-                &all[..2],
-                &["0002_y.sql".into(), "0001_p99.sql".into()]
-            )
-            .is_empty()
-        );
+        assert!(pending(&all[..2], &["0002_y.sql".into(), "0001_p99.sql".into()]).is_empty());
         assert_eq!(
             migration_sql("0002_y.sql", "CREATE TABLE t (a);\n"),
             "CREATE TABLE t (a);\nINSERT INTO d1_migrations (name) VALUES ('0002_y.sql');"

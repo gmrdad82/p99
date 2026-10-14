@@ -75,8 +75,6 @@ p99 announce example.com --env production
 
 Every command takes `--json`. An agent acting for you sets `P99_AGENT=<label>` (or `--agent`), and its items and comments show that label beside your name.
 
-**Take over an existing deployment** of the tracker P99 grew from: `p99 adopt` keeps its Worker, database and bucket, every item's key and number, and its old endpoint, and adds P99's routes beside them.
-
 The config lives in `~/.config/p99/config.toml` ([docs/config.md](docs/config.md)); secrets are written inline with mode 0600 or kept in your password manager as references the config names. The Worker's HTTP API is [docs/api.md](docs/api.md).
 
 ## Build and test

@@ -191,7 +191,7 @@ impl Inbox {
                 Cell::new(item.title.as_str()),
             ];
             if all_hosts {
-                let tone = if production(&item.origin_env) {
+                let tone = if production(&item.env) {
                     palette.accent
                 } else {
                     palette.warn
@@ -568,7 +568,7 @@ fn lines(
         facts.push(Span::styled(format!(" of {of}"), palette.muted));
     }
     if let Some(host) = &issue.host {
-        let tone = if production(&issue.origin_env) {
+        let tone = if production(&issue.env) {
             palette.accent
         } else {
             palette.warn
@@ -576,9 +576,9 @@ fn lines(
         facts.push(dot());
         facts.push(Span::styled("host ", palette.muted));
         facts.push(Span::styled(host.clone(), tone));
-        if !issue.origin_env.is_empty() {
+        if !issue.env.is_empty() {
             facts.push(Span::styled(" · ", palette.muted));
-            facts.push(Span::styled(issue.origin_env.clone(), tone));
+            facts.push(Span::styled(issue.env.clone(), tone));
         }
     }
     out.push(Line::from(facts));

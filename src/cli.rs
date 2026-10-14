@@ -780,10 +780,10 @@ fn print_thread(thread: &Thread) {
         who(text("email"), text("name"), &agent),
         issue.host.as_deref().unwrap_or("-"),
         when(&issue.created_at),
-        if issue.origin_env.is_empty() {
+        if issue.env.is_empty() {
             String::new()
         } else {
-            format!("  from {}", issue.origin_env)
+            format!("  from {}", issue.env)
         }
     );
     if !issue.page.url.is_empty() {
