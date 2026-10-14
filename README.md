@@ -73,6 +73,8 @@ p99 status BUG-12 resolved
 p99 announce example.com --env production
 ```
 
+**Bring items from another tracker**, keeping their keys and numbers, with `p99 import` ([docs/import.md](docs/import.md)).
+
 Every command takes `--json`. An agent acting for you sets `P99_AGENT=1` (or `--agent`), and its items and comments show as your name with an asterisk, `Ada Lovelace*`.
 
 The config lives in `~/.config/p99/config.toml` ([docs/config.md](docs/config.md)); secrets are written inline with mode 0600 or kept in your password manager as references the config names. The Worker's HTTP API is [docs/api.md](docs/api.md).

@@ -480,3 +480,59 @@ pub struct BuildItem {
     pub sha: String,
     pub subject: String,
 }
+
+pub const IMPORT_TYPES: [&str; 7] = [
+    "item",
+    "comment",
+    "attachment",
+    "event",
+    "landing",
+    "read",
+    "manager",
+];
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportConflict {
+    #[serde(rename = "ref", default)]
+    pub reference: String,
+    #[serde(default)]
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportTally {
+    #[serde(default)]
+    pub new: u64,
+    #[serde(default)]
+    pub existing: u64,
+    #[serde(default)]
+    pub conflicts: Vec<ImportConflict>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportReport {
+    #[serde(default)]
+    pub dry_run: bool,
+    #[serde(default)]
+    pub counts: std::collections::BTreeMap<String, ImportTally>,
+    #[serde(default)]
+    pub upload: Vec<String>,
+    #[serde(default)]
+    pub managers: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DuplicateLinks {
+    #[serde(default)]
+    pub linked: u64,
+    #[serde(default)]
+    pub conflicts: Vec<ImportConflict>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ImportFinish {
+    #[serde(default)]
+    pub recounted: u64,
+    #[serde(default)]
+    pub duplicates: DuplicateLinks,
+}

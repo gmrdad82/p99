@@ -5,6 +5,7 @@ mod cli;
 mod client;
 mod cloudflare;
 mod config;
+mod import;
 mod setup;
 mod sign;
 mod trailers;

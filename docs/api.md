@@ -70,6 +70,7 @@ The actor is `{"email","name","rank","agent"?,"function"?,"party"?,"person"?}`, 
 | `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/?p99=<secret>"]}`; the secret is shown this once |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
+| `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
 
 A code object is `{"id","name","email","hosts","manager","hint","created_at","created_by","revoked_at","last_used_at"}`, `hint` the secret's last four characters.
 

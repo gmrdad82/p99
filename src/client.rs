@@ -7,8 +7,8 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::wire::{
-    Attachment, Build, Change, Code, Comment, Counts, Download, EnvEntry, HostEntry, Issue,
-    IssueList, ListQuery, Minted, NewCode, NewIssue, Thread,
+    Attachment, Build, Change, Code, Comment, Counts, Download, EnvEntry, HostEntry, ImportFinish,
+    ImportReport, Issue, IssueList, ListQuery, Minted, NewCode, NewIssue, Thread,
 };
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -211,6 +211,55 @@ impl Client {
             .map(|_| ())
     }
 
+    pub fn import(
+        &self,
+        host: &str,
+        dry_run: bool,
+        records: &[Value],
+    ) -> Result<ImportReport, String> {
+        let pq = format!(
+            "/v1/import{}",
+            query(&[
+                ("host", Some(host.to_owned())),
+                ("dry_run", Some(if dry_run { "1" } else { "0" }.to_owned())),
+            ])
+        );
+        let body = serde_json::to_vec(records).map_err(|e| e.to_string())?;
+        let reply = self.send_as("POST", &pq, None, &body, TRANSFER)?;
+        parse(&reply)
+    }
+
+    pub fn import_file(
+        &self,
+        host: &str,
+        uid: &str,
+        params: &[(&str, Option<String>)],
+        content_type: &str,
+        bytes: &[u8],
+    ) -> Result<Attachment, String> {
+        let mut pairs = vec![("host", Some(host.to_owned()))];
+        pairs.extend(params.iter().cloned());
+        let pq = format!("/v1/import/attachments/{}{}", segment(uid)?, query(&pairs));
+        let reply = self.send_as("PUT", &pq, Some(content_type), bytes, TRANSFER)?;
+        parse(&reply)
+    }
+
+    pub fn import_finish(
+        &self,
+        host: &str,
+        items: &[String],
+        duplicates: &[Value],
+    ) -> Result<ImportFinish, String> {
+        let pq = format!(
+            "/v1/import/finish{}",
+            query(&[("host", Some(host.to_owned()))])
+        );
+        let body = serde_json::to_vec(&json!({"items": items, "duplicates": duplicates}))
+            .map_err(|e| e.to_string())?;
+        let reply = self.send_as("POST", &pq, None, &body, TRANSFER)?;
+        parse(&reply)
+    }
+
     fn item(&self, key: &str, tail: &str) -> Result<String, String> {
         Ok(format!(
             "/v1/issues/{}{tail}{}",
@@ -281,6 +330,31 @@ impl Client {
         body: &[u8],
         timeout: Duration,
     ) -> Result<Reply, String> {
+        self.send_with(method, pq, actor, unsigned, None, body, timeout)
+    }
+
+    fn send_as(
+        &self,
+        method: &str,
+        pq: &str,
+        content_type: Option<&str>,
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<Reply, String> {
+        self.send_with(method, pq, true, false, content_type, body, timeout)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn send_with(
+        &self,
+        method: &str,
+        pq: &str,
+        actor: bool,
+        unsigned: bool,
+        content_type: Option<&str>,
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<Reply, String> {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .max_redirects(0)
@@ -300,10 +374,10 @@ impl Client {
                 .header("CF-Access-Client-Secret", secret);
         }
         if !body.is_empty() {
-            let kind = if method == "PUT" {
-                "application/octet-stream"
-            } else {
-                "application/json"
+            let kind = match content_type {
+                Some(kind) => kind,
+                None if method == "PUT" => "application/octet-stream",
+                None => "application/json",
             };
             request = request.header("Content-Type", kind);
         }
