@@ -136,6 +136,8 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 
 export function open(opts) {
   o = opts;
+  o.host = o.root.host;
+  o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list") return close();
@@ -867,7 +869,7 @@ function contextNow(at) {
       device: { cores: navigator.hardwareConcurrency || null, memory: navigator.deviceMemory || null, touch_points: navigator.maxTouchPoints || 0 },
       timing: nav ? { ttfb: Math.round(nav.responseStart), dom_ready: Math.round(nav.domContentLoadedEventEnd), load: Math.round(nav.loadEventEnd) } : null,
       p99: V,
-      errors: (o.ring || []).slice()
+      errors: (o.ring || []).map((m) => m.replace(/[?#]\S*/g, "").slice(0, 300))
     };
     while (bytes(ctx) > 60000 && ctx.errors.length) ctx.errors.shift();
     return ctx;

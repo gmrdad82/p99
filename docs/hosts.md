@@ -12,6 +12,8 @@ With a nonce-based Content-Security-Policy, give it the page's nonce. Nothing el
 
 Shipping the tag before the Worker's route exists is harmless: the script fails to load and nothing is drawn.
 
+P99 survives body swaps, so sites that navigate by replacing the body (htmx with `hx-boost`, Turbo, Swup, Barba) need nothing more. When a swap drops the button, the loader puts the same element back with its panel and state intact. On every path change it checks the `off` patterns and the `off` meta again, hiding the button on an off page and bringing it back on the next page that isn't, and it refreshes the page's counts once. The `above` element is looked up again when a swap replaces it. It counts only while it is shown: not hidden, transparent or zero-sized. A `#p99=<KEY>` link followed after a swap opens the item as usual.
+
 ## The route
 
 `p99 setup` (or `p99 hosts add`) adds the Worker route `<host>/_p99/*` on the host's zone. A route runs before whatever else serves the host, a Pages project, a tunnel or another Worker on a Custom Domain, so P99 sits in front of them for that one path and never touches them. Setup adds only the route: an existing Custom Domain, Worker or Pages project on the host is detected, named and left as it is.
