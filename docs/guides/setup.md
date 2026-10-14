@@ -31,7 +31,7 @@ p99 setup
 
 The steps and what each asks:
 
-1. **You.** Your name, as P99 shows it, and your e-mail, which becomes the account's first manager. The CLI and the TUI act as you. The first time, they go to `[me]`; when you add another account, setup asks whether you act as that same person there, and a different name or e-mail (or `--name` and `--email` that differ from `[me]`) goes to that account's `[accounts.<name>.me]` ([Configuration](../config.md)).
+1. **You.** Your name, as P99 shows it, and your e-mail, which becomes the account's first manager. The CLI and the TUI act as you. The first time, they go to `[me]`; when you add another account, setup asks whether you act as that same person there, and a different name or e-mail (or `--name` and `--email` that differ from `[me]`) goes to that account's `[accounts.<name>.me]` ([the configuration](../reference/formats.md#configuration)).
 2. **The Cloudflare token.** Pasted without echo. When the token reaches several accounts, setup lists them and asks which one.
 3. **The D1 database** `p99`, which keeps items, comments, events, codes, hosts and environments.
 4. **The schema.** Migrations are applied in order and recorded in `d1_migrations`, as wrangler records them.
