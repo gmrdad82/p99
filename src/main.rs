@@ -3,6 +3,7 @@ mod cli;
 mod client;
 mod cloudflare;
 mod config;
+mod docs;
 mod import;
 mod setup;
 mod sign;
@@ -47,6 +48,8 @@ enum Command {
     Bundle,
     #[command(flatten)]
     Work(cli::Command),
+    #[command(name = "docs-cli", hide = true)]
+    DocsCli,
 }
 
 fn main() -> ExitCode {
@@ -57,6 +60,7 @@ fn main() -> ExitCode {
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::Work(command) => cli::run(command, &p99.global),
+        Command::DocsCli => docs::run(),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+if [ $# -ne 1 ] || [ -z "$1" ]; then
+  echo "usage: bin/docs-bundle <version>" >&2
+  exit 2
+fi
+version="${1#v}"
+case "$version" in
+  *[!0-9A-Za-z.+-]*)
+    echo "docs-bundle: $1 is not a version such as 0.1.0" >&2
+    exit 2
+    ;;
+esac
+
+bin="${P99_BIN:-}"
+if [ -z "$bin" ]; then
+  bin=$(ls -t target/release/p99 target/debug/p99 target/*/release/p99 2>/dev/null | head -n 1 || true)
+fi
+if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+  echo "docs-bundle: no p99 binary; run cargo build, or name one with P99_BIN" >&2
+  exit 1
+fi
+
+repo=https://github.com/gmrdad82/p99/blob/main
+work=tmp/docs-bundle
+out="$work/docs"
+tarball="dist/docs-v$version.tar.gz"
+rm -rf "$work"
+mkdir -p "$out/guides" "$out/reference" "$out/images" dist
+
+fail() {
+  echo "docs-bundle: $*" >&2
+  exit 1
+}
+
+front() {
+  printf -- '---\ntitle: %s\ndescription: %s\nsidebar:\n  order: %s\n---\n\n' "$1" "$2" "$3"
+}
+
+quote_front() {
+  awk '
+    function unquote(v,   raw, i, c) {
+      if (v !~ /^".*"$/ || length(v) < 2) return v
+      v = substr(v, 2, length(v) - 2)
+      raw = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "\\") { i++; c = substr(v, i, 1) }
+        raw = raw c
+      }
+      return raw
+    }
+    function quote(v,   out, i, c) {
+      out = ""
+      for (i = 1; i <= length(v); i++) {
+        c = substr(v, i, 1)
+        if (c == "\\" || c == "\"") out = out "\\"
+        out = out c
+      }
+      return "\"" out "\""
+    }
+    NR == 1 && $0 == "---" { inside = 1; print; next }
+    inside && $0 == "---" { inside = 0; print; next }
+    inside && match($0, /^[ ]*(title|description|label):/) {
+      key = substr($0, 1, RLENGTH)
+      value = substr($0, RLENGTH + 1)
+      sub(/^[ ]+/, "", value)
+      sub(/[ ]+$/, "", value)
+      print key " " quote(unquote(value))
+      next
+    }
+    { print }
+  ' "$1" > "$1.quoted"
+  mv "$1.quoted" "$1"
+}
+
+field() {
+  awk -v key="$1" '
+    NR == 1 && $0 != "---" { exit }
+    NR > 1 && $0 == "---" { exit }
+    NR > 1 && index($0, key ":") == 1 {
+      sub("^" key ":[ ]*", "")
+      if ($0 ~ /^".*"$/) {
+        v = substr($0, 2, length($0) - 2)
+        $0 = ""
+        for (i = 1; i <= length(v); i++) {
+          c = substr(v, i, 1)
+          if (c == "\\") { i++; c = substr(v, i, 1) }
+          $0 = $0 c
+        }
+      }
+      print
+      exit
+    }
+    NR > 1 && key == "order" && $1 == "order:" { print $2; exit }
+  ' "$2"
+}
+
+relink() {
+  local up="$1"
+  sed -E \
+    -e "s#\\[(docs/)?api\\.md\\]#[the HTTP API]#g" \
+    -e "s#\\[(docs/)?config\\.md\\]#[the configuration]#g" \
+    -e "s#\\[(docs/)?import\\.md\\]#[Importing items]#g" \
+    -e "s#\\[(docs/)?hosts\\.md\\]#[the host reference]#g" \
+    -e "s#\\]\\((docs/)?api\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#the-http-api)#g" \
+    -e "s#\\]\\((docs/)?config\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#configuration)#g" \
+    -e "s#\\]\\((docs/)?import\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#importing-items)#g" \
+    -e "s#\\]\\((docs/)?hosts\\.md(\\#[^)]*)?\\)#](${up}reference/hosts.md\\2)#g" \
+    -e "s#(^|[^[/])docs/api\\.md#\\1[the HTTP API](${up}reference/formats.md\\#the-http-api)#g" \
+    -e "s#(^|[^[/])docs/config\\.md#\\1[the configuration](${up}reference/formats.md\\#configuration)#g" \
+    -e "s#(^|[^[/])docs/import\\.md#\\1[Importing items](${up}reference/formats.md\\#importing-items)#g" \
+    -e "s#(^|[^[/])docs/hosts\\.md#\\1[the host reference](${up}reference/hosts.md)#g" \
+    -e "s#\\]\\(CHANGELOG\\.md\\)#](${up}changelog.md)#g" \
+    -e "s#\\]\\((LICENSE|NOTICE|TRADEMARKS\\.md|SECURITY\\.md|CODE_OF_CONDUCT\\.md)\\)#](${repo}/\\1)#g" \
+    -e "s#\\]\\(docs/images/#](${up}images/#g"
+}
+
+body() {
+  awk -v shift_by="$1" -v drop_h1="$2" '
+    /^(```|~~~)/ { fence = !fence; print; next }
+    fence { print; next }
+    drop_h1 && !dropped && /^# / { dropped = 1; skip_blank = 1; next }
+    skip_blank && /^[[:space:]]*$/ { next }
+    { skip_blank = 0 }
+    /^#+ / { for (i = 0; i < shift_by; i++) $0 = "#" $0 }
+    { print }
+  '
+}
+
+description=$(sed -n 's/^description = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+{
+  front "P99" "$description" 1
+  awk '
+    /^## Install/ { exit }
+    /^<p align="center"><img / {
+      src = $0; sub(/.*src="/, "", src); sub(/".*/, "", src)
+      alt = $0; sub(/.*alt="/, "", alt); sub(/".*/, "", alt)
+      print "![" alt "](" src ")"
+      next
+    }
+    /^# / { next }
+    /^\[!\[/ { next }
+    { print }
+  ' README.md | cat -s | relink ""
+  echo "## Start here"
+  echo
+  echo "- [Install](install.md): every platform, and the quick start."
+  for page in docs/guides/*.md; do
+    printf '%s\t%s\t%s\t%s\n' "$(field order "$page")" "$(basename "$page")" "$(field title "$page")" "$(field description "$page")"
+  done | sort -n | awk -F '\t' '{ print "- [" $3 "](guides/" $2 "): " tolower(substr($4, 1, 1)) substr($4, 2) }'
+  echo
+  echo "## Reference"
+  echo
+  echo "- [CLI reference](reference/cli.md): every command and flag."
+  echo "- [Formats and API](reference/formats.md): the config file, the import bundle, the HTTP API and its JSON objects."
+  echo "- [Host reference](reference/hosts.md): the tag, the route, Content-Security-Policy, privacy and the host config."
+  echo "- [Changelog](changelog.md): what changed in each version."
+  echo
+  awk '/^## Licence/ { found = 1 } found && /^## / && !/^## Licence/ { exit } found { print }' README.md | relink ""
+} > "$out/index.md"
+
+cp docs/install.md "$out/install.md"
+
+for page in docs/guides/*.md; do
+  cp "$page" "$out/guides/"
+done
+
+{
+  front "CLI reference" "Every p99 command and flag, generated from the binary's own definitions." 1
+  "$bin" docs-cli
+} > "$out/reference/cli.md"
+grep -q '^## p99 ' "$out/reference/cli.md" || fail "$bin docs-cli printed no commands"
+
+{
+  front "Formats and API" "The files and outputs P99 promises: the config file, the import bundle, and the Worker's HTTP API with the JSON objects every --json output prints." 2
+  echo "P99 keeps three contracts: the config file every command reads, the bundle \`p99 import\` reads, and the Worker's HTTP API, whose JSON objects are also what every \`--json\` output prints."
+  echo
+  echo "## Configuration"
+  echo
+  body 1 1 < docs/config.md
+  echo
+  echo "## Importing items"
+  echo
+  body 1 1 < docs/import.md
+  echo
+  echo "## The HTTP API"
+  echo
+  body 1 1 < docs/api.md
+} | relink "../" | sed 's#(\.\./reference/#(#g' > "$out/reference/formats.md"
+
+{
+  front "Host reference" "Everything about a host: the tag, the route, Cloudflare Access, Content-Security-Policy, privacy, the host config and environments." 3
+  body 0 1 < docs/hosts.md
+} | relink "../" | sed 's#(\.\./reference/#(#g' > "$out/reference/hosts.md"
+
+{
+  front "Changelog" "What changed in each version of P99." 50
+  body 0 1 < CHANGELOG.md
+} | relink "" > "$out/changelog.md"
+
+images=$(grep -rhoE '\]\((\.\./)*images/[^)#[:space:]]+' "$out" | sed -E 's#.*images/##' | sort -u)
+for image in $images; do
+  case "$image" in
+    *.png | *.gif | *.webp) ;;
+    *) fail "images/$image: only PNG, GIF and WebP go in the bundle" ;;
+  esac
+  [ -f "docs/images/$image" ] || fail "a page uses images/$image, which docs/images/ lacks"
+  grep -qF "$image" NOTICE || fail "images/$image is not named in NOTICE"
+  cp "docs/images/$image" "$out/images/"
+done
+
+for page in $(find "$out" -name '*.md' | sort); do
+  head -n 1 "$page" | grep -qx -- '---' || fail "${page#"$work"/}: no frontmatter"
+  quote_front "$page"
+  if awk 'NR == 1 { next } $0 == "---" { exit } /^[ ]*(title|description|label):/ && !/^[ ]*(title|description|label): "([^"\\]|\\.)*"$/ { bad = 1 } END { exit !bad }' "$page"; then
+    fail "${page#"$work"/}: a title, description or label is not one quoted string"
+  fi
+  for key in title description order; do
+    [ -n "$(field "$key" "$page")" ] || fail "${page#"$work"/}: no $key in its frontmatter"
+  done
+done
+
+anchors() {
+  awk '
+    /^(```|~~~)/ { fence = !fence; next }
+    fence || !/^#+ / { next }
+    {
+      s = $0; sub(/^#+ +/, "", s); s = tolower(s)
+      gsub(/[^a-z0-9 _-]/, "", s); gsub(/ /, "-", s)
+      n = seen[s]++; print (n ? s "-" n : s)
+    }
+  ' "$1"
+}
+
+broken=0
+for page in $(find "$out" -name '*.md' | sort); do
+  dir=$(dirname "$page")
+  links=$(awk '/^(```|~~~)/ { fence = !fence; next } !fence' "$page" | grep -oE '\]\([^)[:space:]]+\)' | sed -E 's/^\]\(//; s/\)$//' || true)
+  for link in $links; do
+    case "$link" in
+      http://* | https://* | mailto:*) continue ;;
+    esac
+    path="${link%%#*}"
+    anchor=""
+    [ "$path" != "$link" ] && anchor="${link#*#}"
+    target="$page"
+    [ -n "$path" ] && target="$dir/$path"
+    if [ ! -f "$target" ]; then
+      echo "docs-bundle: ${page#"$work"/} links to $link, which the bundle lacks" >&2
+      broken=1
+      continue
+    fi
+    if [ -n "$anchor" ] && ! anchors "$target" | grep -qx -- "$anchor"; then
+      echo "docs-bundle: ${page#"$work"/} links to $link, which has no such heading" >&2
+      broken=1
+    fi
+  done
+done
+[ "$broken" = 0 ] || fail "fix the links above"
+
+if grep -rnE '(^|[^[:alnum:]._/-])docs/[[:alnum:]_/-]+\.md' "$out" --include='*.md' >&2; then
+  fail "the pages above name a repository doc the bundle doesn't map; add it to relink"
+fi
+if grep -rnE '/home/|/Users/|~/[[:upper:]][[:lower:]]+/' "$out" >&2; then
+  fail "the pages above name a local path"
+fi
+if grep -rniwE 'roadmap|planned|coming|upcoming|next release' "$out" --include='*.md' >&2; then
+  fail "the pages above promise something; say what the code does today"
+fi
+
+if tar --version 2>/dev/null | grep -q GNU; then
+  tar --owner=0 --group=0 --numeric-owner --sort=name -czf "$tarball" -C "$work" docs
+else
+  tar --numeric-owner -czf "$tarball" -C "$work" docs
+fi
+echo "docs-bundle: $tarball"
+(cd "$work" && find docs -type f | sort | sed 's/^/  /')
