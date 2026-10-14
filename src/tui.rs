@@ -1,24 +1,34 @@
+mod codes;
+mod demo;
+mod inbox;
+mod source;
+
 use std::path::Path;
 use std::process::ExitCode;
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pito_tui::capture::{self, Script, Walk};
-use pito_tui::crossterm::event::{KeyCode, KeyEvent};
-use pito_tui::footer::{Hint, InputBar};
+use pito_tui::crossterm::event::KeyEvent;
+use pito_tui::footer::Hint;
 use pito_tui::header::Section;
-use pito_tui::list::{Cell, Column, Row};
-use pito_tui::ratatui::{Frame, layout::Rect, style::Color, style::Style, text::Line};
-use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Tui, Turn, Words, dump, matches, message};
+use pito_tui::ratatui::style::Color;
+use pito_tui::{Palette, Tui, Words, dump};
 
+use crate::wire::{Code, Issue, Thread};
 use crate::{NAME, VERSION};
+
+use codes::Codes;
+use inbox::Inbox;
+use source::{Entry, Source};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct Args {
+    #[arg(long, help = "serve built-in sample data: no config and no network")]
+    pub demo: bool,
     #[arg(long, value_name = "WxH", value_parser = size, help = "draw one frame at a size such as 120x34 as text, then quit")]
     pub dump: Option<(u16, u16)>,
     #[arg(long, value_name = "keys", value_parser = keys, help = "the keys --dump presses first, such as \"tab / a enter\"")]
-    pub keys: Option<Vec<KeyEvent>>,
+    pub keys: Option<String>,
     #[arg(long, help = "--dump draws the screen before it has loaded")]
     pub loading: bool,
     #[arg(long, help = "--dump draws in colour")]
@@ -47,13 +57,25 @@ fn size(value: &str) -> Result<(u16, u16), String> {
     dump::size(value).ok_or_else(|| "a size is WxH, such as 120x34".to_owned())
 }
 
-fn keys(value: &str) -> Result<Vec<KeyEvent>, String> {
-    dump::keys(value).map_err(|key| format!("no key is called {key}"))
+fn keys(value: &str) -> Result<String, String> {
+    dump::keys(value)
+        .map(|_| value.to_owned())
+        .map_err(|key| format!("no key is called {key}"))
 }
 
-pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
+pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
+    let headless = options.dump.is_some() || options.bench.is_some();
+    let source = if options.demo {
+        Source::demo(if headless { Duration::ZERO } else { PACE })
+    } else {
+        Source::live(
+            global.account.as_deref(),
+            crate::config::agent(global.agent.as_deref()),
+        )
+    };
+    let fixture = || tui(Source::demo(Duration::ZERO));
     if let Some(dir) = &options.capture {
-        return match capture::capture(Path::new(dir), &walk(), tui) {
+        return match capture::capture(Path::new(dir), &walk(), fixture) {
             Ok(frames) => {
                 println!("{NAME}: {frames} frames captured in {dir}");
                 ExitCode::SUCCESS
@@ -65,7 +87,7 @@ pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
         };
     }
     if let Some(dir) = &options.compare {
-        return match capture::compare(Path::new(dir), &walk(), tui) {
+        return match capture::compare(Path::new(dir), &walk(), fixture) {
             Ok(differences) if differences.is_empty() => {
                 println!("{NAME}: every frame matches {dir}");
                 ExitCode::SUCCESS
@@ -85,19 +107,43 @@ pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
     }
     if let Some(frames) = options.bench {
         let (width, height) = options.dump.unwrap_or(SIZE);
-        for bench in tui().bench(width, height, frames) {
-            println!(
-                "{NAME} --bench: {frames} frames of the {} screen at {width}x{height}: average {:.3} ms, worst {:.3} ms",
-                bench.screen,
-                bench.average.as_secs_f64() * 1000.0,
-                bench.worst.as_secs_f64() * 1000.0,
+        let mut app = tui(source.clone());
+        for bench in app.bench(width, height, frames) {
+            report(
+                &bench.screen,
+                frames,
+                width,
+                height,
+                bench.average,
+                bench.worst,
             );
         }
+        let mut app = tui(source);
+        app.shot(
+            width,
+            height,
+            &dump::keys("enter").unwrap_or_default(),
+            true,
+        );
+        let (mut total, mut worst) = (Duration::ZERO, Duration::ZERO);
+        for _ in 0..frames {
+            let began = Instant::now();
+            app.frame(width, height);
+            let spent = began.elapsed();
+            total += spent;
+            worst = worst.max(spent);
+        }
+        let average = total / u32::try_from(frames.max(1)).unwrap_or(u32::MAX);
+        report("Thread", frames, width, height, average, worst);
         return ExitCode::SUCCESS;
     }
     if let Some((width, height)) = options.dump {
-        let keys = options.keys.clone().unwrap_or_default();
-        let buffer = tui().shot(width, height, &keys, !options.loading);
+        let keys: Vec<KeyEvent> = options
+            .keys
+            .as_deref()
+            .and_then(|keys| dump::keys(keys).ok())
+            .unwrap_or_default();
+        let buffer = tui(source).shot(width, height, &keys, !options.loading);
         if options.ansi {
             print!("{}", dump::ansi(&buffer));
         } else {
@@ -105,7 +151,7 @@ pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    match tui().run() {
+    match tui(source).run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{NAME}: {error}");
@@ -115,217 +161,30 @@ pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
 }
 
 const ACCENT: Color = Color::Rgb(0x3b, 0x7d, 0xd8);
-const LOAD: Duration = Duration::from_millis(600);
+const PACE: Duration = Duration::from_millis(250);
 const SIZE: (u16, u16) = (120, 34);
 
-const STEPS: [Step; 4] = [
-    Step::new(
-        "Replace this screen",
-        "Home and Next in src/main.rs are Screens",
-    ),
-    Step::new("Set your accent", "ACCENT in src/main.rs, or a Palette"),
-    Step::new(
-        "Add your first command",
-        "a key in Screen::key, its work in Cx::detach",
-    ),
-    Step::new(
-        "Load real data",
-        "Screen::load reads, Screen::loaded gets it",
-    ),
-];
-
-const COLUMNS: [Column; 2] = [
-    Column::new("Step", 16, 26).pinned(),
-    Column::new("How", 12, 0),
-];
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Step {
-    title: &'static str,
-    how: &'static str,
+pub enum Msg {
+    Inbox(Result<Vec<Entry>, String>),
+    Thread(String, Result<Thread, String>),
+    Commented(String, Result<bool, String>),
+    Changed(String, Result<Issue, String>),
+    Codes(Result<Vec<Code>, String>),
 }
 
-impl Step {
-    const fn new(title: &'static str, how: &'static str) -> Self {
-        Step { title, how }
-    }
-}
-
-enum Msg {
-    Steps(Vec<Step>),
-}
-
-struct Home;
-
-impl Screen<Msg> for Home {
-    fn draw(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
-        let lines = vec![
-            Line::styled(NAME, palette.selected),
-            Line::styled(format!("v{VERSION}"), palette.muted),
-        ];
-        message(frame, area, lines);
-    }
-
-    fn hints(&self) -> Vec<Hint<'_>> {
-        vec![Hint::new("tab", "next screen")]
-    }
-}
-
-struct Next {
-    steps: Option<Vec<Step>>,
-    stopped: bool,
-    filter: Filter,
-    open: Option<usize>,
-}
-
-impl Next {
-    fn new() -> Self {
-        Next {
-            steps: None,
-            stopped: false,
-            filter: Filter::new("Filter")
-                .placeholder("type to filter the steps")
-                .hint("enter keeps the filter · esc clears it"),
-            open: None,
-        }
-    }
-
-    fn opened(&self) -> Option<&Step> {
-        self.steps.as_ref()?.get(self.open?)
-    }
-
-    fn sift(&mut self) {
-        let steps = self.steps.as_deref().unwrap_or_default();
-        self.filter.sift(
-            steps,
-            |step, query| matches(&format!("{} {}", step.title, step.how), query),
-            |step| Row::new([Cell::new(step.title), Cell::new(step.how).faint()]),
-        );
-    }
-}
-
-impl Screen<Msg> for Next {
-    fn phase(&self) -> Phase<'_> {
-        match (&self.steps, self.stopped) {
-            (Some(_), _) => Phase::Ready,
-            (None, false) => Phase::Loading("Finding what to do next...".into()),
-            (None, true) => Phase::Trouble(
-                vec![
-                    Line::from("Stopped waiting for the steps."),
-                    Line::from("r reads them again."),
-                ]
-                .into(),
-            ),
-        }
-    }
-
-    fn load(&mut self) -> Option<Job<Msg>> {
-        self.steps = None;
-        self.stopped = false;
-        self.open = None;
-        Some(Box::new(|| {
-            thread::sleep(LOAD);
-            Msg::Steps(STEPS.to_vec())
-        }))
-    }
-
-    fn loaded(&mut self, event: Msg, _cx: &mut Cx<'_, Msg>) {
-        let Msg::Steps(steps) = event;
-        self.steps = Some(steps);
-        self.sift();
-    }
-
-    fn cancel(&mut self) {
-        self.stopped = true;
-    }
-
-    fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
-        if self.open.is_some() {
-            return;
-        }
-        match self.filter.key(key) {
-            Turn::Filtered => self.sift(),
-            Turn::Open(index) => self.open = Some(index),
-            Turn::Pass if key.code == KeyCode::Char('r') => cx.reload(),
-            _ => {}
-        }
-    }
-
-    fn back(&mut self, _cx: &mut Cx<'_, Msg>) {
-        self.open = None;
-    }
-
-    fn crumb(&self) -> Option<String> {
-        self.opened().map(|step| step.title.to_string())
-    }
-
-    fn selected(&self) -> usize {
-        self.filter.list().selected().unwrap_or(0)
-    }
-
-    fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
-        if self.filter.paste(text) == Turn::Filtered {
-            self.sift();
-        }
-    }
-
-    fn draw(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
-        if let Some(step) = self.opened() {
-            let lines = vec![
-                Line::styled(step.title, palette.selected),
-                Line::default(),
-                Line::styled(step.how, palette.ink),
-            ];
-            message(frame, area, lines);
-            return;
-        }
-        let view = self
-            .filter
-            .view(&COLUMNS, palette)
-            .header(true)
-            .empty(Some("Nothing matches the filter."));
-        frame.render_widget(view, area);
-    }
-
-    fn typing(&self) -> bool {
-        self.open.is_none() && self.filter.typing()
-    }
-
-    fn input(&self) -> Option<InputBar<'_>> {
-        self.open.is_none().then(|| self.filter.bar()).flatten()
-    }
-
-    fn hints(&self) -> Vec<Hint<'_>> {
-        if self.steps.is_none() {
-            return vec![Hint::new("r", "read again")];
-        }
-        if self.open.is_some() {
-            return vec![Hint::new("esc", "back")];
-        }
-        let mut hints = vec![
-            Hint::new("↑↓", "move"),
-            Hint::new("enter", "open").rank(1),
-            Hint::new("/", "filter").rank(2),
-            Hint::new("r", "read again").rank(3),
-        ];
-        if self.filter.active() {
-            hints.push(Hint::new("esc", "clear filter"));
-        }
-        hints
-    }
-
-    fn facts(&self) -> Vec<(String, Style)> {
-        let Some(steps) = &self.steps else {
-            return Vec::new();
-        };
-        let shown = self.filter.shown().len();
-        let count = if self.filter.active() {
-            format!("{shown} of {} steps", steps.len())
-        } else {
-            format!("{} steps", steps.len())
-        };
-        vec![(count, Style::new())]
-    }
+fn report(
+    screen: &str,
+    frames: usize,
+    width: u16,
+    height: u16,
+    average: Duration,
+    worst: Duration,
+) {
+    println!(
+        "{NAME} --bench: {frames} frames of the {screen} screen at {width}x{height}: average {:.3} ms, worst {:.3} ms",
+        average.as_secs_f64() * 1000.0,
+        worst.as_secs_f64() * 1000.0,
+    );
 }
 
 fn words() -> Words {
@@ -340,26 +199,44 @@ fn words() -> Words {
         .waiting("esc stops waiting")
 }
 
-fn tui() -> Tui<Msg> {
+fn palette() -> Palette {
+    if std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()) {
+        Palette::new(ACCENT).mono()
+    } else {
+        Palette::new(ACCENT)
+    }
+}
+
+fn tui(source: Source) -> Tui<Msg> {
     Tui::new(NAME, VERSION, ACCENT)
+        .title("P99")
         .words(words())
         .hints([
             Hint::new("?", "help").rank(4),
             Hint::new("ctrl+c", "twice quit").pinned(),
         ])
         .footer_look(|footer, _| footer.separator(" · "))
-        .screen(Section::new("Home"), Home)
-        .screen(Section::new("What to do next").short("Next"), Next::new())
+        .screen(Section::new("Inbox"), Inbox::new(source.clone(), palette()))
+        .screen(Section::new("Codes"), Codes::new(source, palette()))
 }
 
 fn walk() -> Walk {
     let script = |name: &str, keys: &str| Script::new(name, dump::keys(keys).unwrap_or_default());
     Walk::new()
-        .script(script("filter", "tab / accent"))
-        .script(script("drill-in", "tab enter"))
+        .script(script("filter", "/ cart"))
+        .script(script("any status", "s s"))
+        .script(script("host pick", "h"))
+        .script(script("one host", "h down enter"))
+        .script(script("thread", "enter"))
+        .script(script("reply", "enter r T h a n k s"))
+        .script(script("replied", "enter r T h a n k s enter"))
+        .script(script("status pick", "enter s"))
+        .script(script("status changed", "enter s down down enter"))
+        .script(script("assign pick", "enter a"))
+        .script(script("codes", "tab / g r a c e"))
         .script(script("quit guard", "ctrl+c"))
         .script(
-            script("hourglass", "tab")
+            script("hourglass", "")
                 .loading()
                 .at(Duration::from_millis(300)),
         )
