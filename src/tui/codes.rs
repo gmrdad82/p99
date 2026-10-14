@@ -10,8 +10,7 @@ use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Turn};
 use crate::wire::Code;
 
 use super::Msg;
-use super::inbox::found;
-use super::source::{Source, unix};
+use super::source::{Source, fold, hits, unix, words};
 
 const COLUMNS: [Column; 7] = [
     Column::new("Person", 12, 16).pinned(),
@@ -26,7 +25,7 @@ const COLUMNS: [Column; 7] = [
 pub struct Codes {
     source: Source,
     palette: Palette,
-    codes: Option<Vec<Code>>,
+    codes: Option<Vec<(Code, String)>>,
     error: Option<String>,
     stopped: bool,
     filter: Filter,
@@ -62,15 +61,11 @@ impl Codes {
             )
         };
         let palette = &self.palette;
+        let words = words(self.filter.query());
         self.filter.sift(
             &codes,
-            |code, query| {
-                found(
-                    &format!("{} {} {}", code.name, code.email, code.hosts.join(" ")),
-                    query,
-                )
-            },
-            |code| {
+            |(_, haystack), _| hits(haystack, &words),
+            |(code, _)| {
                 let state = match &code.revoked_at {
                     Some(_) => Cell::new("revoked").style(palette.bad),
                     None => Cell::new("active").style(palette.good),
@@ -109,7 +104,7 @@ impl Screen<Msg> for Codes {
                 ]
                 .into(),
             ),
-            (None, false) => Phase::Loading("Reading the codes...".into()),
+            (None, false) => Phase::Loading("Reading the codes…".into()),
             (None, true) => Phase::Trouble(
                 vec![
                     Line::from("Stopped waiting for the codes."),
@@ -131,7 +126,16 @@ impl Screen<Msg> for Codes {
     fn loaded(&mut self, event: Msg, _cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Codes(Ok(codes)) => {
-                self.codes = Some(codes);
+                self.codes = Some(
+                    codes
+                        .into_iter()
+                        .map(|c| {
+                            let haystack =
+                                fold(&format!("{} {} {}", c.name, c.email, c.hosts.join(" ")));
+                            (c, haystack)
+                        })
+                        .collect(),
+                );
                 self.sift();
             }
             Msg::Codes(Err(error)) => self.error = Some(error),
@@ -203,7 +207,7 @@ impl Screen<Msg> for Codes {
         let Some(codes) = &self.codes else {
             return Vec::new();
         };
-        let active = codes.iter().filter(|c| c.revoked_at.is_none()).count();
+        let active = codes.iter().filter(|(c, _)| c.revoked_at.is_none()).count();
         vec![
             (format!("{} codes", codes.len()), Style::new()),
             (format!("{active} active"), self.palette.good),

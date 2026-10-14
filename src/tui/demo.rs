@@ -387,10 +387,7 @@ impl Demo {
     pub fn list(&self) -> Vec<Entry> {
         self.threads
             .iter()
-            .map(|thread| Entry {
-                account: 0,
-                summary: summary(&thread.issue),
-            })
+            .map(|thread| Entry::new(0, summary(&thread.issue)))
             .collect()
     }
 

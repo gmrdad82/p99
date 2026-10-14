@@ -12,13 +12,14 @@ use pito_tui::ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, matches, message, text};
-use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
 use crate::wire::{self, Change, Issue, Thread};
 
 use super::Msg;
-use super::source::{Entry, Source, merged_hosts, person, unix};
+use super::source::{
+    Entry, Source, hits, kind_word, merged_hosts, person, status_word, unix, words,
+};
 
 const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
@@ -154,30 +155,17 @@ impl Inbox {
 
     fn sift(&mut self) {
         let entries = self.entries.take().unwrap_or_default();
+        let words = words(self.filter.query());
         let mut filter = std::mem::replace(&mut self.filter, Filter::new(""));
         let host = self.host.clone();
         let shown = self.shown;
         let palette = &self.palette;
         let this = &*self;
-        let keeps = |entry: &Entry, query: &str| {
+        let keeps = |entry: &Entry, _: &str| {
             let item = &entry.summary;
             shown.keeps(&item.status)
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
-                && (query.is_empty()
-                    || found(
-                        &format!(
-                            "{} {} {} {} {} {} {} {}",
-                            item.key,
-                            item.kind,
-                            item.status,
-                            item.title,
-                            item.host.as_deref().unwrap_or_default(),
-                            item.page.path,
-                            item.reporter.name,
-                            item.reporter.email
-                        ),
-                        query,
-                    ))
+                && hits(&entry.haystack, &words)
         };
         let all_hosts = self.host.is_none();
         let line = |entry: &Entry| {
@@ -186,8 +174,8 @@ impl Inbox {
             let mut cells = vec![
                 Cell::new(mark).style(palette.accent),
                 Cell::new(item.key.as_str()).style(palette.strong),
-                Cell::new(item.kind.as_str()).faint(),
-                Cell::new(item.status.replace('_', " ")).style(status_style(palette, &item.status)),
+                Cell::new(kind_word(&item.kind)).faint(),
+                Cell::new(status_word(&item.status)).style(status_style(palette, &item.status)),
                 Cell::new(item.title.as_str()),
             ];
             if all_hosts {
@@ -224,6 +212,7 @@ impl Inbox {
         summary.comments = issue.comments;
         summary.unread = false;
         summary.landing = issue.landing.clone();
+        entry.refold();
     }
 
     fn open_at(&mut self, index: usize, cx: &mut Cx<'_, Msg>) {
@@ -314,7 +303,7 @@ impl Inbox {
             .iter()
             .position(|s| *s == issue.status)
             .unwrap_or(0);
-        let options = wire::STATUSES.iter().map(|s| s.replace('_', " "));
+        let options = wire::STATUSES.iter().map(|s| status_word(s));
         self.picking = Some(Picking::Status);
         cx.pick(
             Pick::new("Status", options)
@@ -457,7 +446,7 @@ impl Inbox {
                     Line::styled("ctrl+r reads it again · esc goes back", palette.muted),
                 ],
                 None => vec![Line::styled(
-                    format!("Reading {}...", open.key),
+                    format!("Reading {}…", open.key),
                     palette.muted,
                 )],
             };
@@ -557,10 +546,10 @@ fn lines(
         out.push(Line::from(vec![lead, Span::styled(part, palette.selected)]));
     }
     let mut facts = vec![
-        Span::styled(issue.kind.clone(), palette.ink),
+        Span::styled(kind_word(&issue.kind).to_owned(), palette.ink),
         dot(),
         Span::styled(
-            issue.status.replace('_', " "),
+            status_word(&issue.status).to_owned(),
             status_style(palette, &issue.status),
         ),
     ];
@@ -675,7 +664,12 @@ fn lines(
         for event in &thread.events {
             let detail = &event.detail;
             let what = match (detail.get("from"), detail.get("to")) {
-                (Some(from), Some(to)) => format!("{} {} → {}", event.kind, plain(from), plain(to)),
+                (Some(from), Some(to)) => format!(
+                    "{} {} → {}",
+                    event.kind,
+                    plain(&event.kind, from),
+                    plain(&event.kind, to)
+                ),
                 _ => event.kind.replace('_', " "),
             };
             let by = event
@@ -694,17 +688,11 @@ fn lines(
     out
 }
 
-fn fold(text: &str) -> String {
-    text.nfd().filter(|c| !is_combining_mark(*c)).collect()
-}
-
-pub(super) fn found(text: &str, query: &str) -> bool {
-    matches(&fold(text), &fold(query))
-}
-
-fn plain(value: &serde_json::Value) -> String {
+fn plain(kind: &str, value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "nobody".into(),
+        serde_json::Value::String(s) if kind == "status" => status_word(s).to_owned(),
+        serde_json::Value::String(s) if kind == "kind" => kind_word(s).to_owned(),
         serde_json::Value::String(s) => s.replace('_', " "),
         other => other.to_string(),
     }
@@ -725,7 +713,7 @@ impl Screen<Msg> for Inbox {
                 ]
                 .into(),
             ),
-            (None, false) => Phase::Loading("Reading the inbox...".into()),
+            (None, false) => Phase::Loading("Reading the inbox…".into()),
             (None, true) => Phase::Trouble(
                 vec![
                     Line::from("Stopped waiting for the inbox."),
@@ -807,7 +795,7 @@ impl Screen<Msg> for Inbox {
                     Ok(issue) => {
                         let at = open.entry;
                         cx.say(
-                            format!("{key} is {}", issue.status.replace('_', " ")),
+                            format!("{key} is {}", status_word(&issue.status).to_lowercase()),
                             Tone::Good,
                         );
                         self.summary_from(at, &issue);
