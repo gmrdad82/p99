@@ -36,6 +36,9 @@ const MAX_MARK_ELEMENTS = 20;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_FILES_PER_ITEM = 30;
 const MAX_BUILD_ITEMS = 5000;
+const MAX_IMPORT_BYTES = 4 * 1024 * 1024;
+const MAX_IMPORT_RECORDS = 500;
+const MAX_FINISH_ITEMS = 5000;
 const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_CODE_HOSTS = 50;
@@ -359,7 +362,7 @@ async function verifySignature(request, env, url) {
       "verify",
     ]);
     if (await crypto.subtle.verify("HMAC", key, signature, message)) {
-      return { bodyHash, actorHeader };
+      return { bodyHash, actorHeader, keyId };
     }
   }
   fail(401, "the signature does not verify");
@@ -437,17 +440,20 @@ async function readBody(request, maxBytes) {
   return joinChunks(chunks, total);
 }
 
-async function readJson(c, maxBytes) {
+async function readJsonValue(c, maxBytes) {
   const bytes = await readBody(c.request, maxBytes);
   if (c.signed && (await sha256Hex(bytes)) !== c.bodyHash) fail(401, "the body does not match X-Content-SHA256");
   try {
-    const value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    if (!isObject(value)) fail(400, "the body must be a JSON object");
-    return value;
-  } catch (error) {
-    if (error instanceof Failure) throw error;
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
     fail(400, "the body is not valid JSON");
   }
+}
+
+async function readJson(c, maxBytes) {
+  const value = await readJsonValue(c, maxBytes);
+  if (!isObject(value)) fail(400, "the body must be a JSON object");
+  return value;
 }
 
 function isUniqueViolation(error) {
@@ -2032,6 +2038,524 @@ async function pruneBackups(env) {
   }
 }
 
+const IMPORT_TYPES = ["item", "comment", "attachment", "event", "landing", "read", "manager"];
+
+function importHost(c) {
+  if (c.keyId !== "p99") fail(403, "only the account's key imports");
+  const name = c.url.searchParams.get("host");
+  const host = name ? c.dir.hosts.get(name.toLowerCase()) : null;
+  if (!host) fail(400, "host must name a listed host");
+  return host;
+}
+
+function importStamp(value, what) {
+  const ms = typeof value === "string" && value.length <= 64 ? Date.parse(value) : NaN;
+  if (!Number.isFinite(ms)) fail(400, `${what} must be a date and time`);
+  return new Date(ms).toISOString();
+}
+
+function optionalStamp(value, what) {
+  return value === undefined || value === null ? null : importStamp(value, what);
+}
+
+function importRef(value, what = "item") {
+  const id = typeof value === "string" || typeof value === "number" ? parseKey(value) : null;
+  if (id === null) fail(400, `${what} must be a key such as BUG-3`);
+  return id;
+}
+
+function importUid(value) {
+  if (!isUid(value)) fail(400, "uid must be 1 to 64 letters, digits, dots, dashes or underscores");
+  return value;
+}
+
+function importEmail(value, what) {
+  if (!isEmail(value)) fail(400, `${what} must be an e-mail address`);
+  return value.trim().toLowerCase();
+}
+
+function importFlag(value, what) {
+  if (value === undefined || value === null) return false;
+  if (typeof value !== "boolean") fail(400, `${what} must be a boolean`);
+  return value;
+}
+
+function importPerson(value, what) {
+  if (!isObject(value)) fail(400, `${what} must be an object with an email`);
+  const email = importEmail(value.email, `${what}.email`);
+  const name = value.name ?? "";
+  if (!isText(name, 0, 200)) fail(400, `${what}.name must be at most 200 characters`);
+  return {
+    email,
+    name: name.trim() || email,
+    agent: importFlag(value.agent, `${what}.agent`),
+    manager: importFlag(value.manager, `${what}.manager`),
+  };
+}
+
+function importPage(page, host) {
+  if (page === undefined || page === null) return { url: `https://${host}/`, path: "/", title: "" };
+  if (!isObject(page)) fail(400, "page must be an object");
+  let path = page.path;
+  if (path === undefined || path === null) {
+    try {
+      path = page.url ? new URL(page.url).pathname : "/";
+    } catch {
+      path = "/";
+    }
+  }
+  const valid = validPage({ url: page.url ?? `https://${host}${path}`, path, title: page.title ?? "" });
+  if (!valid) fail(400, "page must have an http(s) url, a path starting with / and a title of at most 300 characters");
+  return valid;
+}
+
+function importItem(r, host) {
+  const match = typeof r.key === "string" ? /^([A-Za-z]{1,10})-(\d{1,15})$/.exec(r.key.trim()) : null;
+  const id = match ? Number(match[2]) : 0;
+  if (!match || !Number.isSafeInteger(id) || id < 1) fail(400, "key must be a key such as BUG-3");
+  if (!KIND_PREFIXES[r.kind]) fail(400, "kind must be bug, feature, improvement, question or task");
+  if (KIND_PREFIXES[r.kind] !== match[1].toUpperCase()) fail(400, `a ${r.kind} is keyed ${KIND_PREFIXES[r.kind]}-<number>`);
+  const status = r.status ?? "new";
+  if (!STATUSES.includes(status)) fail(400, "status is not known");
+  const title = validTitle(r.title);
+  if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
+  const body = r.body ?? "";
+  if (!isText(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+  const env = r.env ?? host.env;
+  if (!isEnvName(env)) fail(400, "env must name an environment");
+  const context = r.context ?? {};
+  if (!isObject(context)) fail(400, "context must be an object");
+  const contextJson = JSON.stringify(context);
+  if (utf8Bytes(contextJson) > MAX_CONTEXT_BYTES) fail(413, "context is larger than 64 KB");
+  const marks = validMarks(r.marks);
+  if (marks === null) fail(400, `marks must be at most ${MAX_MARKS} marks with rect, viewport and elements`);
+  const createdAt = importStamp(r.created_at, "created_at");
+  const updatedAt = optionalStamp(r.updated_at, "updated_at") ?? createdAt;
+  const open = OPEN_STATUSES.has(status);
+  return {
+    type: "item",
+    ref: keyOf(r.kind, id),
+    id,
+    kind: r.kind,
+    status,
+    open,
+    title,
+    body,
+    reporter: importPerson(r.reporter, "reporter"),
+    assignee: r.assignee === undefined || r.assignee === null ? null : importEmail(r.assignee, "assignee"),
+    env,
+    page: importPage(r.page, host.host),
+    contextJson,
+    marksJson: JSON.stringify(marks),
+    createdAt,
+    updatedAt,
+    closedAt: open ? null : (optionalStamp(r.closed_at, "closed_at") ?? updatedAt),
+    duplicateOf: r.duplicate_of === undefined || r.duplicate_of === null ? null : importRef(r.duplicate_of, "duplicate_of"),
+  };
+}
+
+function importRecord(r, host) {
+  if (!isObject(r) || !IMPORT_TYPES.includes(r.type)) fail(400, `type must be one of ${IMPORT_TYPES.join(", ")}`);
+  if (r.type === "item") return importItem(r, host);
+  if (r.type === "manager") {
+    const email = importEmail(r.email, "email");
+    return { type: "manager", ref: email, email };
+  }
+  const item = importRef(r.item);
+  if (r.type === "comment") {
+    const uid = importUid(r.uid);
+    if (typeof r.body !== "string" || r.body.trim().length === 0 || r.body.length > MAX_BODY_CHARS) {
+      fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
+    }
+    return {
+      type: "comment",
+      ref: uid,
+      item,
+      uid,
+      author: importPerson(r.author, "author"),
+      body: r.body,
+      internal: importFlag(r.internal, "internal"),
+      createdAt: importStamp(r.created_at, "created_at"),
+    };
+  }
+  if (r.type === "attachment") {
+    const uid = importUid(r.uid);
+    const comment = r.comment === undefined || r.comment === null ? null : importUid(r.comment);
+    return { type: "attachment", ref: uid, item, uid, comment };
+  }
+  if (r.type === "event") {
+    if (typeof r.kind !== "string" || !/^[a-z][a-z_]{0,39}$/.test(r.kind)) {
+      fail(400, "kind must be 1 to 40 lowercase letters or underscores");
+    }
+    const actor = r.actor ?? null;
+    if (actor !== null && !isObject(actor)) fail(400, "actor must be an object or null");
+    const email = actor && actor.email !== undefined && actor.email !== null ? importEmail(actor.email, "actor.email") : null;
+    const detail = r.detail ?? {};
+    if (!isObject(detail)) fail(400, "detail must be an object");
+    const detailJson = JSON.stringify(detail);
+    if (utf8Bytes(detailJson) > MAX_CONTEXT_BYTES) fail(413, "detail is larger than 64 KB");
+    const at = importStamp(r.at, "at");
+    return {
+      type: "event",
+      ref: `${item} ${r.kind} ${at}`,
+      item,
+      email,
+      agent: actor ? importFlag(actor.agent, "actor.agent") : false,
+      kind: r.kind,
+      detailJson,
+      internal: importFlag(r.internal, "internal"),
+      at,
+    };
+  }
+  if (r.type === "landing") {
+    if (!isEnvName(r.env)) fail(400, "env must name an environment");
+    if (!isText(r.sha, 7, 64) || !/^[0-9a-fA-F]+$/.test(r.sha)) fail(400, "sha must be a hex commit id");
+    return { type: "landing", ref: `${item} ${r.env}`, item, env: r.env, sha: r.sha.toLowerCase(), at: importStamp(r.at, "at") };
+  }
+  const email = importEmail(r.email, "email");
+  return { type: "read", ref: `${item} ${email}`, item, email, at: importStamp(r.at, "at") };
+}
+
+function recountStatement(DB, ids) {
+  const stored = "a.item_id = items.id AND a.stored_at IS NOT NULL";
+  return DB.prepare(
+    `UPDATE items SET
+       comment_count = (SELECT count(*) FROM comments c WHERE c.item_id = items.id),
+       public_comment_count = (SELECT count(*) FROM comments c WHERE c.item_id = items.id AND c.internal = 0),
+       attachment_count = (SELECT count(*) FROM attachments a WHERE ${stored}),
+       public_attachment_count = (SELECT count(*) FROM attachments a WHERE ${stored} AND a.internal = 0),
+       activity_at = max(activity_at,
+         COALESCE((SELECT max(created_at) FROM comments c WHERE c.item_id = items.id), ''),
+         COALESCE((SELECT max(created_at) FROM attachments a WHERE ${stored}), '')),
+       public_activity_at = max(public_activity_at,
+         COALESCE((SELECT max(created_at) FROM comments c WHERE c.item_id = items.id AND c.internal = 0), ''),
+         COALESCE((SELECT max(created_at) FROM attachments a WHERE ${stored} AND a.internal = 0), ''))
+     WHERE id IN (SELECT value FROM json_each(?1))`,
+  ).bind(JSON.stringify([...new Set(ids)]));
+}
+
+function importLookups(DB, records) {
+  const of = (type) => records.filter((r) => r.type === type);
+  const ids = records.flatMap((r) => (r.type === "item" ? [r.id, r.duplicateOf ?? r.id] : r.item ? [r.item] : []));
+  const commentUids = [...of("comment").map((r) => r.uid), ...of("attachment").flatMap((r) => (r.comment ? [r.comment] : []))];
+  const list = (values) => JSON.stringify([...new Set(values)]);
+  const tuples = (type, fields) => JSON.stringify(of(type).map((r) => fields.map((f) => r[f])));
+  const at = (i) => `json_extract(j.value, '$[${i}]')`;
+  return DB.batch([
+    DB.prepare("SELECT id, title, host FROM items WHERE id IN (SELECT value FROM json_each(?1))").bind(list(ids)),
+    DB.prepare("SELECT client_uid, item_id FROM comments WHERE client_uid IN (SELECT value FROM json_each(?1))").bind(list(commentUids)),
+    DB.prepare("SELECT client_uid, item_id, stored_at FROM attachments WHERE client_uid IN (SELECT value FROM json_each(?1))").bind(
+      list(of("attachment").map((r) => r.uid)),
+    ),
+    DB.prepare(
+      `SELECT DISTINCT e.item_id, e.kind, e.at FROM events e JOIN json_each(?1) j
+       ON e.item_id = ${at(0)} AND e.kind = ${at(1)} AND e.at = ${at(2)}`,
+    ).bind(tuples("event", ["item", "kind", "at"])),
+    DB.prepare(`SELECT l.item_id, l.env FROM landings l JOIN json_each(?1) j ON l.item_id = ${at(0)} AND l.env = ${at(1)}`).bind(
+      tuples("landing", ["item", "env"]),
+    ),
+    DB.prepare(`SELECT r.item_id, r.actor_email FROM reads r JOIN json_each(?1) j ON r.item_id = ${at(0)} AND r.actor_email = ${at(1)}`).bind(
+      tuples("read", ["item", "email"]),
+    ),
+    DB.prepare(
+      `SELECT DISTINCT lower(email) AS email FROM codes
+       WHERE manager = 1 AND revoked_at IS NULL AND lower(email) IN (SELECT value FROM json_each(?1))`,
+    ).bind(list(of("manager").map((r) => r.email))),
+  ]);
+}
+
+function importItemStatement(DB, r, host) {
+  return DB.prepare(
+    `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
+       reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json,
+       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
+       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24)`,
+  ).bind(
+    r.id,
+    `import-${r.id}`,
+    r.kind,
+    r.status,
+    r.open ? 1 : 0,
+    r.title,
+    r.body,
+    r.env,
+    host,
+    r.page.url,
+    r.page.path,
+    r.page.title,
+    r.reporter.email,
+    r.reporter.name,
+    JSON.stringify({ email: r.reporter.email, name: r.reporter.name, agent: r.reporter.agent }),
+    r.reporter.agent ? 1 : 0,
+    r.assignee,
+    r.duplicateOf,
+    r.contextJson,
+    r.marksJson,
+    searchText(r.title, r.body),
+    r.updatedAt,
+    r.createdAt,
+    r.closedAt,
+  );
+}
+
+function importCommentStatement(DB, r) {
+  return DB.prepare(
+    `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env,
+       created_at, author_agent)
+     SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, origin_env, ?8, ?9 FROM items WHERE id = ?1`,
+  ).bind(r.item, r.uid, r.author.email, r.author.name, r.author.manager ? 1 : 0, r.body, r.internal ? 1 : 0, r.createdAt, r.author.agent ? 1 : 0);
+}
+
+function importRowStatement(DB, r) {
+  if (r.type === "event") {
+    return DB.prepare(
+      "INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+    ).bind(r.item, r.email, r.agent ? 1 : 0, r.kind, r.detailJson, r.internal ? 1 : 0, r.at);
+  }
+  if (r.type === "landing") {
+    return DB.prepare("INSERT INTO landings (item_id, env, sha, at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING").bind(
+      r.item,
+      r.env,
+      r.sha,
+      r.at,
+    );
+  }
+  return DB.prepare("INSERT INTO reads (actor_email, item_id, read_at) VALUES (?1, ?2, ?3) ON CONFLICT DO NOTHING").bind(
+    r.email,
+    r.item,
+    r.at,
+  );
+}
+
+function naturalKey(r) {
+  if (r.type === "event") return `event ${r.item} ${r.kind} ${r.at}`;
+  if (r.type === "landing") return `landing ${r.item} ${r.env}`;
+  return `read ${r.item} ${r.email}`;
+}
+
+async function postImport(c) {
+  const hostRow = importHost(c);
+  const host = hostRow.host;
+  const dry = c.url.searchParams.get("dry_run") === "1";
+  const raw = await readJsonValue(c, MAX_IMPORT_BYTES);
+  if (!Array.isArray(raw) || raw.length > MAX_IMPORT_RECORDS) {
+    fail(400, `the body must be an array of at most ${MAX_IMPORT_RECORDS} records`);
+  }
+  const records = raw.map((r, i) => {
+    try {
+      return importRecord(r, hostRow);
+    } catch (error) {
+      if (!(error instanceof Failure)) throw error;
+      fail(error.status, `record ${i + 1}${isObject(r) && typeof r.type === "string" ? ` (${r.type})` : ""}: ${error.message}`);
+    }
+  });
+  const { DB } = c.env;
+  const [items, comments, attachments, events, landings, reads, codes] = (await importLookups(DB, records)).map((r) => r.results);
+  const known = new Map(items.map((r) => [r.id, { title: r.title, host: r.host }]));
+  const commentItems = new Map(comments.map((r) => [r.client_uid, r.item_id]));
+  const files = new Map(attachments.map((r) => [r.client_uid, r]));
+  const seen = new Set([
+    ...events.map((r) => `event ${r.item_id} ${r.kind} ${r.at}`),
+    ...landings.map((r) => `landing ${r.item_id} ${r.env}`),
+    ...reads.map((r) => `read ${r.item_id} ${r.actor_email}`),
+  ]);
+  const managers = new Set([...codes.map((r) => r.email), ...managersOf(c.env)]);
+  const counts = Object.fromEntries(IMPORT_TYPES.map((t) => [t, { new: 0, existing: 0, conflicts: [] }]));
+  const upload = [];
+  const missing = [];
+  const touched = [];
+  const statements = [];
+  const conflict = (r, reason) => counts[r.type].conflicts.push({ ref: r.ref, reason });
+  const itemReady = (r) => {
+    const target = known.get(r.item);
+    if (!target) {
+      if (!dry) conflict(r, `no item ${r.item} on ${host}`);
+      return dry;
+    }
+    if (target.host !== host) {
+      conflict(r, `item ${r.item} belongs to ${target.host}`);
+      return false;
+    }
+    return true;
+  };
+  for (const r of records) {
+    const tally = counts[r.type];
+    if (r.type === "item") {
+      const found = known.get(r.id);
+      if (found && found.title === r.title) tally.existing += 1;
+      else if (found) conflict(r, `${r.ref} already exists with the title "${found.title}"`);
+      else {
+        known.set(r.id, { title: r.title, host });
+        tally.new += 1;
+        statements.push(importItemStatement(DB, r, host));
+      }
+    } else if (r.type === "manager") {
+      if (managers.has(r.email)) tally.existing += 1;
+      else {
+        managers.add(r.email);
+        missing.push(r.email);
+        tally.new += 1;
+      }
+    } else if (!itemReady(r)) {
+      continue;
+    } else if (r.type === "comment") {
+      const owner = commentItems.get(r.uid);
+      if (owner === r.item) tally.existing += 1;
+      else if (owner !== undefined) conflict(r, `uid ${r.uid} is a comment on item ${owner}`);
+      else {
+        commentItems.set(r.uid, r.item);
+        tally.new += 1;
+        touched.push(r.item);
+        statements.push(importCommentStatement(DB, r));
+      }
+    } else if (r.type === "attachment") {
+      const found = files.get(r.uid);
+      const onComment = r.comment ? commentItems.get(r.comment) : r.item;
+      if (found && found.item_id !== r.item) conflict(r, `uid ${r.uid} is a file of item ${found.item_id}`);
+      else if (onComment !== undefined && onComment !== r.item) conflict(r, `comment ${r.comment} is on item ${onComment}`);
+      else if (onComment === undefined && !dry) conflict(r, `no comment ${r.comment}`);
+      else if (found && found.stored_at) tally.existing += 1;
+      else {
+        tally.new += 1;
+        upload.push(r.uid);
+      }
+    } else if (seen.has(naturalKey(r))) {
+      tally.existing += 1;
+    } else {
+      seen.add(naturalKey(r));
+      tally.new += 1;
+      statements.push(importRowStatement(DB, r));
+    }
+  }
+  if (!dry && statements.length > 0) {
+    if (touched.length > 0) statements.push(recountStatement(DB, touched));
+    await DB.batch(statements);
+  }
+  return json(200, { dry_run: dry, counts, upload, managers: missing });
+}
+
+async function finishImport(c) {
+  const host = importHost(c).host;
+  const body = await readJson(c, MAX_IMPORT_BYTES);
+  const keys = body.items ?? [];
+  const pairs = body.duplicates ?? [];
+  if (!Array.isArray(keys) || keys.length > MAX_FINISH_ITEMS) fail(400, `items must list at most ${MAX_FINISH_ITEMS} keys`);
+  if (!Array.isArray(pairs) || pairs.length > MAX_FINISH_ITEMS) fail(400, `duplicates must list at most ${MAX_FINISH_ITEMS} pairs`);
+  const ids = keys.map((k) => importRef(k));
+  const links = pairs.map((p) => {
+    if (!isObject(p)) fail(400, "a duplicate is {item, duplicate_of}");
+    return [importRef(p.item), importRef(p.duplicate_of, "duplicate_of")];
+  });
+  const { DB } = c.env;
+  const { results } = await DB.prepare("SELECT id, host, duplicate_of FROM items WHERE id IN (SELECT value FROM json_each(?1))")
+    .bind(JSON.stringify([...new Set([...ids, ...links.flat()])]))
+    .all();
+  const rows = new Map(results.map((r) => [r.id, r]));
+  const conflicts = [];
+  const linked = [];
+  for (const [item, target] of links) {
+    const row = rows.get(item);
+    if (!row || row.host !== host) conflicts.push({ ref: String(item), reason: `no item ${item} on ${host}` });
+    else if (!rows.has(target)) conflicts.push({ ref: String(item), reason: `duplicate_of names no item ${target}` });
+    else if (row.duplicate_of === null) linked.push([item, target]);
+  }
+  const mine = ids.filter((id) => rows.has(id) && rows.get(id).host === host);
+  const statements = linked.map(([item, target]) =>
+    DB.prepare("UPDATE items SET duplicate_of = ?2 WHERE id = ?1 AND duplicate_of IS NULL").bind(item, target),
+  );
+  if (mine.length > 0) statements.push(recountStatement(DB, mine));
+  if (statements.length > 0) await DB.batch(statements);
+  return json(200, { recounted: mine.length, duplicates: { linked: linked.length, conflicts } });
+}
+
+async function putImportAttachment(c, rawUid) {
+  const host = importHost(c).host;
+  const params = c.url.searchParams;
+  const settle = async (status, found) => {
+    if (c.request.body) await c.request.body.cancel().catch(() => {});
+    if (status === 409) fail(409, "uid is already a file of another item");
+    return json(200, attachmentOf(found));
+  };
+  const uid = decodeURIComponentSafe(rawUid);
+  if (!isUid(uid)) fail(400, "uid must be 1 to 64 letters, digits, dots, dashes or underscores");
+  const itemId = parseKey(params.get("item") || "");
+  if (itemId === null) fail(400, "item must be a key such as BUG-3");
+  const { DB } = c.env;
+  const row = await DB.prepare("SELECT id, host, marks_json, reporter_email, origin_env FROM items WHERE id = ?1").bind(itemId).first();
+  if (!row || row.host !== host) fail(404, "no such item");
+  const byUid = DB.prepare("SELECT * FROM attachments WHERE client_uid = ?1").bind(uid);
+  let reserved = await byUid.first();
+  if (reserved && reserved.item_id !== row.id) return settle(409);
+  if (reserved && reserved.stored_at) return settle(200, reserved);
+  const role = params.get("role") || "file";
+  if (!ATTACHMENT_ROLES.includes(role)) fail(400, "role must be screenshot, page, region or file");
+  const markText = params.get("mark");
+  let mark = null;
+  if (role === "region") {
+    const marks = parseJson(row.marks_json, []);
+    mark = markText !== null && /^\d{1,2}$/.test(markText) ? Number(markText) : -1;
+    if (mark < 0 || mark >= marks.length) fail(400, "a region needs mark, the index of one of the item's marks");
+  } else if (markText !== null && markText !== "") {
+    fail(400, "only a region carries a mark");
+  }
+  const name = (params.get("name") || "").trim();
+  if (!isText(name, 1, 200) || /[\u0000-\u001f\u007f/\\]/.test(name)) fail(400, "name must be 1 to 200 characters, no slashes");
+  const type = (c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (role === "file" ? !FILE_SIGNATURES[type] : !IMAGE_TYPES.has(type)) {
+    fail(400, `the type ${type || "(none)"} is not allowed for a ${role}`);
+  }
+  let commentId = null;
+  let actor = row.reporter_email;
+  let internal = ["1", "true"].includes(params.get("internal") || "");
+  const commentUid = params.get("comment");
+  if (commentUid) {
+    const comment = await DB.prepare("SELECT id, internal, author_email FROM comments WHERE client_uid = ?1 AND item_id = ?2")
+      .bind(commentUid, row.id)
+      .first();
+    if (!comment) fail(404, "no such comment on this item");
+    commentId = comment.id;
+    actor = comment.author_email;
+    internal = internal || Boolean(comment.internal);
+  }
+  const createdAt = params.get("created_at") ? importStamp(params.get("created_at"), "created_at") : c.now;
+  const declared = c.request.headers.get("content-length");
+  if (declared === null || !/^\d{1,12}$/.test(declared)) fail(400, "Content-Length is required");
+  const length = Number(declared);
+  if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MiB");
+  if (length === 0 || !c.request.body) fail(400, "the file is empty");
+  const stored = await DB.prepare("SELECT count(*) AS n FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL")
+    .bind(row.id)
+    .first();
+  if (stored.n >= MAX_FILES_PER_ITEM) fail(409, `an item holds at most ${MAX_FILES_PER_ITEM} files`);
+  if (!reserved) {
+    reserved = await DB.prepare(
+      `INSERT INTO attachments (item_id, client_uid, comment_id, internal, role, name, type, bytes, sha256, r2_key,
+         actor_email, origin_env, created_at, mark)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+       ON CONFLICT (client_uid) DO NOTHING
+       RETURNING *`,
+    )
+      .bind(row.id, uid, commentId, internal ? 1 : 0, role, name, type, length, c.bodyHash, `issues/${row.id}/${uid}`, actor, row.origin_env, createdAt, mark)
+      .first();
+    if (!reserved) reserved = await byUid.first();
+    if (!reserved || reserved.item_id !== row.id) return settle(409);
+    if (reserved.stored_at) return settle(200, reserved);
+  }
+  if (reserved.bytes !== length) fail(400, "Content-Length differs from the first attempt with this uid");
+  const sha256 = await streamToBucket(c, reserved.r2_key, length, reserved.type, reserved.name, reserved.mark);
+  await DB.batch([
+    DB.prepare("UPDATE attachments SET stored_at = ?2, stored_token = ?3, sha256 = ?4 WHERE id = ?1 AND stored_at IS NULL").bind(
+      reserved.id,
+      c.now,
+      crypto.randomUUID(),
+      sha256,
+    ),
+    recountStatement(DB, [row.id]),
+  ]);
+  return json(201, attachmentOf({ ...reserved, sha256 }));
+}
+
 const ITEM_ROUTES = [
   ["GET", /^\/issues$/, listIssues],
   ["POST", /^\/issues$/, createIssue],
@@ -2057,6 +2581,9 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes$/, postCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
+  ["POST", /^\/import$/, postImport, {}],
+  ["POST", /^\/import\/finish$/, finishImport, {}],
+  ["PUT", /^\/import\/attachments\/([^/]+)$/, putImportAttachment, {}],
 ];
 
 function findRoute(routes, method, path) {
@@ -2127,6 +2654,7 @@ async function signedRequest(request, env, ctx, url, path) {
     browser: false,
     signed: true,
     bodyHash: signed.bodyHash,
+    keyId: signed.keyId,
     actor,
     manager: Boolean(actor),
     scope: { all, host: all ? null : host },

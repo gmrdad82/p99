@@ -58,6 +58,8 @@ pub enum Command {
     Download(DownloadArgs),
     #[command(about = "tell P99 which items this checkout's commits fixed or referred to")]
     Announce(AnnounceArgs),
+    #[command(about = "bring items over from another tracker, keeping their keys and numbers")]
+    Import(crate::import::ImportArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -268,7 +270,18 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Assign(a) => assign(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
         Command::Announce(a) => announce(&config, global, &a),
+        Command::Import(a) => import(&config, global, &a),
     }
+}
+
+fn import(
+    config: &Config,
+    global: &Global,
+    args: &crate::import::ImportArgs,
+) -> Result<(), String> {
+    let host = args.host.trim().to_ascii_lowercase();
+    let (client, _) = client_for(config, global, Some(&host))?;
+    crate::import::run(&client, args, global.json)
 }
 
 fn account_of(config: &Config, global: &Global, host: Option<&str>) -> Result<String, String> {

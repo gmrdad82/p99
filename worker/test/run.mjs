@@ -41,8 +41,8 @@ function sign({ secret, ts, method, path, actor, hash }) {
   return `v1 ts=${ts},sig=${sig}`;
 }
 
-async function call(method, path, { actor = grace, body, keyId = "p99", tamper } = {}) {
-  const bytes = body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body));
+async function call(method, path, { actor = grace, body, raw, type, keyId = "p99", tamper } = {}) {
+  const bytes = raw ?? (body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body)));
   const hash = sha256(bytes);
   const actorText = actor ? actorHeader(actor) : "";
   const ts = Math.floor(Date.now() / 1000);
@@ -50,7 +50,7 @@ async function call(method, path, { actor = grace, body, keyId = "p99", tamper }
   if (tamper === "sig") auth = auth.slice(0, -1) + (auth.endsWith("0") ? "1" : "0");
   const headers = { "x-p99-key-id": keyId, "x-p99-auth": auth, "x-content-sha256": hash };
   if (actorText) headers["x-p99-actor"] = actorText;
-  if (bytes.length > 0) headers["content-type"] = "application/json";
+  if (bytes.length > 0) headers["content-type"] = type ?? "application/json";
   const response = await fetch(base + path, { method, headers, body: bytes.length > 0 ? bytes : undefined });
   return { status: response.status, json: await jsonOf(response), response };
 }
@@ -265,6 +265,85 @@ async function run() {
     const found = await keys("CREME brulee");
     assert.equal(found.length, 1);
     assert.deepEqual(await keys("Crème Brûlée"), found);
+  });
+
+  await check("an import keeps its keys, skips what it already holds, and new items number above it", async () => {
+    const records = [
+      {
+        type: "item",
+        key: "BUG-7",
+        kind: "bug",
+        title: "The café menu shows the wrong price",
+        body: "The crème brûlée costs 12,50 € on the menu and 13 € at checkout.",
+        status: "confirmed",
+        duplicate_of: null,
+        reporter: { email: "ada@example.com", name: "Ada Lovelace", agent: false },
+        assignee: null,
+        env: null,
+        page: { url: "https://example.com/menu", path: "/menu", title: "Menu" },
+        context: {},
+        marks: [],
+        created_at: "2025-03-01T10:00:00Z",
+        updated_at: "2025-03-02T10:00:00Z",
+        closed_at: null,
+      },
+      {
+        type: "comment",
+        item: "BUG-7",
+        uid: "legacy-comment-1",
+        author: { email: "grace@example.com", name: "Grace Hopper", agent: false, manager: true },
+        body: "Confirmed: the café price is off.",
+        internal: false,
+        created_at: "2025-03-02T09:00:00Z",
+      },
+      { type: "landing", item: "BUG-7", env: "production", sha: "0123456789abcdef", at: "2025-03-03T10:00:00Z" },
+      { type: "read", item: "BUG-7", email: "ada@example.com", at: "2025-03-02T10:00:00Z" },
+      { type: "manager", email: "grace@example.com" },
+    ];
+    const attachment = { type: "attachment", item: "BUG-7", uid: "legacy-file-1", comment: "legacy-comment-1" };
+    const dry = await call("POST", `/_p99/v1/import?host=${here}&dry_run=1`, { body: records });
+    assert.equal(dry.status, 200, JSON.stringify(dry.json));
+    assert.equal(dry.json.counts.item.new, 1);
+    assert.equal((await call("GET", `/_p99/v1/issues/BUG-7?host=${here}`)).status, 404);
+    assert.equal((await call("POST", `/_p99/v1/import?host=${here}`, { body: records, keyId: "test" })).status, 403);
+
+    const path = `/_p99/v1/import?host=${here}&dry_run=0`;
+    const first = await call("POST", path, { body: records });
+    assert.equal(first.status, 200, JSON.stringify(first.json));
+    for (const type of ["item", "comment", "landing", "read"]) assert.equal(first.json.counts[type].new, 1, type);
+    assert.deepEqual(first.json.managers, ["grace@example.com"]);
+    const file = Buffer.from("total: 12,50 €\n");
+    const put = await call(
+      "PUT",
+      `/_p99/v1/import/attachments/legacy-file-1?host=${here}&item=BUG-7&comment=legacy-comment-1&role=file&name=${encodeURIComponent("café.txt")}&created_at=2025-03-02T09%3A00%3A00Z`,
+      { raw: file, type: "text/plain" },
+    );
+    assert.equal(put.status, 201, JSON.stringify(put.json));
+
+    const again = await call("POST", path, { body: [...records, attachment] });
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    for (const type of ["item", "comment", "attachment", "landing", "read"]) {
+      assert.deepEqual(again.json.counts[type], { new: 0, existing: 1, conflicts: [] }, type);
+    }
+    assert.deepEqual(again.json.upload, []);
+    const renamed = await call("POST", path, { body: [{ ...records[0], title: "Another title" }] });
+    assert.equal(renamed.json.counts.item.conflicts.length, 1);
+    const finish = await call("POST", `/_p99/v1/import/finish?host=${here}`, { body: { items: ["BUG-7"], duplicates: [] } });
+    assert.equal(finish.status, 200, JSON.stringify(finish.json));
+
+    const thread = await call("GET", `/_p99/v1/issues/BUG-7?host=${here}`);
+    assert.equal(thread.status, 200, JSON.stringify(thread.json));
+    assert.equal(thread.json.issue.key, "BUG-7");
+    assert.equal(thread.json.issue.title, "The café menu shows the wrong price");
+    assert.equal(thread.json.issue.comments, 1);
+    assert.equal(thread.json.issue.attachments, 1);
+    assert.equal(thread.json.comments.length, 1);
+    assert.equal(thread.json.attachments[0].name, "café.txt");
+    assert.deepEqual(thread.json.comments[0].attachments, [thread.json.attachments[0].id]);
+
+    const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody() });
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    assert.ok(filed.json.id > 7, `the next item is ${filed.json.key}`);
   });
 
   await check("the loader carries the host's placement and version", async () => {
