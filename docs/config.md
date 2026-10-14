@@ -8,7 +8,6 @@ default_account = "main"
 [me]
 name = "Ada Lovelace"
 email = "ada@example.com"
-agent = "claude"
 
 [accounts.main]
 account_id = "0123456789abcdef0123456789abcdef"
