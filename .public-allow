@@ -12,3 +12,6 @@ commit/b305924b9b81:src/config.rs:185 the first draft's secret reference reader
 commit/b305924b9b81:src/config.rs:191 the first draft's secret reference reader
 commit/b305924b9b81:src/config.rs:194 the first draft's secret reference reader
 commit/b305924b9b81:src/config.rs:196 the first draft's secret reference reader
+commit/ad8e98f6d0b6:.public-allow:1 the first waiver file's comment
+commit/ad8e98f6d0b6:.public-allow:2 the first waiver file's reason
+commit/ad8e98f6d0b6:.public-allow:4 the first waiver file's reason
