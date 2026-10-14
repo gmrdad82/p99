@@ -70,3 +70,10 @@ line = "The codes screen: who can file on which hosts, active and revoked"
 tape = "render/terminal/codes.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
+
+[shots.arrives]
+kind = "clip"
+line = "The item the web widget just filed, at the top of the inbox with its host, then opened; needs render/web/serve.mjs running and seeded"
+tape = "render/terminal/arrives.tape"
+launch = "P99_CONFIG={tmp}/web/home/.config/p99/config.toml p99 tui"
+settle = "1200ms"

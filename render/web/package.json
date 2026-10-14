@@ -1,0 +1,15 @@
+{
+  "name": "p99-render-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Records P99's web widget on a sample shop, frame by frame, and takes its stills and load times.",
+  "license": "MIT",
+  "scripts": {
+    "serve": "node serve.mjs",
+    "record": "node record.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Checkout · Northwind Coffee</title>
+<script src="/_p99/p99.js" async></script>
+<style>
+:root{color-scheme:light dark;--bg:#f6f1ea;--card:#fffdf9;--ink:#2b1d14;--soft:#7a6656;--line:#e4d8ca;--brand:#7b3f1d;--accent:#c9772f;--field:#fff;--muted:#d9cfc4}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1410;--card:#241c16;--ink:#f1e6da;--soft:#b29d8a;--line:#3a2e25;--brand:#e3a467;--accent:#e3a467;--field:#1d1612;--muted:#4a3d33}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;align-items:center;gap:28px;padding:18px 48px;border-bottom:1px solid var(--line);background:var(--card)}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:.2px;color:var(--brand)}
+.logo i{width:30px;height:30px;border-radius:50% 50% 50% 8px;background:var(--brand);display:block;position:relative}
+.logo i:after{content:"";position:absolute;left:13px;top:6px;width:4px;height:18px;border-radius:4px;background:var(--card);transform:rotate(18deg)}
+nav{display:flex;gap:22px;color:var(--soft);font-size:14px}
+nav b{color:var(--ink);font-weight:600}
+.bag{margin-left:auto;font-size:14px;color:var(--soft)}
+main{max-width:1080px;margin:0 auto;padding:28px 48px 120px}
+.steps{display:flex;gap:10px;color:var(--soft);font-size:13px;margin-bottom:18px}
+.steps b{color:var(--brand)}
+h1{font-size:28px;margin:0 0 22px;letter-spacing:-.3px}
+.grid{display:grid;grid-template-columns:1fr 420px;gap:28px;align-items:start}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px}
+h2{font-size:16px;margin:0 0 14px}
+.row{display:flex;gap:14px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.row:last-of-type{border-bottom:0}
+.pic{width:56px;height:56px;border-radius:10px;flex:none}
+.p1{background:linear-gradient(140deg,#c9772f,#7b3f1d)}
+.p2{background:linear-gradient(140deg,#4b2c1a,#1f130c)}
+.p3{background:linear-gradient(140deg,#e9dccb,#b9a48c)}
+.row div{flex:1}
+.row small{display:block;color:var(--soft)}
+.row span{font-variant-numeric:tabular-nums;font-weight:600}
+.sum{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+.sum p{display:flex;justify-content:space-between;margin:4px 0;color:var(--soft)}
+.sum p.t{color:var(--ink);font-weight:800;font-size:18px;margin-top:8px}
+label{display:block;font-size:13px;font-weight:600;margin:12px 0 5px}
+input{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--field);color:var(--ink)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.pay{margin-top:20px;width:100%;padding:13px;border:0;border-radius:10px;font:700 16px system-ui;background:var(--muted);color:var(--soft);cursor:not-allowed}
+.fine{font-size:12px;color:var(--soft);margin:10px 0 0}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><i></i>Northwind Coffee</div>
+  <nav><span>Beans</span><span>Brewing</span><span>Subscriptions</span><b>Checkout</b></nav>
+  <div class="bag">Bag · 3 items</div>
+</header>
+<main>
+  <div class="steps"><span>Bag</span>›<span>Delivery</span>›<b>Payment</b></div>
+  <h1>Checkout</h1>
+  <div class="grid">
+    <section class="card">
+      <h2>Your order</h2>
+      <div class="row"><i class="pic p1"></i><div>Ethiopia Yirgacheffe<small>Whole bean · 250 g</small></div><span>$16.00</span></div>
+      <div class="row"><i class="pic p2"></i><div>House Espresso<small>Ground for espresso · 1 kg</small></div><span>$38.00</span></div>
+      <div class="row"><i class="pic p3"></i><div>Ceramic pour-over<small>Size 02 · Sand</small></div><span>$29.00</span></div>
+      <div class="sum">
+        <p><span>Subtotal</span><span>$83.00</span></p>
+        <p><span>Shipping</span><span>$4.50</span></p>
+        <p class="t"><span>Total</span><span>$87.50</span></p>
+      </div>
+    </section>
+    <form class="card" id="payment">
+      <h2>Payment</h2>
+      <label for="email">Email</label>
+      <input id="email" value="grace@example.com" autocomplete="off">
+      <label for="name">Name on card</label>
+      <input id="name" value="Grace Hopper" autocomplete="off">
+      <label for="card">Card number</label>
+      <input id="card" data-p99-redact value="4242 4242 4242 4242" autocomplete="off">
+      <div class="two">
+        <div><label for="exp">Expiry</label><input id="exp" value="12 / 29" autocomplete="off"></div>
+        <div><label for="zip">ZIP</label><input id="zip" value="94107" autocomplete="off"></div>
+      </div>
+      <button class="pay" type="submit" disabled>Pay $87.50</button>
+      <p class="fine">Sample shop for P99's recordings. Nothing is charged.</p>
+    </form>
+  </div>
+</main>
+</body>
+</html>
