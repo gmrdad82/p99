@@ -1971,7 +1971,7 @@ async function postCode(c) {
   return json(201, {
     code: codeOf(row),
     secret,
-    links: hosts.map((host) => `https://${host}/?p99=${secret}`),
+    links: hosts.map((host) => `https://${host}/#p99=${secret}`),
   });
 }
 
