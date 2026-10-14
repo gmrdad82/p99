@@ -17,13 +17,12 @@ const keys = {
 };
 
 const VECTOR = {
-  actorJson: '{"email":"ada@example.com","name":"Ada Lovelace","rank":"administrator","person":"ada@example.com"}',
-  actor:
-    "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9",
+  actorJson: '{"email":"ada@example.com","name":"Ada Lovelace"}',
+  actor: "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UifQ",
   body: '{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}',
   path: "/_p99/v1/issues?host=example.com",
   hash: "ecf774eccd7e95d4a00046092fe70059b83b5d650c1a1da9e9cc6c22e5ce22bf",
-  auth: "v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566",
+  auth: "v1 ts=1760400000,sig=89b1d507574a2e8bb9c58d3ba92a29eab0f03baad0e422c4882f17c8ba33505a",
 };
 
 const SEED_SQL = `
@@ -34,7 +33,7 @@ const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accen
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const actorHeader = (actor) => Buffer.from(JSON.stringify(actor)).toString("base64url");
-const grace = { email: "grace@example.com", name: "Grace Hopper", rank: "super_administrator", agent: true };
+const grace = { email: "grace@example.com", name: "Grace Hopper", agent: true };
 
 function sign({ secret, ts, method, path, actor, hash }) {
   const sig = createHmac("sha256", secret).update(`v1\n${ts}\n${method}\n${path}\n${actor}\n${hash}`).digest("hex");
@@ -123,6 +122,7 @@ async function main() {
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
+  vars.push("CODE_PEPPER:test-pepper");
   const child = spawn(
     wrangler,
     [
@@ -160,6 +160,13 @@ async function run() {
     assert.equal(sha256(Buffer.from(VECTOR.body)), VECTOR.hash);
     const auth = sign({ secret: "test-secret", ts: 1760400000, method: "POST", path: VECTOR.path, actor: VECTOR.actor, hash: VECTOR.hash });
     assert.equal(auth, VECTOR.auth);
+  });
+
+  await check("the vendored capture library is the one NOTICE records", () => {
+    const notice = readFileSync(join(root, "..", "NOTICE"), "utf8");
+    const recorded = /sha256 ([0-9a-f]{64})\./.exec(notice);
+    assert.ok(recorded, "NOTICE records no sha256");
+    assert.equal(sha256(readFileSync(join(root, "src", "web", "vendor", "modern-screenshot-4.7.0.js"))), recorded[1]);
   });
 
   await check("a stale, a bad or an unknown signature is refused", async () => {
@@ -257,6 +264,38 @@ async function run() {
       body: "not the manager's file",
     });
     assert.equal(hung.status, 404);
+  });
+
+  await check("a reporter sees no internal comment, file or manager's e-mail, and cannot manage", async () => {
+    const internal = await call("POST", `/_p99/v1/issues/${key}/comments?host=${here}`, {
+      body: { client_uid: randomUUID(), body: "Internal: check the cart service.", internal: true },
+    });
+    assert.equal(internal.status, 201, JSON.stringify(internal.json));
+    const stored = await call(
+      "PUT",
+      `/_p99/v1/issues/${key}/attachments/${randomUUID()}?host=${here}&comment=${internal.json.id}&name=trace.txt`,
+      { raw: Buffer.from("cart: 500\n"), type: "text/plain" },
+    );
+    assert.equal(stored.status, 201, JSON.stringify(stored.json));
+    const seen = await browse("GET", `/issues/${key}`, adaHere.secret);
+    assert.equal(seen.status, 200);
+    assert.equal(seen.json.comments.some((cm) => cm.internal || cm.id === internal.json.id), false);
+    assert.equal(seen.json.attachments.some((a) => a.id === stored.json.id), false);
+    assert.ok(seen.json.comments.length > 0);
+    assert.equal(seen.json.comments.some((cm) => cm.author.email === grace.email), false);
+    assert.equal((await browse("GET", `/files/${stored.json.id}`, adaHere.secret)).status, 404);
+    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { kind: "task" })).status, 403);
+    const file = await call("GET", `/_p99/v1/files/${stored.json.id}?host=${here}`);
+    assert.equal(file.status, 200);
+    assert.match(file.response.headers.get("content-disposition"), /^attachment;/);
+    assert.equal(file.response.headers.get("x-content-type-options"), "nosniff");
+    assert.match(file.response.headers.get("content-security-policy"), /sandbox/);
+    const forged = await fetch(`${base}/_p99/api/issues/${key}/attachments/${randomUUID()}?role=screenshot&name=shot.png`, {
+      method: "PUT",
+      headers: { "x-p99-code": adaHere.secret, "content-type": "image/png" },
+      body: "<html><script>alert(1)</script></html>",
+    });
+    assert.equal(forged.status, 400);
   });
 
   await check("a page path that leaves the host is refused", async () => {

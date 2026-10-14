@@ -7,7 +7,9 @@ use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::client::Client;
 use crate::config::Config;
-use crate::wire::{Change, Code, Comment, Issue, ListQuery, Summary, Thread};
+use crate::wire::{
+    Change, Code, Comment, Issue, ListQuery, Summary, Thread, kind_word, status_word,
+};
 
 use super::demo::Demo;
 
@@ -44,30 +46,6 @@ impl Entry {
             item.reporter.name,
             item.reporter.email
         ));
-    }
-}
-
-pub fn kind_word(kind: &str) -> &str {
-    match kind {
-        "bug" => "Bug",
-        "feature" => "Idea",
-        "improvement" => "Improvement",
-        "question" => "Question",
-        "task" => "Task",
-        other => other,
-    }
-}
-
-pub fn status_word(status: &str) -> &str {
-    match status {
-        "new" => "New",
-        "confirmed" => "Confirmed",
-        "in_progress" => "In progress",
-        "waiting" => "Waiting",
-        "resolved" => "Resolved",
-        "abandoned" => "Dropped",
-        "duplicate" => "Duplicate",
-        other => other,
     }
 }
 

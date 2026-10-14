@@ -256,7 +256,7 @@ fn check_attachment(value: &Value, dir: &Path) -> Result<(), String> {
         .map_err(|e| format!("{}: {e}", path.display()))?
         .len();
     if size == 0 || size > ATTACHMENT_LIMIT as u64 {
-        return Err(format!("{} must hold 1 byte to 20 MiB", path.display()));
+        return Err(format!("{} must hold 1 byte to 20 MB", path.display()));
     }
     Ok(())
 }

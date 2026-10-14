@@ -8,10 +8,8 @@ use sha2::{Digest, Sha256};
 pub struct Actor {
     pub email: String,
     pub name: String,
-    pub rank: String,
     #[serde(skip_serializing_if = "is_false")]
     pub agent: bool,
-    pub person: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

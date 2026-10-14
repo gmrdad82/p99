@@ -53,9 +53,7 @@ impl Client {
         let actor = Actor {
             email: config.me.email.clone(),
             name: config.me.name.clone(),
-            rank: "super_administrator".to_owned(),
             agent,
-            person: config.me.email.clone(),
         };
         Ok(Client {
             url: config.url(account)?,
@@ -559,9 +557,7 @@ mod tests {
             actor: Actor {
                 email: "ada@example.com".to_owned(),
                 name: "Ada Lovelace".to_owned(),
-                rank: "administrator".to_owned(),
                 agent: false,
-                person: "ada@example.com".to_owned(),
             },
             host: None,
             access: None,
@@ -585,7 +581,7 @@ mod tests {
         };
         assert_eq!(
             get("X-P99-Actor"),
-            "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9"
+            "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UifQ"
         );
         assert_eq!(
             get("X-Content-SHA256"),
@@ -593,7 +589,7 @@ mod tests {
         );
         assert_eq!(
             get("X-P99-Auth"),
-            "v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566"
+            "v1 ts=1760400000,sig=89b1d507574a2e8bb9c58d3ba92a29eab0f03baad0e422c4882f17c8ba33505a"
         );
     }
 }

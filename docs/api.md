@@ -18,11 +18,11 @@ Static files are answered from text modules bundled into the Worker (`worker/src
 
 ## Errors
 
-Every error is `{"error":"<code>","message":"<English>"}` with 400 `invalid`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `too_large`, 429 `rate_limited`, 500 `internal`. A `client_uid` seen before answers the original object with 200, never a duplicate.
+Every error is `{"error":"<code>","message":"<English>"}` with 400 `invalid`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `too_large`, 429 `rate_limited`, 500 `internal`. A `client_uid` seen before answers the original object with 200, never a duplicate. The message is written for the person who reads it: the panel and the CLI show it as it is.
 
 ## The browser API
 
-Every request carries `X-P99-Code: <code>`. A code is 12 characters of Crockford base32 (`0123456789abcdefghjkmnpqrstvwxyz`); the Worker lowercases it, reads `i` and `l` as `1` and `o` as `0`, drops `-` and spaces, and looks up its SHA-256. A missing, unknown or revoked code, or one not scoped to the request's host, answers 401, and the loader then forgets it. Each code is limited to 120 requests a minute (the `RATE` rate-limiting binding, when the Worker has one) and to the daily limits below. Since the code travels in a header and never in a cookie, there is no CSRF surface.
+Every request carries `X-P99-Code: <code>`. A code is 12 characters of Crockford base32 (`0123456789abcdefghjkmnpqrstvwxyz`); the Worker lowercases it, reads `i` and `l` as `1` and `o` as `0`, drops `-` and spaces, and looks up its keyed hash, HMAC-SHA256 under the Worker secret `CODE_PEPPER`, so the `codes` table alone gives no code away (`p99 setup` makes that secret once and `p99 deploy` keeps it). A missing, unknown or revoked code, or one not scoped to the request's host, answers 401, and the loader then forgets it; a revocation takes effect everywhere within ten seconds. Each code is limited to 120 requests a minute (the `RATE` rate-limiting binding, when the Worker has one) and to the daily limits below. Since the code travels in a header and never in a cookie, there is no CSRF surface.
 
 The actor of a browser request is the code's person: `{email, name, manager}`. A manager is a code minted with `manager`, or an e-mail in the Worker's `MANAGERS` secret (comma separated).
 
@@ -46,17 +46,17 @@ Every route under `/_p99/v1/` is signed:
 | `X-P99-Key-Id` | the key id, `p99` |
 | `X-P99-Actor` | base64url, no padding, of the actor JSON; absent only on `POST /_p99/v1/builds` |
 | `X-Content-SHA256` | lowercase hex SHA-256 of the body (empty body: the hash of nothing) |
-| `X-P99-Auth` | `v1 ts=<unix seconds>,sig=<hex>`, `sig = HMAC-SHA256(secret, "v1\n" + ts + "\n" + METHOD + "\n" + path_and_query + "\n" + X-P99-Actor + "\n" + X-Content-SHA256)`; refused when `ts` is more than 300 s away |
+| `X-P99-Auth` | `v1 ts=<unix seconds>,sig=<hex>`, `sig = HMAC-SHA256(secret, "v1\n" + ts + "\n" + METHOD + "\n" + path_and_query + "\n" + X-P99-Actor + "\n" + X-Content-SHA256)`; refused when `ts` is more than 60 s away |
 
-The secret of key id `p99` is the Worker secret `KEY_P99`, with `KEY_P99_NEXT` accepted beside it during a rotation. Key id `test` (the secret `KEY_TEST`) works only on `127.0.0.1` or `localhost`, for the Worker's own tests.
+The secret of key id `p99` is the Worker secret `KEY_P99`, with `KEY_P99_NEXT` accepted beside it during a rotation. Key id `test` (the secret `KEY_TEST`) works only on `127.0.0.1` or `localhost`, for the Worker's own tests. There is no nonce: a captured request could be replayed within that minute, so the signed API travels over HTTPS only.
 
-The actor is `{"email","name","rank","agent"?,"function"?,"party"?,"person"?}`, `rank` one of `everyone`, `administrator`, `super_administrator`, `agent` `true` when an agent acts as this person, left out otherwise. Items, comments and events keep it, and every view shows such an actor as the person's name with an asterisk, `Ada Lovelace*` (the panel adds the hint "AI" on the asterisk). The browser API never carries it.
+The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as this person, left out otherwise. Items, comments and events keep it, and every view shows such an actor as the person's name with an asterisk, `Ada Lovelace*` (the panel adds the hint "AI" on the asterisk). The browser API never carries it.
 
 **Key `p99`** is the account's own key, the one `p99 setup` makes and the CLI and TUI sign with. Its actor is always a manager, so the daily limits never apply to it. It names the host with `?host=<host>` on any route (`host=*`, or no `host`, on the list and counts reads every host), and the environment with `env` in a build's body. On the list and counts an unlisted `host` answers 404; on an item's routes `host` is a filter, so an item of another host answers 404; `POST /_p99/v1/issues` takes the query's `host` first, then the body's.
 
 | Route | Who | Does |
 | --- | --- | --- |
-| `POST /_p99/v1/builds` | the key | `{"sha","branch","version","dirty","env","items":[{"id","rel","sha","subject"}]}` replaces that environment's row for that branch; 204 |
+| `POST /_p99/v1/builds` | the key | `{"sha","branch","version","dirty","env","items":[{"id","rel","sha","subject"}]}` replaces that environment's row for that branch; an `env` that is not an environment answers 400; 204 |
 | `GET /_p99/v1/counts?path=` | actor | `{"page_open","mine_open","mine_unread","all_open"}` |
 | `GET /_p99/v1/issues?scope=&path=&status=&kind=&q=&cursor=&limit=` | actor; `all` managers only | as the browser API; with `host=*`, every host's items |
 | `POST /_p99/v1/issues` | actor | as the browser API, plus `"host"`; 201 issue |
@@ -80,15 +80,15 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 - Statuses: `new`, `confirmed`, `in_progress`, `waiting` (on the reporter), `resolved`, `abandoned`, `duplicate` (with `duplicate_of`); the first four are open.
 - Managers change `status`, `kind`, `assignee`, `duplicate_of` and `title`; the reporter changes `title` and `body` while `new`, sets `abandoned` on an open item, and `new` to reopen a resolved one. Every change is one event.
 - Everyone but a manager sees only what they reported; internal comments and their files are for managers only.
-- Attachments: 20 MiB each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension).
-- Limits per person and day: 30 items, 200 comments, 100 MiB of files. Managers have none.
+- Attachments: 20 MB (20 MiB) each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension). A name ending in an executable or web page extension (`.html`, `.svg`, `.xml`, `.js`, `.exe`, `.bat`, `.sh` and the like) is refused, whatever the type.
+- Limits per person and day: 30 items, 200 comments, 100 MB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","agent","kind","detail","at"}`, `agent` true when an agent acting as that person made it; `agent` is always a boolean.
+A summary is `{"id","key","kind","status","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","agent","kind","detail","at"}`, `agent` true when an agent acting as that person made it; `agent` is always a boolean. `assignee`, event actors (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
 
 ## Environments and landings
 
-An environment is a name with a kind. A `development` environment counts the build of branch `main`; a `release` environment counts its latest announced build, whatever the branch. `p99 announce` (or a host's own build) posts a build with the items its commits name in `Fixes:` and `Refs:` trailers; an item lands in an environment when a counted build there carries a `Fixes:` commit for it, and the first landing is an event. An environment with `notify` mails the reporter at an item's first landing there, when mail is set up.
+An environment is a name with a kind. A `development` environment counts the build of branch `main`; a `release` environment counts its latest announced build, whatever the branch. `p99 announce` (or a host's own build) posts a build with the items its commits name in `Fixes:` and `Refs:` trailers; an item lands in an environment when a counted build there carries a `Fixes:` commit for it, or when an import records a landing there, and the first landing is an event. An environment with `notify` mails the reporter at an item's first landing there, when mail is set up.
 
 `landing` is `{"branch":bool,"envs":[{"env","kind","at","sha","version"}]}` in `position` order, `branch` true when a fix sits only on a branch no counted build carries.
 
@@ -112,8 +112,8 @@ The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the b
 
 Secret `test-secret`, ts `1760400000`, `POST /_p99/v1/issues?host=example.com`.
 
-- Actor JSON: `{"email":"ada@example.com","name":"Ada Lovelace","rank":"administrator","person":"ada@example.com"}`
-- `X-P99-Actor`: `eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9`
+- Actor JSON: `{"email":"ada@example.com","name":"Ada Lovelace"}`
+- `X-P99-Actor`: `eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UifQ`
 - Body: `{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}`
 - `X-Content-SHA256`: `ecf774eccd7e95d4a00046092fe70059b83b5d650c1a1da9e9cc6c22e5ce22bf`
-- `X-P99-Auth`: `v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566`
+- `X-P99-Auth`: `v1 ts=1760400000,sig=89b1d507574a2e8bb9c58d3ba92a29eab0f03baad0e422c4882f17c8ba33505a`

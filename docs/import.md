@@ -31,7 +31,7 @@ bundle/
 | `read` | `item`, `email`, `at` |
 | `manager` | `email` |
 
-The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MiB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out.
+The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out.
 
 A `manager` line imports nothing. P99's managers are people with a manager code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every manager in the bundle who has neither yet, with the `p99 invite --manager` line to mint one.
 

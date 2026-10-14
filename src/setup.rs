@@ -350,6 +350,16 @@ fn new_key() -> Result<String, String> {
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+fn pepper(cf: &Cloudflare, id: &str, worker: &str, secrets: &[String]) -> Result<(), String> {
+    if secrets.iter().any(|s| s == "CODE_PEPPER") {
+        done("secret CODE_PEPPER is kept as it is");
+        return Ok(());
+    }
+    cf.put_secret(id, worker, "CODE_PEPPER", &new_key()?)?;
+    done("secret CODE_PEPPER");
+    Ok(())
+}
+
 fn step(n: usize, total: usize, title: &str, why: &str) {
     say!("\n[{n}/{total}] {title}");
     for line in why.lines() {
@@ -1221,7 +1231,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         8,
         total,
         "The Worker",
-        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION) and its secrets (KEY_P99, MANAGERS).",
+        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION) and its secrets (KEY_P99, MANAGERS, and CODE_PEPPER, which keys the stored\nhashes of the personal codes so the database alone can't recover one).",
     );
     let existing = cf.bindings(&id, &account.worker)?;
     if let Some(bindings) = &existing
@@ -1254,6 +1264,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     } else {
         done("secret MANAGERS is kept as it is");
     }
+    pepper(&cf, &id, &account.worker, &secrets)?;
     if let Some(k) = &account.resend_key {
         cf.put_secret(&id, &account.worker, "RESEND_API_KEY", &vault::read(k)?)?;
         done("secret RESEND_API_KEY");
@@ -1479,6 +1490,7 @@ fn deploy_into(
     };
     upload(&cf, account, &bindings, rate)?;
     done("secrets kept");
+    pepper(&cf, id, &account.worker, &cf.secrets(id, &account.worker)?)?;
     let hosts = config.hosts_of(name);
     let zones = cf.zones(id)?;
     let mut failed = Vec::new();

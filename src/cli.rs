@@ -364,7 +364,7 @@ fn read_attachment(path: &Path) -> Result<(String, &'static str, Vec<u8>), Strin
     })?;
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     if bytes.len() > ATTACHMENT_LIMIT {
-        return Err(format!("{} is over 20 MiB", path.display()));
+        return Err(format!("{} is over 20 MB", path.display()));
     }
     Ok((name, kind, bytes))
 }
@@ -710,7 +710,7 @@ fn summary_line(item: &Summary) -> String {
         "{}{:<8} {:<11} {:<11} {}",
         if item.unread { "*" } else { " " },
         item.key,
-        item.status,
+        crate::wire::status_word(&item.status),
         item.host.as_deref().unwrap_or("-"),
         item.title
     );
@@ -833,7 +833,12 @@ fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String
 
 fn print_thread(thread: &Thread) {
     let issue: &Issue = &thread.issue;
-    println!("{}  {}  {}", issue.key, issue.kind, issue.status);
+    println!(
+        "{}  {}  {}",
+        issue.key,
+        crate::wire::kind_word(&issue.kind),
+        crate::wire::status_word(&issue.status)
+    );
     println!("{}", issue.title);
     let reporter = &issue.reporter;
     let text = |field: &str| reporter.get(field).and_then(Value::as_str).unwrap_or("");
@@ -1033,7 +1038,11 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     if global.json {
         return print_json(&issue);
     }
-    println!("{} is now {}", issue.key, issue.status);
+    println!(
+        "{} is now {}",
+        issue.key,
+        crate::wire::status_word(&issue.status).to_lowercase()
+    );
     Ok(())
 }
 
