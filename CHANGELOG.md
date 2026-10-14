@@ -2,6 +2,16 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.4 — 2026-10-14
+
+### Fixed
+
+- The "?" stays on the page on sites that swap their body as they navigate (htmx boost, Turbo, Swup, Barba), follows path changes to pages where P99 is off and back, and opens item links into the right place.
+- The "?" moves above the site's own button only while that button is visible, and lands in the right place after the button's animation.
+- Screen and whole-page captures finish in a fraction of a second on pages full of videos that don't preload and images that load lazily, instead of hanging.
+- Sections with a textured SVG background keep their colour and texture in captures instead of turning black.
+- A capture that can't finish stops after 10 seconds and says the item can be sent without it.
+
 ## v1.0.3 — 2026-10-14
 
 ### Changed
