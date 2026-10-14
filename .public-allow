@@ -2,3 +2,5 @@
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:32 the config docs explain secret references to users
+commit/6b0d48dc38c1:CHANGELOG.md:9 a generated changelog line naming the secret references feature, replaced by hand
+commit/6b0d48dc38c1:CHANGELOG.md:17 a generated changelog line naming the secret references feature, replaced by hand
