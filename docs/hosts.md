@@ -20,11 +20,12 @@ A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser alrea
 
 ## Content-Security-Policy
 
-P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-…' https://<host>/_p99/; connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'`:
+P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-…' https://<host>/_p99/; connect-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none'`. Its styles need nothing in `style-src`, not even `'unsafe-inline'`:
 
 - It loads scripts only from `/_p99/`: `p99.js`, then on the first click `panel.js` and, when a capture is taken, `capture.js`, all by `import()` or the tag. Allow the `https://<host>/_p99/` path in `script-src`.
-- It fetches only same-origin `/_p99/` URLs, including its stylesheet, which it puts into its Shadow DOM as a `<style>` (no `<link>`), and its images, which are `/_p99/art/*.svg` and `data:` captures.
-- It uses no inline handlers, no `eval` or `new Function`, no workers, no frames and nothing from another origin. Captures draw the page through a `data:` SVG into a canvas; a cross-origin image or video that would taint the canvas is drawn as its poster or left blank, so a host needs no `crossorigin` attributes.
+- It styles its Shadow DOM only through constructable stylesheets (`adoptedStyleSheets`): the loader builds its own, and the panel fetches `/_p99/p99.css` with `fetch` and loads it the same way. It never inserts a `<style>` or `<link>`, never writes a `style="…"` attribute, and sets positions and theme values through the CSSOM.
+- It fetches only same-origin URLs: the `/_p99/` API and files, and, while a capture is taken, the page's own same-origin images and web fonts. Its images are `/_p99/art/*.svg` and `data:` captures.
+- It uses no inline handlers, no `eval` or `new Function`, no workers, no frames and nothing from another origin. Captures draw the page through a `data:` SVG into a canvas; a cross-origin image, background or font is never fetched and is left blank, and a cross-origin video is drawn as its same-origin poster or left blank, so a host needs no `crossorigin` attributes.
 - It adds one element to the page (its Shadow DOM host) and one global, `P99`.
 
 ## Privacy
@@ -44,7 +45,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-�
 | `offset` | `{ x = 16, y = 16 }`, pixels from the corner's two edges |
 | `above` | a CSS selector; while that element is visible the button sits above it |
 | `off` | path patterns (`*` matches one segment, `**` any) where P99 never loads |
-| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }` |
+| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }` |
 | `strings` | any of the panel's English words, by key |
 
 ## Environments
