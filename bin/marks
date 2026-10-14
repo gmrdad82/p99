@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+assets="${PITO_ASSETS:-$HOME/Projects/pito-assets}"
+rev=fe97f221c8c071389283144c416f4fcde87b3958
+mkdir -p assets/marks .github
+for file in p99.svg p99-dark.svg lockup.svg lockup-dark.svg p99-icon.png; do
+  git -C "$assets" show "$rev:exports/p99/assets/marks/$file" > "assets/marks/$file"
+done
+git -C "$assets" show "$rev:exports/p99/.github/icon.png" > .github/icon.png
