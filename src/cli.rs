@@ -1,3 +1,18 @@
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::Command as Process;
+
+use serde::Serialize;
+use serde_json::{Value, json};
+
+use crate::client::Client;
+use crate::config::{CORNERS, Config, Host, Offset};
+use crate::trailers;
+use crate::wire::{
+    ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
+    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, STATUSES, Summary, Thread,
+};
+
 #[derive(Debug, Default, clap::Args)]
 pub struct Global {
     #[arg(long, global = true, help = "answer in JSON, for agents and scripts")]
@@ -20,12 +35,1095 @@ pub struct Global {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
-    #[command(about = "the hosts P99 serves")]
-    Hosts,
+    #[command(about = "list the hosts P99 serves; add, remove or set one")]
+    Hosts(HostsArgs),
+    #[command(about = "mint a personal code for a person on one or more hosts")]
+    Invite(InviteArgs),
+    #[command(about = "list the personal codes")]
+    Invites(InvitesArgs),
+    #[command(about = "revoke a personal code")]
+    Revoke(RevokeArgs),
+    #[command(about = "list items")]
+    List(ListArgs),
+    #[command(about = "show an item with its comments, events and landings")]
+    Show(ShowArgs),
+    #[command(about = "file an item on a host")]
+    File(FileArgs),
+    #[command(about = "comment on an item")]
+    Comment(CommentArgs),
+    #[command(about = "change an item's status")]
+    Status(StatusArgs),
+    #[command(about = "assign an item to someone, or to no one")]
+    Assign(AssignArgs),
+    #[command(about = "download an attachment")]
+    Download(DownloadArgs),
+    #[command(about = "tell P99 which items this checkout's commits fixed or referred to")]
+    Announce(AnnounceArgs),
 }
 
-pub fn run(command: Command, _global: &Global) -> Result<(), String> {
+#[derive(Debug, clap::Args)]
+pub struct HostsArgs {
+    #[command(subcommand)]
+    pub action: Option<HostsAction>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum HostsAction {
+    #[command(about = "add a host: its route, its record and its environment")]
+    Add(AddArgs),
+    #[command(about = "remove a host from the Worker and the config; its items stay")]
+    Remove { host: String },
+    #[command(about = "change where the button sits, which pages it skips, its theme and words")]
+    Set(SetArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct AddArgs {
+    pub host: String,
+    #[arg(long, default_value = "production", help = "the host's environment")]
+    pub env: String,
+    #[arg(
+        long,
+        value_parser = ["development", "release"],
+        help = "the environment's kind, when it is new or changes"
+    )]
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct SetArgs {
+    pub host: String,
+    #[arg(long, value_parser = CORNERS, help = "the button's corner")]
+    pub corner: Option<String>,
+    #[arg(long, value_name = "X,Y", help = "pixels from the corner's two edges")]
+    pub offset: Option<String>,
+    #[arg(
+        long,
+        value_name = "selector",
+        help = "sit above this element while it shows"
+    )]
+    pub above: Option<String>,
+    #[arg(
+        long,
+        value_name = "pattern",
+        help = "a path where P99 never loads; repeat it, they replace the list"
+    )]
+    pub off: Vec<String>,
+    #[arg(
+        long,
+        value_name = "key=value",
+        help = "a theme variable; an empty value removes it"
+    )]
+    pub theme: Vec<String>,
+    #[arg(
+        long,
+        value_name = "key=value",
+        help = "one of the panel's words; an empty value removes it"
+    )]
+    pub string: Vec<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct InviteArgs {
+    #[arg(required = true)]
+    pub hosts: Vec<String>,
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub email: String,
+    #[arg(long, help = "let the person see and change every item")]
+    pub manager: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct InvitesArgs {
+    #[arg(long)]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct RevokeArgs {
+    pub id: i64,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ListArgs {
+    pub host: Option<String>,
+    #[arg(long, conflicts_with = "host", help = "every host")]
+    pub all: bool,
+    #[arg(long, default_value = "open", help = "open, closed, any or one status")]
+    pub status: String,
+    #[arg(long)]
+    pub kind: Option<String>,
+    #[arg(long, help = "only what you reported")]
+    pub mine: bool,
+    #[arg(short = 'q', long = "query", value_name = "text")]
+    pub query: Option<String>,
+    #[arg(long, default_value_t = 50)]
+    pub limit: usize,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ShowArgs {
+    pub key: String,
+    #[arg(long)]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct FileArgs {
+    pub host: String,
+    #[arg(long, value_parser = KINDS)]
+    pub kind: String,
+    #[arg(long)]
+    pub title: String,
+    #[arg(long, help = "the text, or - to read it from standard input")]
+    pub body: Option<String>,
+    #[arg(
+        long,
+        value_name = "path",
+        default_value = "/",
+        help = "the page it is about"
+    )]
+    pub page: String,
+    #[arg(long, value_name = "file")]
+    pub attach: Vec<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CommentArgs {
+    pub key: String,
+    #[arg(help = "the text, or - to read it from standard input")]
+    pub text: String,
+    #[arg(long, help = "for managers only")]
+    pub internal: bool,
+    #[arg(long, value_name = "file")]
+    pub attach: Vec<PathBuf>,
+    #[arg(long)]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct StatusArgs {
+    pub key: String,
+    #[arg(value_parser = STATUSES)]
+    pub status: String,
+    #[arg(long, value_name = "KEY")]
+    pub duplicate_of: Option<String>,
+    #[arg(long)]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct AssignArgs {
+    pub key: String,
+    #[arg(help = "an e-mail address, or me", required_unless_present = "none")]
+    pub who: Option<String>,
+    #[arg(long, conflicts_with = "who")]
+    pub none: bool,
+    #[arg(long)]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct DownloadArgs {
+    pub id: i64,
+    #[arg(short = 'o', long, value_name = "path")]
+    pub out: Option<PathBuf>,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct AnnounceArgs {
+    pub host: Option<String>,
+    #[arg(long)]
+    pub env: Option<String>,
+    #[arg(long)]
+    pub branch: Option<String>,
+    #[arg(long)]
+    pub version: Option<String>,
+    #[arg(
+        long,
+        value_name = "range",
+        help = "a git range; the default is the last 500 commits"
+    )]
+    pub rev: Option<String>,
+}
+
+pub fn run(command: Command, global: &Global) -> Result<(), String> {
+    let mut config = Config::load()?;
     match command {
-        Command::Hosts => Err("hosts is not built yet".into()),
+        Command::Hosts(args) => match args.action {
+            None => hosts_list(&config, global),
+            Some(HostsAction::Add(a)) => hosts_add(&mut config, global, &a),
+            Some(HostsAction::Remove { host }) => hosts_remove(&mut config, global, &host),
+            Some(HostsAction::Set(a)) => hosts_set(&mut config, global, &a),
+        },
+        Command::Invite(a) => invite(&config, global, &a),
+        Command::Invites(a) => invites(&config, global, &a),
+        Command::Revoke(a) => revoke(&config, global, &a),
+        Command::List(a) => list(&config, global, &a),
+        Command::Show(a) => show(&config, global, &a),
+        Command::File(a) => file(&config, global, &a),
+        Command::Comment(a) => comment(&config, global, &a),
+        Command::Status(a) => status(&config, global, &a),
+        Command::Assign(a) => assign(&config, global, &a),
+        Command::Download(a) => download(&config, global, &a),
+        Command::Announce(a) => announce(&config, global, &a),
+    }
+}
+
+fn account_of(config: &Config, global: &Global, host: Option<&str>) -> Result<String, String> {
+    if let Some(name) = &global.account {
+        return config.account(Some(name)).map(|(n, _)| n.to_owned());
+    }
+    if let Some(host) = host
+        && let Some(entry) = config.hosts.get(host)
+    {
+        return Ok(entry.account.clone());
+    }
+    config.account(None).map(|(n, _)| n.to_owned())
+}
+
+fn client_for(
+    config: &Config,
+    global: &Global,
+    host: Option<&str>,
+) -> Result<(Client, String), String> {
+    let account = account_of(config, global, host)?;
+    let client = Client::for_account(
+        config,
+        &account,
+        crate::config::agent(global.agent.as_deref()),
+    )?;
+    Ok((client, account))
+}
+
+fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    println!("{text}");
+    Ok(())
+}
+
+fn key_of(raw: &str) -> Result<String, String> {
+    crate::wire::item_number(raw)
+        .map(|n| n.to_string())
+        .ok_or_else(|| format!("{raw} is not an item key; try BUG-12 or 12"))
+}
+
+fn when(stamp: &str) -> String {
+    stamp.replace('T', " ").chars().take(16).collect()
+}
+
+fn who(email: &str, name: &str, agent: &Option<String>) -> String {
+    let base = if name.is_empty() { email } else { name };
+    match agent {
+        Some(agent) if !agent.is_empty() => format!("{base} ({agent})"),
+        _ => base.to_owned(),
+    }
+}
+
+fn read_stdin() -> Result<String, String> {
+    std::io::read_to_string(std::io::stdin()).map_err(|e| format!("standard input: {e}"))
+}
+
+fn text_arg(value: &str) -> Result<String, String> {
+    if value == "-" {
+        Ok(read_stdin()?.trim_end().to_owned())
+    } else {
+        Ok(value.to_owned())
+    }
+}
+
+fn read_attachment(path: &Path) -> Result<(String, Vec<u8>), String> {
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if bytes.len() > ATTACHMENT_LIMIT {
+        return Err(format!("{} is over 20 MiB", path.display()));
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_owned();
+    Ok((name, bytes))
+}
+
+fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
+    struct Row {
+        account: String,
+        env: String,
+        config: Value,
+        local: bool,
+        worker: Option<HostEntry>,
+    }
+    let mut rows: BTreeMap<String, Row> = BTreeMap::new();
+    let mut unreachable: BTreeMap<String, String> = BTreeMap::new();
+    for (host, entry) in &config.hosts {
+        if global.account.as_ref().is_some_and(|a| *a != entry.account) {
+            continue;
+        }
+        rows.insert(
+            host.clone(),
+            Row {
+                account: entry.account.clone(),
+                env: entry.env.clone(),
+                config: entry.pushed(),
+                local: true,
+                worker: None,
+            },
+        );
+    }
+    let agent = crate::config::agent(global.agent.as_deref());
+    for account in config.accounts.keys() {
+        if global.account.as_ref().is_some_and(|a| a != account) {
+            continue;
+        }
+        if config.url(account).is_err() {
+            continue;
+        }
+        let seen = Client::for_account(config, account, agent.clone()).and_then(|c| c.hosts());
+        match seen {
+            Ok(list) => {
+                for found in list {
+                    match rows.get_mut(&found.host) {
+                        Some(row) => row.worker = Some(found),
+                        None => {
+                            rows.insert(
+                                found.host.clone(),
+                                Row {
+                                    account: account.clone(),
+                                    env: found.env.clone(),
+                                    config: found.config.clone(),
+                                    local: false,
+                                    worker: Some(found),
+                                },
+                            );
+                        }
+                    }
+                }
+            }
+            Err(why) => {
+                unreachable.insert(account.clone(), why);
+            }
+        }
+    }
+    let state = |row: &Row| match (&row.worker, unreachable.contains_key(&row.account)) {
+        (Some(w), _) if row.local && w.env != row.env => "differs",
+        (Some(_), _) if row.local => "ok",
+        (Some(_), _) => "only on the Worker",
+        (None, true) => "unreachable",
+        (None, false) => "not on the Worker",
+    };
+    if global.json {
+        let hosts: Vec<Value> = rows
+            .iter()
+            .map(|(host, row)| {
+                json!({
+                    "host": host,
+                    "account": row.account,
+                    "env": row.env,
+                    "config": row.config,
+                    "in_config": row.local,
+                    "state": state(row),
+                    "worker": row.worker,
+                })
+            })
+            .collect();
+        return print_json(&json!({"hosts": hosts, "unreachable": unreachable}));
+    }
+    if rows.is_empty() {
+        println!("no hosts yet; p99 hosts add <host> --env <env>");
+    } else {
+        let width = rows.keys().map(String::len).max().unwrap_or(4).max(4);
+        let account = rows
+            .values()
+            .map(|r| r.account.len())
+            .max()
+            .unwrap_or(7)
+            .max(7);
+        let env = rows.values().map(|r| r.env.len()).max().unwrap_or(3).max(3);
+        println!(
+            "{:<width$}  {:<account$}  {:<env$}  STATE",
+            "HOST", "ACCOUNT", "ENV"
+        );
+        for (host, row) in &rows {
+            println!(
+                "{host:<width$}  {:<account$}  {:<env$}  {}",
+                row.account,
+                row.env,
+                state(row)
+            );
+        }
+    }
+    for (account, why) in &unreachable {
+        eprintln!("{account}: {why}");
+    }
+    Ok(())
+}
+
+fn valid_host(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.contains('.')
+        && host
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'-'))
+}
+
+fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(), String> {
+    let host = args.host.trim().to_ascii_lowercase();
+    if !valid_host(&host) {
+        return Err(format!("{host} is not a host name; try example.com"));
+    }
+    let account = match &global.account {
+        Some(name) => config.account(Some(name))?.0.to_owned(),
+        None => config.account(None)?.0.to_owned(),
+    };
+    let kept = config.hosts.get(&host).cloned().unwrap_or_default();
+    config.hosts.insert(
+        host.clone(),
+        Host {
+            account: account.clone(),
+            env: args.env.clone(),
+            ..kept
+        },
+    );
+    config.save()?;
+    crate::setup::add_route(config, &account, &host)?;
+    let client = Client::for_account(
+        config,
+        &account,
+        crate::config::agent(global.agent.as_deref()),
+    )?;
+    let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
+    let known = client.envs()?;
+    let current = known.iter().find(|e| e.name == args.env);
+    if args.kind.is_some() || current.is_none() {
+        let env = EnvEntry {
+            name: args.env.clone(),
+            kind: args
+                .kind
+                .clone()
+                .or_else(|| current.map(|e| e.kind.clone()))
+                .unwrap_or_else(|| "release".to_owned()),
+            position: current.map_or(known.len() as i64, |e| e.position),
+            notify: current.is_some_and(|e| e.notify),
+        };
+        client.put_env(&env)?;
+    }
+    if global.json {
+        return print_json(&entry);
+    }
+    println!("added {host} to {account}, environment {}", args.env);
+    Ok(())
+}
+
+fn hosts_remove(config: &mut Config, global: &Global, host: &str) -> Result<(), String> {
+    let host = host.trim().to_ascii_lowercase();
+    if !config.hosts.contains_key(&host) {
+        return Err(format!("no host is called {host}; p99 hosts lists them"));
+    }
+    let (client, account) = client_for(config, global, Some(&host))?;
+    client.remove_host(&host)?;
+    config.hosts.remove(&host);
+    config.save()?;
+    if global.json {
+        return print_json(&json!({"removed": host, "account": account}));
+    }
+    println!("removed {host} from {account}; its items stay, and so does its route in Cloudflare");
+    Ok(())
+}
+
+fn pair(raw: &str) -> Result<(String, String), String> {
+    let (key, value) = raw
+        .split_once('=')
+        .ok_or_else(|| format!("{raw} is not key=value"))?;
+    let key = key.trim().trim_start_matches("--p99-").trim();
+    if key.is_empty() {
+        return Err(format!("{raw} has no key"));
+    }
+    Ok((key.to_owned(), value.trim().to_owned()))
+}
+
+fn merge(into: &mut BTreeMap<String, String>, pairs: &[String]) -> Result<(), String> {
+    for raw in pairs {
+        let (key, value) = pair(raw)?;
+        if value.is_empty() {
+            into.remove(&key);
+        } else {
+            into.insert(key, value);
+        }
+    }
+    Ok(())
+}
+
+fn offset_of(raw: &str) -> Result<Offset, String> {
+    let bad = || format!("{raw} is not X,Y in pixels; try 16,16");
+    let (x, y) = raw.split_once(',').ok_or_else(bad)?;
+    Ok(Offset {
+        x: x.trim().parse().map_err(|_| bad())?,
+        y: y.trim().parse().map_err(|_| bad())?,
+    })
+}
+
+fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(), String> {
+    let host = args.host.trim().to_ascii_lowercase();
+    let entry = config
+        .hosts
+        .get_mut(&host)
+        .ok_or_else(|| format!("no host is called {host}; p99 hosts lists them"))?;
+    if let Some(corner) = &args.corner {
+        entry.corner = Some(corner.clone());
+    }
+    if let Some(offset) = &args.offset {
+        entry.offset = Some(offset_of(offset)?);
+    }
+    if let Some(above) = &args.above {
+        entry.above = Some(above.clone()).filter(|a| !a.is_empty());
+    }
+    if !args.off.is_empty() {
+        entry.off = args.off.iter().filter(|p| !p.is_empty()).cloned().collect();
+    }
+    merge(&mut entry.theme, &args.theme)?;
+    merge(&mut entry.strings, &args.string)?;
+    let (env, pushed) = (entry.env.clone(), entry.pushed());
+    config.save()?;
+    let (client, _) = client_for(config, global, Some(&host))?;
+    let sent = client.put_host(&host, &env, &pushed)?;
+    if global.json {
+        return print_json(&sent);
+    }
+    println!("{host} updated and pushed");
+    Ok(())
+}
+
+fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), String> {
+    let hosts: Vec<String> = args
+        .hosts
+        .iter()
+        .map(|h| h.trim().to_ascii_lowercase())
+        .collect();
+    let account = account_of(config, global, hosts.first().map(String::as_str))?;
+    for host in &hosts {
+        if let Some(entry) = config.hosts.get(host)
+            && entry.account != account
+        {
+            return Err(format!(
+                "{host} is in the account {}, not {account}; a code covers one account",
+                entry.account
+            ));
+        }
+    }
+    let (client, _) = client_for(config, global, hosts.first().map(String::as_str))?;
+    let minted = client.mint(&NewCode {
+        name: args.name.clone(),
+        email: args.email.clone(),
+        hosts,
+        manager: args.manager,
+    })?;
+    if global.json {
+        return print_json(&minted);
+    }
+    let role = if args.manager { " (manager)" } else { "" };
+    println!("{} <{}>{role}", minted.code.name, minted.code.email);
+    println!("secret: {}", minted.secret);
+    for link in &minted.links {
+        println!("link:   {link}");
+    }
+    println!("this is the only time the secret is shown");
+    Ok(())
+}
+
+fn code_state(code: &Code) -> &'static str {
+    if code.revoked_at.is_some() {
+        "revoked"
+    } else {
+        "active"
+    }
+}
+
+fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let codes = client.codes(args.host.as_deref())?;
+    if global.json {
+        return print_json(&json!({"codes": codes}));
+    }
+    if codes.is_empty() {
+        println!("no codes");
+    }
+    for code in &codes {
+        let role = if code.manager { "manager" } else { "member" };
+        println!(
+            "{:>4}  {}  {} <{}>  {role}  ...{}  {}  hosts: {}  last used: {}",
+            code.id,
+            code_state(code),
+            code.name,
+            code.email,
+            code.hint,
+            when(&code.created_at),
+            code.hosts.join(", "),
+            code.last_used_at
+                .as_deref()
+                .map_or("never".to_owned(), when),
+        );
+    }
+    Ok(())
+}
+
+fn revoke(config: &Config, global: &Global, args: &RevokeArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, None)?;
+    let code = client.revoke(args.id)?;
+    if global.json {
+        return print_json(&code);
+    }
+    println!("revoked code {} of {} <{}>", code.id, code.name, code.email);
+    Ok(())
+}
+
+fn summary_line(item: &Summary) -> String {
+    let mut line = format!(
+        "{}{:<8} {:<11} {:<11} {}",
+        if item.unread { "*" } else { " " },
+        item.key,
+        item.status,
+        item.host.as_deref().unwrap_or("-"),
+        item.title
+    );
+    if let Some(assignee) = &item.assignee {
+        line.push_str(&format!("  -> {assignee}"));
+    }
+    if item.comments > 0 {
+        line.push_str(&format!("  [{} comments]", item.comments));
+    }
+    let landed: Vec<&str> = item.landing.envs.iter().map(|e| e.env.as_str()).collect();
+    if !landed.is_empty() {
+        line.push_str(&format!("  landed: {}", landed.join(", ")));
+    } else if item.landing.branch {
+        line.push_str("  fixed on a branch");
+    }
+    line
+}
+
+fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String> {
+    let accounts: Vec<String> = if args.all && global.account.is_none() {
+        config.accounts.keys().cloned().collect()
+    } else {
+        vec![account_of(config, global, args.host.as_deref())?]
+    };
+    if accounts.is_empty() {
+        return Err("no account yet; run p99 setup".into());
+    }
+    let host = if args.all || args.host.is_none() {
+        Some("*".to_owned())
+    } else {
+        args.host.clone()
+    };
+    let scope = if args.mine { "mine" } else { "all" };
+    let agent = crate::config::agent(global.agent.as_deref());
+    let mut found: Vec<Summary> = Vec::new();
+    let mut more = false;
+    for account in &accounts {
+        let client = Client::for_account(config, account, agent.clone())?;
+        let mut cursor: Option<String> = None;
+        let mut taken = 0;
+        while taken < args.limit {
+            let query = ListQuery {
+                scope: scope.to_owned(),
+                path: None,
+                status: Some(args.status.clone()),
+                kind: args.kind.clone(),
+                q: args.query.clone(),
+                cursor: cursor.clone(),
+                host: host.clone(),
+                limit: (args.limit - taken).min(100) as i64,
+            };
+            let page = client.list(&query)?;
+            taken += page.issues.len();
+            found.extend(page.issues);
+            cursor = page.next_cursor;
+            if cursor.is_none() {
+                break;
+            }
+            more = taken >= args.limit;
+        }
+        if cursor.is_none() {
+            more = false;
+        }
+    }
+    found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    if global.json {
+        return print_json(&json!({"issues": found, "more": more}));
+    }
+    if found.is_empty() {
+        println!("no items");
+    }
+    for item in &found {
+        println!("{}", summary_line(item));
+    }
+    if more {
+        eprintln!("more items follow; raise --limit");
+    }
+    Ok(())
+}
+
+fn print_thread(thread: &Thread) {
+    let issue: &Issue = &thread.issue;
+    println!("{}  {}  {}", issue.key, issue.kind, issue.status);
+    println!("{}", issue.title);
+    let reporter = &issue.reporter;
+    let text = |field: &str| reporter.get(field).and_then(Value::as_str).unwrap_or("");
+    let agent = reporter
+        .get("agent")
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    println!(
+        "reported by {} on {}  {}{}",
+        who(text("email"), text("name"), &agent),
+        issue.host.as_deref().unwrap_or("-"),
+        when(&issue.created_at),
+        if issue.origin_env.is_empty() {
+            String::new()
+        } else {
+            format!("  from {}", issue.origin_env)
+        }
+    );
+    if !issue.page.url.is_empty() {
+        println!("page: {}", issue.page.url);
+    }
+    if let Some(assignee) = &issue.assignee {
+        println!("assigned to {assignee}");
+    }
+    if let Some(of) = &issue.duplicate_of {
+        println!("duplicate of {of}");
+    }
+    for reached in &issue.landing.envs {
+        println!(
+            "landed in {} ({}) {}  {}{}",
+            reached.env,
+            reached.kind,
+            when(&reached.at),
+            reached.sha.chars().take(8).collect::<String>(),
+            reached
+                .version
+                .as_deref()
+                .map_or(String::new(), |v| format!("  {v}"))
+        );
+    }
+    if issue.landing.branch {
+        println!("a fix sits on a branch no environment carries yet");
+    }
+    if !issue.body.is_empty() {
+        println!("\n{}", issue.body);
+    }
+    if !issue.commits.is_empty() {
+        println!("\ncommits");
+        for commit in &issue.commits {
+            println!(
+                "  {} {} {}  [{}]",
+                commit.sha.chars().take(8).collect::<String>(),
+                commit.rel,
+                commit.subject,
+                commit.envs.join(", ")
+            );
+        }
+    }
+    if !thread.attachments.is_empty() {
+        println!("\nattachments");
+        for a in &thread.attachments {
+            println!("  {}  {}  {}  {} bytes", a.id, a.role, a.name, a.bytes);
+        }
+    }
+    for comment in &thread.comments {
+        let author = &comment.author;
+        println!(
+            "\n{} {}{}",
+            when(&comment.created_at),
+            who(&author.email, &author.name, &author.agent),
+            if comment.internal { "  [internal]" } else { "" }
+        );
+        println!("{}", comment.body);
+        for id in &comment.attachments {
+            println!("  attachment {id}");
+        }
+    }
+    if !thread.events.is_empty() {
+        println!("\nevents");
+        for e in &thread.events {
+            let detail = match &e.detail {
+                Value::Null => String::new(),
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            println!(
+                "  {}  {}  {}  {}",
+                when(&e.at),
+                e.actor.as_deref().unwrap_or("-"),
+                e.kind,
+                detail
+            );
+        }
+    }
+}
+
+fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let thread = client
+        .with_host(args.host.as_deref())
+        .thread(&key_of(&args.key)?)?;
+    if global.json {
+        return print_json(&thread);
+    }
+    print_thread(&thread);
+    Ok(())
+}
+
+fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String> {
+    let host = args.host.trim().to_ascii_lowercase();
+    let (client, _) = client_for(config, global, Some(&host))?;
+    let body = match &args.body {
+        Some(text) => text_arg(text)?,
+        None => String::new(),
+    };
+    let path = crate::wire::page_path(&args.page);
+    let issue = NewIssue {
+        client_uid: crate::client::uid(),
+        host: Some(host.clone()),
+        kind: args.kind.clone(),
+        title: args.title.clone(),
+        body,
+        page: PageRef {
+            url: format!("https://{host}{path}"),
+            path,
+            title: String::new(),
+        },
+        context: json!({"source": "cli"}),
+        marks: Vec::new(),
+    };
+    let files = args
+        .attach
+        .iter()
+        .map(|p| read_attachment(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let filed = client.file(&issue)?;
+    let key = filed.id.to_string();
+    let mut attached = Vec::new();
+    for (name, bytes) in &files {
+        attached.push(client.attach(&key, name, "file", bytes, None)?);
+    }
+    if global.json {
+        return print_json(&json!({"issue": filed, "attachments": attached}));
+    }
+    println!("{} filed on {host}: {}", filed.key, filed.title);
+    for a in &attached {
+        println!("attached {} as {}", a.name, a.id);
+    }
+    Ok(())
+}
+
+fn comment(config: &Config, global: &Global, args: &CommentArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let client = client.with_host(args.host.as_deref());
+    let key = key_of(&args.key)?;
+    let text = text_arg(&args.text)?;
+    let files = args
+        .attach
+        .iter()
+        .map(|p| read_attachment(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let made: Comment = client.comment(&key, &text, args.internal)?;
+    let mut attached = Vec::new();
+    for (name, bytes) in &files {
+        attached.push(client.attach(&key, name, "file", bytes, Some(made.id))?);
+    }
+    if global.json {
+        return print_json(&json!({"comment": made, "attachments": attached}));
+    }
+    println!(
+        "commented on {}{}",
+        args.key,
+        if args.internal { " (internal)" } else { "" }
+    );
+    Ok(())
+}
+
+fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), String> {
+    if args.status == "duplicate" && args.duplicate_of.is_none() {
+        return Err("a duplicate needs --duplicate-of KEY".into());
+    }
+    if args.status != "duplicate" && args.duplicate_of.is_some() {
+        return Err("--duplicate-of goes with the status duplicate".into());
+    }
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let change = Change {
+        status: Some(args.status.clone()),
+        duplicate_of: args.duplicate_of.clone(),
+        ..Change::default()
+    };
+    let issue = client
+        .with_host(args.host.as_deref())
+        .change(&key_of(&args.key)?, &change)?;
+    if global.json {
+        return print_json(&issue);
+    }
+    println!("{} is now {}", issue.key, issue.status);
+    Ok(())
+}
+
+fn assign(config: &Config, global: &Global, args: &AssignArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let assignee = match (&args.who, args.none) {
+        (Some(who), false) if who == "me" => {
+            if config.me.email.is_empty() {
+                return Err("[me] has no email in the config".into());
+            }
+            Some(config.me.email.clone())
+        }
+        (Some(who), false) => Some(who.clone()),
+        _ => None,
+    };
+    let change = Change {
+        assignee: Some(assignee),
+        ..Change::default()
+    };
+    let issue = client
+        .with_host(args.host.as_deref())
+        .change(&key_of(&args.key)?, &change)?;
+    if global.json {
+        return print_json(&issue);
+    }
+    match &issue.assignee {
+        Some(who) => println!("{} is assigned to {who}", issue.key),
+        None => println!("{} is assigned to no one", issue.key),
+    }
+    Ok(())
+}
+
+fn download(config: &Config, global: &Global, args: &DownloadArgs) -> Result<(), String> {
+    let (client, _) = client_for(config, global, None)?;
+    let file = client.download(args.id)?;
+    let target = match &args.out {
+        Some(path) => path.clone(),
+        None => {
+            let name = Path::new(&file.name)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .filter(|n| !n.is_empty() && *n != "." && *n != "..")
+                .map_or_else(|| format!("file-{}", args.id), str::to_owned);
+            PathBuf::from(name)
+        }
+    };
+    std::fs::write(&target, &file.bytes).map_err(|e| format!("{}: {e}", target.display()))?;
+    if global.json {
+        return print_json(&json!({
+            "id": args.id,
+            "name": file.name,
+            "type": file.content_type,
+            "bytes": file.bytes.len(),
+            "path": target.display().to_string(),
+        }));
+    }
+    println!("{} bytes saved to {}", file.bytes.len(), target.display());
+    Ok(())
+}
+
+fn git(args: &[&str]) -> Result<String, String> {
+    let out = Process::new("git")
+        .args(args)
+        .output()
+        .map_err(|e| format!("git: {e}"))?;
+    if !out.status.success() {
+        let why = String::from_utf8_lossy(&out.stderr);
+        return Err(format!(
+            "git {}: {}",
+            args.first().unwrap_or(&""),
+            why.trim()
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn announce(config: &Config, global: &Global, args: &AnnounceArgs) -> Result<(), String> {
+    let (client, account) = client_for(config, global, args.host.as_deref())?;
+    let env = match (&args.env, &args.host) {
+        (Some(env), _) => env.clone(),
+        (None, Some(host)) => config
+            .hosts
+            .get(host)
+            .map(|h| h.env.clone())
+            .ok_or_else(|| format!("no host is called {host}; p99 hosts lists them"))?,
+        (None, None) => {
+            let hosts = config.hosts_of(&account);
+            match hosts.as_slice() {
+                [only] => config.hosts[*only].env.clone(),
+                _ => return Err("name a host or an environment with --env".into()),
+            }
+        }
+    };
+    let format = format!("--format={}", trailers::FORMAT);
+    let log = match &args.rev {
+        Some(range) => git(&["log", &format, range])?,
+        None => git(&["log", "-n", "500", &format])?,
+    };
+    let items: Vec<BuildItem> = trailers::parse_log(&log)
+        .into_iter()
+        .map(|i| BuildItem {
+            id: i.id,
+            rel: i.rel.to_owned(),
+            sha: i.sha,
+            subject: i.subject,
+        })
+        .collect();
+    let sha = git(&["rev-parse", "HEAD"])?.trim().to_owned();
+    let branch = match &args.branch {
+        Some(branch) => branch.clone(),
+        None => git(&["rev-parse", "--abbrev-ref", "HEAD"])?
+            .trim()
+            .to_owned(),
+    };
+    let version = match &args.version {
+        Some(version) => version.clone(),
+        None => git(&["describe", "--tags", "--always"])?.trim().to_owned(),
+    };
+    let dirty = !git(&["status", "--porcelain"])?.trim().is_empty();
+    let fixes = items.iter().filter(|i| i.rel == "fixes").count();
+    let build = Build {
+        sha: sha.clone(),
+        branch: branch.clone(),
+        version: version.clone(),
+        dirty,
+        env: Some(env.clone()),
+        items,
+    };
+    client.announce(&build)?;
+    if global.json {
+        return print_json(&Announced {
+            sha,
+            branch,
+            version,
+            dirty,
+            items: build.items.len(),
+            sent: true,
+        });
+    }
+    println!(
+        "announced {} {branch} {version}{} to {env}: {} items ({fixes} fixes)",
+        sha.chars().take(8).collect::<String>(),
+        if dirty { " (dirty)" } else { "" },
+        build.items.len(),
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::key_of;
+
+    #[test]
+    fn keys_take_any_prefix_or_a_bare_number() {
+        for raw in ["BUG-12", "bug-12", "12", " feat-12 "] {
+            assert_eq!(key_of(raw).unwrap(), "12", "{raw}");
+        }
+        for raw in ["", "BUG-", "BUG-x", "12abc", "-3", "../x"] {
+            assert!(key_of(raw).is_err(), "{raw}");
+        }
     }
 }

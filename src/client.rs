@@ -1,11 +1,19 @@
-use serde_json::Value;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use serde::de::DeserializeOwned;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use crate::config::Config;
-use crate::sign::Actor;
+use crate::sign::{Actor, encode_actor, sign};
 use crate::wire::{
     Attachment, Build, Change, Code, Comment, Counts, Download, EnvEntry, HostEntry, Issue,
     IssueList, ListQuery, Minted, NewCode, NewIssue, Thread,
 };
+
+const TIMEOUT: Duration = Duration::from_secs(10);
+const TRANSFER: Duration = Duration::from_secs(60);
+const ANSWER_LIMIT: u64 = 32 << 20;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -13,6 +21,14 @@ pub struct Client {
     pub key_id: String,
     key: Vec<u8>,
     pub actor: Actor,
+    pub host: Option<String>,
+}
+
+struct Reply {
+    status: u16,
+    content_type: String,
+    disposition: String,
+    bytes: Vec<u8>,
 }
 
 impl Client {
@@ -38,89 +54,463 @@ impl Client {
             key_id: entry.key_id.clone(),
             key,
             actor,
+            host: None,
         })
     }
 
+    pub fn with_host(mut self, host: Option<&str>) -> Client {
+        self.host = host.map(str::to_owned);
+        self
+    }
+
     pub fn health(&self) -> Result<Value, String> {
-        Err(unbuilt())
+        let reply = self.send("GET", "/health", false, true, &[], TIMEOUT)?;
+        parse(&reply)
     }
 
-    pub fn counts(&self, _host: &str, _path: Option<&str>) -> Result<Counts, String> {
-        Err(unbuilt())
+    pub fn counts(&self, host: &str, path: Option<&str>) -> Result<Counts, String> {
+        let pq = format!(
+            "/v1/counts{}",
+            query(&[
+                ("host", Some(host.to_owned())),
+                ("path", path.map(str::to_owned))
+            ])
+        );
+        self.json("GET", &pq, None)
     }
 
-    pub fn list(&self, _query: &ListQuery) -> Result<IssueList, String> {
-        Err(unbuilt())
+    pub fn list(&self, q: &ListQuery) -> Result<IssueList, String> {
+        let pq = format!(
+            "/v1/issues{}",
+            query(&[
+                ("host", q.host.clone()),
+                ("scope", Some(q.scope.clone())),
+                ("path", q.path.clone()),
+                ("status", q.status.clone()),
+                ("kind", q.kind.clone()),
+                ("q", q.q.clone()),
+                ("cursor", q.cursor.clone()),
+                ("limit", Some(q.limit.clamp(1, 100).to_string())),
+            ])
+        );
+        self.json("GET", &pq, None)
     }
 
-    pub fn thread(&self, _key: &str) -> Result<Thread, String> {
-        Err(unbuilt())
+    pub fn thread(&self, key: &str) -> Result<Thread, String> {
+        self.json("GET", &self.item(key, "")?, None)
     }
 
-    pub fn file(&self, _issue: &NewIssue) -> Result<Issue, String> {
-        Err(unbuilt())
+    pub fn file(&self, issue: &NewIssue) -> Result<Issue, String> {
+        let pq = format!("/v1/issues{}", query(&[("host", issue.host.clone())]));
+        let body = serde_json::to_value(issue).map_err(|e| e.to_string())?;
+        self.json("POST", &pq, Some(body))
     }
 
-    pub fn change(&self, _key: &str, _change: &Change) -> Result<Issue, String> {
-        Err(unbuilt())
+    pub fn change(&self, key: &str, change: &Change) -> Result<Issue, String> {
+        let body = serde_json::to_value(change).map_err(|e| e.to_string())?;
+        self.json("PATCH", &self.item(key, "")?, Some(body))
     }
 
-    pub fn comment(&self, _key: &str, _body: &str, _internal: bool) -> Result<Comment, String> {
-        Err(unbuilt())
+    pub fn comment(&self, key: &str, body: &str, internal: bool) -> Result<Comment, String> {
+        let body = json!({"client_uid": uid(), "body": body, "internal": internal});
+        self.json("POST", &self.item(key, "/comments")?, Some(body))
     }
 
     pub fn attach(
         &self,
-        _key: &str,
-        _name: &str,
-        _role: &str,
-        _bytes: &[u8],
-        _comment: Option<i64>,
+        key: &str,
+        name: &str,
+        role: &str,
+        bytes: &[u8],
+        comment: Option<i64>,
     ) -> Result<Attachment, String> {
-        Err(unbuilt())
+        let pairs = vec![
+            ("host", self.host.clone()),
+            ("name", Some(name.to_owned())),
+            ("role", Some(role.to_owned())),
+            ("comment", comment.map(|c| c.to_string())),
+        ];
+        let pq = format!(
+            "/v1/issues/{}/attachments/{}{}",
+            segment(key)?,
+            uid(),
+            query(&pairs)
+        );
+        let reply = self.send("PUT", &pq, true, false, bytes, TRANSFER)?;
+        parse(&reply)
     }
 
-    pub fn download(&self, _id: i64) -> Result<Download, String> {
-        Err(unbuilt())
+    pub fn download(&self, id: i64) -> Result<Download, String> {
+        let pq = format!("/v1/files/{id}{}", query(&[("host", self.host.clone())]));
+        let reply = self.send("GET", &pq, true, false, &[], TRANSFER)?;
+        let name = filename(&reply.disposition).unwrap_or_else(|| format!("file-{id}"));
+        let content_type = if reply.content_type.is_empty() {
+            "application/octet-stream".to_owned()
+        } else {
+            reply.content_type
+        };
+        Ok(Download {
+            name,
+            content_type,
+            bytes: reply.bytes,
+        })
     }
 
     pub fn hosts(&self) -> Result<Vec<HostEntry>, String> {
-        Err(unbuilt())
+        let list: Value = self.json("GET", "/v1/hosts", None)?;
+        field(list, "hosts")
     }
 
-    pub fn put_host(&self, _host: &str, _env: &str, _config: &Value) -> Result<HostEntry, String> {
-        Err(unbuilt())
+    pub fn put_host(&self, host: &str, env: &str, config: &Value) -> Result<HostEntry, String> {
+        let pq = format!("/v1/hosts/{}", segment(host)?);
+        self.json("PUT", &pq, Some(json!({"env": env, "config": config})))
     }
 
-    pub fn remove_host(&self, _host: &str) -> Result<(), String> {
-        Err(unbuilt())
+    pub fn remove_host(&self, host: &str) -> Result<(), String> {
+        let pq = format!("/v1/hosts/{}", segment(host)?);
+        self.send("DELETE", &pq, true, false, &[], TIMEOUT)
+            .map(|_| ())
     }
 
     pub fn envs(&self) -> Result<Vec<EnvEntry>, String> {
-        Err(unbuilt())
+        let list: Value = self.json("GET", "/v1/envs", None)?;
+        field(list, "envs")
     }
 
-    pub fn put_env(&self, _env: &EnvEntry) -> Result<EnvEntry, String> {
-        Err(unbuilt())
+    pub fn put_env(&self, env: &EnvEntry) -> Result<EnvEntry, String> {
+        let pq = format!("/v1/envs/{}", segment(&env.name)?);
+        let body = json!({"kind": env.kind, "position": env.position, "notify": env.notify});
+        self.json("PUT", &pq, Some(body))
     }
 
-    pub fn codes(&self, _host: Option<&str>) -> Result<Vec<Code>, String> {
-        Err(unbuilt())
+    pub fn codes(&self, host: Option<&str>) -> Result<Vec<Code>, String> {
+        let pq = format!("/v1/codes{}", query(&[("host", host.map(str::to_owned))]));
+        let list: Value = self.json("GET", &pq, None)?;
+        field(list, "codes")
     }
 
-    pub fn mint(&self, _code: &NewCode) -> Result<Minted, String> {
-        Err(unbuilt())
+    pub fn mint(&self, code: &NewCode) -> Result<Minted, String> {
+        let body = serde_json::to_value(code).map_err(|e| e.to_string())?;
+        self.json("POST", "/v1/codes", Some(body))
     }
 
-    pub fn revoke(&self, _id: i64) -> Result<Code, String> {
-        Err(unbuilt())
+    pub fn revoke(&self, id: i64) -> Result<Code, String> {
+        self.json("POST", &format!("/v1/codes/{id}/revoke"), None)
     }
 
-    pub fn announce(&self, _build: &Build) -> Result<(), String> {
-        Err(unbuilt())
+    pub fn announce(&self, build: &Build) -> Result<(), String> {
+        let body = serde_json::to_vec(build).map_err(|e| e.to_string())?;
+        self.send("POST", "/v1/builds", false, false, &body, TIMEOUT)
+            .map(|_| ())
+    }
+
+    fn item(&self, key: &str, tail: &str) -> Result<String, String> {
+        Ok(format!(
+            "/v1/issues/{}{tail}{}",
+            segment(key)?,
+            query(&[("host", self.host.clone())])
+        ))
+    }
+
+    fn json<T: DeserializeOwned>(
+        &self,
+        method: &str,
+        pq: &str,
+        body: Option<Value>,
+    ) -> Result<T, String> {
+        let bytes = match body {
+            Some(value) => serde_json::to_vec(&value).map_err(|e| e.to_string())?,
+            None => Vec::new(),
+        };
+        let reply = self.send(method, pq, true, false, &bytes, TIMEOUT)?;
+        parse(&reply)
+    }
+
+    fn headers(
+        &self,
+        ts: i64,
+        method: &str,
+        pq: &str,
+        actor: bool,
+        body: &[u8],
+    ) -> Vec<(&'static str, String)> {
+        let actor_header = if actor {
+            encode_actor(&self.actor)
+        } else {
+            String::new()
+        };
+        let signed = sign(
+            &self.key,
+            ts,
+            method,
+            &self.signed_path(pq),
+            &actor_header,
+            body,
+        );
+        let mut headers = vec![("X-Tracker-Key-Id", self.key_id.clone())];
+        if actor {
+            headers.push(("X-Tracker-Actor", actor_header));
+        }
+        headers.push(("X-Content-SHA256", signed.content_sha256));
+        headers.push(("X-Tracker-Auth", signed.auth));
+        headers
+    }
+
+    fn signed_path(&self, pq: &str) -> String {
+        let rest = self
+            .url
+            .split_once("://")
+            .map_or(self.url.as_str(), |(_, rest)| rest);
+        let prefix = rest.find('/').map_or("", |at| &rest[at..]);
+        format!("{}{pq}", prefix.trim_end_matches('/'))
+    }
+
+    fn send(
+        &self,
+        method: &str,
+        pq: &str,
+        actor: bool,
+        unsigned: bool,
+        body: &[u8],
+        timeout: Duration,
+    ) -> Result<Reply, String> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .max_redirects(0)
+            .timeout_global(Some(timeout))
+            .build()
+            .into();
+        let url = format!("{}{pq}", self.url);
+        let mut request = ureq::http::Request::builder().method(method).uri(&url);
+        if !unsigned {
+            for (name, value) in self.headers(now(), method, pq, actor, body) {
+                request = request.header(name, value);
+            }
+        }
+        if !body.is_empty() {
+            let kind = if method == "PUT" {
+                "application/octet-stream"
+            } else {
+                "application/json"
+            };
+            request = request.header("Content-Type", kind);
+        }
+        let sent = if body.is_empty() {
+            agent.run(request.body(()).map_err(|e| e.to_string())?)
+        } else {
+            agent.run(request.body(body.to_vec()).map_err(|e| e.to_string())?)
+        };
+        let mut response = sent.map_err(|e| format!("cannot reach {}: {e}", self.url))?;
+        let status = response.status().as_u16();
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or("")
+                .to_owned()
+        };
+        let content_type = header("content-type");
+        let disposition = header("content-disposition");
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(ANSWER_LIMIT)
+            .read_to_vec()
+            .map_err(|e| format!("cannot read the answer of {}: {e}", self.url))?;
+        let reply = Reply {
+            status,
+            content_type,
+            disposition,
+            bytes,
+        };
+        if (200..300).contains(&status) {
+            Ok(reply)
+        } else {
+            Err(problem(&reply))
+        }
     }
 }
 
-fn unbuilt() -> String {
-    "the client is not built yet".to_owned()
+fn problem(reply: &Reply) -> String {
+    let parsed: Value = serde_json::from_slice(&reply.bytes).unwrap_or(Value::Null);
+    match parsed.get("message").and_then(Value::as_str) {
+        Some(message) => format!("{message} ({})", reply.status),
+        None => format!("the Worker answered {}", reply.status),
+    }
+}
+
+fn parse<T: DeserializeOwned>(reply: &Reply) -> Result<T, String> {
+    serde_json::from_slice(&reply.bytes).map_err(|e| format!("unexpected answer: {e}"))
+}
+
+fn field<T: DeserializeOwned>(mut value: Value, name: &str) -> Result<Vec<T>, String> {
+    let list = value.get_mut(name).map(Value::take).unwrap_or(Value::Null);
+    if list.is_null() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_value(list).map_err(|e| format!("unexpected answer: {e}"))
+}
+
+fn encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+fn query(pairs: &[(&str, Option<String>)]) -> String {
+    let parts: Vec<String> = pairs
+        .iter()
+        .filter_map(|(k, v)| {
+            v.as_ref()
+                .filter(|v| !v.is_empty())
+                .map(|v| format!("{k}={}", encode(v)))
+        })
+        .collect();
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", parts.join("&"))
+    }
+}
+
+fn segment(value: &str) -> Result<&str, String> {
+    let ok = !value.is_empty()
+        && value.len() <= 255
+        && value.bytes().any(|b| b.is_ascii_alphanumeric())
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'));
+    if ok {
+        Ok(value)
+    } else {
+        Err(format!("not a key, host or id: {value}"))
+    }
+}
+
+fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+pub fn uid() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let seed = format!(
+        "{nanos}:{}:{}",
+        std::process::id(),
+        COUNT.fetch_add(1, Ordering::Relaxed)
+    );
+    let mut bytes: Vec<u8> = Sha256::digest(seed.as_bytes())[..16].to_vec();
+    if let Ok(mut random) = std::fs::File::open("/dev/urandom") {
+        use std::io::Read;
+        let mut fresh = [0u8; 16];
+        if random.read_exact(&mut fresh).is_ok() {
+            bytes = fresh.to_vec();
+        }
+    }
+    bytes[6] = bytes[6] & 0x0f | 0x40;
+    bytes[8] = bytes[8] & 0x3f | 0x80;
+    let h = crate::sign::hex(&bytes);
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
+
+fn filename(disposition: &str) -> Option<String> {
+    if let Some(rest) = disposition.split("filename*=").nth(1) {
+        let value = rest.split(';').next()?.trim();
+        let value = value.rsplit("''").next()?;
+        return Some(decode(value)).filter(|n| !n.is_empty());
+    }
+    let rest = disposition.split("filename=").nth(1)?;
+    let value = rest.split(';').next()?.trim().trim_matches('"');
+    Some(value.to_owned()).filter(|n| !n.is_empty())
+}
+
+fn decode(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3])
+                .ok()
+                .and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(b);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_signing_vector_of_the_api_docs() {
+        let client = Client {
+            url: "https://example.com/_p99".to_owned(),
+            key_id: "p99".to_owned(),
+            key: b"test-secret".to_vec(),
+            actor: Actor {
+                email: "ada@example.com".to_owned(),
+                name: "Ada Lovelace".to_owned(),
+                rank: "administrator".to_owned(),
+                agent: None,
+                person: "ada@example.com".to_owned(),
+            },
+            host: None,
+        };
+        let body = r#"{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}"#;
+        let headers = client.headers(
+            1_760_400_000,
+            "POST",
+            "/v1/issues?host=example.com",
+            true,
+            body.as_bytes(),
+        );
+        let get = |name: &str| {
+            headers
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, v)| v.as_str())
+                .unwrap()
+        };
+        assert_eq!(
+            get("X-Tracker-Actor"),
+            "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9"
+        );
+        assert_eq!(
+            get("X-Content-SHA256"),
+            "ecf774eccd7e95d4a00046092fe70059b83b5d650c1a1da9e9cc6c22e5ce22bf"
+        );
+        assert_eq!(
+            get("X-Tracker-Auth"),
+            "v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566"
+        );
+    }
 }

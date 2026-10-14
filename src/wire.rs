@@ -475,7 +475,7 @@ pub struct Build {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BuildItem {
-    pub id: String,
+    pub id: i64,
     pub rel: String,
     pub sha: String,
     pub subject: String,
