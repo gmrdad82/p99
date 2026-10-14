@@ -50,7 +50,7 @@ Every route under `/_p99/v1/` is signed:
 
 The secret of key id `p99` is the Worker secret `KEY_P99`, with `KEY_P99_NEXT` accepted beside it during a rotation. Key id `test` (the secret `KEY_TEST`) works only on `127.0.0.1` or `localhost`, for the Worker's own tests.
 
-The actor is `{"email","name","rank","agent"?,"function"?,"party"?,"person"?}`, `rank` one of `everyone`, `administrator`, `super_administrator`, `agent` an optional label of at most 40 characters naming the agent that acts as this person (`claude`, say). Items and comments keep it, and every view shows it beside the person's name.
+The actor is `{"email","name","rank","agent"?,"function"?,"party"?,"person"?}`, `rank` one of `everyone`, `administrator`, `super_administrator`, `agent` `true` when an agent acts as this person, left out otherwise. Items, comments and events keep it, and every view shows such an actor as the person's name with an asterisk, `Ada Lovelace*` (the panel adds the hint "AI" on the asterisk). The browser API never carries it.
 
 **Key `p99`** is the account's own key, the one `p99 setup` makes and the CLI and TUI sign with. Its actor is always a manager, so the daily limits never apply to it. It names the host with `?host=<host>` on any route (`host=*`, or no `host`, on the list and counts reads every host), and the environment with `env` in a build's body. On the list and counts an unlisted `host` answers 404; on an item's routes `host` is a filter, so an item of another host answers 404; `POST /_p99/v1/issues` takes the query's `host` first, then the body's.
 
@@ -83,7 +83,7 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 - Limits per person and day: 30 items, 200 comments, 100 MiB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","agent","kind","detail","at"}`, `agent` the label of the signed actor that made it.
+A summary is `{"id","key","kind","status","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","agent","kind","detail","at"}`, `agent` true when an agent acting as that person made it; `agent` is always a boolean.
 
 ## Environments and landings
 
@@ -93,7 +93,7 @@ An environment is a name with a kind. A `development` environment counts the bui
 
 ## Mail
 
-Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter; a first landing in a `notify` environment goes to the reporter. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an actor with an agent label reads as `Ada Lovelace (claude)`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
+Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter; a first landing in a `notify` environment goes to the reporter. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an agent acting as a person reads as `Ada Lovelace*`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
 
 ## Backups
 

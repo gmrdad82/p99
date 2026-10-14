@@ -33,11 +33,7 @@ struct Reply {
 }
 
 impl Client {
-    pub fn for_account(
-        config: &Config,
-        account: &str,
-        agent: Option<String>,
-    ) -> Result<Client, String> {
+    pub fn for_account(config: &Config, account: &str, agent: bool) -> Result<Client, String> {
         let entry = config
             .accounts
             .get(account)
@@ -496,7 +492,7 @@ mod tests {
                 email: "ada@example.com".to_owned(),
                 name: "Ada Lovelace".to_owned(),
                 rank: "administrator".to_owned(),
-                agent: None,
+                agent: false,
                 person: "ada@example.com".to_owned(),
             },
             host: None,

@@ -46,7 +46,7 @@ CREATE TABLE items (
   reporter_email TEXT NOT NULL,
   reporter_name TEXT NOT NULL,
   reporter_json TEXT NOT NULL,
-  reporter_agent TEXT,
+  reporter_agent INTEGER NOT NULL DEFAULT 0 CHECK (reporter_agent IN (0, 1)),
   assignee TEXT,
   duplicate_of INTEGER REFERENCES items (id),
   context_json TEXT NOT NULL,
@@ -82,7 +82,7 @@ CREATE TABLE comments (
   body TEXT NOT NULL,
   internal INTEGER NOT NULL CHECK (internal IN (0, 1)),
   origin_env TEXT NOT NULL,
-  author_agent TEXT,
+  author_agent INTEGER NOT NULL DEFAULT 0 CHECK (author_agent IN (0, 1)),
   created_at TEXT NOT NULL
 );
 
@@ -114,7 +114,7 @@ CREATE TABLE events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id INTEGER NOT NULL REFERENCES items (id),
   actor_email TEXT,
-  actor_agent TEXT,
+  actor_agent INTEGER NOT NULL DEFAULT 0 CHECK (actor_agent IN (0, 1)),
   kind TEXT NOT NULL,
   detail_json TEXT NOT NULL,
   internal INTEGER NOT NULL DEFAULT 0 CHECK (internal IN (0, 1)),

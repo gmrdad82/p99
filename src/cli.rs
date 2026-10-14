@@ -27,10 +27,9 @@ pub struct Global {
     #[arg(
         long,
         global = true,
-        value_name = "label",
-        help = "act as an agent of the configured person (or P99_AGENT)"
+        help = "act as an agent of the configured person, shown as their name with a * (or P99_AGENT=1)"
     )]
-    pub agent: Option<String>,
+    pub agent: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -290,11 +289,7 @@ fn client_for(
     host: Option<&str>,
 ) -> Result<(Client, String), String> {
     let account = account_of(config, global, host)?;
-    let client = Client::for_account(
-        config,
-        &account,
-        crate::config::agent(global.agent.as_deref(), config),
-    )?;
+    let client = Client::for_account(config, &account, crate::config::agent(global.agent, config))?;
     Ok((client, account))
 }
 
@@ -314,11 +309,12 @@ fn when(stamp: &str) -> String {
     stamp.replace('T', " ").chars().take(16).collect()
 }
 
-fn who(email: &str, name: &str, agent: &Option<String>) -> String {
+fn who(email: &str, name: &str, agent: bool) -> String {
     let base = if name.is_empty() { email } else { name };
-    match agent {
-        Some(agent) if !agent.is_empty() => format!("{base} ({agent})"),
-        _ => base.to_owned(),
+    if agent {
+        format!("{base}*")
+    } else {
+        base.to_owned()
     }
 }
 
@@ -372,7 +368,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             },
         );
     }
-    let agent = crate::config::agent(global.agent.as_deref(), config);
+    let agent = crate::config::agent(global.agent, config);
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
             continue;
@@ -380,7 +376,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
         if config.url(account).is_err() {
             continue;
         }
-        let seen = Client::for_account(config, account, agent.clone()).and_then(|c| c.hosts());
+        let seen = Client::for_account(config, account, agent).and_then(|c| c.hosts());
         match seen {
             Ok(list) => {
                 for found in list {
@@ -489,11 +485,7 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     );
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(
-        config,
-        &account,
-        crate::config::agent(global.agent.as_deref(), config),
-    )?;
+    let client = Client::for_account(config, &account, crate::config::agent(global.agent, config))?;
     let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
@@ -718,11 +710,11 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         args.host.clone()
     };
     let scope = if args.mine { "mine" } else { "all" };
-    let agent = crate::config::agent(global.agent.as_deref(), config);
+    let agent = crate::config::agent(global.agent, config);
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
     for account in &accounts {
-        let client = Client::for_account(config, account, agent.clone())?;
+        let client = Client::for_account(config, account, agent)?;
         let mut cursor: Option<String> = None;
         let mut taken = 0;
         while taken < args.limit {
@@ -773,11 +765,11 @@ fn print_thread(thread: &Thread) {
     let text = |field: &str| reporter.get(field).and_then(Value::as_str).unwrap_or("");
     let agent = reporter
         .get("agent")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     println!(
         "reported by {} on {}  {}{}",
-        who(text("email"), text("name"), &agent),
+        who(text("email"), text("name"), agent),
         issue.host.as_deref().unwrap_or("-"),
         when(&issue.created_at),
         if issue.env.is_empty() {
@@ -837,7 +829,7 @@ fn print_thread(thread: &Thread) {
         println!(
             "\n{} {}{}",
             when(&comment.created_at),
-            who(&author.email, &author.name, &author.agent),
+            who(&author.email, &author.name, author.agent),
             if comment.internal { "  [internal]" } else { "" }
         );
         println!("{}", comment.body);

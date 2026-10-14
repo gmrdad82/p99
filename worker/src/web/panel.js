@@ -191,11 +191,18 @@ function stamp(t) {
   const n = typeof t === "number" ? (t < 1e12 ? t * 1000 : t) : Date.parse(t);
   return isFinite(n) ? n : 0;
 }
-function who(p, agent) {
+function nameOf(p) {
   if (!p) return say("event_system");
-  const n = typeof p === "string" ? p : p.name || p.email || say("event_system");
-  const a = agent || (typeof p === "object" && p.agent);
-  return a ? n + " (" + a + ")" : n;
+  return typeof p === "string" ? p : p.name || p.email || say("event_system");
+}
+function isAgent(p, agent) {
+  return agent === true || (Boolean(p) && typeof p === "object" && p.agent === true);
+}
+function who(p, agent) {
+  return nameOf(p) + (isAgent(p, agent) ? "*" : "");
+}
+function person(p, agent) {
+  return [nameOf(p), isAgent(p, agent) ? h("span", { class: "p99-ai", title: "AI", text: "*" }) : null];
 }
 
 function call(method, path, body, type) {
@@ -520,7 +527,7 @@ function filters(f) {
 }
 function row(r) {
   const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
-  if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter", text: who(r.reporter) }));
+  if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter)));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": r.status, "data-kind": r.kind, "data-unread": !!r.unread },
@@ -637,13 +644,13 @@ function entries(t, byId, mine) {
       const self = !!(me && c.author && c.author.email && me.email && c.author.email.toLowerCase() === me.email.toLowerCase());
       const files = (c.attachments || []).map((id) => byId.get(id)).filter(Boolean);
       return h("li", { class: "p99-comment", "data-internal": !!c.internal, "data-mine": self, "data-manager": !!(c.author && c.author.manager) },
-        h("p", { class: "p99-meta" }, h("b", { text: who(c.author) }), " · ", h("time", { text: when(c.created_at) }), c.internal ? [" · ", h("span", { class: "p99-internal", text: say("internal") })] : null),
+        h("p", { class: "p99-meta" }, h("b", null, person(c.author)), " · ", h("time", { text: when(c.created_at) }), c.internal ? [" · ", h("span", { class: "p99-internal", text: say("internal") })] : null),
         c.body ? h("div", { class: "p99-body" }, pieces(c.body)) : null,
         files.length ? fileList(files) : null);
     }
     const text = eventText(x.ev);
     if (!text) return null;
-    return h("li", { class: "p99-event", "data-event-kind": x.ev.kind }, h("small", null, h("b", { text: who(x.ev.actor, x.ev.actor_agent) }), " ", text, " · ", h("time", { text: when(x.ev.at) })));
+    return h("li", { class: "p99-event", "data-event-kind": x.ev.kind }, h("small", null, h("b", null, person(x.ev.actor, x.ev.agent)), " ", text, " · ", h("time", { text: when(x.ev.at) })));
   });
 }
 function pendingFiles(form, files) {

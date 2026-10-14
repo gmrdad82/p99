@@ -9,8 +9,8 @@ pub struct Actor {
     pub email: String,
     pub name: String,
     pub rank: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub agent: bool,
     pub person: String,
 }
 
@@ -18,6 +18,10 @@ pub struct Actor {
 pub struct Signed {
     pub content_sha256: String,
     pub auth: String,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 pub fn hex(bytes: &[u8]) -> String {

@@ -24,8 +24,12 @@ pub struct Me {
     pub name: String,
     #[serde(default)]
     pub email: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub agent: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -235,11 +239,14 @@ pub fn secret(value: &str) -> Result<String, String> {
     crate::vault::read(value)
 }
 
-pub fn agent(flag: Option<&str>, config: &Config) -> Option<String> {
-    let clean = |label: &str| Some(label.trim().to_owned()).filter(|l| !l.is_empty());
-    flag.and_then(clean)
-        .or_else(|| env::var("P99_AGENT").ok().as_deref().and_then(clean))
-        .or_else(|| config.me.agent.as_deref().and_then(clean))
+pub fn agent(flag: bool, config: &Config) -> bool {
+    if flag {
+        return true;
+    }
+    match env::var("P99_AGENT") {
+        Ok(value) if !value.trim().is_empty() => value.trim() != "0",
+        _ => config.me.agent,
+    }
 }
 
 #[cfg(unix)]

@@ -201,7 +201,7 @@ impl Inbox {
             cells.push(Cell::new(person(
                 &item.reporter.name,
                 &item.reporter.email,
-                item.reporter.agent.as_deref(),
+                item.reporter.agent,
             )));
             cells.push(Cell::new(this.ago(&item.updated_at)).faint());
             Row::new(cells)
@@ -333,7 +333,7 @@ impl Inbox {
             if !email.is_empty() && !people.iter().any(|(e, _)| e.as_deref() == Some(email)) {
                 people.push((
                     Some(email.to_owned()),
-                    format!("{} <{email}>", person(name, email, None)),
+                    format!("{} <{email}>", person(name, email, false)),
                 ));
             }
         };
@@ -541,7 +541,7 @@ fn lines(
     let who = person(
         reporter["name"].as_str().unwrap_or_default(),
         reporter["email"].as_str().unwrap_or_default(),
-        reporter["agent"].as_str(),
+        reporter["agent"].as_bool().unwrap_or(false),
     );
     let dot = || Span::styled(" · ", palette.muted);
     let mut out: Vec<Line<'static>> = Vec::new();
@@ -649,7 +649,7 @@ fn lines(
     for comment in &thread.comments {
         let author = &comment.author;
         let mut head = vec![Span::styled(
-            person(&author.name, &author.email, author.agent.as_deref()),
+            person(&author.name, &author.email, author.agent),
             if author.manager {
                 palette.accent
             } else {

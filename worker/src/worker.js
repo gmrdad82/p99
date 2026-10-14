@@ -265,11 +265,8 @@ function decodeActor(header) {
   if (!isText(actor.name, 0, 200)) return null;
   if (!RANKS.includes(actor.rank)) return null;
   if (actor.function !== null && actor.function !== undefined && !isText(actor.function, 0, 100)) return null;
-  let agent = null;
-  if (actor.agent !== null && actor.agent !== undefined && actor.agent !== "") {
-    if (!isText(actor.agent, 1, 40) || /[\u0000-\u001f\u007f]/.test(actor.agent)) return null;
-    agent = actor.agent;
-  }
+  if (actor.agent !== null && actor.agent !== undefined && typeof actor.agent !== "boolean") return null;
+  const agent = actor.agent === true;
   let party = null;
   if (actor.party !== null && actor.party !== undefined) {
     if (!isObject(actor.party)) return null;
@@ -507,7 +504,7 @@ function readStatement(c, itemId) {
 }
 
 function agentOf(c) {
-  return c.actor ? (c.actor.agent ?? null) : null;
+  return c.actor && c.actor.agent ? 1 : 0;
 }
 
 function eventStatement(c, itemId, actorEmail, kind, detail, internal = false) {
@@ -632,7 +629,7 @@ function summaryOf(row, c, lc) {
     host: row.host,
     env: row.origin_env,
     page: { url: row.page_url, path: row.page_path, title: row.page_title },
-    reporter: { email: row.reporter_email, name: row.reporter_name, agent: row.reporter_agent ?? null },
+    reporter: { email: row.reporter_email, name: row.reporter_name, agent: Boolean(row.reporter_agent) },
     assignee: row.assignee,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -651,7 +648,7 @@ function issueOf(row, c, lc) {
       ...parseJson(row.reporter_json, {}),
       email: row.reporter_email,
       name: row.reporter_name,
-      agent: row.reporter_agent ?? null,
+      agent: Boolean(row.reporter_agent),
     },
     duplicate_of: row.duplicate_of === null ? null : keyOf(row.duplicate_kind, row.duplicate_of),
     closed_at: row.closed_at,
@@ -669,7 +666,7 @@ function commentOf(row, attachmentIds = []) {
       email: row.author_email,
       name: row.author_name,
       manager: Boolean(row.author_manager),
-      agent: row.author_agent ?? null,
+      agent: Boolean(row.author_agent),
     },
     body: row.body,
     internal: Boolean(row.internal),
@@ -696,7 +693,7 @@ function attachmentOf(row) {
 function eventOf(row) {
   return {
     actor: row.actor_email,
-    agent: row.actor_agent ?? null,
+    agent: Boolean(row.actor_agent),
     kind: row.kind,
     detail: parseJson(row.detail_json, {}),
     at: row.at,
@@ -752,7 +749,7 @@ function sendMail(c, row, recipients, data) {
     kind: row.kind,
     title: row.title,
     link: pageLink(row),
-    actorName: c.actor ? (c.actor.agent ? `${c.actor.name} (${c.actor.agent})` : c.actor.name) : "P99",
+    actorName: c.actor ? (c.actor.agent ? `${c.actor.name}*` : c.actor.name) : "P99",
     ...data,
   });
   c.outbox.push({ item_id: row.id, host: row.host ?? null, to: recipients, template: data.template, ref: data.ref, ...content });
@@ -1282,7 +1279,7 @@ async function createIssue(c) {
         JSON.stringify(marks),
         c.now,
         target.host,
-        c.actor.agent,
+        agentOf(c),
         searchText(title, text),
       ),
       DB.prepare(
@@ -1510,7 +1507,7 @@ async function postComment(c, rawKey) {
         internal ? 1 : 0,
         actionEnv(c, row),
         c.now,
-        c.actor.agent,
+        agentOf(c),
       ),
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
@@ -2095,7 +2092,7 @@ async function browserRequest(request, env, ctx, url, path) {
     browser: true,
     signed: false,
     bodyHash: declaredHash && /^[0-9a-f]{64}$/.test(declaredHash) ? declaredHash : null,
-    actor: { email: code.email.toLowerCase(), name: code.name, agent: null },
+    actor: { email: code.email.toLowerCase(), name: code.name, agent: false },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
     scope: { all: false, host: hostRow.host },
     hostRow,

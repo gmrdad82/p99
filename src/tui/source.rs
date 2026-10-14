@@ -25,7 +25,7 @@ pub enum Source {
 pub struct Live {
     config: Config,
     accounts: Vec<String>,
-    agent: Option<String>,
+    agent: bool,
     clients: OnceLock<Result<Vec<Client>, String>>,
 }
 
@@ -37,7 +37,7 @@ impl Source {
         Source::Demo(Arc::new(Mutex::new(Demo::new())), pace)
     }
 
-    pub fn live(account: Option<&str>, agent: Option<&str>) -> Source {
+    pub fn live(account: Option<&str>, agent: bool) -> Source {
         let config = match Config::load() {
             Ok(config) => config,
             Err(why) => return Source::Broken(why),
@@ -190,7 +190,7 @@ impl Live {
             .get_or_init(|| {
                 self.accounts
                     .iter()
-                    .map(|name| Client::for_account(&self.config, name, self.agent.clone()))
+                    .map(|name| Client::for_account(&self.config, name, self.agent))
                     .collect()
             })
             .as_deref()
@@ -241,11 +241,12 @@ pub fn merged_hosts(known: Vec<String>, entries: &[Entry]) -> Vec<String> {
     hosts.into_iter().collect()
 }
 
-pub fn person(name: &str, email: &str, agent: Option<&str>) -> String {
+pub fn person(name: &str, email: &str, agent: bool) -> String {
     let who = if name.is_empty() { email } else { name };
-    match agent {
-        Some(agent) if !agent.is_empty() => format!("{who} ({agent})"),
-        _ => who.to_owned(),
+    if agent {
+        format!("{who}*")
+    } else {
+        who.to_owned()
     }
 }
 

@@ -34,7 +34,7 @@ const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accen
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const actorHeader = (actor) => Buffer.from(JSON.stringify(actor)).toString("base64url");
-const grace = { email: "grace@example.com", name: "Grace Hopper", rank: "super_administrator", agent: "claude" };
+const grace = { email: "grace@example.com", name: "Grace Hopper", rank: "super_administrator", agent: true };
 
 function sign({ secret, ts, method, path, actor, hash }) {
   const sig = createHmac("sha256", secret).update(`v1\n${ts}\n${method}\n${path}\n${actor}\n${hash}`).digest("hex");
@@ -250,7 +250,7 @@ async function run() {
       body: { client_uid: randomUUID(), body: "Confirmed on the orders page." },
     });
     assert.equal(comment.status, 201);
-    assert.equal(comment.json.author.agent, "claude");
+    assert.equal(comment.json.author.agent, true);
   });
 
   await check("a manager over the daily limits still files, and others are stopped", async () => {

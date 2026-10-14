@@ -30,7 +30,7 @@ pub struct Person {
     #[serde(default)]
     pub name: String,
     #[serde(default)]
-    pub agent: Option<String>,
+    pub agent: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -159,7 +159,7 @@ pub struct Author {
     #[serde(default)]
     pub manager: bool,
     #[serde(default)]
-    pub agent: Option<String>,
+    pub agent: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
