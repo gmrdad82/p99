@@ -2,6 +2,14 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.3 — 2026-10-14
+
+### Changed
+
+- The CLI and the TUI reach the Worker through any host of the account: the one a command names first, then production hosts, skipping one behind Cloudflare Access, and say plainly when every host is behind it.
+- Each account can carry its own name and e-mail in `[accounts.<name>.me]`, so the same person acts under a different identity on another account; `p99 setup` writes it without touching the global `[me]`.
+- `p99 setup` and `p99 deploy` report a host behind Cloudflare Access as expected, not as a failed health check.
+
 ## v1.0.2 — 2026-10-14
 
 ### Changed
