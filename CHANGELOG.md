@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.1 — 2026-10-14
+
+### Changed
+
+- The docs bundle's front page keeps every README picture and leaves out the GitHub-only lockup, so docs.pitomd.com builds it.
+
 ## v1.0.0 — 2026-10-14
 
 The first release of P99: issue and feedback reporting for any website, on Cloudflare alone.
