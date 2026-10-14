@@ -133,11 +133,11 @@ pub struct SetArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct InviteArgs {
-    #[arg(required = true)]
+    #[arg(required = true, help = "the hosts the code works on")]
     pub hosts: Vec<String>,
-    #[arg(long)]
+    #[arg(long, help = "the person's name, as P99 shows it")]
     pub name: String,
-    #[arg(long)]
+    #[arg(long, help = "the person's e-mail, which ties their items to them")]
     pub email: String,
     #[arg(long, help = "let the person see and change every item")]
     pub manager: bool,
@@ -145,45 +145,57 @@ pub struct InviteArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct InvitesArgs {
-    #[arg(long)]
+    #[arg(long, help = "only the codes for this host")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct RevokeArgs {
+    #[arg(help = "the code's id, from p99 invites")]
     pub id: i64,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ListArgs {
+    #[arg(help = "the host to list")]
     pub host: Option<String>,
     #[arg(long, conflicts_with = "host", help = "every host")]
     pub all: bool,
     #[arg(long, default_value = "open", help = "open, closed, any or one status")]
     pub status: String,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "only this kind: bug, feature, improvement, question or task"
+    )]
     pub kind: Option<String>,
     #[arg(long, help = "only what you reported")]
     pub mine: bool,
-    #[arg(short = 'q', long = "query", value_name = "text")]
+    #[arg(
+        short = 'q',
+        long = "query",
+        value_name = "text",
+        help = "items whose title or text holds these words, accents ignored"
+    )]
     pub query: Option<String>,
-    #[arg(long, default_value_t = 50)]
+    #[arg(long, default_value_t = 50, help = "at most this many items")]
     pub limit: usize,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ShowArgs {
+    #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(long)]
+    #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct FileArgs {
+    #[arg(help = "the host the item is for")]
     pub host: String,
-    #[arg(long, value_parser = KINDS)]
+    #[arg(long, value_parser = KINDS, help = "what it is")]
     pub kind: String,
-    #[arg(long)]
+    #[arg(long, help = "one line that says what it is about")]
     pub title: String,
     #[arg(long, help = "the text, or - to read it from standard input")]
     pub body: Option<String>,
@@ -194,60 +206,74 @@ pub struct FileArgs {
         help = "the page it is about"
     )]
     pub page: String,
-    #[arg(long, value_name = "file")]
+    #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
     pub attach: Vec<PathBuf>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct CommentArgs {
+    #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
     #[arg(help = "the text, or - to read it from standard input")]
     pub text: String,
     #[arg(long, help = "for managers only")]
     pub internal: bool,
-    #[arg(long, value_name = "file")]
+    #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
     pub attach: Vec<PathBuf>,
-    #[arg(long)]
+    #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct StatusArgs {
+    #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(value_parser = STATUSES)]
+    #[arg(value_parser = STATUSES, help = "the new status")]
     pub status: String,
-    #[arg(long, value_name = "KEY")]
+    #[arg(
+        long,
+        value_name = "KEY",
+        help = "with duplicate: the item this one repeats"
+    )]
     pub duplicate_of: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct AssignArgs {
+    #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
     #[arg(help = "an e-mail address, or me", required_unless_present = "none")]
     pub who: Option<String>,
-    #[arg(long, conflicts_with = "who")]
+    #[arg(long, conflicts_with = "who", help = "leave it unassigned")]
     pub none: bool,
-    #[arg(long)]
+    #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct DownloadArgs {
+    #[arg(help = "the file's id, from p99 show")]
     pub id: i64,
-    #[arg(short = 'o', long, value_name = "path")]
+    #[arg(
+        short = 'o',
+        long,
+        value_name = "path",
+        help = "where to save it (its own name by default)"
+    )]
     pub out: Option<PathBuf>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct AnnounceArgs {
+    #[arg(help = "the host the build went to; its environment is the build's")]
     pub host: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "the environment, when no host names it")]
     pub env: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "the branch (the current one by default)")]
     pub branch: Option<String>,
-    #[arg(long)]
+    #[arg(long, help = "the version (git describe by default)")]
     pub version: Option<String>,
     #[arg(
         long,

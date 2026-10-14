@@ -43,6 +43,8 @@ jobs:
           key: ${{ matrix.os }}-gate-rust-1.97.1-${{ hashFiles('Cargo.lock') }}
           restore-keys: ${{ matrix.os }}-gate-rust-1.97.1-
       - run: bin/gate --fast
+      - if: runner.os == 'Linux'
+        run: cargo build --locked && bin/docs-bundle 0.0.0-ci
 
   worker:
     name: worker
