@@ -45,6 +45,16 @@ Measured once on 2026-10-14 for 1.0.0: sizes with `gzip -9`; browser times in he
 
 <p align="center"><img src="docs/images/capture.png" width="80%" alt="The new-item form with a screen capture and a marked area of the payment form; the card number field is blank in both previews."></p>
 
+## On a real site
+
+<p align="center"><img src="docs/images/pitomd.gif" width="800" alt="The Splicer page on pitomd.com: Grace Hopper presses the question mark, picks Idea, types &quot;The download button could say which platform it detected&quot;, marks the Download free button and sends it, and FEAT-4 appears. The clip cuts to p99 tui, where FEAT-4 sits at the top of the inbox on host dev.pitomd.com and opens."></p>
+
+This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on its dev server with a local P99 Worker and sample people. The site added one tag and nothing else; its host config keeps the "?" clear of the site's own back-to-top button.
+
+<p align="center"><img src="docs/images/pitomd-corner.png" width="40%" alt="The corner of the Splicer page at the top: the P99 buttons at their usual offset."> <img src="docs/images/pitomd-corner-scrolled.png" width="40%" alt="The same corner after scrolling: the site's back-to-top button has appeared and the P99 buttons sit just above it."></p>
+
+<p align="center"><img src="docs/images/pitomd-panel-light.png" width="49%" alt="The P99 panel over a light cream section of the Splicer page on item BUG-2: the report, a reply from Ada Lovelace, the reporter's answer, a status change and a reply from Ada Lovelace* (an agent acting for her)."> <img src="docs/images/pitomd-panel-dark.png" width="49%" alt="The same thread in the dark scheme over the page's dark oxblood pricing section."></p>
+
 ## In your terminal
 
 **The inbox.** `p99 tui` shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row. Open a thread to read it, reply, add an internal note, change the status or assign it.

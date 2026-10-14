@@ -19,6 +19,12 @@ flow.gif joins render/web/record.mjs's frame-exact recording of the web panel
 on the sample shop in render/web/site/ with prec's arrives shot, made a GIF by
 pconv; panel-light.png, panel-dark.png, badge-light.png, badge-dark.png and
 capture.png are that script's stills of the same shop, all on sample data.
+pitomd.gif, pitomd-corner.png, pitomd-corner-scrolled.png, pitomd-panel-light.png
+and pitomd-panel-dark.png are render/web/pitomd.mjs's frame-exact recording and
+stills of P99 on the Splicer page of PITO MD's own site, pitomd.com, served by
+its dev server, with a local P99 Worker on sample data; the clip is joined with
+prec's arrives shot and made a GIF by pconv. The page they show is PITO MD's own
+site, © Catalin Ilinca, and is not covered by the MIT licence.
 web-sizes-bars.png, web-times-bars.png and tui-frames-bars.png are drawn by
 pito-compare (pcmp) from the measurements in render/charts/.
 
