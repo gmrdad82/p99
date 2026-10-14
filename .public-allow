@@ -1,6 +1,6 @@
 # P99 reads config secrets through a password manager's CLI as a documented feature
-src/vault.rs:3 the reference scheme P99 reads secrets through
-src/vault.rs:4 the name of the tool P99 asks for in its error
+src/vault.rs:4 the reference scheme P99 reads secrets through
+src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:33 the config docs explain secret references to users
 commit/4b12424467b1:1 a commit subject naming the secret references feature
 commit/ad8e98f6d0b6:1 a commit subject naming the secret references feature
