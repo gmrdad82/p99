@@ -1,4 +1,14 @@
-# P99 reads secrets through the 1Password CLI as a documented feature (the plan's config secrets)
-src/vault.rs:3 the op:// scheme P99 reads secrets through
+# P99 reads config secrets through a password manager's CLI as a documented feature
+src/vault.rs:3 the reference scheme P99 reads secrets through
 src/vault.rs:4 the name of the tool P99 asks for in its error
-docs/config.md:33 the config docs explain 1Password references to users
+docs/config.md:33 the config docs explain secret references to users
+commit/4b12424467b1:1 a commit subject naming the secret references feature
+commit/ad8e98f6d0b6:1 a commit subject naming the secret references feature
+commit/b305924b9b81:docs/config.md:14 the first draft's example reference
+commit/b305924b9b81:docs/config.md:20 the first draft's example reference
+commit/b305924b9b81:docs/config.md:33 the first draft's docs of secret references
+commit/b305924b9b81:src/config.rs:179 the first draft's secret reference reader
+commit/b305924b9b81:src/config.rs:185 the first draft's secret reference reader
+commit/b305924b9b81:src/config.rs:191 the first draft's secret reference reader
+commit/b305924b9b81:src/config.rs:194 the first draft's secret reference reader
+commit/b305924b9b81:src/config.rs:196 the first draft's secret reference reader
