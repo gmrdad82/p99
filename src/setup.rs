@@ -20,3 +20,11 @@ pub fn adopt(_args: &AdoptArgs, _global: &Global) -> Result<(), String> {
 pub fn deploy(_args: &DeployArgs, _global: &Global) -> Result<(), String> {
     Err("deploy is not built yet".into())
 }
+
+pub fn add_route(
+    _config: &crate::config::Config,
+    _account: &str,
+    _host: &str,
+) -> Result<(), String> {
+    Err("routes are not built yet".into())
+}
