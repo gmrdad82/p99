@@ -13,7 +13,7 @@ Works on Linux and macOS (Windows through WSL).
 ## What it is
 
 - **A loader of under 2 KB gzipped**, one `<script>` tag, which draws the "?" in its own Shadow DOM for people holding a personal code and does nothing for anyone else. The panel and the screen capture load only when the "?" is pressed. It works under a strict Content-Security-Policy and adds one global, `P99`.
-- **Personal codes instead of accounts.** `p99 invite` mints a 12-character code for a person and one or more sites; they open `https://<site>/?p99=<code>` once, the page keeps the code and drops it from the address bar. Codes are revocable and rate-limited. Code holders see their own items; managers see everything.
+- **Personal codes instead of accounts.** `p99 invite` mints a 12-character code for a person and one or more sites; they open `https://<site>/#p99=<code>` once, the page keeps the code and drops it from the address bar; the code sits in the link's fragment, which the browser never sends to a server, so it stays out of the site's logs. Codes are revocable and rate-limited. Code holders see their own items; managers see everything.
 - **Privacy by default.** Addresses are recorded without query strings, page text is read only from regions the person marks, `data-p99-redact` blanks fields in every capture, and a site can switch P99 off on any page.
 - **Where a fix landed.** `p99 announce` reads your commits' `Fixes: BUG-12` and `Refs: FEAT-3` trailers and tells P99 which environment a build reached, so each item shows when its fix is on dev and in production.
 - **Several accounts and sites.** One config holds any number of Cloudflare accounts, each with any number of sites; the TUI switches between sites or shows them all.
