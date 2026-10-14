@@ -35,7 +35,7 @@ The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000
 
 A `manager` line imports nothing. P99's managers are people with a manager code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every manager in the bundle who has neither yet, with the `p99 invite --manager` line to mint one.
 
-A `landing` records when an item first reached an environment, so P99 never announces that landing again. The item shows the environment once a build P99 counts there carries the fix (`p99 announce`).
+A `landing` records when an item first reached an environment, so P99 never announces that landing again. The item shows the environment at once.
 
 ## A complete example
 

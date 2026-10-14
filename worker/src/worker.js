@@ -44,12 +44,14 @@ const DEFAULT_LIST_LIMIT = 50;
 const MAX_CODE_HOSTS = 50;
 const SNIFF_BYTES = 1024;
 const DAILY_LIMITS = { issues: 30, comments: 200, bytes: 100 * 1024 * 1024 };
+const DAILY_PHRASES = { issues: "30 items", comments: "200 comments", bytes: "100 MB of files" };
 const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
 const MAIL_CAP = 100;
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const CODE_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
 const CODE_LENGTH = 12;
-const CODE_TTL_MS = 60 * 1000;
+const CODE_TTL_MS = 10 * 1000;
+const STATIC_CACHE_MAX = 256;
 const CODE_CACHE_MAX = 2000;
 const CODE_TOUCH_MS = 60 * 60 * 1000;
 const DIRECTORY_TTL_MS = 30 * 1000;
@@ -57,6 +59,7 @@ const MANAGERS_TOKEN = Symbol("managers");
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
 const IMAGE_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
+const BLOCKED_NAMES = /\.(html?|xhtml|svg|xml|js|mjs|cjs|jar|exe|msi|dll|com|scr|bat|cmd|ps1|vbs|hta|lnk|sh|dmg|app|url|webloc)[.\s]*$/i;
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
 const EMPTY_ZIP = [0x50, 0x4b, 0x05, 0x06];
 const OLE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
@@ -387,20 +390,26 @@ function newSecret() {
   return secret;
 }
 
-async function findCode(env, hash) {
+async function findCode(env, request, hash) {
   const hit = codeCache.get(hash);
   if (hit && Date.now() - hit.at < CODE_TTL_MS) return hit.row;
+  if (env.RATE) {
+    const ip = request.headers.get("cf-connecting-ip") || "?";
+    const outcome = await env.RATE.limit({ key: `miss:${ip}` });
+    if (!outcome.success) fail(429, "too many requests; try again in a minute");
+  }
   const row = await env.DB.prepare("SELECT * FROM codes WHERE hash = ?1").bind(hash).first();
   const entry = row ? { ...row, hosts: parseJson(row.hosts_json, []) } : null;
-  if (codeCache.size >= CODE_CACHE_MAX) codeCache.clear();
+  codeCache.delete(hash);
+  if (codeCache.size >= CODE_CACHE_MAX) codeCache.delete(codeCache.keys().next().value);
   codeCache.set(hash, { at: Date.now(), row: entry });
   return entry;
 }
 
-async function authoriseCode(env, ctx, header, host, now) {
+async function authoriseCode(env, ctx, request, header, host, now) {
   const secret = normaliseCode(header);
   if (!secret) fail(401, "a valid X-P99-Code is required");
-  const code = await findCode(env, await sha256Hex(encoder.encode(secret)));
+  const code = await findCode(env, request, await sha256Hex(encoder.encode(secret)));
   if (!code || code.revoked_at || !code.hosts.includes(host)) fail(401, "this code is not valid here");
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
@@ -492,7 +501,7 @@ async function checkUsage(c, field, amount) {
   const row = await c.env.DB.prepare(`SELECT ${field} AS used FROM usage WHERE actor_email = ?1 AND day = ?2`)
     .bind(c.actor.email, today(c.now))
     .first();
-  if ((row ? row.used : 0) + amount > DAILY_LIMITS[field]) fail(429, `the daily limit for ${field} is reached`);
+  if ((row ? row.used : 0) + amount > DAILY_LIMITS[field]) fail(429, `today's limit of ${DAILY_PHRASES[field]} is reached`);
 }
 
 function usageStatement(c, field, amount) {
@@ -555,7 +564,7 @@ function landingStatements(env, ids) {
     env.DB.prepare(
       "SELECT item_id, env, branch, rel, sha, subject FROM build_items WHERE item_id IN (SELECT value FROM json_each(?1))",
     ).bind(list),
-    env.DB.prepare("SELECT item_id, env, at FROM landings WHERE item_id IN (SELECT value FROM json_each(?1))").bind(
+    env.DB.prepare("SELECT item_id, env, sha, at FROM landings WHERE item_id IN (SELECT value FROM json_each(?1))").bind(
       list,
     ),
   ];
@@ -606,6 +615,18 @@ function landingOf(itemId, lc) {
     const at = first ? first.at : build.announced_at;
     landing.envs.push({ env: name, kind: envKind(lc.dir, name), at, sha: build.sha, version: build.version });
   }
+  const before = landing.envs.length;
+  for (const l of lc.landings) {
+    if (l.item_id !== itemId || landing.envs.some((e) => e.env === l.env)) continue;
+    landing.envs.push({ env: l.env, kind: envKind(lc.dir, l.env), at: l.at, sha: l.sha, version: null });
+  }
+  if (landing.envs.length > before) {
+    const rank = (name) => {
+      const i = lc.order.indexOf(name);
+      return i < 0 ? lc.order.length : i;
+    };
+    landing.envs.sort((a, b) => rank(a.env) - rank(b.env));
+  }
   if (landing.envs.length === 0) landing.branch = fixes.some((r) => !isCounted(lc.counted, r) && r.branch !== "main");
   return landing;
 }
@@ -636,7 +657,7 @@ function summaryOf(row, c, lc) {
     env: row.origin_env,
     page: { url: row.page_url, path: row.page_path, title: row.page_title },
     reporter: { email: row.reporter_email, name: row.reporter_name, agent: Boolean(row.reporter_agent) },
-    assignee: row.assignee,
+    assignee: c.manager ? row.assignee : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     comments: c.manager ? row.comment_count : row.public_comment_count,
@@ -696,12 +717,18 @@ function attachmentOf(row) {
   };
 }
 
-function eventOf(row) {
+function eventOf(row, c) {
+  const open = c.manager || row.actor_email === c.actor.email;
+  const detail = parseJson(row.detail_json, {});
+  if (!c.manager && row.kind === "assignee") {
+    delete detail.from;
+    delete detail.to;
+  }
   return {
-    actor: row.actor_email,
+    actor: open ? row.actor_email : null,
     agent: Boolean(row.actor_agent),
     kind: row.kind,
-    detail: parseJson(row.detail_json, {}),
+    detail,
     at: row.at,
   };
 }
@@ -844,7 +871,7 @@ function validPage(page) {
   }
   if (!isText(page.path, 1, 2048)) return null;
   const path = cleanPath(page.path);
-  if (!isText(path, 1, 512) || !path.startsWith("/")) return null;
+  if (!isText(path, 1, 512) || !/^\/(?![\/\\])/.test(path) || /[\\\s\u0000-\u001f\u007f]/.test(path)) return null;
   const title = page.title ?? "";
   if (!isText(title, 0, 300)) return null;
   return { url, path, title };
@@ -968,6 +995,8 @@ async function health(env) {
   return json(200, { ok: true, version: env.VERSION || "dev" });
 }
 
+const staticCache = new Map();
+
 async function serveStatic(request, env, url) {
   const file = STATIC_FILES[url.pathname];
   if (!file || (request.method !== "GET" && request.method !== "HEAD")) fail(404, "no such file");
@@ -975,8 +1004,15 @@ async function serveStatic(request, env, url) {
   const host = dir.hosts.get(url.hostname);
   if (!host) fail(404, "no such host");
   const version = env.VERSION || "dev";
-  let text = file.source.split("__P99_VERSION__").join(version);
-  if (file.loader) text = text.split("__P99_HOST__").join(scriptJson(placementOf(host.config)));
+  const placement = file.loader ? scriptJson(placementOf(host.config)) : "";
+  const key = `${url.pathname}|${version}|${placement}`;
+  let text = staticCache.get(key);
+  if (text === undefined) {
+    text = file.source.split("__P99_VERSION__").join(version);
+    if (file.loader) text = text.split("__P99_HOST__").join(placement);
+    if (staticCache.size >= STATIC_CACHE_MAX) staticCache.delete(staticCache.keys().next().value);
+    staticCache.set(key, text);
+  }
   const immutable = !file.loader && url.searchParams.has("v");
   return new Response(request.method === "HEAD" ? null : text, {
     status: 200,
@@ -992,6 +1028,9 @@ async function postBuilds(c) {
   const body = await readJson(c, MAX_BUILD_BYTES);
   if (!isEnvName(body.env)) fail(400, "env must name an environment");
   const envName = body.env;
+  if (!c.dir.envs.has(envName) && !(await c.env.DB.prepare("SELECT 1 FROM envs WHERE name = ?1").bind(envName).first())) {
+    fail(400, `no environment is called ${envName}; p99 hosts add <host> --env ${envName} makes one`);
+  }
   if (!isText(body.sha, 7, 64) || !/^[0-9a-f]+$/.test(body.sha)) fail(400, "sha must be a lowercase hex commit id");
   if (!isText(body.branch, 1, 200)) fail(400, "branch must be 1 to 200 characters");
   if (!isText(body.version, 1, 100)) fail(400, "version must be 1 to 100 characters");
@@ -1361,7 +1400,7 @@ async function getIssue(c, rawKey) {
     issue: issueOf({ ...row, unread: 0 }, c, lc),
     comments: comments.map((cm) => commentOf(cm, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
-    events: events.map(eventOf),
+    events: events.map((ev) => eventOf(ev, c)),
   });
 }
 
@@ -1439,7 +1478,7 @@ async function patchIssue(c, rawKey) {
     statements.push(eventStatement(c, row.id, actor, "assignee", { from: row.assignee, to: next.assignee }));
   }
   if (next.title !== row.title) statements.push(eventStatement(c, row.id, actor, "title", { from: row.title, to: next.title }));
-  if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "title", { field: "body" }));
+  if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "body", {}));
   if (statements.length === 0) return issueResponse(c, row.id, 200);
 
   const open = OPEN_STATUSES.has(next.status);
@@ -1639,6 +1678,23 @@ async function streamToBucket(c, key, length, type, name, mark) {
   return digest ? hex(await digest.digest) : c.bodyHash;
 }
 
+function typeMessage(role, type) {
+  const shown = type || "a file with no type";
+  if (role === "file") return `P99 takes images, PDFs, text, CSV, JSON, zip and office files, not ${shown}`;
+  return `a ${role} must be a WebP, PNG or JPEG image, not ${shown}`;
+}
+
+async function storeReserved(c, reserved, made, length) {
+  try {
+    return await streamToBucket(c, reserved.r2_key, length, reserved.type, reserved.name, reserved.mark);
+  } catch (error) {
+    if (made) {
+      await c.env.DB.prepare("DELETE FROM attachments WHERE id = ?1 AND stored_at IS NULL").bind(reserved.id).run().catch(() => {});
+    }
+    throw error;
+  }
+}
+
 async function putAttachment(c, rawKey, rawUid) {
   const row = await loadItem(c, rawKey);
   const uid = decodeURIComponentSafe(rawUid);
@@ -1654,6 +1710,7 @@ async function putAttachment(c, rawKey, rawUid) {
   };
   const byUid = DB.prepare("SELECT * FROM attachments WHERE client_uid = ?1").bind(uid);
   let reserved = await byUid.first();
+  let made = false;
   if (reserved) {
     reserved = await settled(reserved);
     if (reserved instanceof Response) return reserved;
@@ -1672,25 +1729,28 @@ async function putAttachment(c, rawKey, rawUid) {
   }
   const name = (params.get("name") || "").trim();
   if (!isText(name, 1, 200) || /[\u0000-\u001f\u007f/\\]/.test(name)) fail(400, "name must be 1 to 200 characters, no slashes");
+  if (BLOCKED_NAMES.test(name)) fail(400, "the file's name must not end in an executable or web page extension");
   const type = (c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
   if (role === "file" ? !FILE_SIGNATURES[type] : !IMAGE_TYPES.has(type)) {
-    fail(400, `the type ${type || "(none)"} is not allowed for a ${role}`);
+    fail(400, typeMessage(role, type));
   }
   let commentId = null;
   let internal = false;
   const commentParam = params.get("comment");
   if (commentParam) {
-    const comment = await DB.prepare("SELECT id, internal FROM comments WHERE id = ?1 AND item_id = ?2")
+    const comment = await DB.prepare("SELECT id, internal, author_email FROM comments WHERE id = ?1 AND item_id = ?2")
       .bind(Number(commentParam) || 0, row.id)
       .first();
-    if (!comment || (comment.internal && !c.manager)) fail(404, "no such comment on this item");
+    if (!comment || (comment.internal && !c.manager) || (!c.manager && comment.author_email !== c.actor.email)) {
+      fail(404, "no such comment on this item");
+    }
     commentId = comment.id;
     internal = Boolean(comment.internal);
   }
   const declared = c.request.headers.get("content-length");
   if (declared === null || !/^\d{1,12}$/.test(declared)) fail(400, "Content-Length is required");
   const length = Number(declared);
-  if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MiB");
+  if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MB");
   if (length === 0 || !c.request.body) fail(400, "the file is empty");
   if (row.attachment_count >= MAX_FILES_PER_ITEM) fail(409, `an item holds at most ${MAX_FILES_PER_ITEM} files`);
   await checkUsage(c, "bytes", length);
@@ -1719,6 +1779,7 @@ async function putAttachment(c, rawKey, rawUid) {
         mark,
       )
       .first();
+    made = Boolean(reserved);
     if (!reserved) {
       const raced = await settled(await byUid.first());
       if (raced instanceof Response) return raced;
@@ -1726,7 +1787,7 @@ async function putAttachment(c, rawKey, rawUid) {
     }
   }
   if (reserved.bytes !== length) fail(400, "Content-Length differs from the first attempt with this client_uid");
-  const sha256 = await streamToBucket(c, reserved.r2_key, length, reserved.type, reserved.name, reserved.mark);
+  const sha256 = await storeReserved(c, reserved, made, length);
   const token = crypto.randomUUID();
   const mine = "EXISTS (SELECT 1 FROM attachments WHERE id = ?1 AND stored_token = ?2)";
   const results = await DB.batch([
@@ -2486,6 +2547,7 @@ async function putImportAttachment(c, rawUid) {
   if (!row || row.host !== host) fail(404, "no such item");
   const byUid = DB.prepare("SELECT * FROM attachments WHERE client_uid = ?1").bind(uid);
   let reserved = await byUid.first();
+  let made = false;
   if (reserved && reserved.item_id !== row.id) return settle(409);
   if (reserved && reserved.stored_at) return settle(200, reserved);
   const role = params.get("role") || "file";
@@ -2501,9 +2563,10 @@ async function putImportAttachment(c, rawUid) {
   }
   const name = (params.get("name") || "").trim();
   if (!isText(name, 1, 200) || /[\u0000-\u001f\u007f/\\]/.test(name)) fail(400, "name must be 1 to 200 characters, no slashes");
+  if (BLOCKED_NAMES.test(name)) fail(400, "the file's name must not end in an executable or web page extension");
   const type = (c.request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
   if (role === "file" ? !FILE_SIGNATURES[type] : !IMAGE_TYPES.has(type)) {
-    fail(400, `the type ${type || "(none)"} is not allowed for a ${role}`);
+    fail(400, typeMessage(role, type));
   }
   let commentId = null;
   let actor = row.reporter_email;
@@ -2522,7 +2585,7 @@ async function putImportAttachment(c, rawUid) {
   const declared = c.request.headers.get("content-length");
   if (declared === null || !/^\d{1,12}$/.test(declared)) fail(400, "Content-Length is required");
   const length = Number(declared);
-  if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MiB");
+  if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MB");
   if (length === 0 || !c.request.body) fail(400, "the file is empty");
   const stored = await DB.prepare("SELECT count(*) AS n FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL")
     .bind(row.id)
@@ -2538,12 +2601,13 @@ async function putImportAttachment(c, rawUid) {
     )
       .bind(row.id, uid, commentId, internal ? 1 : 0, role, name, type, length, c.bodyHash, `issues/${row.id}/${uid}`, actor, row.origin_env, createdAt, mark)
       .first();
+    made = Boolean(reserved);
     if (!reserved) reserved = await byUid.first();
     if (!reserved || reserved.item_id !== row.id) return settle(409);
     if (reserved.stored_at) return settle(200, reserved);
   }
   if (reserved.bytes !== length) fail(400, "Content-Length differs from the first attempt with this uid");
-  const sha256 = await streamToBucket(c, reserved.r2_key, length, reserved.type, reserved.name, reserved.mark);
+  const sha256 = await storeReserved(c, reserved, made, length);
   await DB.batch([
     DB.prepare("UPDATE attachments SET stored_at = ?2, stored_token = ?3, sha256 = ?4 WHERE id = ?1 AND stored_at IS NULL").bind(
       reserved.id,
@@ -2606,7 +2670,7 @@ async function browserRequest(request, env, ctx, url, path) {
   const hostRow = dir.hosts.get(url.hostname);
   if (!hostRow) fail(404, "no such host");
   const now = new Date().toISOString();
-  const code = await authoriseCode(env, ctx, request.headers.get("x-p99-code"), hostRow.host, now);
+  const code = await authoriseCode(env, ctx, request, request.headers.get("x-p99-code"), hostRow.host, now);
   const found = findRoute(BROWSER_ROUTES, request.method, path);
   if (!found) fail(404, "no such route");
   const declaredHash = request.headers.get("x-content-sha256");
