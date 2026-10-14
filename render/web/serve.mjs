@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
 const worker = join(repo, "worker");
-const work = join(repo, "tmp", "web");
+const work = resolve(repo, process.env.P99_WORK || "tmp/web");
 const site = join(here, "site");
 const PORT = Number(process.env.P99_PROXY_PORT || 8799);
 const UPSTREAM = Number(process.env.P99_WORKER_PORT || 8790);

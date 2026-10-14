@@ -3,12 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Records P99's web widget on a sample shop, frame by frame, takes its stills and load times, and times its captures on a page of lazy media.",
+  "description": "Records P99's web widget on a sample shop and on PITO MD's own site, frame by frame, takes its stills and load times, and times its captures on a page of lazy media.",
   "license": "MIT",
   "scripts": {
     "serve": "node serve.mjs",
     "record": "node record.mjs",
-    "capture-check": "node capture-check.mjs"
+    "capture-check": "node capture-check.mjs",
+    "pitomd": "node pitomd.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"
