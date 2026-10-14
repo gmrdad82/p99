@@ -2,29 +2,3 @@
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:32 the config docs explain secret references to users
-commit/4b12424467b1:1 a commit subject naming the secret references feature
-commit/ad8e98f6d0b6:1 a commit subject naming the secret references feature
-commit/b305924b9b81:docs/config.md:14 the first draft's example reference
-commit/b305924b9b81:docs/config.md:20 the first draft's example reference
-commit/b305924b9b81:docs/config.md:33 the first draft's docs of secret references
-commit/b305924b9b81:src/config.rs:179 the first draft's secret reference reader
-commit/b305924b9b81:src/config.rs:185 the first draft's secret reference reader
-commit/b305924b9b81:src/config.rs:191 the first draft's secret reference reader
-commit/b305924b9b81:src/config.rs:194 the first draft's secret reference reader
-commit/b305924b9b81:src/config.rs:196 the first draft's secret reference reader
-commit/ad8e98f6d0b6:.public-allow:1 the first waiver file's comment
-commit/ad8e98f6d0b6:.public-allow:2 the first waiver file's reason
-commit/ad8e98f6d0b6:.public-allow:4 the first waiver file's reason
-commit/c3cdb73c1f48:bin/marks:4 the first marks script's default checkout path, replaced by PITO_ASSETS
-commit/c3cdb73c1f48:NOTICE:13 the first NOTICE named the brand masters' repository
-commit/f2955102c963:src/vault.rs:3 the reference scheme P99 reads secrets through, before the setup part moved it
-commit/f2955102c963:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
-commit/404579d295e4:src/vault.rs:3 the reference scheme P99 reads secrets through, before the setup part moved it
-commit/404579d295e4:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
-commit/0510273845bd:src/vault.rs:3 the reference scheme P99 reads secrets through, before the setup part moved it
-commit/0510273845bd:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
-commit/fd40744445c7:docs/config.md:34 the branch's docs of secret references, one line lower for a commit
-commit/a82b5d362758:docs/config.md:33 the config docs explain secret references to users, in an intermediate commit
-commit/45e769701976:docs/config.md:33 the config docs explain secret references to users, in the media branch
-commit/5a7be5bc2de8:docs/config.md:33 the config docs explain secret references to users, in the loader branch
-commit/90ed738d7256:bin/docs-bundle:214 the docs bundle's guard pattern that refuses local paths in pages, before it was reworded
