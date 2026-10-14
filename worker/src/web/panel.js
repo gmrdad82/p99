@@ -982,9 +982,16 @@ function capture(full) {
     hidden.push({ w: Math.round(b.width), h: Math.round(b.height) });
   });
   const blanks = [];
+  const shown = [];
   document.querySelectorAll("img").forEach((n) => {
-    if (n.complete && n.naturalWidth) return;
     if (n.closest("[data-p99-ignore]")) return;
+    if (n.complete && n.naturalWidth) {
+      if (n.currentSrc) {
+        mark(n, "data-p99-src", String(shown.length));
+        shown.push(n.currentSrc);
+      }
+      return;
+    }
     mark(n, "data-p99-blank", String(blanks.length));
     blanks.push({ w: n.offsetWidth, h: n.offsetHeight });
   });
@@ -1043,7 +1050,7 @@ function capture(full) {
         fetchFn: (url) => (fragment(url) ? BLANK : sameOrigin(url) ? false : BLANK),
         features: { restoreScrollPosition: true, fixSvgXmlDecode: safari },
         filter: (node) => !ignored(node) && !skip.has(node),
-        onCloneNode: (clone) => dress(clone, { full, sx, sy, hidden, fixes, groupList, blanks })
+        onCloneNode: (clone) => dress(clone, { full, sx, sy, hidden, fixes, groupList, blanks, shown })
       });
     })
     .then((c) => {
@@ -1099,6 +1106,16 @@ function dress(clone, c) {
         if (p !== v) n.style.setProperty(k, p, n.style.getPropertyPriority(k));
       }
     });
+  });
+  clone.querySelectorAll("[data-p99-src]").forEach((n) => {
+    const src = c.shown[Number(n.getAttribute("data-p99-src"))];
+    n.removeAttribute("data-p99-src");
+    if (!src) return;
+    n.removeAttribute("srcset");
+    n.removeAttribute("sizes");
+    n.removeAttribute("loading");
+    n.src = src;
+    if (n.parentNode && n.parentNode.nodeName === "PICTURE") n.parentNode.querySelectorAll("source").forEach((x) => x.remove());
   });
   clone.querySelectorAll("[data-p99-blank]").forEach((n) => {
     const box = c.blanks[Number(n.getAttribute("data-p99-blank"))];

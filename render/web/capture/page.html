@@ -17,6 +17,8 @@
   .tile video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
   .gallery { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; padding: 32px; }
   .gallery img { width: 100%; height: 220px; object-fit: cover; display: block; border-radius: 8px; }
+  .pictures { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 32px; }
+  .pictures img { width: 100%; height: 200px; object-fit: cover; display: block; border-radius: 8px; border: 4px solid #2b2620; box-sizing: border-box; }
   footer { padding: 32px; background: #2b2620; color: #faf7f2; }
 </style>
 </head>
@@ -25,6 +27,9 @@
 <section class="hero">
   <video data-loop preload="none" muted loop playsinline poster="/media/poster-0.svg" src="/media/loop-0.mp4"></video>
   <h1>Grinders that keep up</h1>
+</section>
+<section class="pictures" id="pictures">
+  <picture><source media="(max-width: 699px)" srcset="/media/poster-20.svg 640w, /media/poster-25.svg 1280w" sizes="100vw" width="640" height="360"><img src="/media/poster-26.svg" srcset="/media/poster-21.svg 640w, /media/poster-22.svg 1280w" sizes="(min-width: 700px) 50vw, 100vw" width="640" height="360" alt="Hero, same origin"></picture>
 </section>
 <section class="noise"><h2>Burrs, not blades</h2><p>A textured band: its colour and grain must survive the capture.</p></section>
 <section class="grid" id="grid"></section>
@@ -48,6 +53,15 @@
     t.append(v);
     grid.append(t);
   }
+  const pic = document.createElement("picture");
+  const src = document.createElement("source");
+  src.media = "(min-width: 700px)";
+  src.srcset = other + "/media/poster-23.svg";
+  const img = document.createElement("img");
+  img.src = "/media/poster-24.svg";
+  img.alt = "Hero, other origin";
+  pic.append(src, img);
+  document.getElementById("pictures").append(pic);
   const gallery = document.getElementById("gallery");
   for (let i = 1; i <= 24; i++) {
     const img = document.createElement("img");
