@@ -211,7 +211,7 @@ done
 if grep -rnE '(^|[^[:alnum:]._/-])docs/[[:alnum:]_/-]+\.md' "$out" --include='*.md' >&2; then
   fail "the pages above name a repository doc the bundle doesn't map; add it to relink"
 fi
-if grep -rnE '/home/|/Users/|~/Projects' "$out" >&2; then
+if grep -rnE '/home/|/Users/|~/[[:upper:]][[:lower:]]+/' "$out" >&2; then
   fail "the pages above name a local path"
 fi
 if grep -rniwE 'roadmap|planned|coming|upcoming|next release' "$out" --include='*.md' >&2; then
