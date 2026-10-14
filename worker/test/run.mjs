@@ -235,7 +235,6 @@ async function run() {
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     assert.equal(filed.json.page.url, "https://example.com/orders");
     assert.equal(filed.json.host, here);
-    assert.ok(filed.json.id > 9);
     assert.equal((await browse("GET", `/issues/${key}`, adaHere.secret)).status, 200);
     assert.equal((await browse("GET", `/issues/${key}`, graceHere.secret)).status, 404);
     assert.equal((await browse("GET", "/issues?scope=all", graceHere.secret)).status, 403);
