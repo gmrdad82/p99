@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.5 — 2026-10-14
+
+### Changed
+
+- The architecture diagram labels the inbox p99 TUI, like p99 CLI beside it.
+
 ## v1.0.4 — 2026-10-14
 
 ### Fixed
