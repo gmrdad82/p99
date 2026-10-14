@@ -99,7 +99,6 @@ impl Source {
         if accounts.is_empty() {
             return Source::Broken("no account yet; p99 setup makes one".into());
         }
-        let agent = crate::config::agent(agent, &config);
         Source::Live(Arc::new(Live {
             config,
             accounts,
@@ -121,10 +120,16 @@ impl Source {
         }
     }
 
-    pub fn me(&self) -> (String, String) {
+    pub fn me(&self, account: usize) -> (String, String) {
         match self {
             Source::Demo(..) => (super::demo::ME.0.to_owned(), super::demo::ME.1.to_owned()),
-            Source::Live(live) => (live.config.me.name.clone(), live.config.me.email.clone()),
+            Source::Live(live) => match live.accounts.get(account) {
+                Some(name) => {
+                    let me = live.config.me_for(name);
+                    (me.name, me.email)
+                }
+                None => (live.config.me.name.clone(), live.config.me.email.clone()),
+            },
             Source::Broken(_) => (String::new(), String::new()),
         }
     }

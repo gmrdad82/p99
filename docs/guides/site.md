@@ -68,12 +68,12 @@ Give the tag the page's nonce, and allow the `https://<host>/_p99/` path in `scr
 
 ## 6. Hosts behind Cloudflare Access
 
-A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie, so give them one of two ways in:
+A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie. They reach the Worker through any host of the account, skip one that answers with Access's login and keep the one that answered, so a public production host next to a private `dev` host needs nothing more. When every host of the account is behind Access, give them one of two ways in:
 
 - point the account's `url` in the config at an address of the Worker that is not behind Access, such as a custom domain of its own; or
 - create an Access service token for the application and set the account's `access_client_id` and `access_client_secret`: every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`.
 
-Either way, P99's own signature still guards every request.
+Either way, P99's own signature still guards every request. `p99 setup` and `p99 deploy` report a host behind Access as such, not as a failed check.
 
 ## Next
 

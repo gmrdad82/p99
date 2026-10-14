@@ -56,6 +56,24 @@ pub struct Account {
     pub access_client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
+    pub me: AccountMe,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountMe {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<bool>,
+}
+
+impl AccountMe {
+    pub fn is_empty(&self) -> bool {
+        self.name.is_none() && self.email.is_none() && self.agent.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -190,18 +208,46 @@ impl Config {
             .collect()
     }
 
-    pub fn url(&self, account: &str) -> Result<String, String> {
+    pub fn me_for(&self, account: &str) -> Me {
+        let mut me = self.me.clone();
+        if let Some(over) = self.accounts.get(account).map(|a| &a.me) {
+            if let Some(name) = &over.name {
+                me.name = name.clone();
+            }
+            if let Some(email) = &over.email {
+                me.email = email.clone();
+            }
+            if let Some(agent) = over.agent {
+                me.agent = agent;
+            }
+        }
+        me
+    }
+
+    pub fn bases(&self, account: &str, target: Option<&str>) -> Result<Vec<String>, String> {
         let entry = self
             .accounts
             .get(account)
             .ok_or_else(|| format!("no account is called {account}"))?;
         if let Some(url) = &entry.url {
-            return Ok(url.trim_end_matches('/').to_owned());
+            return Ok(vec![url.trim_end_matches('/').to_owned()]);
         }
-        self.hosts_of(account)
-            .first()
-            .map(|host| format!("https://{host}/_p99"))
-            .ok_or_else(|| format!("the account {account} has no host yet; p99 hosts add"))
+        let mut hosts: Vec<(&str, &Host)> = self
+            .hosts
+            .iter()
+            .filter(|(_, h)| h.account == account)
+            .map(|(name, h)| (name.as_str(), h))
+            .collect();
+        if hosts.is_empty() {
+            return Err(format!(
+                "the account {account} has no host yet; p99 hosts add"
+            ));
+        }
+        hosts.sort_by_key(|(name, h)| (Some(*name) != target, h.env != "production"));
+        Ok(hosts
+            .into_iter()
+            .map(|(name, _)| format!("https://{name}/_p99"))
+            .collect())
     }
 
     fn has_inline_secret(&self) -> bool {
@@ -223,13 +269,13 @@ pub fn secret(value: &str) -> Result<String, String> {
     crate::vault::read(value)
 }
 
-pub fn agent(flag: bool, config: &Config) -> bool {
+pub fn agent(flag: bool, me: &Me) -> bool {
     if flag {
         return true;
     }
     match env::var("P99_AGENT") {
         Ok(value) if !value.trim().is_empty() => value.trim() != "0",
-        _ => config.me.agent,
+        _ => me.agent,
     }
 }
 
@@ -258,4 +304,72 @@ fn open_private(file: &Path) -> std::io::Result<fs::File> {
 #[cfg(not(unix))]
 fn open_private(file: &Path) -> std::io::Result<fs::File> {
     fs::File::create(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bases_put_the_target_then_production_first() {
+        let config: Config = toml::from_str(
+            r#"
+            [me]
+            name = "Ada Lovelace"
+            email = "ada@example.com"
+
+            [accounts.main]
+            account_id = "a"
+            token = ""
+            me = { name = "Grace Hopper", email = "grace@example.org" }
+
+            [accounts.custom]
+            account_id = "b"
+            token = ""
+            url = "https://p99.example.org/_p99/"
+
+            [hosts."dev.example.com"]
+            account = "main"
+            env = "dev"
+
+            [hosts."a.example.com"]
+            account = "main"
+            env = "staging"
+
+            [hosts."example.com"]
+            account = "main"
+            env = "production"
+
+            [hosts."example.org"]
+            account = "custom"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.bases("main", None).unwrap(),
+            [
+                "https://example.com/_p99",
+                "https://a.example.com/_p99",
+                "https://dev.example.com/_p99"
+            ]
+        );
+        assert_eq!(
+            config.bases("main", Some("dev.example.com")).unwrap(),
+            [
+                "https://dev.example.com/_p99",
+                "https://example.com/_p99",
+                "https://a.example.com/_p99"
+            ]
+        );
+        assert_eq!(
+            config.bases("custom", Some("example.org")).unwrap(),
+            ["https://p99.example.org/_p99"]
+        );
+        let me = config.me_for("main");
+        assert_eq!(
+            (me.name.as_str(), me.email.as_str()),
+            ("Grace Hopper", "grace@example.org")
+        );
+        assert_eq!(config.me_for("custom").email, "ada@example.com");
+    }
 }

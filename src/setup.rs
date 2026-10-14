@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::bundle::{self, ModuleInfo};
 use crate::cli::Global;
 use crate::cloudflare::{ApiError, CRON, Cloudflare, Named};
-use crate::config::{Account, Config, Host};
+use crate::config::{Account, AccountMe, Config, Host};
 use crate::vault;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -72,6 +72,8 @@ struct Health {
     host: String,
     ok: bool,
     version: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    access: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -438,26 +440,74 @@ impl Session<'_> {
         }
     }
 
-    fn me(&self, config: &mut Config) -> Result<(), String> {
-        if let Some(name) = &self.access.name {
-            config.me.name = name.clone();
+    fn me(&self, config: &mut Config, account: &str) -> Result<AccountMe, String> {
+        let known = config.accounts.get(account).map(|a| a.me.clone());
+        if config.me.email.is_empty() {
+            if let Some(name) = &self.access.name {
+                config.me.name = name.clone();
+            }
+            if let Some(email) = &self.access.email {
+                config.me.email = email.clone();
+            }
+            if config.me.name.is_empty() {
+                config.me.name = self
+                    .ask
+                    .line("Your name, as P99 shows it", None, "--name")?;
+            }
+            while !config.me.email.contains('@') {
+                config.me.email = self.ask.line(
+                    "Your e-mail (it becomes the account's first manager)",
+                    None,
+                    "--email",
+                )?;
+            }
+            return Ok(known.unwrap_or_default());
         }
-        if let Some(email) = &self.access.email {
-            config.me.email = email.clone();
+        let mut over = known.clone().unwrap_or_default();
+        let mut name = self.access.name.clone();
+        let mut email = self.access.email.clone();
+        if name.is_none() && email.is_none() && known.is_none() {
+            let who = format!("{} <{}>", config.me.name, config.me.email);
+            if !self
+                .ask
+                .confirm(&format!("Act as {who} on this account?"), true)?
+            {
+                name = Some(self.ask.line(
+                    "Your name on this account, as P99 shows it",
+                    Some(&config.me.name),
+                    "--name",
+                )?);
+                email = Some(self.ask.line(
+                    "Your e-mail on this account (it becomes its first manager)",
+                    None,
+                    "--email",
+                )?);
+            }
         }
-        if config.me.name.is_empty() {
+        if let Some(name) = name {
+            over.name = (name != config.me.name).then_some(name);
+        }
+        if let Some(email) = email {
+            over.email = (email != config.me.email).then_some(email);
+        }
+        if config.me.name.is_empty() && over.name.is_none() {
             config.me.name = self
                 .ask
                 .line("Your name, as P99 shows it", None, "--name")?;
         }
-        while !config.me.email.contains('@') {
-            config.me.email = self.ask.line(
-                "Your e-mail (it becomes the account's first manager)",
+        while !over
+            .email
+            .as_deref()
+            .unwrap_or(&config.me.email)
+            .contains('@')
+        {
+            over.email = Some(self.ask.line(
+                "Your e-mail on this account (it becomes its first manager)",
                 None,
                 "--email",
-            )?;
+            )?);
         }
-        Ok(())
+        Ok(over)
     }
 
     fn token(&mut self, existing: Option<&Account>) -> Result<(String, Cloudflare, Named), String> {
@@ -987,6 +1037,7 @@ fn health(hosts: &[&str]) -> Vec<Health> {
     let mut out = Vec::new();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
+        .max_redirects(0)
         .timeout_global(Some(Duration::from_secs(10)))
         .build()
         .new_agent();
@@ -1006,6 +1057,7 @@ fn health(hosts: &[&str]) -> Vec<Health> {
             );
         let mut last = String::new();
         let mut answered = None;
+        let mut access = false;
         for attempt in 0..6 {
             if attempt > 0 {
                 std::thread::sleep(Duration::from_secs(5));
@@ -1021,7 +1073,19 @@ fn health(hosts: &[&str]) -> Vec<Health> {
                     }
                     last = format!("answers version {version}, not {VERSION} yet");
                 }
-                Ok(r) => last = format!("answers HTTP {}", r.status().as_u16()),
+                Ok(r) => {
+                    let location = r
+                        .headers()
+                        .get("location")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("");
+                    if r.status().is_redirection() && crate::client::is_access(location) {
+                        access = true;
+                        last.clear();
+                        break;
+                    }
+                    last = format!("answers HTTP {}", r.status().as_u16());
+                }
                 Err(e) => last = e.to_string(),
             }
         }
@@ -1029,8 +1093,13 @@ fn health(hosts: &[&str]) -> Vec<Health> {
             host: (*host).to_owned(),
             ok: last.is_empty(),
             version: answered,
+            access,
         });
-        if last.is_empty() {
+        if access {
+            done(&format!(
+                "{url} is behind Cloudflare Access, as expected for a private host"
+            ));
+        } else if last.is_empty() {
             done(&format!("{url} answers {VERSION}"));
         } else {
             say!(
@@ -1068,7 +1137,6 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "You",
         "P99 acts as you in the CLI and the TUI, and your e-mail is the account's first manager.",
     );
-    s.me(&mut config)?;
     let name = match &global.account {
         Some(name) => name.clone(),
         None if config.accounts.is_empty() => "main".to_owned(),
@@ -1089,6 +1157,10 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         return Err(format!(
             "{name}: use letters, digits, - and _ in an account name"
         ));
+    }
+    let me = s.me(&mut config, &name)?;
+    if let Some(entry) = config.accounts.get_mut(&name) {
+        entry.me = me.clone();
     }
     if config.accounts.contains_key(&name) {
         note(&format!("continuing the setup of the account {name}"));
@@ -1120,7 +1192,9 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         mail_from: None,
         access_client_id: None,
         access_client_secret: None,
+        me: AccountMe::default(),
     });
+    account.me = me;
     if account.account_id != cf_account.id {
         account.database_id.clear();
     }
@@ -1259,8 +1333,9 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     cf.put_secret(&id, &account.worker, "KEY_P99", &vault::read(&account.key)?)?;
     done("secret KEY_P99");
     if !secrets.iter().any(|s| s == "MANAGERS") {
-        cf.put_secret(&id, &account.worker, "MANAGERS", &config.me.email)?;
-        done(&format!("secret MANAGERS = {}", config.me.email));
+        let manager = config.me_for(&name).email;
+        cf.put_secret(&id, &account.worker, "MANAGERS", &manager)?;
+        done(&format!("secret MANAGERS = {manager}"));
     } else {
         done("secret MANAGERS is kept as it is");
     }
@@ -1399,9 +1474,10 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "\nPut <script src=\"/_p99/p99.js\" async></script> in your pages' <head>, then invite people:"
     );
     let host = hosts.first().copied().unwrap_or("<host>");
+    let me = config.me_for(&name);
     let invite = format!(
         "p99 invite {host} --name \"{}\" --email {}",
-        config.me.name, config.me.email
+        me.name, me.email
     );
     say!("  {invite}");
     if global.json {

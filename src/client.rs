@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
@@ -18,7 +20,10 @@ const ANSWER_LIMIT: u64 = 32 << 20;
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    pub url: String,
+    account: String,
+    bases: Arc<[String]>,
+    target: Option<usize>,
+    answered: Arc<AtomicUsize>,
     key: Vec<u8>,
     pub actor: Actor,
     pub host: Option<String>,
@@ -32,6 +37,14 @@ struct Reply {
     content_type: String,
     disposition: String,
     bytes: Vec<u8>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Outcome {
+    Answer,
+    Access,
+    Moved(String),
+    Foreign,
 }
 
 impl Client {
@@ -50,13 +63,17 @@ impl Client {
                 ));
             }
         };
+        let me = config.me_for(account);
         let actor = Actor {
-            email: config.me.email.clone(),
-            name: config.me.name.clone(),
-            agent,
+            agent: crate::config::agent(agent, &me),
+            email: me.email,
+            name: me.name,
         };
         Ok(Client {
-            url: config.url(account)?,
+            account: account.to_owned(),
+            bases: config.bases(account, None)?.into(),
+            target: None,
+            answered: Arc::new(AtomicUsize::new(0)),
             key,
             actor,
             host: None,
@@ -68,7 +85,33 @@ impl Client {
 
     pub fn with_host(mut self, host: Option<&str>) -> Client {
         self.host = host.map(str::to_owned);
+        self.aimed(host)
+    }
+
+    pub fn aimed(mut self, host: Option<&str>) -> Client {
+        if let Some(host) = host {
+            let base = format!("https://{host}/_p99");
+            if let Some(at) = self.bases.iter().position(|b| *b == base) {
+                self.target = Some(at);
+            }
+        }
         self
+    }
+
+    fn order(&self) -> Vec<usize> {
+        let mut order: Vec<usize> = Vec::with_capacity(self.bases.len());
+        let answered = self.answered.load(Ordering::Relaxed);
+        for first in [answered.checked_sub(1), self.target].into_iter().flatten() {
+            if first < self.bases.len() && !order.contains(&first) {
+                order.push(first);
+            }
+        }
+        order.extend(
+            (0..self.bases.len())
+                .filter(|at| !order.contains(at))
+                .collect::<Vec<_>>(),
+        );
+        order
     }
 
     pub fn list(&self, q: &ListQuery) -> Result<IssueList, String> {
@@ -269,6 +312,7 @@ impl Client {
 
     fn headers(
         &self,
+        base: &str,
         ts: i64,
         method: &str,
         pq: &str,
@@ -284,7 +328,7 @@ impl Client {
             &self.key,
             ts,
             method,
-            &self.signed_path(pq),
+            &signed_path(base, pq),
             &actor_header,
             body,
         );
@@ -295,15 +339,6 @@ impl Client {
         headers.push(("X-Content-SHA256", signed.content_sha256));
         headers.push(("X-P99-Auth", signed.auth));
         headers
-    }
-
-    fn signed_path(&self, pq: &str) -> String {
-        let rest = self
-            .url
-            .split_once("://")
-            .map_or(self.url.as_str(), |(_, rest)| rest);
-        let prefix = rest.find('/').map_or("", |at| &rest[at..]);
-        format!("{}{pq}", prefix.trim_end_matches('/'))
     }
 
     fn send(
@@ -345,61 +380,121 @@ impl Client {
         } else {
             &self.quick
         };
-        let url = format!("{}{pq}", self.url);
-        let mut request = ureq::http::Request::builder().method(method).uri(&url);
-        if !unsigned {
-            for (name, value) in self.headers(now(), method, pq, actor, body) {
-                request = request.header(name, value);
+        let mut moved: Option<(String, String)> = None;
+        for at in self.order() {
+            let base = &self.bases[at];
+            let url = format!("{base}{pq}");
+            let mut request = ureq::http::Request::builder().method(method).uri(&url);
+            if !unsigned {
+                for (name, value) in self.headers(base, now(), method, pq, actor, body) {
+                    request = request.header(name, value);
+                }
             }
-        }
-        if let Some((id, secret)) = &self.access {
-            request = request
-                .header("CF-Access-Client-Id", id)
-                .header("CF-Access-Client-Secret", secret);
-        }
-        if !body.is_empty() {
-            let kind = match content_type {
-                Some(kind) => kind,
-                None if method == "PUT" => "application/octet-stream",
-                None => "application/json",
+            if let Some((id, secret)) = &self.access {
+                request = request
+                    .header("CF-Access-Client-Id", id)
+                    .header("CF-Access-Client-Secret", secret);
+            }
+            if !body.is_empty() {
+                let kind = match content_type {
+                    Some(kind) => kind,
+                    None if method == "PUT" => "application/octet-stream",
+                    None => "application/json",
+                };
+                request = request.header("Content-Type", kind);
+            }
+            let sent = if body.is_empty() {
+                agent.run(request.body(()).map_err(|e| e.to_string())?)
+            } else {
+                agent.run(request.body(body.to_vec()).map_err(|e| e.to_string())?)
             };
-            request = request.header("Content-Type", kind);
+            let mut response = sent.map_err(|e| format!("cannot reach {base}: {e}"))?;
+            let status = response.status().as_u16();
+            let header = |name: &str| {
+                response
+                    .headers()
+                    .get(name)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_owned()
+            };
+            let content_type = header("content-type");
+            let disposition = header("content-disposition");
+            let location = header("location");
+            match classify(status, &content_type, &location) {
+                Outcome::Answer => {}
+                Outcome::Access => continue,
+                Outcome::Moved(to) => {
+                    moved.get_or_insert((host_of(base).to_owned(), to));
+                    continue;
+                }
+                Outcome::Foreign => {
+                    moved.get_or_insert((host_of(base).to_owned(), String::new()));
+                    continue;
+                }
+            }
+            self.answered.store(at + 1, Ordering::Relaxed);
+            let bytes = response
+                .body_mut()
+                .with_config()
+                .limit(ANSWER_LIMIT)
+                .read_to_vec()
+                .map_err(|e| format!("cannot read the answer of {base}: {e}"))?;
+            let reply = Reply {
+                status,
+                content_type,
+                disposition,
+                bytes,
+            };
+            return if (200..300).contains(&status) {
+                Ok(reply)
+            } else {
+                Err(problem(&reply))
+            };
         }
-        let sent = if body.is_empty() {
-            agent.run(request.body(()).map_err(|e| e.to_string())?)
-        } else {
-            agent.run(request.body(body.to_vec()).map_err(|e| e.to_string())?)
-        };
-        let mut response = sent.map_err(|e| format!("cannot reach {}: {e}", self.url))?;
-        let status = response.status().as_u16();
-        let header = |name: &str| {
-            response
-                .headers()
-                .get(name)
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("")
-                .to_owned()
-        };
-        let content_type = header("content-type");
-        let disposition = header("content-disposition");
-        let bytes = response
-            .body_mut()
-            .with_config()
-            .limit(ANSWER_LIMIT)
-            .read_to_vec()
-            .map_err(|e| format!("cannot read the answer of {}: {e}", self.url))?;
-        let reply = Reply {
-            status,
-            content_type,
-            disposition,
-            bytes,
-        };
-        if (200..300).contains(&status) {
-            Ok(reply)
-        } else {
-            Err(problem(&reply))
-        }
+        Err(match moved {
+            Some((host, to)) if to.is_empty() => {
+                format!("{host} answered with a web page instead of answering as P99")
+            }
+            Some((host, to)) => format!("{host} redirected to {to} instead of answering as P99"),
+            None => format!(
+                "every host of the account {} is behind Cloudflare Access, which answered with its login; set `url` for the account to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
+                self.account
+            ),
+        })
     }
+}
+
+fn signed_path(base: &str, pq: &str) -> String {
+    let rest = base.split_once("://").map_or(base, |(_, rest)| rest);
+    let prefix = rest.find('/').map_or("", |at| &rest[at..]);
+    format!("{}{pq}", prefix.trim_end_matches('/'))
+}
+
+fn host_of(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    rest.split(['/', '?', '#']).next().unwrap_or(rest)
+}
+
+pub fn is_access(location: &str) -> bool {
+    host_of(location).ends_with(".cloudflareaccess.com") || location.contains("/cdn-cgi/access/")
+}
+
+fn classify(status: u16, content_type: &str, location: &str) -> Outcome {
+    if (300..400).contains(&status) {
+        if is_access(location) {
+            return Outcome::Access;
+        }
+        return Outcome::Moved(host_of(location).to_owned());
+    }
+    let page = content_type
+        .trim_start()
+        .to_ascii_lowercase()
+        .starts_with("text/html");
+    if page && ((200..300).contains(&status) || matches!(status, 401 | 403 | 404)) {
+        return Outcome::Foreign;
+    }
+    Outcome::Answer
 }
 
 fn http(timeout: Duration) -> ureq::Agent {
@@ -552,7 +647,10 @@ mod tests {
     #[test]
     fn the_signing_vector_of_the_api_docs() {
         let client = Client {
-            url: "https://example.com/_p99".to_owned(),
+            account: "main".to_owned(),
+            bases: vec!["https://example.com/_p99".to_owned()].into(),
+            target: None,
+            answered: Arc::new(AtomicUsize::new(0)),
             key: b"test-secret".to_vec(),
             actor: Actor {
                 email: "ada@example.com".to_owned(),
@@ -566,6 +664,7 @@ mod tests {
         };
         let body = r#"{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}"#;
         let headers = client.headers(
+            "https://example.com/_p99",
             1_760_400_000,
             "POST",
             "/v1/issues?host=example.com",
@@ -591,5 +690,34 @@ mod tests {
             get("X-P99-Auth"),
             "v1 ts=1760400000,sig=89b1d507574a2e8bb9c58d3ba92a29eab0f03baad0e422c4882f17c8ba33505a"
         );
+    }
+
+    #[test]
+    fn an_access_login_falls_through_and_other_redirects_are_named() {
+        assert_eq!(
+            classify(
+                302,
+                "",
+                "https://team.cloudflareaccess.com/cdn-cgi/access/login/dev.example.com?kid=1"
+            ),
+            Outcome::Access
+        );
+        assert_eq!(
+            classify(
+                302,
+                "",
+                "https://dev.example.com/cdn-cgi/access/login?redirect_url=%2F_p99"
+            ),
+            Outcome::Access
+        );
+        assert_eq!(
+            classify(301, "", "https://www.example.com/_p99/v1/hosts"),
+            Outcome::Moved("www.example.com".into())
+        );
+        assert_eq!(
+            classify(200, "text/html; charset=utf-8", ""),
+            Outcome::Foreign
+        );
+        assert_eq!(classify(403, "application/json", ""), Outcome::Answer);
     }
 }

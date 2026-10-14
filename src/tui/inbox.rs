@@ -311,10 +311,14 @@ impl Inbox {
     }
 
     fn pick_assignee(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some(thread) = self.open.as_ref().and_then(|o| o.thread.as_ref()) else {
+        let Some((account, thread)) = self
+            .open
+            .as_ref()
+            .and_then(|o| o.thread.as_ref().map(|t| (o.account, t)))
+        else {
             return;
         };
-        let (name, email) = self.source.me();
+        let (name, email) = self.source.me(account);
         let mut people: Vec<(Option<String>, String)> = vec![(None, "Nobody".into())];
         let mut add = |email: &str, name: &str| {
             if !email.is_empty() && !people.iter().any(|(e, _)| e.as_deref() == Some(email)) {

@@ -16,6 +16,7 @@ Any one of these marks the commands:
 | `--agent` | one command |
 | `P99_AGENT=1` in the environment (any value but empty or `0`) | every command of that shell or process |
 | `agent = true` in the config's `[me]` table | every command; `P99_AGENT=0` turns it off for one shell |
+| `agent = true` in `[accounts.<name>.me]` | every command on that account; `P99_AGENT=0` turns it off for one shell |
 
 Give the agent `P99_AGENT=1` in the environment it runs in, so it can't forget the flag:
 

@@ -335,7 +335,7 @@ fn client_for(
     host: Option<&str>,
 ) -> Result<(Client, String), String> {
     let account = account_of(config, global, host)?;
-    let client = Client::for_account(config, &account, crate::config::agent(global.agent, config))?;
+    let client = Client::for_account(config, &account, global.agent)?.aimed(host);
     Ok((client, account))
 }
 
@@ -420,12 +420,12 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             },
         );
     }
-    let agent = crate::config::agent(global.agent, config);
+    let agent = global.agent;
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
             continue;
         }
-        if config.url(account).is_err() {
+        if config.bases(account, None).is_err() {
             continue;
         }
         let seen = Client::for_account(config, account, agent).and_then(|c| c.hosts());
@@ -537,7 +537,7 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     );
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(config, &account, crate::config::agent(global.agent, config))?;
+    let client = Client::for_account(config, &account, global.agent)?.aimed(Some(&host));
     let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
@@ -806,7 +806,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         args.host.clone()
     };
     let scope = if args.mine { "mine" } else { "all" };
-    let agent = crate::config::agent(global.agent, config);
+    let agent = global.agent;
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
     for account in &accounts {
@@ -1073,13 +1073,16 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
 }
 
 fn assign(config: &Config, global: &Global, args: &AssignArgs) -> Result<(), String> {
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let (client, account) = client_for(config, global, args.host.as_deref())?;
     let assignee = match (&args.who, args.none) {
         (Some(who), false) if who == "me" => {
-            if config.me.email.is_empty() {
-                return Err("[me] has no email in the config".into());
+            let me = config.me_for(&account);
+            if me.email.is_empty() {
+                return Err(format!(
+                    "neither [me] nor [accounts.{account}.me] has an email in the config"
+                ));
             }
-            Some(config.me.email.clone())
+            Some(me.email)
         }
         (Some(who), false) => Some(who.clone()),
         _ => None,
