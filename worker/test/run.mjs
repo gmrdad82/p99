@@ -14,8 +14,6 @@ const base = `http://127.0.0.1:${port}`;
 const keys = {
   test: "test-secret",
   p99: randomBytes(24).toString("hex"),
-  production: randomBytes(24).toString("hex"),
-  dev: randomBytes(24).toString("hex"),
 };
 
 const VECTOR = {
@@ -28,25 +26,7 @@ const VECTOR = {
   auth: "v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566",
 };
 
-const OLD_ITEMS_SQL = `
-CREATE TABLE IF NOT EXISTS d1_migrations(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT UNIQUE,
-  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
-);
-INSERT INTO d1_migrations (name) VALUES ('0001_tracker.sql');
-INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, page_url, page_path, page_title,
-  reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at, created_at, updated_at)
-VALUES
-  (7, 'old-7', 'bug', 'new', 1, 'The old total', '', 'production', 'https://example.com/orders', '/orders', 'Orders',
-   'ada@example.com', 'Ada Lovelace', '{"email":"ada@example.com","name":"Ada Lovelace","rank":"everyone","person":1}',
-   '{}', '[]', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
-  (9, 'old-9', 'feature', 'confirmed', 1, 'An old idea', '', 'production', 'https://example.com/', '/', 'Home',
-   'grace@example.com', 'Grace Hopper', '{"email":"grace@example.com","name":"Grace Hopper","rank":"everyone","person":2}',
-   '{}', '[]', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z');
-INSERT INTO comments (id, item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env, created_at)
-VALUES (3, 9, 'old-c-3', 'grace@example.com', 'Grace Hopper', 0, 'Still wanted.', 0, 'production', '2026-01-03T00:00:00.000Z');
-UPDATE items SET comment_count = 1, public_comment_count = 1 WHERE id = 9;
+const SEED_SQL = `
 INSERT INTO usage (actor_email, day, issues, comments, bytes) VALUES ('grace@example.com', date('now'), 30, 200, 0);
 `;
 
@@ -55,7 +35,6 @@ const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accen
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const actorHeader = (actor) => Buffer.from(JSON.stringify(actor)).toString("base64url");
 const grace = { email: "grace@example.com", name: "Grace Hopper", rank: "super_administrator", agent: "claude" };
-const ada = { email: "ada@example.com", name: "Ada Lovelace", rank: "everyone" };
 
 function sign({ secret, ts, method, path, actor, hash }) {
   const sig = createHmac("sha256", secret).update(`v1\n${ts}\n${method}\n${path}\n${actor}\n${hash}`).digest("hex");
@@ -69,8 +48,8 @@ async function call(method, path, { actor = grace, body, keyId = "p99", tamper }
   const ts = Math.floor(Date.now() / 1000);
   let auth = sign({ secret: keys[keyId] || "unknown", ts, method, path, actor: actorText, hash });
   if (tamper === "sig") auth = auth.slice(0, -1) + (auth.endsWith("0") ? "1" : "0");
-  const headers = { "x-tracker-key-id": keyId, "x-tracker-auth": auth, "x-content-sha256": hash };
-  if (actorText) headers["x-tracker-actor"] = actorText;
+  const headers = { "x-p99-key-id": keyId, "x-p99-auth": auth, "x-content-sha256": hash };
+  if (actorText) headers["x-p99-actor"] = actorText;
   if (bytes.length > 0) headers["content-type"] = "application/json";
   const response = await fetch(base + path, { method, headers, body: bytes.length > 0 ? bytes : undefined });
   return { status: response.status, json: await jsonOf(response), response };
@@ -138,10 +117,10 @@ async function waitForHealth(child) {
 async function main() {
   rmSync(state, { recursive: true, force: true });
   mkdirSync(state, { recursive: true });
-  const oldSchema = join(work, "test-old.sql");
-  writeFileSync(oldSchema, readFileSync(join(root, "migrations", "0001_tracker.sql"), "utf8") + OLD_ITEMS_SQL);
-  wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", oldSchema]);
   wranglerSync(["d1", "migrations", "apply", "DB", "--local", "--persist-to", state]);
+  const seed = join(work, "test-seed.sql");
+  writeFileSync(seed, SEED_SQL);
+  wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
   const child = spawn(
@@ -187,10 +166,10 @@ async function run() {
     const stale = await fetch(base + VECTOR.path, {
       method: "POST",
       headers: {
-        "x-tracker-key-id": "test",
-        "x-tracker-actor": VECTOR.actor,
+        "x-p99-key-id": "test",
+        "x-p99-actor": VECTOR.actor,
         "x-content-sha256": VECTOR.hash,
-        "x-tracker-auth": VECTOR.auth,
+        "x-p99-auth": VECTOR.auth,
         "content-type": "application/json",
       },
       body: VECTOR.body,
@@ -198,16 +177,16 @@ async function run() {
     assert.equal(stale.status, 401);
     assert.equal((await stale.json()).error, "unauthorized");
     assert.equal((await call("GET", "/_p99/v1/hosts", { tamper: "sig" })).status, 401);
-    assert.equal((await call("GET", "/v1/hosts", { keyId: "nokey" })).status, 401);
+    assert.equal((await call("GET", "/_p99/v1/hosts", { keyId: "nokey" })).status, 401);
     const ts = Math.floor(Date.now() / 1000);
     const actor = actorHeader(grace);
     const empty = sha256(Buffer.alloc(0));
-    const crossed = await fetch(`${base}/v1/hosts`, {
+    const crossed = await fetch(`${base}/_p99/v1/hosts`, {
       headers: {
-        "x-tracker-key-id": "p99",
-        "x-tracker-actor": actor,
+        "x-p99-key-id": "p99",
+        "x-p99-actor": actor,
         "x-content-sha256": empty,
-        "x-tracker-auth": sign({ secret: keys.dev, ts, method: "GET", path: "/v1/hosts", actor, hash: empty }),
+        "x-p99-auth": sign({ secret: keys.test, ts, method: "GET", path: "/_p99/v1/hosts", actor, hash: empty }),
       },
     });
     assert.equal(crossed.status, 401);
@@ -226,26 +205,11 @@ async function run() {
   assert.equal(putLocal.status, 200, JSON.stringify(putLocal.json));
   assert.equal((await call("PUT", "/_p99/v1/hosts/localhost", { body: { env: "dev", config: PLACEMENT } })).status, 200);
 
-  await check("an old database keeps its keys and numbers and gets its host", async () => {
-    const seven = await call("GET", "/_p99/v1/issues/BUG-7?host=127.0.0.1");
-    assert.equal(seven.status, 200);
-    assert.equal(seven.json.issue.key, "BUG-7");
-    assert.equal(seven.json.issue.host, "127.0.0.1");
-    const nine = await call("GET", "/_p99/v1/issues/9");
-    assert.equal(nine.json.issue.key, "FEAT-9");
-    assert.equal(nine.json.comments.length, 1);
-    const all = await call("GET", "/_p99/v1/issues?scope=all&host=*");
-    assert.deepEqual(all.json.issues.map((i) => [i.key, i.host]), [["FEAT-9", "127.0.0.1"], ["BUG-7", "127.0.0.1"]]);
-    assert.equal((await call("GET", "/_p99/v1/issues/BUG-7?host=localhost")).status, 404);
-    assert.equal((await call("GET", "/_p99/v1/issues?scope=all&host=nope.example.com")).status, 404);
-  });
-
   const both = await mint("Ada Lovelace", "ada@example.com", ["127.0.0.1", "localhost"]);
   const me = await browse("GET", "/me?path=%2Forders", both.secret);
   assert.equal(me.status, 200, JSON.stringify(me.json));
   const here = me.json.host;
   const there = here === "127.0.0.1" ? "localhost" : "127.0.0.1";
-  const hereEnv = here === "127.0.0.1" ? "production" : "dev";
   const adaHere = await mint("Ada Lovelace", "ada@example.com", [here]);
   const adaThere = await mint("Ada Lovelace", "ada@example.com", [there]);
   const graceHere = await mint("Grace Hopper", "grace@example.com", [here]);
@@ -280,11 +244,7 @@ async function run() {
     assert.equal((await browse("GET", `/issues/${key}`, adaThere.secret)).status, 401);
   });
 
-  await check("an item filed through the browser keeps its key across the old route", async () => {
-    const old = await call("GET", `/v1/issues/${key}`, { keyId: hereEnv, actor: ada });
-    assert.equal(old.status, 200, JSON.stringify(old.json));
-    assert.equal(old.json.issue.key, key);
-    assert.equal(old.json.issue.host, here);
+  await check("an item filed through the browser reads the same through the signed API", async () => {
     const signed = await call("GET", `/_p99/v1/issues/${key}?host=${here}`);
     assert.equal(signed.json.issue.key, key);
     const comment = await call("POST", `/_p99/v1/issues/${key}/comments?host=${here}`, {
@@ -300,13 +260,12 @@ async function run() {
     assert.equal((await browse("POST", "/issues", graceHere.secret, issueBody())).status, 429);
   });
 
-  await check("search ignores diacritics and case, on new and adopted items", async () => {
+  await check("search ignores diacritics and case", async () => {
     const keys = async (q) =>
       (await call("GET", `/_p99/v1/issues?scope=all&host=*&q=${encodeURIComponent(q)}`)).json.issues.map((i) => i.key);
     const found = await keys("CREME brulee");
     assert.equal(found.length, 1);
     assert.deepEqual(await keys("Crème Brûlée"), found);
-    assert.deepEqual(await keys("old TOTAL"), ["BUG-7"]);
   });
 
   await check("the loader carries the host's placement and version", async () => {

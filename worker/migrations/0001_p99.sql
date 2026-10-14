@@ -1,3 +1,35 @@
+CREATE TABLE hosts (
+  host TEXT PRIMARY KEY,
+  env TEXT NOT NULL,
+  config_json TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX hosts_env ON hosts (env, host);
+
+CREATE TABLE envs (
+  name TEXT PRIMARY KEY,
+  kind TEXT NOT NULL CHECK (kind IN ('development', 'release')),
+  position INTEGER NOT NULL DEFAULT 0,
+  notify INTEGER NOT NULL DEFAULT 0 CHECK (notify IN (0, 1))
+);
+
+CREATE TABLE codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hash TEXT NOT NULL UNIQUE,
+  hint TEXT NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  hosts_json TEXT NOT NULL,
+  manager INTEGER NOT NULL DEFAULT 0 CHECK (manager IN (0, 1)),
+  created_at TEXT NOT NULL,
+  created_by TEXT NOT NULL,
+  revoked_at TEXT,
+  last_used_at TEXT
+);
+
+CREATE INDEX codes_email ON codes (email, id);
+
 CREATE TABLE items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   client_uid TEXT NOT NULL UNIQUE,
@@ -7,16 +39,19 @@ CREATE TABLE items (
   title TEXT NOT NULL,
   body TEXT NOT NULL,
   origin_env TEXT NOT NULL,
+  host TEXT NOT NULL,
   page_url TEXT NOT NULL,
   page_path TEXT NOT NULL,
   page_title TEXT NOT NULL,
   reporter_email TEXT NOT NULL,
   reporter_name TEXT NOT NULL,
   reporter_json TEXT NOT NULL,
+  reporter_agent TEXT,
   assignee TEXT,
   duplicate_of INTEGER REFERENCES items (id),
   context_json TEXT NOT NULL,
   marks_json TEXT NOT NULL,
+  search_text TEXT NOT NULL,
   comment_count INTEGER NOT NULL DEFAULT 0,
   public_comment_count INTEGER NOT NULL DEFAULT 0,
   attachment_count INTEGER NOT NULL DEFAULT 0,
@@ -34,6 +69,8 @@ CREATE INDEX items_kind ON items (kind, id);
 CREATE INDEX items_reporter ON items (reporter_email, id);
 CREATE INDEX items_reporter_open_path ON items (reporter_email, open, page_path);
 CREATE INDEX items_path ON items (page_path, open, id);
+CREATE INDEX items_host ON items (host, open, id);
+CREATE INDEX items_host_reporter ON items (host, reporter_email, id);
 
 CREATE TABLE comments (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -45,6 +82,7 @@ CREATE TABLE comments (
   body TEXT NOT NULL,
   internal INTEGER NOT NULL CHECK (internal IN (0, 1)),
   origin_env TEXT NOT NULL,
+  author_agent TEXT,
   created_at TEXT NOT NULL
 );
 
@@ -76,6 +114,7 @@ CREATE TABLE events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   item_id INTEGER NOT NULL REFERENCES items (id),
   actor_email TEXT,
+  actor_agent TEXT,
   kind TEXT NOT NULL,
   detail_json TEXT NOT NULL,
   internal INTEGER NOT NULL DEFAULT 0 CHECK (internal IN (0, 1)),

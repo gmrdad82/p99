@@ -258,12 +258,12 @@ impl Client {
             &actor_header,
             body,
         );
-        let mut headers = vec![("X-Tracker-Key-Id", self.key_id.clone())];
+        let mut headers = vec![("X-P99-Key-Id", self.key_id.clone())];
         if actor {
-            headers.push(("X-Tracker-Actor", actor_header));
+            headers.push(("X-P99-Actor", actor_header));
         }
         headers.push(("X-Content-SHA256", signed.content_sha256));
-        headers.push(("X-Tracker-Auth", signed.auth));
+        headers.push(("X-P99-Auth", signed.auth));
         headers
     }
 
@@ -518,7 +518,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(
-            get("X-Tracker-Actor"),
+            get("X-P99-Actor"),
             "eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9"
         );
         assert_eq!(
@@ -526,7 +526,7 @@ mod tests {
             "ecf774eccd7e95d4a00046092fe70059b83b5d650c1a1da9e9cc6c22e5ce22bf"
         );
         assert_eq!(
-            get("X-Tracker-Auth"),
+            get("X-P99-Auth"),
             "v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566"
         );
     }

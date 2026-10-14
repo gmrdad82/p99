@@ -46,7 +46,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
 ];
 
 pub const MIGRATIONS: &[(&str, &str)] =
-    &[migration!("0001_tracker.sql"), migration!("0002_p99.sql")];
+    &[migration!("0001_p99.sql")];
 
 pub fn modules() -> Vec<Module<'static>> {
     MODULES

@@ -42,8 +42,6 @@ enum Command {
         about = "set up an account, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"
     )]
     Setup(setup::SetupArgs),
-    #[command(about = "take over an existing tracker deployment in place, keys unchanged")]
-    Adopt(setup::AdoptArgs),
     #[command(about = "upload this version's Worker to an account")]
     Deploy(setup::DeployArgs),
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
@@ -57,7 +55,6 @@ fn main() -> ExitCode {
     let result = match p99.command {
         Command::Tui(args) => return tui::run(&args, &p99.global),
         Command::Setup(args) => setup::setup(&args, &p99.global),
-        Command::Adopt(args) => setup::adopt(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::Work(command) => cli::run(command, &p99.global),

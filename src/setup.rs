@@ -192,38 +192,6 @@ pub struct SetupArgs {
 }
 
 #[derive(Debug, clap::Args)]
-pub struct AdoptArgs {
-    #[command(flatten)]
-    pub access: Access,
-    #[arg(long, value_name = "name", help = "the existing Worker's script name")]
-    pub worker: Option<String>,
-    #[arg(
-        long,
-        value_name = "id",
-        help = "the existing D1 database's id (read from the Worker by default)"
-    )]
-    pub database_id: Option<String>,
-    #[arg(
-        long,
-        value_name = "name",
-        help = "the existing R2 bucket (read from the Worker by default)"
-    )]
-    pub bucket: Option<String>,
-    #[arg(
-        long = "env",
-        value_name = "key-id=host:kind",
-        help = "an old key id's host and environment kind (release or development; an empty host for none); repeat it"
-    )]
-    pub envs: Vec<String>,
-    #[arg(
-        long,
-        value_name = "id",
-        help = "the rate-limiting namespace id, when adopt can't pick a free one"
-    )]
-    pub rate_namespace: Option<u64>,
-}
-
-#[derive(Debug, clap::Args)]
 pub struct DeployArgs {
     #[arg(long, help = "skip the health check of the account's hosts")]
     pub no_check: bool,
@@ -900,12 +868,6 @@ fn write_host(cf: &Cloudflare, account: &Account, host: &str, entry: &Host) -> R
         "INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json",
         &[json!(host), json!(entry.env), json!(config.to_string())],
     )?;
-    cf.query(
-        &account.account_id,
-        &account.database_id,
-        "UPDATE items SET host = ?1 WHERE host IS NULL AND origin_env = ?2",
-        &[json!(host), json!(entry.env)],
-    )?;
     Ok(())
 }
 
@@ -1243,7 +1205,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         && d1_id(db) != account.database_id
     {
         return Err(format!(
-            "a Worker called {} already exists in the account and uses another database; give P99's Worker another name with --worker, or take that one over with p99 adopt",
+            "a Worker called {} already exists in the account and uses another database; give P99's Worker another name with --worker",
             account.worker
         ));
     }
@@ -1538,278 +1500,6 @@ fn deploy_into(
     }
 }
 
-struct OldKey {
-    id: String,
-    host: Option<String>,
-    kind: String,
-}
-
-fn old_key_ids(secrets: &[String]) -> Vec<String> {
-    secrets
-        .iter()
-        .filter_map(|s| s.strip_prefix("KEY_"))
-        .filter(|k| *k != "P99" && !k.ends_with("_NEXT"))
-        .map(str::to_ascii_lowercase)
-        .collect()
-}
-
-pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
-    let mut config = Config::load()?;
-    let mut s = Session {
-        ask: Ask {
-            yes: args.access.yes,
-        },
-        access: &args.access,
-        vault: None,
-    };
-    say!(
-        "P99 adopt takes over an existing tracker deployment in place: its Worker, D1 database and R2"
-    );
-    say!(
-        "bucket stay where they are, with every item's key and number. It reads first, shows a plan,"
-    );
-    say!("and writes only after you say yes.\n");
-    s.me(&mut config)?;
-    let name = match &global.account {
-        Some(n) => n.clone(),
-        None => s.ask.line(
-            "A name for this account in the config",
-            (!config.accounts.contains_key("main")).then_some("main"),
-            "--account",
-        )?,
-    };
-    if config.accounts.contains_key(&name) {
-        return Err(format!(
-            "the config already has an account called {name}; name another with --account"
-        ));
-    }
-    let (token, cf, cf_account) = s.token(None)?;
-    let id = cf_account.id.clone();
-
-    let worker = match &args.worker {
-        Some(w) => w.clone(),
-        None => {
-            let scripts = cf.scripts(&id)?;
-            say!("      Workers in the account: {}", scripts.join(", "));
-            s.ask.line("The tracker's Worker", None, "--worker")?
-        }
-    };
-    let bindings = cf
-        .bindings(&id, &worker)?
-        .ok_or_else(|| format!("the account has no Worker called {worker}"))?;
-    let secrets = cf.secrets(&id, &worker)?;
-    let database_id = match &args.database_id {
-        Some(d) => d.clone(),
-        None => find_binding(&bindings, "d1", None)
-            .map(d1_id)
-            .ok_or_else(|| {
-                format!("{worker} has no D1 binding; name the database with --database-id")
-            })?,
-    };
-    let database = cf
-        .databases(&id)?
-        .into_iter()
-        .find(|d| d.id == database_id)
-        .ok_or_else(|| format!("the account has no D1 database {database_id}"))?;
-    let bucket = match &args.bucket {
-        Some(b) => b.clone(),
-        None => find_binding(&bindings, "r2_bucket", None)
-            .and_then(|b| b["bucket_name"].as_str().map(str::to_owned))
-            .ok_or_else(|| format!("{worker} has no R2 binding; name the bucket with --bucket"))?,
-    };
-    let applied = applied(&cf, &id, &database_id)?;
-    let todo = pending(bundle::MIGRATIONS, &applied);
-
-    let mut given = Vec::new();
-    for spec in &args.envs {
-        let (key, rest) = spec
-            .split_once('=')
-            .ok_or_else(|| format!("{spec}: write it as key-id=host:kind"))?;
-        let (host, kind) = rest.rsplit_once(':').unwrap_or((rest, "release"));
-        given.push((
-            key.to_ascii_lowercase(),
-            host.to_ascii_lowercase(),
-            kind.to_owned(),
-        ));
-    }
-    let mut keys = Vec::new();
-    for key in old_key_ids(&secrets) {
-        let (host, kind) = match given.iter().find(|(k, _, _)| *k == key) {
-            Some((_, h, k)) => (h.clone(), k.clone()),
-            None => {
-                say!(
-                    "      The old key id {key} is an environment; its items carry it as their origin."
-                );
-                if s.ask.yes {
-                    return Err(format!(
-                        "give the old key id {key} its host with --env {key}=<host>:<kind>"
-                    ));
-                }
-                let host = s.ask.line(
-                    &format!("Host of {key} (blank for none)"),
-                    Some(""),
-                    "--env",
-                )?;
-                let default = if key == "production" {
-                    "release"
-                } else {
-                    "development"
-                };
-                let kind = s.ask.line(
-                    &format!("Kind of {key}: release or development"),
-                    Some(default),
-                    "--env",
-                )?;
-                (host, kind)
-            }
-        };
-        check_kind(&kind)?;
-        let host = host.trim().to_owned();
-        if !host.is_empty() && !is_hostname(&host) {
-            return Err(format!("{host} is not a hostname"));
-        }
-        keys.push(OldKey {
-            id: key,
-            host: (!host.is_empty()).then_some(host),
-            kind,
-        });
-    }
-
-    let kept: Vec<&str> = bindings
-        .iter()
-        .filter(|b| !matches!(b["type"].as_str(), Some("secret_text" | "secret_key")))
-        .map(binding_name)
-        .collect();
-    say!("\nThe plan for the Worker {worker} in the account {id}:");
-    say!(
-        "  - keep its bindings: {} (DB is the D1 database {} ({}), BUCKET the R2 bucket {bucket})",
-        kept.join(", "),
-        database.name,
-        database.id
-    );
-    say!(
-        "  - keep its secrets, values untouched: {}",
-        secrets.join(", ")
-    );
-    if todo.is_empty() {
-        say!("  - every P99 migration is already applied");
-    } else {
-        say!(
-            "  - apply the migrations {}",
-            todo.iter().map(|t| t.0).collect::<Vec<_>>().join(", ")
-        );
-    }
-    say!("  - add the secret KEY_P99, a new key kept in the config");
-    if !secrets.iter().any(|s| s == "MANAGERS") {
-        say!("  - add the secret MANAGERS = {}", config.me.email);
-    }
-    say!(
-        "  - upload P99's Worker {VERSION} under the name {worker}; its Custom Domains stay, so /v1 keeps answering"
-    );
-    say!("  - set the cron schedule {CRON}");
-    for k in &keys {
-        match &k.host {
-            Some(h) => say!(
-                "  - environment {} ({}) on the host {h}, with the route {}",
-                k.id,
-                k.kind,
-                route_pattern(h)
-            ),
-            None => say!("  - environment {} ({}) with no host", k.id, k.kind),
-        }
-    }
-    say!(
-        "  - save it as the account {name} in {}",
-        crate::config::path().display()
-    );
-    if !s.ask.confirm("\nGo ahead?", s.ask.yes)? {
-        return Err("nothing was changed".into());
-    }
-
-    let mut account = Account {
-        account_id: id.clone(),
-        token,
-        worker: worker.clone(),
-        database: database.name.clone(),
-        database_id: database.id.clone(),
-        bucket,
-        key_id: "p99".into(),
-        key: String::new(),
-        url: None,
-        resend_key: None,
-        mail_from: find_binding(&bindings, "plain_text", Some("MAIL_FROM"))
-            .and_then(|b| b["text"].as_str().map(str::to_owned)),
-        access_client_id: None,
-        access_client_secret: None,
-    };
-    migrate(&cf, &id, &database_id)?;
-    let key = new_key()?;
-    account.key = s.keep("P99 key", &key)?;
-    config.accounts.insert(name.clone(), account.clone());
-    if config.default_account.is_none() {
-        config.default_account = Some(name.clone());
-    }
-    config.save()?;
-    done(&format!("saved the account {name}"));
-    cf.put_secret(&id, &worker, "KEY_P99", &key)?;
-    done("secret KEY_P99");
-    if !secrets.iter().any(|s| s == "MANAGERS") {
-        cf.put_secret(&id, &worker, "MANAGERS", &config.me.email)?;
-        done("secret MANAGERS");
-    }
-    let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
-        Some(_) => None,
-        None => Some(rate_namespace(
-            &cf,
-            &s.ask,
-            &id,
-            &worker,
-            args.rate_namespace,
-        )?),
-    };
-    upload(&cf, &account, &bindings, rate)?;
-    let zones = cf.zones(&id)?;
-    let mut failed = Vec::new();
-    for k in &keys {
-        write_env(&cf, &account, &k.id, &k.kind)?;
-        done(&format!("environment {} ({})", k.id, k.kind));
-        let Some(host) = &k.host else { continue };
-        let entry = Host {
-            account: name.clone(),
-            env: k.id.clone(),
-            ..Host::default()
-        };
-        write_host(&cf, &account, host, &entry)?;
-        done(&format!(
-            "{host} serves {}; its items without a host now carry it",
-            k.id
-        ));
-        config.hosts.insert(host.clone(), entry);
-        config.save()?;
-        match route(&cf, &id, &worker, &zones, host) {
-            Ok(routed) => routed.notes.iter().for_each(|n| done(n)),
-            Err(why) => {
-                say!("  !!  {why}");
-                failed.push(host.clone());
-            }
-        }
-    }
-    let hosts = config.hosts_of(&name);
-    if !hosts.is_empty() {
-        health(&hosts);
-    }
-    say!(
-        "\nThe account {name} now runs P99 {VERSION} on the Worker {worker}, keys and numbers unchanged."
-    );
-    if !failed.is_empty() {
-        say!(
-            "No route yet for {}; fix what's named above, then run p99 deploy --account {name}.",
-            failed.join(", ")
-        );
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1817,8 +1507,8 @@ mod tests {
     #[test]
     fn migrations_run_in_order_and_skip_the_recorded() {
         let all = [
-            ("0002_p99.sql", "B"),
-            ("0001_tracker.sql", "A"),
+            ("0002_y.sql", "B"),
+            ("0001_p99.sql", "A"),
             ("0003_x.sql", "C"),
         ];
         fn names<'a>(v: Vec<(&'a str, &'a str)>) -> Vec<&'a str> {
@@ -1826,22 +1516,22 @@ mod tests {
         }
         assert_eq!(
             names(pending(&all, &[])),
-            ["0001_tracker.sql", "0002_p99.sql", "0003_x.sql"]
+            ["0001_p99.sql", "0002_y.sql", "0003_x.sql"]
         );
         assert_eq!(
-            names(pending(&all, &["0001_tracker.sql".to_owned()])),
-            ["0002_p99.sql", "0003_x.sql"]
+            names(pending(&all, &["0001_p99.sql".to_owned()])),
+            ["0002_y.sql", "0003_x.sql"]
         );
         assert!(
             pending(
                 &all[..2],
-                &["0002_p99.sql".into(), "0001_tracker.sql".into()]
+                &["0002_y.sql".into(), "0001_p99.sql".into()]
             )
             .is_empty()
         );
         assert_eq!(
-            migration_sql("0002_p99.sql", "CREATE TABLE t (a);\n"),
-            "CREATE TABLE t (a);\nINSERT INTO d1_migrations (name) VALUES ('0002_p99.sql');"
+            migration_sql("0002_y.sql", "CREATE TABLE t (a);\n"),
+            "CREATE TABLE t (a);\nINSERT INTO d1_migrations (name) VALUES ('0002_y.sql');"
         );
         let bundled: Vec<&str> = bundle::MIGRATIONS.iter().map(|m| m.0).collect();
         let mut sorted = bundled.clone();

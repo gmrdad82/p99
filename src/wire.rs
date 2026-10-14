@@ -73,7 +73,7 @@ pub struct Summary {
     pub title: String,
     #[serde(default)]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "env")]
     pub origin_env: String,
     #[serde(default)]
     pub page: PageRef,
@@ -116,7 +116,7 @@ pub struct Issue {
     pub title: String,
     #[serde(default)]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, rename = "env")]
     pub origin_env: String,
     #[serde(default)]
     pub page: PageRef,

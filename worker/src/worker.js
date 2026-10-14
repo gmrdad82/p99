@@ -6,14 +6,13 @@ import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
 import captureVendor from "./web/vendor/modern-screenshot-4.7.0.js";
 
-const P99_KEY = "p99";
+const KEY_IDS = { p99: ["KEY_P99", "KEY_P99_NEXT"], test: ["KEY_TEST"] };
 const KIND_PREFIXES = { bug: "BUG", feature: "FEAT", improvement: "IMP", question: "Q", task: "TASK" };
 const STATUSES = ["new", "confirmed", "in_progress", "waiting", "resolved", "abandoned", "duplicate"];
 const OPEN_STATUSES = new Set(["new", "confirmed", "in_progress", "waiting"]);
 const RANKS = ["everyone", "administrator", "super_administrator"];
 const ENV_KINDS = ["development", "release"];
 const CORNERS = ["bottom-right", "bottom-left", "top-right", "top-left"];
-const LANDING_RESERVED = new Set(["branch", "envs", "development", "__proto__", "constructor", "prototype"]);
 const ERROR_CODES = {
   400: "invalid",
   401: "unauthorized",
@@ -41,7 +40,6 @@ const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_CODE_HOSTS = 50;
 const SNIFF_BYTES = 1024;
-const SEARCH_BATCH = 100;
 const DAILY_LIMITS = { issues: 30, comments: 200, bytes: 100 * 1024 * 1024 };
 const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
 const MAIL_CAP = 100;
@@ -228,7 +226,7 @@ function isEmail(value) {
 }
 
 function isEnvName(value) {
-  return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value) && !LANDING_RESERVED.has(value);
+  return typeof value === "string" && /^[a-z0-9][a-z0-9_-]{0,31}$/.test(value);
 }
 
 function isHostName(value) {
@@ -341,26 +339,20 @@ function envKind(dir, name) {
   return known ? known.kind : "release";
 }
 
-function hostForEnv(dir, name) {
-  for (const host of dir.hosts.values()) if (host.env === name) return host;
-  return null;
-}
-
 async function verifySignature(request, env, url) {
-  const keyId = request.headers.get("x-tracker-key-id") || "";
-  if (!/^[a-z0-9_]{1,32}$/.test(keyId)) fail(401, "unknown or missing X-Tracker-Key-Id");
+  const keyId = request.headers.get("x-p99-key-id") || "";
+  if (!Object.hasOwn(KEY_IDS, keyId)) fail(401, "unknown or missing X-P99-Key-Id");
   if (keyId === "test" && !isLocal(url)) fail(401, "the test key is accepted only on localhost");
-  const name = `KEY_${keyId.toUpperCase()}`;
-  const secrets = [env[name], env[`${name}_NEXT`]].filter((s) => typeof s === "string" && s.length > 0);
-  if (secrets.length === 0) fail(401, "unknown or missing X-Tracker-Key-Id");
-  const auth = /^v1 ts=(\d{1,12}),sig=([0-9a-f]{64})$/.exec(request.headers.get("x-tracker-auth") || "");
-  if (!auth) fail(401, "missing or malformed X-Tracker-Auth");
+  const secrets = KEY_IDS[keyId].map((name) => env[name]).filter((s) => typeof s === "string" && s.length > 0);
+  if (secrets.length === 0) fail(401, "unknown or missing X-P99-Key-Id");
+  const auth = /^v1 ts=(\d{1,12}),sig=([0-9a-f]{64})$/.exec(request.headers.get("x-p99-auth") || "");
+  if (!auth) fail(401, "missing or malformed X-P99-Auth");
   const bodyHash = request.headers.get("x-content-sha256") || "";
   if (!/^[0-9a-f]{64}$/.test(bodyHash)) fail(401, "missing or malformed X-Content-SHA256");
   if (Math.abs(Math.floor(Date.now() / 1000) - Number(auth[1])) > MAX_SKEW_SECONDS) {
     fail(401, "the signature's timestamp is outside the allowed window");
   }
-  const actorHeader = request.headers.get("x-tracker-actor") ?? "";
+  const actorHeader = request.headers.get("x-p99-actor") ?? "";
   const message = encoder.encode(
     `v1\n${auth[1]}\n${request.method}\n${url.pathname}${url.search}\n${actorHeader}\n${bodyHash}`,
   );
@@ -370,7 +362,7 @@ async function verifySignature(request, env, url) {
       "verify",
     ]);
     if (await crypto.subtle.verify("HMAC", key, signature, message)) {
-      return { keyId, bodyHash, actorHeader };
+      return { bodyHash, actorHeader };
     }
   }
   fail(401, "the signature does not verify");
@@ -473,10 +465,6 @@ function requireManager(c) {
   if (!c.manager) fail(403, "only managers may do this");
 }
 
-function requireAccountKey(c) {
-  if (c.keyId !== P99_KEY) fail(403, "only the account's own key may do this");
-}
-
 function query(firstBinds = []) {
   const binds = [...firstBinds];
   return {
@@ -489,16 +477,11 @@ function query(firstBinds = []) {
 }
 
 function scopeClause(c, q, alias = "i") {
-  if (c.scope.all) return null;
-  if (c.scope.host !== null) return `${alias}.host = ${q.bind(c.scope.host)}`;
-  return `${alias}.host IS NULL AND ${alias}.origin_env = ${q.bind(c.scope.env)}`;
+  return c.scope.all ? null : `${alias}.host = ${q.bind(c.scope.host)}`;
 }
 
 function inScope(c, row) {
-  if (c.scope.all) return true;
-  if (c.scope.filter) return row.host === null || row.host === c.scope.host;
-  if (c.scope.host !== null) return row.host === c.scope.host;
-  return row.host === null && row.origin_env === c.scope.env;
+  return c.scope.all || row.host === c.scope.host;
 }
 
 async function checkUsage(c, field, amount) {
@@ -576,7 +559,7 @@ function landingStatements(env, ids) {
 }
 
 function countedBuilds(builds, dir) {
-  const counted = {};
+  const counted = Object.create(null);
   for (const b of builds) {
     if (envKind(dir, b.env) === "development") {
       if (b.branch === "main") counted[b.env] = b;
@@ -602,7 +585,7 @@ function landingContext(results, dir) {
 }
 
 function emptyLandingContext(dir) {
-  return { dir, counted: {}, order: [...dir.envs.keys()], rows: [], landings: [] };
+  return { dir, counted: Object.create(null), order: [...dir.envs.keys()], rows: [], landings: [] };
 }
 
 function isCounted(counted, row) {
@@ -611,23 +594,14 @@ function isCounted(counted, row) {
 }
 
 function landingOf(itemId, lc) {
-  const landing = { branch: false, envs: [], development: {} };
-  for (const name of lc.order) {
-    if (LANDING_RESERVED.has(name)) continue;
-    if (envKind(lc.dir, name) === "development") landing.development[name] = null;
-    else landing[name] = null;
-  }
+  const landing = { branch: false, envs: [] };
   const fixes = lc.rows.filter((r) => r.item_id === itemId && r.rel === "fixes");
   for (const name of lc.order) {
     const build = lc.counted[name];
     if (!build || !fixes.some((r) => r.env === name && r.branch === build.branch)) continue;
     const first = lc.landings.find((l) => l.item_id === itemId && l.env === name);
     const at = first ? first.at : build.announced_at;
-    const kind = envKind(lc.dir, name);
-    landing.envs.push({ env: name, kind, at, sha: build.sha, version: build.version });
-    if (LANDING_RESERVED.has(name)) continue;
-    if (kind === "development") landing.development[name] = { at, sha: build.sha };
-    else landing[name] = { at, sha: build.sha, version: build.version };
+    landing.envs.push({ env: name, kind: envKind(lc.dir, name), at, sha: build.sha, version: build.version });
   }
   if (landing.envs.length === 0) landing.branch = fixes.some((r) => !isCounted(lc.counted, r) && r.branch !== "main");
   return landing;
@@ -655,8 +629,8 @@ function summaryOf(row, c, lc) {
     kind: row.kind,
     status: row.status,
     title: row.title,
-    host: row.host ?? null,
-    origin_env: row.origin_env,
+    host: row.host,
+    env: row.origin_env,
     page: { url: row.page_url, path: row.page_path, title: row.page_title },
     reporter: { email: row.reporter_email, name: row.reporter_name, agent: row.reporter_agent ?? null },
     assignee: row.assignee,
@@ -1013,13 +987,8 @@ async function serveStatic(request, env, url) {
 
 async function postBuilds(c) {
   const body = await readJson(c, MAX_BUILD_BYTES);
-  let envName = c.keyId;
-  if (c.keyId === P99_KEY) {
-    if (!isEnvName(body.env)) fail(400, "env must name an environment");
-    envName = body.env;
-  } else if (body.env !== undefined && body.env !== null && body.env !== c.keyId) {
-    fail(403, "this key posts builds only for its own environment");
-  }
+  if (!isEnvName(body.env)) fail(400, "env must name an environment");
+  const envName = body.env;
   if (!isText(body.sha, 7, 64) || !/^[0-9a-f]+$/.test(body.sha)) fail(400, "sha must be a lowercase hex commit id");
   if (!isText(body.branch, 1, 200)) fail(400, "branch must be 1 to 200 characters");
   if (!isText(body.version, 1, 100)) fail(400, "version must be 1 to 100 characters");
@@ -1212,7 +1181,7 @@ async function listIssues(c) {
   if (text.length > 200) fail(400, "q must be at most 200 characters");
   if (text.length > 0) {
     const like = q.bind(`%${fold(text).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
-    const match = `COALESCE(i.search_text, lower(i.title || ' ' || i.body)) LIKE ${like} ESCAPE '\\'`;
+    const match = `i.search_text LIKE ${like} ESCAPE '\\'`;
     const id = parseKey(text);
     where.push(id !== null ? `(i.id = ${q.bind(id)} OR ${match})` : `(${match})`);
   }
@@ -1249,13 +1218,10 @@ async function listIssues(c) {
 
 function creationTarget(c, body) {
   if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env };
-  if (c.keyId === P99_KEY) {
-    const name = (c.scope.all ? null : c.scope.host) ?? body.host;
-    const host = typeof name === "string" ? c.dir.hosts.get(name) : null;
-    if (!host) fail(400, "host must name a listed host");
-    return { host: host.host, env: host.env };
-  }
-  return { host: c.scope.host, env: c.keyId };
+  const name = (c.scope.all ? null : c.scope.host) ?? body.host;
+  const host = typeof name === "string" ? c.dir.hosts.get(name) : null;
+  if (!host) fail(400, "host must name a listed host");
+  return { host: host.host, env: host.env };
 }
 
 function reporterJson(c) {
@@ -1819,12 +1785,12 @@ function contentDisposition(name) {
 async function getFile(c, rawId) {
   requireEmptyBody(c);
   const row = await c.env.DB.prepare(
-    `SELECT a.*, i.reporter_email, i.host, i.origin_env AS item_env FROM attachments a JOIN items i ON i.id = a.item_id
+    `SELECT a.*, i.reporter_email, i.host FROM attachments a JOIN items i ON i.id = a.item_id
      WHERE a.id = ?1 AND a.stored_at IS NOT NULL`,
   )
     .bind(Number(rawId))
     .first();
-  if (!row || !inScope(c, { host: row.host, origin_env: row.item_env })) fail(404, "no such file");
+  if (!row || !inScope(c, row)) fail(404, "no such file");
   if (!c.manager && (row.reporter_email !== c.actor.email || row.internal)) fail(404, "no such file");
   const object = await c.env.BUCKET.get(row.r2_key);
   if (!object) fail(404, "no such file");
@@ -1850,7 +1816,6 @@ async function listHosts(c) {
 }
 
 async function putHost(c, rawHost) {
-  requireAccountKey(c);
   const body = await readJson(c, MAX_JSON_BYTES);
   const host = decodeURIComponentSafe(rawHost).toLowerCase();
   if (!isHostName(host)) fail(400, "host must be a host name");
@@ -1858,20 +1823,18 @@ async function putHost(c, rawHost) {
   const config = validConfig(body.config);
   if (config === null) fail(400, "config is not valid");
   const { DB } = c.env;
-  const results = await DB.batch([
-    DB.prepare(
-      `INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json
-       RETURNING host, env, config_json, created_at`,
-    ).bind(host, body.env, JSON.stringify(config), c.now),
-    DB.prepare("UPDATE items SET host = ?1 WHERE host IS NULL AND origin_env = ?2").bind(host, body.env),
-  ]);
+  const row = await DB.prepare(
+    `INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, ?4)
+     ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json
+     RETURNING host, env, config_json, created_at`,
+  )
+    .bind(host, body.env, JSON.stringify(config), c.now)
+    .first();
   forgetDirectory();
-  return json(200, hostOf(results[0].results[0]));
+  return json(200, hostOf(row));
 }
 
 async function deleteHost(c, rawHost) {
-  requireAccountKey(c);
   requireEmptyBody(c);
   const host = decodeURIComponentSafe(rawHost).toLowerCase();
   const { meta } = await c.env.DB.prepare("DELETE FROM hosts WHERE host = ?1").bind(host).run();
@@ -1888,7 +1851,6 @@ async function listEnvs(c) {
 }
 
 async function putEnv(c, rawName) {
-  requireAccountKey(c);
   const body = await readJson(c, MAX_JSON_BYTES);
   const name = decodeURIComponentSafe(rawName);
   if (!isEnvName(name)) fail(400, "the environment's name must be 1 to 32 lowercase letters, digits, dashes or underscores");
@@ -1909,7 +1871,6 @@ async function putEnv(c, rawName) {
 }
 
 async function listCodes(c) {
-  requireAccountKey(c);
   requireEmptyBody(c);
   const host = c.url.searchParams.get("host");
   const statement =
@@ -1923,7 +1884,6 @@ async function listCodes(c) {
 }
 
 async function postCode(c) {
-  requireAccountKey(c);
   const body = await readJson(c, MAX_JSON_BYTES);
   if (!isText(body.name, 1, 200) || body.name.trim().length === 0) fail(400, "name must be 1 to 200 characters");
   if (!isEmail(body.email)) fail(400, "email must be an e-mail address");
@@ -1952,7 +1912,6 @@ async function postCode(c) {
 }
 
 async function revokeCode(c, rawId) {
-  requireAccountKey(c);
   requireEmptyBody(c);
   const row = await c.env.DB.prepare(
     "UPDATE codes SET revoked_at = COALESCE(revoked_at, ?2) WHERE id = ?1 RETURNING *",
@@ -1991,21 +1950,6 @@ function backupDue(last, nowDate) {
     nowDate.getUTCHours() >= BACKUP_HOUR &&
     last.date !== nowDate.toISOString().slice(0, 10)
   );
-}
-
-async function searchStep(env) {
-  try {
-    const { DB } = env;
-    const { results } = await DB.prepare("SELECT id, title, body FROM items WHERE search_text IS NULL ORDER BY id LIMIT ?1")
-      .bind(SEARCH_BATCH)
-      .all();
-    if (results.length === 0) return;
-    await DB.batch(
-      results.map((r) => DB.prepare("UPDATE items SET search_text = ?2 WHERE id = ?1").bind(r.id, searchText(r.title, r.body))),
-    );
-  } catch (error) {
-    console.error(`search backfill failed: ${error.message}`);
-  }
 }
 
 async function backupStep(env) {
@@ -2150,7 +2094,6 @@ async function browserRequest(request, env, ctx, url, path) {
     dir,
     browser: true,
     signed: false,
-    keyId: null,
     bodyHash: declaredHash && /^[0-9a-f]{64}$/.test(declaredHash) ? declaredHash : null,
     actor: { email: code.email.toLowerCase(), name: code.name, agent: null },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
@@ -2168,29 +2111,16 @@ async function signedRequest(request, env, ctx, url, path) {
   let actor = null;
   if (signed.actorHeader !== "") {
     actor = decodeActor(signed.actorHeader);
-    if (!actor) fail(400, "X-Tracker-Actor is not a valid actor");
+    if (!actor) fail(400, "X-P99-Actor is not a valid actor");
   }
   const found = findRoute(SIGNED_ROUTES, request.method, path);
   if (!found) fail(404, "no such route");
   const options = found.route[3];
-  if (options.actor !== false && !actor) fail(401, "X-Tracker-Actor is required");
+  if (options.actor !== false && !actor) fail(401, "X-P99-Actor is required");
   const dir = await loadDirectory(env);
-  const accountKey = signed.keyId === P99_KEY;
-  let scope;
-  let actionEnvName = null;
-  if (accountKey) {
-    const host = url.searchParams.get("host");
-    if (host === null || host === "*") {
-      scope = { all: true, host: null };
-    } else {
-      if (options.listed && !dir.hosts.has(host)) fail(404, "no such host");
-      scope = { all: false, host, filter: true };
-    }
-  } else {
-    const mapped = hostForEnv(dir, signed.keyId);
-    scope = mapped ? { all: false, host: mapped.host } : { all: false, host: null, env: signed.keyId };
-    actionEnvName = signed.keyId;
-  }
+  const host = url.searchParams.get("host");
+  const all = host === null || host === "*";
+  if (!all && options.listed && !dir.hosts.has(host)) fail(404, "no such host");
   const c = {
     request,
     env,
@@ -2199,13 +2129,12 @@ async function signedRequest(request, env, ctx, url, path) {
     dir,
     browser: false,
     signed: true,
-    keyId: signed.keyId,
     bodyHash: signed.bodyHash,
     actor,
-    manager: Boolean(actor) && (accountKey || managersOf(env).includes(actor.email)),
-    scope,
+    manager: Boolean(actor),
+    scope: { all, host: all ? null : host },
     hostRow: null,
-    actionEnv: actionEnvName,
+    actionEnv: null,
     now: new Date().toISOString(),
     outbox: [],
   };
@@ -2215,10 +2144,9 @@ async function signedRequest(request, env, ctx, url, path) {
 async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
-  if (request.method === "GET" && (path === "/_p99/health" || path === "/health")) return health(env);
+  if (request.method === "GET" && path === "/_p99/health") return health(env);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
-  if (path.startsWith("/v1/")) return signedRequest(request, env, ctx, url, path.slice("/v1".length));
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);
   fail(404, "no such route");
 }
@@ -2235,6 +2163,5 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(backupStep(env));
-    ctx.waitUntil(searchStep(env));
   },
 };
