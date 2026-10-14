@@ -6,6 +6,16 @@ const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAA
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["new", "confirmed", "in_progress", "waiting", "resolved", "abandoned", "duplicate"];
 const OPEN = ["new", "confirmed", "in_progress", "waiting"];
+const OOXML = "application/vnd.openxmlformats-officedocument.";
+const ODF = "application/vnd.oasis.opendocument.";
+const TYPES = {
+  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif", pdf: "application/pdf",
+  txt: "text/plain", log: "text/plain", csv: "text/csv", json: "application/json", zip: "application/zip",
+  docx: OOXML + "wordprocessingml.document", xlsx: OOXML + "spreadsheetml.sheet", pptx: OOXML + "presentationml.presentation",
+  odt: ODF + "text", ods: ODF + "spreadsheet", odp: ODF + "presentation",
+  doc: "application/msword", xls: "application/vnd.ms-excel", ppt: "application/vnd.ms-powerpoint"
+};
+const ACCEPTED = new Set(Object.values(TYPES).concat(["text/x-log", "application/x-zip-compressed"]));
 const WORDS = {
   brand: "Feedback",
   close: "Close",
@@ -24,6 +34,7 @@ const WORDS = {
   status_confirmed: "Confirmed",
   status_in_progress: "In progress",
   status_waiting: "Waiting for you",
+  status_waiting_manager: "Waiting on the reporter",
   status_resolved: "Resolved",
   status_abandoned: "Dropped",
   status_duplicate: "Duplicate",
@@ -57,7 +68,7 @@ const WORDS = {
   attach_regions: "Attach the marked areas",
   new_files: "Files",
   new_files_hint: "Add files: pick them, drop them here or paste them",
-  new_privacy: "The capture, the page's address, your browser and your screen go with it, so we see what you saw. Passwords and the fields this site marks as private are blanked.",
+  new_privacy: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords and the fields this site marks as private are blanked.",
   send: "Send",
   cancel: "Cancel",
   back: "Back to the list",
@@ -76,7 +87,7 @@ const WORDS = {
   comment_send: "Send reply",
   internal_note: "Internal note (the reporter doesn't see it)",
   manage: "Manage",
-  assignee: "Assignee (email)",
+  assignee: "Assignee (e-mail)",
   duplicate_label: "Duplicate of",
   duplicate_hint: "for example BUG-12",
   save: "Save",
@@ -93,8 +104,8 @@ const WORDS = {
   event_title: "changed the title: {to}",
   event_body: "changed the details",
   event_landed: "the fix reached {env}",
-  event_mail: "email sent to {to}",
-  event_mail_failed: "the email to {to} didn't go out",
+  event_mail: "e-mail sent to {to}",
+  event_mail_failed: "the e-mail to {to} didn't go out",
   capturing: "Capturing the screen…",
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
@@ -106,6 +117,7 @@ const WORDS = {
   too_many_marks: "You can mark up to 10 areas.",
   too_big: "“{name}” is over 20 MB.",
   too_many_files: "An item holds up to 30 files.",
+  file_type: "P99 takes images, PDFs, text, CSV, JSON, zip and office files.",
   title_needed: "Add a title.",
   sending: "Sending…",
   uploading: "Uploading {name}… {pct}%",
@@ -182,14 +194,18 @@ function size(b) {
   return (b / 1048576).toFixed(1) + " MB";
 }
 function when(t) {
-  if (t == null || t === "") return "";
-  const n = typeof t === "number" ? (t < 1e12 ? t * 1000 : t) : Date.parse(t);
+  if (!t) return "";
+  const n = Date.parse(t);
   if (!isFinite(n)) return String(t);
   return new Date(n).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 function stamp(t) {
-  const n = typeof t === "number" ? (t < 1e12 ? t * 1000 : t) : Date.parse(t);
+  const n = Date.parse(t);
   return isFinite(n) ? n : 0;
+}
+function fileType(f, name) {
+  const m = /\.([a-z0-9]+)$/i.exec(name || "");
+  return (m && TYPES[m[1].toLowerCase()]) || (ACCEPTED.has(f.type) ? f.type : "");
 }
 function nameOf(p) {
   if (!p) return say("event_system");
@@ -429,7 +445,8 @@ function status(form, text, retry) {
   if (retry) line.append(" ", h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry }));
 }
 function pill(cls, data, value, label) { return h("span", { class: cls, [data]: value, text: label }); }
-function statusPill(s) { return pill("p99-status", "data-status", s, say("status_" + s)); }
+function statusWord(s) { return say(me && me.manager && s === "waiting" ? "status_waiting_manager" : "status_" + s); }
+function statusPill(s) { return pill("p99-status", "data-status", s, statusWord(s)); }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
 function landing(l) {
   if (!l) return null;
@@ -459,9 +476,8 @@ function pieces(text) {
   return out;
 }
 
-function defaultList(all) {
+function defaultList() {
   const c = (me && me.counts) || {};
-  if (all && me && me.manager) return { scope: "all", status: "open", kind: "", q: "" };
   if (c.page_open > 0) return { scope: "page", status: "open", kind: "", q: "" };
   if (me && me.manager) return { scope: "all", status: "open", kind: "", q: "" };
   return { scope: "mine", status: "open", kind: "", q: "" };
@@ -511,7 +527,7 @@ function more(view, items, f, cursor) {
 }
 function filters(f) {
   const status = h("select", { name: "status" },
-    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.map((s) => [s, say("status_" + s)]))
+    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.map((s) => [s, statusWord(s)]))
       .map(([v, l]) => h("option", { value: v, selected: (f.status || "open") === v, text: l })));
   const kind = h("select", { name: "kind" }, [["", say("filter_every_kind")]].concat(KINDS.map((k) => [k, say("kind_" + k)])).map(([v, l]) => h("option", { value: v, selected: f.kind === v, text: l })));
   const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off" });
@@ -573,13 +589,14 @@ function thread(t) {
   if (i.assignee) meta.push(" · ", say("assigned_to", { who: i.assignee }));
   if (i.duplicate_of) meta.push(" · ", say("duplicate_of", { n: i.duplicate_of }));
   const page = i.page || {};
-  const here = page.path === location.pathname;
+  const dest = pageUrl(page.path);
+  const here = !!dest && dest.pathname === location.pathname;
   const marks = Array.isArray(i.marks) ? i.marks : [];
-  const pageLink = /^\/(?!\/)/.test(page.path || "") ? h("p", { class: "p99-page" }, h("a", { href: page.path + "#p99=" + enc(i.key), text: page.title || page.path, onclick: (e) => {
+  const pageLink = dest ? h("p", { class: "p99-page" }, h("a", { href: dest.pathname + "#p99=" + enc(i.key), text: page.title || dest.pathname, onclick: (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
     if (here) { if (marks.length) showMarks(marks); return; }
-    location.href = page.path + "#p99=" + enc(i.key);
+    location.href = dest.pathname + "#p99=" + enc(i.key);
   } })) : null;
   const shots = files.filter((a) => !a.comment_id && a.role !== "file");
   const loose = files.filter((a) => !a.comment_id && a.role === "file");
@@ -616,19 +633,20 @@ function fileList(list) {
     /^image\//.test(a.type || "") ? h("a", { href: "#", onclick: download(a) }, thumb(a)) : null,
     h("a", { href: "#", onclick: download(a), text: a.name || "file" }), " ", h("small", { text: size(a.bytes || 0) }))));
 }
-function detail(d) {
-  if (typeof d === "string" && /^\s*\{/.test(d)) {
-    try { return JSON.parse(d); } catch (x) {}
-  }
-  return d;
+function pageUrl(path) {
+  if (typeof path !== "string" || !/^\/(?![\/\\])/.test(path) || /[\\\s\u0000-\u001f\u007f]/.test(path)) return null;
+  try {
+    const u = new URL(path, location.origin);
+    return u.origin === location.origin ? u : null;
+  } catch (x) { return null; }
 }
 function eventText(ev) {
-  const d = detail(ev.detail);
-  const obj = d && typeof d === "object" ? d : { to: d };
+  const obj = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
   const label = (k, v) => (v ? say(k + "_" + v) : "");
-  if (ev.kind === "status") return say("event_status", { from: label("status", obj.from), to: label("status", obj.to) });
+  if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from) : "", to: obj.to ? statusWord(obj.to) : "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: obj.to }) : say("event_unassigned");
+  if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
   if (("event_" + ev.kind) in WORDS) return say("event_" + ev.kind, { to: obj.to == null ? "" : obj.to, env: obj.env || "" });
   return null;
@@ -656,6 +674,7 @@ function entries(t, byId, mine) {
 function pendingFiles(form, files) {
   form.p99Files = form.p99Files || [];
   Array.from(files || []).forEach((f) => {
+    if (!fileType(f, f.name)) return status(form, say("file_type"));
     if (f.size > MAX_FILE) return status(form, say("too_big", { name: f.name }));
     if (form.p99Files.length >= MAX_FILES) return status(form, say("too_many_files"));
     if (form.p99Files.some((x) => x.file === f)) return;
@@ -717,14 +736,14 @@ function submitComment(form, key) {
     status(form, problem(e), !e.status || e.status >= 500 ? () => submitComment(form, key) : null);
   });
 }
-function options(list, prefix, current) {
-  return list.map((v) => h("option", { value: v, selected: v === current, text: say(prefix + v) }));
+function options(list, word, current) {
+  return list.map((v) => h("option", { value: v, selected: v === current, text: word(v) }));
 }
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(STATUSES, "status_", i.status))),
-    h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, "kind_", i.kind))),
+    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(STATUSES, statusWord, i.status))),
+    h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     h("label", null, h("span", { text: say("assignee") }), h("input", { type: "email", name: "assignee", value: i.assignee || "", autocomplete: "off" })),
     h("label", null, h("span", { text: say("duplicate_label") }), h("input", { name: "duplicate_of", value: i.duplicate_of || "", placeholder: say("duplicate_hint"), autocomplete: "off" })),
     statusLine(),
@@ -786,7 +805,7 @@ function put(key, it, form) {
     const x = new XMLHttpRequest();
     x.open("PUT", "/_p99/api/issues/" + enc(key) + "/attachments/" + enc(it.uid) + q);
     x.setRequestHeader("X-P99-Code", o.code);
-    x.setRequestHeader("Content-Type", it.blob.type || "application/octet-stream");
+    x.setRequestHeader("Content-Type", fileType(it.blob, it.name) || "application/octet-stream");
     x.upload.onprogress = (e) => { if (e.lengthComputable) status(form, say("uploading", { name: it.name, pct: Math.round((e.loaded / e.total) * 100) })); };
     x.onload = () => {
       if (x.status >= 200 && x.status < 300) return resolve();
@@ -1357,6 +1376,7 @@ function addFiles(form, files) {
   const d = S.draft;
   if (!d) return;
   Array.from(files || []).forEach((f) => {
+    if (!fileType(f, f.name)) return status(form, say("file_type"));
     if (f.size > MAX_FILE) return status(form, say("too_big", { name: f.name }));
     if (planned(d, form) >= MAX_FILES) return status(form, say("too_many_files"));
     d.files.push({ file: f, uid: uid() });

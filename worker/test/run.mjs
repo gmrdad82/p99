@@ -251,6 +251,17 @@ async function run() {
     });
     assert.equal(comment.status, 201);
     assert.equal(comment.json.author.agent, true);
+    const hung = await fetch(`${base}/_p99/api/issues/${key}/attachments/${randomUUID()}?comment=${comment.json.id}&name=note.txt`, {
+      method: "PUT",
+      headers: { "x-p99-code": adaHere.secret, "content-type": "text/plain" },
+      body: "not the manager's file",
+    });
+    assert.equal(hung.status, 404);
+  });
+
+  await check("a page path that leaves the host is refused", async () => {
+    const page = { url: "https://example.com/x", path: "/\\evil.example/x", title: "Orders" };
+    assert.equal((await browse("POST", "/issues", adaHere.secret, issueBody({ page }))).status, 400);
   });
 
   await check("a manager over the daily limits still files, and others are stopped", async () => {
@@ -340,6 +351,7 @@ async function run() {
     assert.equal(thread.json.comments.length, 1);
     assert.equal(thread.json.attachments[0].name, "café.txt");
     assert.deepEqual(thread.json.comments[0].attachments, [thread.json.attachments[0].id]);
+    assert.equal(thread.json.issue.landing.envs[0].env, "production");
 
     const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody() });
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
