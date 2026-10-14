@@ -70,7 +70,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     } else {
         Source::live(
             global.account.as_deref(),
-            crate::config::agent(global.agent.as_deref()),
+            global.agent.as_deref(),
         )
     };
     let fixture = || tui(Source::demo(Duration::ZERO));

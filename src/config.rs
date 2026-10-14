@@ -24,6 +24,8 @@ pub struct Me {
     pub name: String,
     #[serde(default)]
     pub email: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -48,6 +50,10 @@ pub struct Account {
     pub resend_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail_from: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_client_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub access_client_secret: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -212,7 +218,12 @@ impl Config {
 
     fn has_inline_secret(&self) -> bool {
         self.accounts.values().any(|a| {
-            [Some(&a.token), Some(&a.key), a.resend_key.as_ref()]
+            [
+                Some(&a.token),
+                Some(&a.key),
+                a.resend_key.as_ref(),
+                a.access_client_secret.as_ref(),
+            ]
                 .into_iter()
                 .flatten()
                 .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
@@ -224,11 +235,11 @@ pub fn secret(value: &str) -> Result<String, String> {
     crate::vault::read(value)
 }
 
-pub fn agent(flag: Option<&str>) -> Option<String> {
-    flag.map(str::to_owned)
-        .or_else(|| env::var("P99_AGENT").ok())
-        .map(|label| label.trim().to_owned())
-        .filter(|label| !label.is_empty())
+pub fn agent(flag: Option<&str>, config: &Config) -> Option<String> {
+    let clean = |label: &str| Some(label.trim().to_owned()).filter(|l| !l.is_empty());
+    flag.and_then(clean)
+        .or_else(|| env::var("P99_AGENT").ok().as_deref().and_then(clean))
+        .or_else(|| config.me.agent.as_deref().and_then(clean))
 }
 
 #[cfg(unix)]

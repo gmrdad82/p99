@@ -293,7 +293,7 @@ fn client_for(
     let client = Client::for_account(
         config,
         &account,
-        crate::config::agent(global.agent.as_deref()),
+        crate::config::agent(global.agent.as_deref(), config),
     )?;
     Ok((client, account))
 }
@@ -372,7 +372,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             },
         );
     }
-    let agent = crate::config::agent(global.agent.as_deref());
+    let agent = crate::config::agent(global.agent.as_deref(), config);
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
             continue;
@@ -492,7 +492,7 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     let client = Client::for_account(
         config,
         &account,
-        crate::config::agent(global.agent.as_deref()),
+        crate::config::agent(global.agent.as_deref(), config),
     )?;
     let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
     let known = client.envs()?;
@@ -718,7 +718,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         args.host.clone()
     };
     let scope = if args.mine { "mine" } else { "all" };
-    let agent = crate::config::agent(global.agent.as_deref());
+    let agent = crate::config::agent(global.agent.as_deref(), config);
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
     for account in &accounts {

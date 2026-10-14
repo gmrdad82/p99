@@ -22,6 +22,7 @@ pub struct Client {
     key: Vec<u8>,
     pub actor: Actor,
     pub host: Option<String>,
+    access: Option<(String, String)>,
 }
 
 struct Reply {
@@ -42,6 +43,15 @@ impl Client {
             .get(account)
             .ok_or_else(|| format!("no account is called {account}"))?;
         let key = crate::config::secret(&entry.key)?.into_bytes();
+        let access = match (&entry.access_client_id, &entry.access_client_secret) {
+            (None, None) => None,
+            (Some(id), Some(secret)) => Some((id.clone(), crate::config::secret(secret)?)),
+            _ => {
+                return Err(format!(
+                    "the account {account} needs both access_client_id and access_client_secret, or neither"
+                ));
+            }
+        };
         let actor = Actor {
             email: config.me.email.clone(),
             name: config.me.name.clone(),
@@ -55,6 +65,7 @@ impl Client {
             key,
             actor,
             host: None,
+            access,
         })
     }
 
@@ -287,6 +298,11 @@ impl Client {
                 request = request.header(name, value);
             }
         }
+        if let Some((id, secret)) = &self.access {
+            request = request
+                .header("CF-Access-Client-Id", id)
+                .header("CF-Access-Client-Secret", secret);
+        }
         if !body.is_empty() {
             let kind = if method == "PUT" {
                 "application/octet-stream"
@@ -484,6 +500,7 @@ mod tests {
                 person: "ada@example.com".to_owned(),
             },
             host: None,
+            access: None,
         };
         let body = r#"{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}"#;
         let headers = client.headers(

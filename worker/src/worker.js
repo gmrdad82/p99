@@ -41,6 +41,7 @@ const MAX_LIST_LIMIT = 100;
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_CODE_HOSTS = 50;
 const SNIFF_BYTES = 1024;
+const SEARCH_BATCH = 100;
 const DAILY_LIMITS = { issues: 30, comments: 200, bytes: 100 * 1024 * 1024 };
 const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
 const MAIL_CAP = 100;
@@ -501,6 +502,7 @@ function inScope(c, row) {
 }
 
 async function checkUsage(c, field, amount) {
+  if (c.manager) return;
   const row = await c.env.DB.prepare(`SELECT ${field} AS used FROM usage WHERE actor_email = ?1 AND day = ?2`)
     .bind(c.actor.email, today(c.now))
     .first();
@@ -521,10 +523,26 @@ function readStatement(c, itemId) {
   ).bind(c.actor.email, itemId, c.now);
 }
 
+function agentOf(c) {
+  return c.actor ? (c.actor.agent ?? null) : null;
+}
+
 function eventStatement(c, itemId, actorEmail, kind, detail, internal = false) {
   return c.env.DB.prepare(
-    "INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-  ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now);
+    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+  ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c));
+}
+
+function fold(text) {
+  return String(text ?? "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+function searchText(title, body) {
+  return fold(`${title} ${body ?? ""}`);
 }
 
 const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind FROM items i LEFT JOIN items d ON d.id = i.duplicate_of`;
@@ -702,7 +720,13 @@ function attachmentOf(row) {
 }
 
 function eventOf(row) {
-  return { actor: row.actor_email, kind: row.kind, detail: parseJson(row.detail_json, {}), at: row.at };
+  return {
+    actor: row.actor_email,
+    agent: row.actor_agent ?? null,
+    kind: row.kind,
+    detail: parseJson(row.detail_json, {}),
+    at: row.at,
+  };
 }
 
 function codeOf(row) {
@@ -754,7 +778,7 @@ function sendMail(c, row, recipients, data) {
     kind: row.kind,
     title: row.title,
     link: pageLink(row),
-    actorName: c.actor ? c.actor.name : "P99",
+    actorName: c.actor ? (c.actor.agent ? `${c.actor.name} (${c.actor.agent})` : c.actor.name) : "P99",
     ...data,
   });
   c.outbox.push({ item_id: row.id, host: row.host ?? null, to: recipients, template: data.template, ref: data.ref, ...content });
@@ -795,7 +819,7 @@ async function flushMail(c) {
         method: "POST",
         headers: {
           authorization: `Bearer ${env.RESEND_API_KEY}`,
-          "content-type": "application/json",
+          "content-type": "application/json; charset=utf-8",
           "idempotency-key": `p99-${key}`,
         },
         body: JSON.stringify(
@@ -815,10 +839,10 @@ async function flushMail(c) {
       detail: JSON.stringify({ to: m.to, template: m.template, ...outcomes[i] }),
     }));
     await env.DB.prepare(
-      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
-       SELECT json_extract(value, '$.item_id'), ?2, 'mail', json_extract(value, '$.detail'), 1, ?3 FROM json_each(?1)`,
+      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+       SELECT json_extract(value, '$.item_id'), ?2, 'mail', json_extract(value, '$.detail'), 1, ?3, ?4 FROM json_each(?1)`,
     )
-      .bind(JSON.stringify(events), c.actor ? c.actor.email : null, c.now)
+      .bind(JSON.stringify(events), c.actor ? c.actor.email : null, c.now, agentOf(c))
       .run();
   } catch (error) {
     console.error(`mail flush failed: ${error.message}`);
@@ -1187,8 +1211,8 @@ async function listIssues(c) {
   const text = (params.get("q") || "").trim();
   if (text.length > 200) fail(400, "q must be at most 200 characters");
   if (text.length > 0) {
-    const like = q.bind(`%${text.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
-    const match = `i.title LIKE ${like} ESCAPE '\\' OR i.body LIKE ${like} ESCAPE '\\'`;
+    const like = q.bind(`%${fold(text).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
+    const match = `COALESCE(i.search_text, lower(i.title || ' ' || i.body)) LIKE ${like} ESCAPE '\\'`;
     const id = parseKey(text);
     where.push(id !== null ? `(i.id = ${q.bind(id)} OR ${match})` : `(${match})`);
   }
@@ -1273,8 +1297,8 @@ async function createIssue(c) {
       DB.prepare(
         `INSERT INTO items (client_uid, kind, status, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
-           created_at, updated_at, host, reporter_agent)
-         VALUES (?1, ?2, 'new', 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16)
+           created_at, updated_at, host, reporter_agent, search_text)
+         VALUES (?1, ?2, 'new', 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17)
          RETURNING id`,
       ).bind(
         body.client_uid,
@@ -1293,11 +1317,12 @@ async function createIssue(c) {
         c.now,
         target.host,
         c.actor.agent,
+        searchText(title, text),
       ),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
-         SELECT id, ?2, 'created', ?3, 0, ?4 ${byUid}`,
-      ).bind(body.client_uid, c.actor.email, JSON.stringify({ kind: body.kind, title }), c.now),
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+         SELECT id, ?2, 'created', ?3, 0, ?4, ?5 ${byUid}`,
+      ).bind(body.client_uid, c.actor.email, JSON.stringify({ kind: body.kind, title }), c.now, agentOf(c)),
       DB.prepare(
         `INSERT INTO reads (actor_email, item_id, read_at) SELECT ?2, id, ?3 ${byUid}
          ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
@@ -1454,7 +1479,7 @@ async function patchIssue(c, rawKey) {
     c.env.DB.prepare(
       `UPDATE items SET status = ?2, open = ?3, kind = ?4, assignee = ?5, duplicate_of = ?6, title = ?7, body = ?8,
          closed_at = ?9, updated_at = ?10, activity_at = ?10,
-         public_activity_at = CASE WHEN ?11 THEN ?10 ELSE public_activity_at END
+         public_activity_at = CASE WHEN ?11 THEN ?10 ELSE public_activity_at END, search_text = ?12
        WHERE id = ?1`,
     ).bind(
       row.id,
@@ -1468,6 +1493,7 @@ async function patchIssue(c, rawKey) {
       closedAt,
       c.now,
       publicChange ? 1 : 0,
+      searchText(next.title, next.body),
     ),
   );
   statements.push(readStatement(c, row.id));
@@ -1521,10 +1547,10 @@ async function postComment(c, rawKey) {
         c.actor.agent,
       ),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
-         SELECT ?1, ?2, 'status', '{"from":"waiting","to":"confirmed"}', 0, ?3 FROM items
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+         SELECT ?1, ?2, 'status', '{"from":"waiting","to":"confirmed"}', 0, ?3, ?5 FROM items
          WHERE id = ?1 AND status = 'waiting' AND ?4`,
-      ).bind(row.id, c.actor.email, c.now, reopen ? 1 : 0),
+      ).bind(row.id, c.actor.email, c.now, reopen ? 1 : 0, agentOf(c)),
       DB.prepare(
         `UPDATE items SET comment_count = comment_count + 1,
            public_comment_count = public_comment_count + ?2,
@@ -1534,10 +1560,10 @@ async function postComment(c, rawKey) {
          WHERE id = ?1`,
       ).bind(row.id, internal ? 0 : 1, c.now, reopen ? 1 : 0),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
-         SELECT ?1, ?2, 'comment', json_object('comment_id', id, 'internal', json(?3)), ?4, ?5
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+         SELECT ?1, ?2, 'comment', json_object('comment_id', id, 'internal', json(?3)), ?4, ?5, ?7
          FROM comments WHERE client_uid = ?6`,
-      ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid),
+      ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid, agentOf(c)),
       readStatement(c, row.id),
       usageStatement(c, "comments", 1),
     ]);
@@ -1749,8 +1775,8 @@ async function putAttachment(c, rawKey, rawUid) {
        WHERE id = ?3 AND ${mine}`,
     ).bind(reserved.id, token, row.id, reserved.internal ? 0 : 1, c.now),
     DB.prepare(
-      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
-       SELECT ?3, ?4, 'attachment', ?5, ?6, ?7 WHERE ${mine}`,
+      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+       SELECT ?3, ?4, 'attachment', ?5, ?6, ?7, ?8 WHERE ${mine}`,
     ).bind(
       reserved.id,
       token,
@@ -1765,6 +1791,7 @@ async function putAttachment(c, rawKey, rawUid) {
       }),
       reserved.internal,
       c.now,
+      agentOf(c),
     ),
     DB.prepare(
       `INSERT INTO usage (actor_email, day, bytes) SELECT ?3, ?4, ?5 WHERE ${mine}
@@ -1964,6 +1991,21 @@ function backupDue(last, nowDate) {
     nowDate.getUTCHours() >= BACKUP_HOUR &&
     last.date !== nowDate.toISOString().slice(0, 10)
   );
+}
+
+async function searchStep(env) {
+  try {
+    const { DB } = env;
+    const { results } = await DB.prepare("SELECT id, title, body FROM items WHERE search_text IS NULL ORDER BY id LIMIT ?1")
+      .bind(SEARCH_BATCH)
+      .all();
+    if (results.length === 0) return;
+    await DB.batch(
+      results.map((r) => DB.prepare("UPDATE items SET search_text = ?2 WHERE id = ?1").bind(r.id, searchText(r.title, r.body))),
+    );
+  } catch (error) {
+    console.error(`search backfill failed: ${error.message}`);
+  }
 }
 
 async function backupStep(env) {
@@ -2193,5 +2235,6 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(backupStep(env));
+    ctx.waitUntil(searchStep(env));
   },
 };

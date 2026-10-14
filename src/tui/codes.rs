@@ -5,11 +5,12 @@ use pito_tui::crossterm::event::{KeyCode, KeyEvent};
 use pito_tui::footer::{Hint, InputBar};
 use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style, text::Line};
-use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Turn, matches};
+use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Turn};
 
 use crate::wire::Code;
 
 use super::Msg;
+use super::inbox::found;
 use super::source::{Source, unix};
 
 const COLUMNS: [Column; 7] = [
@@ -64,7 +65,7 @@ impl Codes {
         self.filter.sift(
             &codes,
             |code, query| {
-                matches(
+                found(
                     &format!("{} {} {}", code.name, code.email, code.hosts.join(" ")),
                     query,
                 )

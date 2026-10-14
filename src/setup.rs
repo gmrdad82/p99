@@ -1017,6 +1017,8 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         url: None,
         resend_key: None,
         mail_from: None,
+        access_client_id: None,
+        access_client_secret: None,
     });
     if account.account_id != cf_account.id {
         account.database_id.clear();
@@ -1533,6 +1535,8 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         resend_key: None,
         mail_from: find_binding(&bindings, "plain_text", Some("MAIL_FROM"))
             .and_then(|b| b["text"].as_str().map(str::to_owned)),
+        access_client_id: None,
+        access_client_secret: None,
     };
     migrate(&cf, &id, &database_id)?;
     let key = new_key()?;

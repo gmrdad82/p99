@@ -13,6 +13,7 @@ use pito_tui::ratatui::{
     widgets::Paragraph,
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, matches, message, text};
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::wire::{self, Change, Issue, Thread};
 
@@ -149,7 +150,7 @@ impl Inbox {
             shown.keeps(&item.status)
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
                 && (query.is_empty()
-                    || matches(
+                    || found(
                         &format!(
                             "{} {} {} {} {} {} {} {}",
                             item.key,
@@ -656,6 +657,14 @@ fn lines(
         }
     }
     out
+}
+
+fn fold(text: &str) -> String {
+    text.nfd().filter(|c| !is_combining_mark(*c)).collect()
+}
+
+pub(super) fn found(text: &str, query: &str) -> bool {
+    matches(&fold(text), &fold(query))
 }
 
 fn plain(value: &serde_json::Value) -> String {

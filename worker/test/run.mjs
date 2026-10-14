@@ -47,6 +47,7 @@ VALUES
 INSERT INTO comments (id, item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env, created_at)
 VALUES (3, 9, 'old-c-3', 'grace@example.com', 'Grace Hopper', 0, 'Still wanted.', 0, 'production', '2026-01-03T00:00:00.000Z');
 UPDATE items SET comment_count = 1, public_comment_count = 1 WHERE id = 9;
+INSERT INTO usage (actor_email, day, issues, comments, bytes) VALUES ('grace@example.com', date('now'), 30, 200, 0);
 `;
 
 const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accent: "#3b7dd8" } };
@@ -291,6 +292,21 @@ async function run() {
     });
     assert.equal(comment.status, 201);
     assert.equal(comment.json.author.agent, "claude");
+  });
+
+  await check("a manager over the daily limits still files, and others are stopped", async () => {
+    const managed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "The crème brûlée costs too much" }) });
+    assert.equal(managed.status, 201, JSON.stringify(managed.json));
+    assert.equal((await browse("POST", "/issues", graceHere.secret, issueBody())).status, 429);
+  });
+
+  await check("search ignores diacritics and case, on new and adopted items", async () => {
+    const keys = async (q) =>
+      (await call("GET", `/_p99/v1/issues?scope=all&host=*&q=${encodeURIComponent(q)}`)).json.issues.map((i) => i.key);
+    const found = await keys("CREME brulee");
+    assert.equal(found.length, 1);
+    assert.deepEqual(await keys("Crème Brûlée"), found);
+    assert.deepEqual(await keys("old TOTAL"), ["BUG-7"]);
   });
 
   await check("the loader carries the host's placement and version", async () => {

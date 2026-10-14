@@ -20,7 +20,8 @@ const EXCERPT_CHARS = 1000;
 
 function excerpt(text) {
   const trimmed = (text || "").trim();
-  return trimmed.length > EXCERPT_CHARS ? `${trimmed.slice(0, EXCERPT_CHARS)}…` : trimmed;
+  const chars = Array.from(trimmed.normalize("NFC"));
+  return chars.length > EXCERPT_CHARS ? `${chars.slice(0, EXCERPT_CHARS).join("")}…` : chars.join("");
 }
 
 function escapeHtml(text) {

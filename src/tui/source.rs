@@ -37,7 +37,7 @@ impl Source {
         Source::Demo(Arc::new(Mutex::new(Demo::new())), pace)
     }
 
-    pub fn live(account: Option<&str>, agent: Option<String>) -> Source {
+    pub fn live(account: Option<&str>, agent: Option<&str>) -> Source {
         let config = match Config::load() {
             Ok(config) => config,
             Err(why) => return Source::Broken(why),
@@ -50,6 +50,7 @@ impl Source {
         if accounts.is_empty() {
             return Source::Broken("no account yet; p99 setup makes one".into());
         }
+        let agent = crate::config::agent(agent, &config);
         Source::Live(Arc::new(Live {
             config,
             accounts,
