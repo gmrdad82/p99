@@ -2,15 +2,102 @@ use std::collections::BTreeSet;
 use std::io::{self, BufRead, IsTerminal, Read, Write};
 use std::time::Duration;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use serde::Serialize;
 use serde_json::{Value, json};
 
-use crate::bundle;
+use crate::bundle::{self, ModuleInfo};
 use crate::cli::Global;
 use crate::cloudflare::{ApiError, CRON, Cloudflare, Named};
 use crate::config::{Account, Config, Host};
 use crate::vault;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+macro_rules! say {
+    ($($arg:tt)*) => {
+        if QUIET.load(Ordering::Relaxed) {
+            eprintln!($($arg)*)
+        } else {
+            println!($($arg)*)
+        }
+    };
+}
+
+macro_rules! sayn {
+    ($($arg:tt)*) => {
+        if QUIET.load(Ordering::Relaxed) {
+            eprint!($($arg)*)
+        } else {
+            print!($($arg)*)
+        }
+    };
+}
+
+fn flush() -> io::Result<()> {
+    if QUIET.load(Ordering::Relaxed) {
+        io::stderr().flush()
+    } else {
+        io::stdout().flush()
+    }
+}
+
+fn emit<T: Serialize>(value: &T) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
+    println!("{text}");
+    Ok(())
+}
+
+#[derive(Debug, Default, Serialize)]
+struct Migrated {
+    applied: Vec<String>,
+    already: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct Uploaded {
+    bindings: Vec<String>,
+}
+
+struct Routed {
+    notes: Vec<String>,
+    created: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct Health {
+    host: String,
+    ok: bool,
+    version: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RouteReport {
+    host: String,
+    pattern: String,
+    created: bool,
+    notes: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct DeployReport {
+    account: String,
+    account_id: String,
+    worker: String,
+    version: &'static str,
+    modules: Vec<ModuleInfo>,
+    migrations: Migrated,
+    routes: Vec<RouteReport>,
+    health: Vec<Health>,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
 const RESERVED_NAMESPACES: [u64; 2] = [7301, 7302];
 const FIRST_NAMESPACE: u64 = 1001;
 const RATE_LIMIT: u64 = 120;
@@ -154,10 +241,10 @@ impl Ask {
                 .ok_or_else(|| format!("{question}: give it with {flag}"));
         }
         match default {
-            Some(d) if !d.is_empty() => print!("{question} [{d}]: "),
-            _ => print!("{question}: "),
+            Some(d) if !d.is_empty() => sayn!("{question} [{d}]: "),
+            _ => sayn!("{question}: "),
         }
-        io::stdout().flush().map_err(|e| e.to_string())?;
+        flush().map_err(|e| e.to_string())?;
         let mut line = String::new();
         let read = io::stdin()
             .lock()
@@ -182,8 +269,8 @@ impl Ask {
         }
         let hint = if default { "Y/n" } else { "y/N" };
         loop {
-            print!("{question} [{hint}]: ");
-            io::stdout().flush().map_err(|e| e.to_string())?;
+            sayn!("{question} [{hint}]: ");
+            flush().map_err(|e| e.to_string())?;
             let mut line = String::new();
             if io::stdin()
                 .lock()
@@ -197,7 +284,7 @@ impl Ask {
                 "" => return Ok(default),
                 "y" | "yes" => return Ok(true),
                 "n" | "no" => return Ok(false),
-                _ => println!("  Answer y or n."),
+                _ => say!("  Answer y or n."),
             }
         }
     }
@@ -206,8 +293,8 @@ impl Ask {
         if self.yes {
             return Err(format!("{question}: give it with {flag}"));
         }
-        print!("{question} (hidden): ");
-        io::stdout().flush().map_err(|e| e.to_string())?;
+        sayn!("{question} (hidden): ");
+        flush().map_err(|e| e.to_string())?;
         let value = if io::stdin().is_terminal() {
             hidden()?
         } else {
@@ -230,7 +317,7 @@ impl Ask {
             return Ok(&items[0]);
         }
         for (i, item) in items.iter().enumerate() {
-            println!("  {}. {} ({})", i + 1, item.name, item.id);
+            say!("  {}. {} ({})", i + 1, item.name, item.id);
         }
         if self.yes {
             return Err(format!("several {what}s; name one with --account-id"));
@@ -247,7 +334,7 @@ impl Ask {
                     if let Some(item) = items.iter().find(|i| i.id == answer || i.name == answer) {
                         return Ok(item);
                     }
-                    println!("  Pick a number from the list.");
+                    say!("  Pick a number from the list.");
                 }
             }
         }
@@ -279,7 +366,7 @@ fn hidden() -> Result<String, String> {
         }
     };
     let _ = terminal::disable_raw_mode();
-    println!();
+    say!();
     outcome.map(|()| value)
 }
 
@@ -296,18 +383,18 @@ fn new_key() -> Result<String, String> {
 }
 
 fn step(n: usize, total: usize, title: &str, why: &str) {
-    println!("\n[{n}/{total}] {title}");
+    say!("\n[{n}/{total}] {title}");
     for line in why.lines() {
-        println!("      {line}");
+        say!("      {line}");
     }
 }
 
 fn done(what: &str) {
-    println!("  ok  {what}");
+    say!("  ok  {what}");
 }
 
 fn note(what: &str) {
-    println!("  --  {what}");
+    say!("  --  {what}");
 }
 
 fn is_hostname(host: &str) -> bool {
@@ -342,7 +429,7 @@ impl Session<'_> {
         } else if self.ask.yes || !vault::available() {
             None
         } else {
-            println!(
+            say!(
                 "      {} is installed: P99 can keep its secrets there and write only references to the config.",
                 vault::tool()
             );
@@ -399,15 +486,15 @@ impl Session<'_> {
         let configured = existing.map(|a| a.token.clone()).filter(|t| !t.is_empty());
         let mut stored = self.access.token.clone().or_else(|| configured.clone());
         if stored.is_none() {
-            println!("      P99 needs a Cloudflare API token with these permissions:");
+            say!("      P99 needs a Cloudflare API token with these permissions:");
             for (permission, why) in PERMISSIONS {
-                println!("        {permission:<38} to {why}");
+                say!("        {permission:<38} to {why}");
             }
-            println!(
+            say!(
                 "      Create one in the dashboard under My Profile › API Tokens › Create Token › Custom token,"
             );
-            println!("      or for a token the account owns, Manage Account › Account API Tokens.");
-            println!("      Limit it to the account and the zones of your hosts.");
+            say!("      or for a token the account owns, Manage Account › Account API Tokens.");
+            say!("      Limit it to the account and the zones of your hosts.");
         }
         loop {
             let raw = match stored.take() {
@@ -419,7 +506,7 @@ impl Session<'_> {
             let accounts = match reach(&cf) {
                 Ok(accounts) => accounts,
                 Err(why) => {
-                    println!("  !!  {why}");
+                    say!("  !!  {why}");
                     if self.ask.yes {
                         return Err(why);
                     }
@@ -448,7 +535,7 @@ impl Session<'_> {
                     name: String::new(),
                 },
                 None => {
-                    println!("      The token reaches these accounts:");
+                    say!("      The token reaches these accounts:");
                     self.ask.pick("account", &accounts)?.clone()
                 }
             };
@@ -471,14 +558,14 @@ impl Session<'_> {
                 };
                 return Ok((kept, cf, account));
             }
-            println!("  !!  The token lacks:");
+            say!("  !!  The token lacks:");
             for m in &missing {
-                println!("        {m}");
+                say!("        {m}");
             }
             if self.ask.yes {
                 return Err(format!("the token lacks {}", missing.join(", ")));
             }
-            println!("      Edit the token in the dashboard to add them, then paste it again.");
+            say!("      Edit the token in the dashboard to add them, then paste it again.");
         }
     }
 }
@@ -582,18 +669,28 @@ fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, Stri
     }
 }
 
-fn migrate(cf: &Cloudflare, account: &str, db: &str) -> Result<(), String> {
+fn migrate(cf: &Cloudflare, account: &str, db: &str) -> Result<Migrated, String> {
     cf.query(account, db, MIGRATIONS_TABLE, &[])?;
     let applied = applied(cf, account, db)?;
     let todo = pending(bundle::MIGRATIONS, &applied);
+    let mut out = Migrated {
+        applied: Vec::new(),
+        already: bundle::MIGRATIONS
+            .iter()
+            .filter(|(name, _)| applied.iter().any(|a| a == name))
+            .map(|(name, _)| (*name).to_owned())
+            .collect(),
+    };
+    out.already.sort();
     if todo.is_empty() {
         done("every migration is applied");
     }
     for (name, sql) in todo {
         cf.query(account, db, &migration_sql(name, sql), &[])?;
         done(&format!("applied {name}"));
+        out.applied.push(name.to_owned());
     }
-    Ok(())
+    Ok(out)
 }
 
 fn ensure_bucket(cf: &Cloudflare, account: &str, name: &str) -> Result<(), String> {
@@ -706,15 +803,15 @@ fn rate_namespace(
             Ok(ns)
         }
         Err(e) => {
-            println!("  !!  Couldn't read the other Workers' rate-limiting namespaces: {e}");
-            println!(
+            say!("  !!  Couldn't read the other Workers' rate-limiting namespaces: {e}");
+            say!(
                 "      Pick a whole number no other Worker in the account uses (never 7301 or 7302)."
             );
             loop {
                 let answer = ask.line("Rate-limiting namespace id", None, "--rate-namespace")?;
                 match answer.parse::<u64>() {
                     Ok(n) if n > 0 && !RESERVED_NAMESPACES.contains(&n) => return Ok(n),
-                    _ => println!("  Give a positive whole number other than 7301 and 7302."),
+                    _ => say!("  Give a positive whole number other than 7301 and 7302."),
                 }
             }
         }
@@ -726,7 +823,7 @@ fn upload(
     account: &Account,
     existing: &[Value],
     rate: Option<u64>,
-) -> Result<(), String> {
+) -> Result<Uploaded, String> {
     let bindings = merge_bindings(existing, our_bindings(account, rate));
     cf.upload(
         &account.account_id,
@@ -735,20 +832,20 @@ fn upload(
         &bindings,
         &bundle::modules(),
     )?;
+    let names: Vec<String> = bindings
+        .iter()
+        .map(|b| binding_name(b).to_owned())
+        .collect();
     done(&format!(
         "uploaded the Worker {} ({VERSION}) with {}",
         account.worker,
-        bindings
-            .iter()
-            .map(binding_name)
-            .collect::<Vec<_>>()
-            .join(", ")
+        names.join(", ")
     ));
     cf.put_schedules(&account.account_id, &account.worker, &[CRON])?;
     done(&format!(
         "cron schedule {CRON} (the weekly backup runs in its steps)"
     ));
-    Ok(())
+    Ok(Uploaded { bindings: names })
 }
 
 pub struct HostSpec {
@@ -822,8 +919,9 @@ fn route(
     worker: &str,
     zones: &[Named],
     host: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<Routed, String> {
     let mut notes = Vec::new();
+    let mut created = false;
     let zone = crate::cloudflare::zone_of(zones, host).ok_or_else(|| {
         format!("{host} is on no zone this token reaches; add the zone to Cloudflare or to the token's Zone › Zone: Read")
     })?;
@@ -873,10 +971,11 @@ fn route(
         }
         None => {
             cf.create_route(&zone.id, &pattern, worker)?;
+            created = true;
             notes.push(format!("added the route {pattern} → {worker}"));
         }
     }
-    Ok(notes)
+    Ok(Routed { notes, created })
 }
 
 fn covers(pattern: &str, host: &str) -> bool {
@@ -897,13 +996,14 @@ pub fn add_route(config: &Config, account: &str, host: &str) -> Result<(), Strin
         .ok_or_else(|| format!("no account is called {account}"))?;
     let cf = Cloudflare::new(&vault::read(&entry.token)?);
     let zones = cf.zones(&entry.account_id)?;
-    for line in route(&cf, &entry.account_id, &entry.worker, &zones, host)? {
+    for line in route(&cf, &entry.account_id, &entry.worker, &zones, host)?.notes {
         eprintln!("{line}");
     }
     Ok(())
 }
 
-fn health(hosts: &[&str]) {
+fn health(hosts: &[&str]) -> Vec<Health> {
+    let mut out = Vec::new();
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .http_status_as_error(false)
         .timeout_global(Some(Duration::from_secs(10)))
@@ -912,6 +1012,7 @@ fn health(hosts: &[&str]) {
     for host in hosts {
         let url = format!("https://{host}/_p99/health");
         let mut last = String::new();
+        let mut answered = None;
         for attempt in 0..6 {
             if attempt > 0 {
                 std::thread::sleep(Duration::from_secs(5));
@@ -920,6 +1021,7 @@ fn health(hosts: &[&str]) {
                 Ok(mut r) if r.status().as_u16() == 200 => {
                     let body: Value = r.body_mut().read_json().unwrap_or_default();
                     let version = body["version"].as_str().unwrap_or_default();
+                    answered = Some(version.to_owned());
                     if version == VERSION {
                         last.clear();
                         break;
@@ -930,17 +1032,24 @@ fn health(hosts: &[&str]) {
                 Err(e) => last = e.to_string(),
             }
         }
+        out.push(Health {
+            host: (*host).to_owned(),
+            ok: last.is_empty(),
+            version: answered,
+        });
         if last.is_empty() {
             done(&format!("{url} answers {VERSION}"));
         } else {
-            println!(
+            say!(
                 "  !!  {url} {last}; the route or DNS may need a minute (is the host proxied through Cloudflare?)"
             );
         }
     }
+    out
 }
 
 pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
+    QUIET.store(global.json, Ordering::Relaxed);
     let mut config = Config::load()?;
     let mut s = Session {
         ask: Ask {
@@ -950,13 +1059,13 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         vault: None,
     };
     let total = 9;
-    println!(
+    say!(
         "P99 setup puts P99 on a Cloudflare account: one D1 database, one R2 bucket and one Worker,"
     );
-    println!(
+    say!(
         "mounted on each of your hosts as <host>/_p99/*. Every step checks what exists first, so it"
     );
-    println!(
+    say!(
         "is safe to run again: it picks up where it stopped, and the config is saved after each step."
     );
 
@@ -972,7 +1081,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         None if config.accounts.is_empty() => "main".to_owned(),
         None => {
             let names: Vec<&str> = config.accounts.keys().map(String::as_str).collect();
-            println!(
+            say!(
                 "      The config has the account{} {}. Name one to continue its setup, or a new name to add an account.",
                 if names.len() == 1 { "" } else { "s" },
                 names.join(", ")
@@ -1176,7 +1285,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         let known: Vec<&str> = config.hosts_of(&name);
         let default = known.join(", ");
         if default.is_empty() {
-            println!("      Leave it blank to add hosts later with p99 hosts add.");
+            say!("      Leave it blank to add hosts later with p99 hosts add.");
         }
         let answer = s.ask.line(
             "Hosts this account serves, comma separated",
@@ -1210,19 +1319,24 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     }
     let zones = cf.zones(&id)?;
     let mut failed = Vec::new();
+    let mut routed: Vec<(String, Routed)> = Vec::new();
     for spec in &specs {
         if let Some(other) = config.hosts.get(&spec.host).filter(|h| h.account != name) {
-            println!(
+            say!(
                 "  !!  {} belongs to the account {}; skipped",
-                spec.host, other.account
+                spec.host,
+                other.account
             );
             failed.push(spec.host.clone());
             continue;
         }
         match route(&cf, &id, &account.worker, &zones, &spec.host) {
-            Ok(notes) => notes.iter().for_each(|n| done(n)),
+            Ok(routes) => {
+                routes.notes.iter().for_each(|n| done(n));
+                routed.push((spec.host.clone(), routes));
+            }
             Err(why) => {
-                println!("  !!  {why}");
+                say!("  !!  {why}");
                 failed.push(spec.host.clone());
                 continue;
             }
@@ -1241,19 +1355,21 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     }
 
     let hosts: Vec<&str> = config.hosts_of(&name);
+    let mut checked = Vec::new();
     if !hosts.is_empty() {
-        println!("\nChecking the hosts answer this version:");
-        health(&hosts);
+        say!("\nChecking the hosts answer this version:");
+        checked = health(&hosts);
     }
-    println!("\nThe account {name} is set up:");
-    println!("  Cloudflare account  {}", account.account_id);
-    println!("  Worker              {} ({VERSION})", account.worker);
-    println!(
+    say!("\nThe account {name} is set up:");
+    say!("  Cloudflare account  {}", account.account_id);
+    say!("  Worker              {} ({VERSION})", account.worker);
+    say!(
         "  D1 database         {} ({})",
-        account.database, account.database_id
+        account.database,
+        account.database_id
     );
-    println!("  R2 bucket           {}", account.bucket);
-    println!(
+    say!("  R2 bucket           {}", account.bucket);
+    say!(
         "  key                 p99, {}",
         if vault::is_reference(&account.key) {
             "kept in the vault"
@@ -1261,7 +1377,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             "in the config (mode 0600)"
         }
     );
-    println!(
+    say!(
         "  mail                {}",
         if account.resend_key.is_some() {
             "on"
@@ -1271,39 +1387,98 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     );
     for host in &hosts {
         let env = &config.hosts[*host].env;
-        println!("  host                {host} ({env})");
+        say!("  host                {host} ({env})");
     }
-    println!("  config              {}", crate::config::path().display());
+    say!("  config              {}", crate::config::path().display());
     if !failed.is_empty() {
-        println!(
+        say!(
             "\nNot added: {}. Fix what's named above and run p99 setup again.",
             failed.join(", ")
         );
     }
-    println!(
+    say!(
         "\nPut <script src=\"/_p99/p99.js\" async></script> in your pages' <head>, then invite people:"
     );
     let host = hosts.first().copied().unwrap_or("<host>");
-    println!(
-        "  p99 invite {host} --name \"{}\" --email {}",
+    let invite = format!(
+        "p99 invite {host} --name \"{}\" --email {}",
         config.me.name, config.me.email
     );
+    say!("  {invite}");
+    if global.json {
+        let hosts_json: Vec<Value> = hosts
+            .iter()
+            .map(|h| {
+                let did = routed.iter().find(|(r, _)| r == h).map(|(_, r)| r);
+                let kind = specs.iter().find(|s| s.host == *h).map(|s| s.kind.clone());
+                json!({
+                    "host": h,
+                    "env": config.hosts[*h].env,
+                    "kind": kind,
+                    "routes": [route_pattern(h)],
+                    "created": did.map(|r| r.created),
+                    "notes": did.map(|r| r.notes.clone()).unwrap_or_default(),
+                    "health": checked.iter().find(|c| c.host == *h),
+                })
+            })
+            .collect();
+        emit(&json!({
+            "account": name,
+            "account_id": account.account_id,
+            "worker": account.worker,
+            "version": VERSION,
+            "database": {"name": account.database, "id": account.database_id},
+            "bucket": account.bucket,
+            "key": if vault::is_reference(&account.key) { "vault" } else { "config" },
+            "mail": account.resend_key.is_some(),
+            "hosts": hosts_json,
+            "failed": failed,
+            "config": crate::config::path().display().to_string(),
+            "next": invite,
+            "ok": failed.is_empty(),
+        }))?;
+    }
     Ok(())
 }
 
 pub fn deploy(args: &DeployArgs, global: &Global) -> Result<(), String> {
+    QUIET.store(global.json, Ordering::Relaxed);
+    let mut report = DeployReport {
+        version: VERSION,
+        modules: bundle::listing(),
+        ..Default::default()
+    };
+    let result = deploy_into(args, global, &mut report);
+    report.ok = result.is_ok();
+    if let Err(why) = &result {
+        report.error = Some(why.clone());
+    }
+    if global.json {
+        emit(&report)?;
+    }
+    result
+}
+
+fn deploy_into(
+    args: &DeployArgs,
+    global: &Global,
+    report: &mut DeployReport,
+) -> Result<(), String> {
     let config = Config::load()?;
     let (name, account) = config.account(global.account.as_deref())?;
+    report.account = name.to_owned();
+    report.account_id = account.account_id.clone();
+    report.worker = account.worker.clone();
     let cf = Cloudflare::new(&vault::read(&account.token)?);
     let id = &account.account_id;
-    println!("Deploying P99 {VERSION} to the account {name} ({id}):");
+    say!("Deploying P99 {VERSION} to the account {name} ({id}):");
     let bindings = cf.bindings(id, &account.worker)?.ok_or_else(|| {
         format!(
             "the account has no Worker called {}; run p99 setup",
             account.worker
         )
     })?;
-    migrate(&cf, id, &account.database_id)?;
+    report.migrations = migrate(&cf, id, &account.database_id)?;
     let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
         Some(_) => None,
         None => rate_namespace(&cf, &Ask { yes: true }, id, &account.worker, None).ok(),
@@ -1314,21 +1489,50 @@ pub fn deploy(args: &DeployArgs, global: &Global) -> Result<(), String> {
     let zones = cf.zones(id)?;
     let mut failed = Vec::new();
     for host in &hosts {
+        let pattern = route_pattern(host);
         match route(&cf, id, &account.worker, &zones, host) {
-            Ok(notes) => notes.iter().for_each(|n| done(n)),
+            Ok(routed) => {
+                routed.notes.iter().for_each(|n| done(n));
+                report.routes.push(RouteReport {
+                    host: (*host).to_owned(),
+                    pattern,
+                    created: routed.created,
+                    notes: routed.notes,
+                    error: None,
+                });
+            }
             Err(why) => {
-                println!("  !!  {why}");
+                say!("  !!  {why}");
+                report.routes.push(RouteReport {
+                    host: (*host).to_owned(),
+                    pattern,
+                    created: false,
+                    notes: Vec::new(),
+                    error: Some(why),
+                });
                 failed.push(*host);
             }
         }
     }
     if !args.no_check && !hosts.is_empty() {
-        health(&hosts);
+        report.health = health(&hosts);
     }
-    if failed.is_empty() {
+    if !failed.is_empty() {
+        return Err(format!("no route for {}", failed.join(", ")));
+    }
+    let unhealthy: Vec<&str> = report
+        .health
+        .iter()
+        .filter(|h| !h.ok)
+        .map(|h| h.host.as_str())
+        .collect();
+    if unhealthy.is_empty() {
         Ok(())
     } else {
-        Err(format!("no route for {}", failed.join(", ")))
+        Err(format!(
+            "no answer of version {VERSION} from {}",
+            unhealthy.join(", ")
+        ))
     }
 }
 
@@ -1356,13 +1560,13 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         access: &args.access,
         vault: None,
     };
-    println!(
+    say!(
         "P99 adopt takes over an existing tracker deployment in place: its Worker, D1 database and R2"
     );
-    println!(
+    say!(
         "bucket stay where they are, with every item's key and number. It reads first, shows a plan,"
     );
-    println!("and writes only after you say yes.\n");
+    say!("and writes only after you say yes.\n");
     s.me(&mut config)?;
     let name = match &global.account {
         Some(n) => n.clone(),
@@ -1384,7 +1588,7 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         Some(w) => w.clone(),
         None => {
             let scripts = cf.scripts(&id)?;
-            println!("      Workers in the account: {}", scripts.join(", "));
+            say!("      Workers in the account: {}", scripts.join(", "));
             s.ask.line("The tracker's Worker", None, "--worker")?
         }
     };
@@ -1431,7 +1635,7 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         let (host, kind) = match given.iter().find(|(k, _, _)| *k == key) {
             Some((_, h, k)) => (h.clone(), k.clone()),
             None => {
-                println!(
+                say!(
                     "      The old key id {key} is an environment; its items carry it as their origin."
                 );
                 if s.ask.yes {
@@ -1474,45 +1678,45 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         .filter(|b| !matches!(b["type"].as_str(), Some("secret_text" | "secret_key")))
         .map(binding_name)
         .collect();
-    println!("\nThe plan for the Worker {worker} in the account {id}:");
-    println!(
+    say!("\nThe plan for the Worker {worker} in the account {id}:");
+    say!(
         "  - keep its bindings: {} (DB is the D1 database {} ({}), BUCKET the R2 bucket {bucket})",
         kept.join(", "),
         database.name,
         database.id
     );
-    println!(
+    say!(
         "  - keep its secrets, values untouched: {}",
         secrets.join(", ")
     );
     if todo.is_empty() {
-        println!("  - every P99 migration is already applied");
+        say!("  - every P99 migration is already applied");
     } else {
-        println!(
+        say!(
             "  - apply the migrations {}",
             todo.iter().map(|t| t.0).collect::<Vec<_>>().join(", ")
         );
     }
-    println!("  - add the secret KEY_P99, a new key kept in the config");
+    say!("  - add the secret KEY_P99, a new key kept in the config");
     if !secrets.iter().any(|s| s == "MANAGERS") {
-        println!("  - add the secret MANAGERS = {}", config.me.email);
+        say!("  - add the secret MANAGERS = {}", config.me.email);
     }
-    println!(
+    say!(
         "  - upload P99's Worker {VERSION} under the name {worker}; its Custom Domains stay, so /v1 keeps answering"
     );
-    println!("  - set the cron schedule {CRON}");
+    say!("  - set the cron schedule {CRON}");
     for k in &keys {
         match &k.host {
-            Some(h) => println!(
+            Some(h) => say!(
                 "  - environment {} ({}) on the host {h}, with the route {}",
                 k.id,
                 k.kind,
                 route_pattern(h)
             ),
-            None => println!("  - environment {} ({}) with no host", k.id, k.kind),
+            None => say!("  - environment {} ({}) with no host", k.id, k.kind),
         }
     }
-    println!(
+    say!(
         "  - save it as the account {name} in {}",
         crate::config::path().display()
     );
@@ -1579,9 +1783,9 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
         config.hosts.insert(host.clone(), entry);
         config.save()?;
         match route(&cf, &id, &worker, &zones, host) {
-            Ok(notes) => notes.iter().for_each(|n| done(n)),
+            Ok(routed) => routed.notes.iter().for_each(|n| done(n)),
             Err(why) => {
-                println!("  !!  {why}");
+                say!("  !!  {why}");
                 failed.push(host.clone());
             }
         }
@@ -1590,11 +1794,11 @@ pub fn adopt(args: &AdoptArgs, global: &Global) -> Result<(), String> {
     if !hosts.is_empty() {
         health(&hosts);
     }
-    println!(
+    say!(
         "\nThe account {name} now runs P99 {VERSION} on the Worker {worker}, keys and numbers unchanged."
     );
     if !failed.is_empty() {
-        println!(
+        say!(
             "No route yet for {}; fix what's named above, then run p99 deploy --account {name}.",
             failed.join(", ")
         );
