@@ -133,7 +133,7 @@ const ITEMS: [Item; 12] = [
         kind: "bug",
         status: "in_progress",
         title: "Search box loses focus on mobile",
-        host: "example.com",
+        host: "dev.example.com",
         path: "/search",
         grace: false,
         agent: Some("claude"),
@@ -147,7 +147,7 @@ const ITEMS: [Item; 12] = [
         kind: "feature",
         status: "new",
         title: "Dark mode for the blog",
-        host: "example.com",
+        host: "dev.example.com",
         path: "/blog",
         grace: true,
         agent: None,
@@ -369,7 +369,11 @@ impl Demo {
     }
 
     pub fn hosts(&self) -> Vec<String> {
-        vec!["example.com".into(), "shop.example.com".into()]
+        vec![
+            "dev.example.com".into(),
+            "example.com".into(),
+            "shop.example.com".into(),
+        ]
     }
 
     pub fn list(&self) -> Vec<Entry> {
@@ -457,6 +461,14 @@ impl Demo {
     }
 }
 
+fn env_of(host: &str) -> &'static str {
+    if host.starts_with("dev.") {
+        "development"
+    } else {
+        "production"
+    }
+}
+
 fn thread(id: i64, item: &Item) -> Thread {
     let (name, email) = if item.grace { GRACE } else { ME };
     let key = format!("{}-{id}", wire::prefix(item.kind));
@@ -467,7 +479,7 @@ fn thread(id: i64, item: &Item) -> Thread {
         status: item.status.into(),
         title: item.title.into(),
         host: Some(item.host.into()),
-        origin_env: "production".into(),
+        origin_env: env_of(item.host).into(),
         page: PageRef {
             url: format!("https://{}{}", item.host, item.path),
             path: item.path.into(),

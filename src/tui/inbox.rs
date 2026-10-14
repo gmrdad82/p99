@@ -19,16 +19,30 @@ use crate::wire::{self, Change, Issue, Thread};
 use super::Msg;
 use super::source::{Entry, Source, merged_hosts, person, unix};
 
-const COLUMNS: [Column; 8] = [
+const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
     Column::new("Key", 6, 8).pinned(),
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Status", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
-    Column::new("Host", 8, 16).priority(3),
+    Column::new("Host", 10, 17).priority(1),
+    Column::new("Reporter", 10, 22).priority(2),
+    Column::new("Updated", 4, 7).right().pinned(),
+];
+
+const COLUMNS_ONE: [Column; 7] = [
+    Column::new("", 1, 1).pinned(),
+    Column::new("Key", 6, 8).pinned(),
+    Column::new("Kind", 4, 11).priority(2),
+    Column::new("Status", 6, 11).pinned(),
+    Column::new("Title", 16, 0).flex(),
     Column::new("Reporter", 10, 22).priority(1),
     Column::new("Updated", 4, 7).right().pinned(),
 ];
+
+fn production(env: &str) -> bool {
+    env.is_empty() || env == "production"
+}
 
 const SCROLL_PAGE: usize = 10;
 
@@ -164,23 +178,32 @@ impl Inbox {
                         query,
                     ))
         };
+        let all_hosts = self.host.is_none();
         let line = |entry: &Entry| {
             let item = &entry.summary;
             let mark = if item.unread { "•" } else { "" };
-            Row::new([
+            let mut cells = vec![
                 Cell::new(mark).style(palette.accent),
                 Cell::new(item.key.as_str()).style(palette.strong),
                 Cell::new(item.kind.as_str()).faint(),
                 Cell::new(item.status.replace('_', " ")).style(status_style(palette, &item.status)),
                 Cell::new(item.title.as_str()),
-                Cell::new(item.host.as_deref().unwrap_or("")).faint(),
-                Cell::new(person(
-                    &item.reporter.name,
-                    &item.reporter.email,
-                    item.reporter.agent.as_deref(),
-                )),
-                Cell::new(this.ago(&item.updated_at)).faint(),
-            ])
+            ];
+            if all_hosts {
+                let tone = if production(&item.origin_env) {
+                    palette.accent
+                } else {
+                    palette.warn
+                };
+                cells.push(Cell::new(item.host.as_deref().unwrap_or("")).style(tone));
+            }
+            cells.push(Cell::new(person(
+                &item.reporter.name,
+                &item.reporter.email,
+                item.reporter.agent.as_deref(),
+            )));
+            cells.push(Cell::new(this.ago(&item.updated_at)).faint());
+            Row::new(cells)
         };
         filter.sift(&entries, keeps, line);
         self.filter = filter;
@@ -543,17 +566,29 @@ fn lines(
     if let Some(of) = &issue.duplicate_of {
         facts.push(Span::styled(format!(" of {of}"), palette.muted));
     }
-    facts.push(dot());
-    facts.push(Span::styled(
-        format!("{}{}", issue.host.as_deref().unwrap_or(""), issue.page.path),
-        palette.ink,
-    ));
-    facts.push(dot());
-    facts.push(match &issue.assignee {
-        Some(to) => Span::styled(format!("assigned to {to}"), palette.ink),
-        None => Span::styled("unassigned", palette.muted),
-    });
+    if let Some(host) = &issue.host {
+        let tone = if production(&issue.origin_env) {
+            palette.accent
+        } else {
+            palette.warn
+        };
+        facts.push(dot());
+        facts.push(Span::styled("host ", palette.muted));
+        facts.push(Span::styled(host.clone(), tone));
+        if !issue.origin_env.is_empty() {
+            facts.push(Span::styled(" · ", palette.muted));
+            facts.push(Span::styled(issue.origin_env.clone(), tone));
+        }
+    }
     out.push(Line::from(facts));
+    out.push(Line::from(vec![
+        Span::styled(issue.page.path.clone(), palette.ink),
+        dot(),
+        match &issue.assignee {
+            Some(to) => Span::styled(format!("assigned to {to}"), palette.ink),
+            None => Span::styled("unassigned", palette.muted),
+        },
+    ]));
     out.push(Line::from(vec![
         Span::styled(who, palette.strong),
         Span::styled(
@@ -883,9 +918,14 @@ impl Screen<Msg> for Inbox {
             self.draw_thread(frame, area, palette);
             return;
         }
+        let columns: &[Column] = if self.host.is_none() {
+            &COLUMNS_ALL
+        } else {
+            &COLUMNS_ONE
+        };
         let view = self
             .filter
-            .view(&COLUMNS, palette)
+            .view(columns, palette)
             .header(true)
             .empty(Some("Nothing here. s shows other statuses, h other hosts."));
         frame.render_widget(view, area);
