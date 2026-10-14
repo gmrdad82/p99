@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 mod bundle;
 mod cli;
 mod client;

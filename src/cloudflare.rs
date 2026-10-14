@@ -4,7 +4,6 @@ use serde_json::{Value, json};
 use ureq::Agent;
 
 const API: &str = "https://api.cloudflare.com/client/v4";
-const COMPATIBILITY_DATE: &str = "2026-10-01";
 pub const CRON: &str = "*/15 * * * *";
 
 pub struct Cloudflare {
@@ -53,7 +52,6 @@ pub struct Named {
 
 #[derive(Debug, Clone)]
 pub struct Route {
-    pub id: String,
     pub pattern: String,
     pub script: String,
 }
@@ -309,7 +307,6 @@ impl Cloudflare {
             .into_iter()
             .flatten()
             .map(|r| Route {
-                id: text(&r["id"]),
                 pattern: text(&r["pattern"]),
                 script: text(&r["script"]),
             })
@@ -357,7 +354,7 @@ impl Cloudflare {
 pub fn metadata(main_module: &str, bindings: &[Value]) -> Value {
     json!({
         "main_module": main_module,
-        "compatibility_date": COMPATIBILITY_DATE,
+        "compatibility_date": crate::bundle::COMPATIBILITY_DATE,
         "bindings": bindings,
         "keep_bindings": ["secret_text"],
         "observability": { "enabled": true },

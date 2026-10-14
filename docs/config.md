@@ -16,7 +16,6 @@ worker = "p99"
 database = "p99"
 database_id = "00000000-0000-0000-0000-000000000000"
 bucket = "p99"
-key_id = "p99"
 key = "<the key setup made, or a reference to it>"
 
 [hosts."example.com"]

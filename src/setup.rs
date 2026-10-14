@@ -128,7 +128,7 @@ pub struct Access {
     #[arg(
         long,
         value_name = "token",
-        help = "the Cloudflare API token, or a reference to it"
+        help = "the Cloudflare API token, or a reference to it; P99_TOKEN in the environment keeps it out of the shell history"
     )]
     pub token: Option<String>,
     #[arg(long, value_name = "id", help = "the Cloudflare account id")]
@@ -178,7 +178,7 @@ pub struct SetupArgs {
     #[arg(
         long,
         value_name = "key",
-        help = "a Resend API key, which turns mail on"
+        help = "a Resend API key, which turns mail on; P99_RESEND_KEY in the environment keeps it out of the shell history"
     )]
     pub resend_key: Option<String>,
     #[arg(
@@ -452,7 +452,12 @@ impl Session<'_> {
 
     fn token(&mut self, existing: Option<&Account>) -> Result<(String, Cloudflare, Named), String> {
         let configured = existing.map(|a| a.token.clone()).filter(|t| !t.is_empty());
-        let mut stored = self.access.token.clone().or_else(|| configured.clone());
+        let mut stored = self
+            .access
+            .token
+            .clone()
+            .or_else(|| from_env("P99_TOKEN"))
+            .or_else(|| configured.clone());
         if stored.is_none() {
             say!("      P99 needs a Cloudflare API token with these permissions:");
             for (permission, why) in PERMISSIONS {
@@ -720,6 +725,10 @@ fn our_bindings(account: &Account, rate: Option<u64>) -> Vec<Value> {
         ours.push(json!({ "type": "plain_text", "name": "MAIL_FROM", "text": from }));
     }
     ours
+}
+
+fn from_env(name: &str) -> Option<String> {
+    std::env::var(name).ok().filter(|v| !v.trim().is_empty())
 }
 
 fn rate_namespace(
@@ -1095,7 +1104,6 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         database: "p99".into(),
         database_id: String::new(),
         bucket: "p99".into(),
-        key_id: "p99".into(),
         key: String::new(),
         url: None,
         resend_key: None,
@@ -1162,7 +1170,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         6,
         total,
         "The key",
-        "The CLI and the TUI sign every request with the account's key (key id p99); the Worker\nholds the same key as its secret KEY_P99.",
+        "The CLI and the TUI sign every request with the account's key; the Worker holds\nthe same key as its secret KEY_P99.",
     );
     if account.key.is_empty() {
         let key = new_key()?;
@@ -1179,8 +1187,12 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "Mail (optional)",
         "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nmanagers about new items and reporters about replies and fixes.",
     );
-    if let Some(k) = &args.resend_key {
-        account.resend_key = Some(s.keep("P99 Resend key", k)?);
+    if let Some(k) = args
+        .resend_key
+        .clone()
+        .or_else(|| from_env("P99_RESEND_KEY"))
+    {
+        account.resend_key = Some(s.keep("P99 Resend key", &k)?);
     } else if account.resend_key.is_none()
         && !args.no_mail
         && !s.ask.yes
@@ -1457,7 +1469,13 @@ fn deploy_into(
     report.migrations = migrate(&cf, id, &account.database_id)?;
     let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
         Some(_) => None,
-        None => rate_namespace(&cf, &Ask { yes: true }, id, &account.worker, None).ok(),
+        None => Some(
+            rate_namespace(&cf, &Ask { yes: true }, id, &account.worker, None).map_err(|e| {
+                format!(
+                    "couldn't pick a rate-limiting namespace: {e}; run p99 setup --rate-namespace <id>"
+                )
+            })?,
+        ),
     };
     upload(&cf, account, &bindings, rate)?;
     done("secrets kept");

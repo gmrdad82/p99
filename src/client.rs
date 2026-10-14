@@ -7,10 +7,11 @@ use sha2::{Digest, Sha256};
 use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::wire::{
-    Attachment, Build, Change, Code, Comment, Counts, Download, EnvEntry, HostEntry, ImportFinish,
+    Attachment, Build, Change, Code, Comment, Download, EnvEntry, HostEntry, ImportFinish,
     ImportReport, Issue, IssueList, ListQuery, Minted, NewCode, NewIssue, Thread,
 };
 
+const KEY_ID: &str = "p99";
 const TIMEOUT: Duration = Duration::from_secs(10);
 const TRANSFER: Duration = Duration::from_secs(60);
 const ANSWER_LIMIT: u64 = 32 << 20;
@@ -18,11 +19,12 @@ const ANSWER_LIMIT: u64 = 32 << 20;
 #[derive(Debug, Clone)]
 pub struct Client {
     pub url: String,
-    pub key_id: String,
     key: Vec<u8>,
     pub actor: Actor,
     pub host: Option<String>,
     access: Option<(String, String)>,
+    quick: ureq::Agent,
+    slow: ureq::Agent,
 }
 
 struct Reply {
@@ -57,33 +59,18 @@ impl Client {
         };
         Ok(Client {
             url: config.url(account)?,
-            key_id: entry.key_id.clone(),
             key,
             actor,
             host: None,
             access,
+            quick: http(TIMEOUT),
+            slow: http(TRANSFER),
         })
     }
 
     pub fn with_host(mut self, host: Option<&str>) -> Client {
         self.host = host.map(str::to_owned);
         self
-    }
-
-    pub fn health(&self) -> Result<Value, String> {
-        let reply = self.send("GET", "/health", false, true, &[], TIMEOUT)?;
-        parse(&reply)
-    }
-
-    pub fn counts(&self, host: &str, path: Option<&str>) -> Result<Counts, String> {
-        let pq = format!(
-            "/v1/counts{}",
-            query(&[
-                ("host", Some(host.to_owned())),
-                ("path", path.map(str::to_owned))
-            ])
-        );
-        self.json("GET", &pq, None)
     }
 
     pub fn list(&self, q: &ListQuery) -> Result<IssueList, String> {
@@ -127,14 +114,14 @@ impl Client {
         &self,
         key: &str,
         name: &str,
-        role: &str,
+        content_type: &str,
         bytes: &[u8],
         comment: Option<i64>,
     ) -> Result<Attachment, String> {
         let pairs = vec![
             ("host", self.host.clone()),
             ("name", Some(name.to_owned())),
-            ("role", Some(role.to_owned())),
+            ("role", Some("file".to_owned())),
             ("comment", comment.map(|c| c.to_string())),
         ];
         let pq = format!(
@@ -143,7 +130,7 @@ impl Client {
             uid(),
             query(&pairs)
         );
-        let reply = self.send("PUT", &pq, true, false, bytes, TRANSFER)?;
+        let reply = self.send_as("PUT", &pq, Some(content_type), bytes, TRANSFER)?;
         parse(&reply)
     }
 
@@ -303,7 +290,7 @@ impl Client {
             &actor_header,
             body,
         );
-        let mut headers = vec![("X-P99-Key-Id", self.key_id.clone())];
+        let mut headers = vec![("X-P99-Key-Id", KEY_ID.to_owned())];
         if actor {
             headers.push(("X-P99-Actor", actor_header));
         }
@@ -355,12 +342,11 @@ impl Client {
         body: &[u8],
         timeout: Duration,
     ) -> Result<Reply, String> {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .max_redirects(0)
-            .timeout_global(Some(timeout))
-            .build()
-            .into();
+        let agent = if timeout > TIMEOUT {
+            &self.slow
+        } else {
+            &self.quick
+        };
         let url = format!("{}{pq}", self.url);
         let mut request = ureq::http::Request::builder().method(method).uri(&url);
         if !unsigned {
@@ -416,6 +402,15 @@ impl Client {
             Err(problem(&reply))
         }
     }
+}
+
+fn http(timeout: Duration) -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .max_redirects(0)
+        .timeout_global(Some(timeout))
+        .build()
+        .into()
 }
 
 fn problem(reply: &Reply) -> String {
@@ -560,7 +555,6 @@ mod tests {
     fn the_signing_vector_of_the_api_docs() {
         let client = Client {
             url: "https://example.com/_p99".to_owned(),
-            key_id: "p99".to_owned(),
             key: b"test-secret".to_vec(),
             actor: Actor {
                 email: "ada@example.com".to_owned(),
@@ -571,6 +565,8 @@ mod tests {
             },
             host: None,
             access: None,
+            quick: http(TIMEOUT),
+            slow: http(TRANSFER),
         };
         let body = r#"{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}"#;
         let headers = client.headers(

@@ -10,7 +10,7 @@ use crate::config::{CORNERS, Config, Host, Offset};
 use crate::trailers;
 use crate::wire::{
     ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
-    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, STATUSES, Summary, Thread,
+    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, STATUSES, Summary, Thread, content_type,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -30,6 +30,13 @@ pub struct Global {
         help = "act as an agent of the configured person, shown as their name with a * (or P99_AGENT=1)"
     )]
     pub agent: bool,
+    #[arg(
+        long,
+        global = true,
+        hide = true,
+        help = "serve built-in sample data: no config and no network"
+    )]
+    pub demo: bool,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -343,17 +350,23 @@ fn text_arg(value: &str) -> Result<String, String> {
     }
 }
 
-fn read_attachment(path: &Path) -> Result<(String, Vec<u8>), String> {
-    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    if bytes.len() > ATTACHMENT_LIMIT {
-        return Err(format!("{} is over 20 MiB", path.display()));
-    }
+fn read_attachment(path: &Path) -> Result<(String, &'static str, Vec<u8>), String> {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("file")
         .to_owned();
-    Ok((name, bytes))
+    let kind = content_type(&name).ok_or_else(|| {
+        format!(
+            "{}: P99 takes images, PDFs, text, CSV, JSON, zip and office files",
+            path.display()
+        )
+    })?;
+    let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    if bytes.len() > ATTACHMENT_LIMIT {
+        return Err(format!("{} is over 20 MiB", path.display()));
+    }
+    Ok((name, kind, bytes))
 }
 
 fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
@@ -647,7 +660,7 @@ fn code_state(code: &Code) -> &'static str {
 }
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
-    let codes = match demo() {
+    let codes = match demo(global) {
         Some(d) => d
             .codes()
             .into_iter()
@@ -716,11 +729,11 @@ fn summary_line(item: &Summary) -> String {
     line
 }
 
-fn demo() -> Option<crate::tui::demo::Demo> {
-    (std::env::var("P99_DEMO").as_deref() == Ok("1")).then(crate::tui::demo::Demo::new)
+fn demo(global: &Global) -> Option<crate::tui::demo::Demo> {
+    global.demo.then(crate::tui::demo::Demo::new)
 }
 
-fn demo_list(args: &ListArgs) -> Option<Vec<Summary>> {
+fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
     let wanted = |s: &Summary| {
         let status = match args.status.as_str() {
             "any" => true,
@@ -738,7 +751,7 @@ fn demo_list(args: &ListArgs) -> Option<Vec<Summary>> {
             && (!args.mine || s.reporter.email == crate::tui::demo::ME.1)
             && text.is_none_or(|t| s.title.to_lowercase().contains(&t))
     };
-    let mut found: Vec<Summary> = demo()?
+    let mut found: Vec<Summary> = demo(global)?
         .list()
         .into_iter()
         .map(|e| e.summary)
@@ -750,7 +763,7 @@ fn demo_list(args: &ListArgs) -> Option<Vec<Summary>> {
 }
 
 fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String> {
-    if let Some(found) = demo_list(args) {
+    if let Some(found) = demo_list(global, args) {
         return listed(found, false, global);
     }
     let accounts: Vec<String> = if args.all && global.account.is_none() {
@@ -918,7 +931,7 @@ fn print_thread(thread: &Thread) {
 }
 
 fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String> {
-    let thread = match demo() {
+    let thread = match demo(global) {
         Some(mut d) => d.thread(&key_of(&args.key)?)?,
         None => client_for(config, global, args.host.as_deref())?
             .0
@@ -933,6 +946,11 @@ fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String>
 }
 
 fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String> {
+    let files = args
+        .attach
+        .iter()
+        .map(|p| read_attachment(p))
+        .collect::<Result<Vec<_>, _>>()?;
     let host = args.host.trim().to_ascii_lowercase();
     let (client, _) = client_for(config, global, Some(&host))?;
     let body = match &args.body {
@@ -954,16 +972,11 @@ fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String>
         context: json!({"source": "cli"}),
         marks: Vec::new(),
     };
-    let files = args
-        .attach
-        .iter()
-        .map(|p| read_attachment(p))
-        .collect::<Result<Vec<_>, _>>()?;
     let filed = client.file(&issue)?;
     let key = filed.id.to_string();
     let mut attached = Vec::new();
-    for (name, bytes) in &files {
-        attached.push(client.attach(&key, name, "file", bytes, None)?);
+    for (name, kind, bytes) in &files {
+        attached.push(client.attach(&key, name, kind, bytes, None)?);
     }
     if global.json {
         return print_json(&json!({"issue": filed, "attachments": attached}));
@@ -976,19 +989,19 @@ fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String>
 }
 
 fn comment(config: &Config, global: &Global, args: &CommentArgs) -> Result<(), String> {
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let client = client.with_host(args.host.as_deref());
-    let key = key_of(&args.key)?;
-    let text = text_arg(&args.text)?;
     let files = args
         .attach
         .iter()
         .map(|p| read_attachment(p))
         .collect::<Result<Vec<_>, _>>()?;
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let client = client.with_host(args.host.as_deref());
+    let key = key_of(&args.key)?;
+    let text = text_arg(&args.text)?;
     let made: Comment = client.comment(&key, &text, args.internal)?;
     let mut attached = Vec::new();
-    for (name, bytes) in &files {
-        attached.push(client.attach(&key, name, "file", bytes, Some(made.id))?);
+    for (name, kind, bytes) in &files {
+        attached.push(client.attach(&key, name, kind, bytes, Some(made.id))?);
     }
     if global.json {
         return print_json(&json!({"comment": made, "attachments": attached}));
