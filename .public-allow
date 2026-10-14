@@ -25,3 +25,4 @@ commit/0510273845bd:src/vault.rs:3 the reference scheme P99 reads secrets throug
 commit/0510273845bd:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
 commit/fd40744445c7:docs/config.md:34 the branch's docs of secret references, one line lower for a commit
 commit/a82b5d362758:docs/config.md:33 the config docs explain secret references to users, in an intermediate commit
+commit/45e769701976:docs/config.md:33 the config docs explain secret references to users, in the media branch
