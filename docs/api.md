@@ -101,3 +101,17 @@ The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the b
 ## Schema
 
 `worker/migrations/0001_tracker.sql` is the first API version's schema, unchanged, so an existing database adopts P99 with its keys and numbers. `0002_p99.sql` adds `hosts`, `envs`, `codes`, `items.host`, `items.reporter_agent` and `comments.author_agent`. Migrations are recorded in `d1_migrations` (`id`, `name`, `applied_at`), the table wrangler keeps, so a database migrated by either stays in step.
+
+## Host config
+
+`PUT /v1/hosts/{host}`'s `config` is `{"theme":{…},"strings":{…},"corner":"bottom-right"|"bottom-left"|"top-right"|"top-left","offset":{"x":16,"y":16}}`. `theme` holds `--p99-*` custom properties without their prefix, `strings` any of the panel's English words by key, and `corner` with `offset` (pixels from the corner's two edges) place the "?" button clear of the site's own fixed elements. `/_p99/api/me` answers all four.
+
+## Test vector
+
+Secret `test-secret`, ts `1760400000`, `POST /_p99/v1/issues?host=example.com`.
+
+- Actor JSON: `{"email":"ada@example.com","name":"Ada Lovelace","rank":"administrator","person":"ada@example.com"}`
+- `X-Tracker-Actor`: `eyJlbWFpbCI6ImFkYUBleGFtcGxlLmNvbSIsIm5hbWUiOiJBZGEgTG92ZWxhY2UiLCJyYW5rIjoiYWRtaW5pc3RyYXRvciIsInBlcnNvbiI6ImFkYUBleGFtcGxlLmNvbSJ9`
+- Body: `{"client_uid":"0b9c2f4e-1a2b-4c3d-8e9f-001122334455","kind":"bug","title":"The total does not update","body":"","page":{"url":"https://example.com/orders","path":"/orders","title":"Orders"},"context":{},"marks":[]}`
+- `X-Content-SHA256`: `ecf774eccd7e95d4a00046092fe70059b83b5d650c1a1da9e9cc6c22e5ce22bf`
+- `X-Tracker-Auth`: `v1 ts=1760400000,sig=16d2f29dfa22138f0f5311fb84704288459905c2f4e3ac37cf5cacfaf08b2566`
