@@ -132,7 +132,7 @@
   </g>
   <g>
     <rect x="1280" y="300" width="280" height="100" rx="10" class="box"/>
-    <text x="1300" y="332" class="head">p99 tui</text>
+    <text x="1300" y="332" class="head">p99 TUI</text>
     <text x="1300" y="360" class="body">the inbox: threads, replies,</text>
     <text x="1300" y="382" class="body">status and codes</text>
   </g>
