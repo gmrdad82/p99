@@ -1,0 +1,15 @@
+{
+  "name": "p99-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "P99's Cloudflare Worker: items, comments, attachments, codes and build landings in one D1 database and one R2 bucket.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.145.0"
+  }
+}

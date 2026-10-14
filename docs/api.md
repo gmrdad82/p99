@@ -2,7 +2,7 @@
 
 One Worker, one D1 database (binding `DB`) and one R2 bucket (binding `BUCKET`) per Cloudflare account. The Worker is mounted on every host it serves as the route `<host>/_p99/*`, so a page talks only to its own origin. It may also sit on a custom domain of its own, where the signed API answers at `/v1/*` (the first API version's address, kept for sites that still call it).
 
-The host of a request is the URL's hostname. A host must be listed in the `hosts` table to be served; an unknown host answers 404 on everything but `/_p99/health`.
+The host of a request is the URL's hostname. A host must be listed in the `hosts` table to be served; an unknown host answers 404 on everything but `/_p99/health`. The signed API is the exception: its key names the host (below), so it answers on any address the Worker is mounted on, the first API version's custom domain included.
 
 ## Paths
 
@@ -34,7 +34,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
 | `PATCH /_p99/api/issues/{key}` | as the signed API | 200 issue |
 | `POST /_p99/api/issues/{key}/comments` | its reporter or a manager (`internal` managers only) | `{"client_uid","body","internal"}`; 201 comment |
-| `PUT /_p99/api/issues/{key}/attachments/{client_uid}?name=&role=&mark=&comment=` | its reporter or a manager | raw body, `Content-Length` required; 201 attachment |
+| `PUT /_p99/api/issues/{key}/attachments/{client_uid}?name=&role=&mark=&comment=` | its reporter or a manager | raw body, `Content-Length` required, `X-Content-SHA256` optional (the Worker hashes the body when it is absent); 201 attachment |
 | `GET /_p99/api/files/{id}` | its reporter or a manager | the file, `Content-Disposition: attachment` |
 
 ## The signed API
@@ -52,7 +52,7 @@ The secret of key id `x` is the Worker secret `KEY_X` (uppercased), with `KEY_X_
 
 The actor is `{"email","name","rank","agent"?,"function"?,"party"?,"person"?}`, `rank` one of `everyone`, `administrator`, `super_administrator`, `agent` an optional label of at most 40 characters naming the agent that acts as this person (`claude`, say). Items and comments keep it, and every view shows it beside the person's name.
 
-**Key `p99`** is the account's own key, the one `p99 setup` makes and the CLI and TUI sign with. Its actor is always a manager. It names the host with `?host=<host>` on any route (`host=*` on the list and counts reads every host), and the environment with `env` in a build's body. **Any other key id** is a server-side host of the first API version: its environment is the key id, and its host is the listed host whose `env` is that key id.
+**Key `p99`** is the account's own key, the one `p99 setup` makes and the CLI and TUI sign with. Its actor is always a manager. It names the host with `?host=<host>` on any route (`host=*`, or no `host`, on the list and counts reads every host), and the environment with `env` in a build's body. On the list and counts an unlisted `host` answers 404; on an item's routes `host` is a filter, so an item of another host answers 404 while an item with no host yet still answers; `POST /v1/issues` takes the query's `host` first, then the body's. **Any other key id** is a server-side host of the first API version: its environment is the key id, and its host is the listed host whose `env` is that key id.
 
 | Route | Who | Does |
 | --- | --- | --- |
