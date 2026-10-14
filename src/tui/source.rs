@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+
 use crate::client::Client;
 use crate::config::Config;
 use crate::wire::{Change, Code, Comment, Issue, ListQuery, Summary, Thread};
@@ -13,6 +15,75 @@ use super::demo::Demo;
 pub struct Entry {
     pub account: usize,
     pub summary: Summary,
+    pub haystack: String,
+}
+
+impl Entry {
+    pub fn new(account: usize, summary: Summary) -> Entry {
+        let mut entry = Entry {
+            account,
+            summary,
+            haystack: String::new(),
+        };
+        entry.refold();
+        entry
+    }
+
+    pub fn refold(&mut self) {
+        let item = &self.summary;
+        self.haystack = fold(&format!(
+            "{} {} {} {} {} {} {} {} {} {}",
+            item.key,
+            item.kind,
+            kind_word(&item.kind),
+            item.status,
+            status_word(&item.status),
+            item.title,
+            item.host.as_deref().unwrap_or_default(),
+            item.page.path,
+            item.reporter.name,
+            item.reporter.email
+        ));
+    }
+}
+
+pub fn kind_word(kind: &str) -> &str {
+    match kind {
+        "bug" => "Bug",
+        "feature" => "Idea",
+        "improvement" => "Improvement",
+        "question" => "Question",
+        "task" => "Task",
+        other => other,
+    }
+}
+
+pub fn status_word(status: &str) -> &str {
+    match status {
+        "new" => "New",
+        "confirmed" => "Confirmed",
+        "in_progress" => "In progress",
+        "waiting" => "Waiting",
+        "resolved" => "Resolved",
+        "abandoned" => "Dropped",
+        "duplicate" => "Duplicate",
+        other => other,
+    }
+}
+
+pub fn fold(text: &str) -> String {
+    text.nfd()
+        .filter(|c| !is_combining_mark(*c))
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+pub fn words(query: &str) -> Vec<String> {
+    fold(query).split_whitespace().map(str::to_owned).collect()
+}
+
+pub fn hits(haystack: &str, words: &[String]) -> bool {
+    words.iter().all(|word| haystack.contains(word.as_str()))
 }
 
 #[derive(Clone)]
@@ -223,7 +294,7 @@ impl Live {
                 entries.extend(
                     page.issues
                         .into_iter()
-                        .map(|summary| Entry { account, summary }),
+                        .map(|summary| Entry::new(account, summary)),
                 );
                 match page.next_cursor {
                     Some(next) if entries.len() < MOST => cursor = Some(next),
