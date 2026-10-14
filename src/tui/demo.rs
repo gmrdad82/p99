@@ -203,7 +203,7 @@ const ITEMS: [Item; 12] = [
 
 type Said = (usize, i64, bool, bool, bool, &'static str);
 
-const COMMENTS: [Said; 11] = [
+const COMMENTS: [Said; 12] = [
     (
         3,
         8 * DAY,
@@ -211,6 +211,14 @@ const COMMENTS: [Said; 11] = [
         false,
         false,
         "Thanks, I can see it at 380 pixels wide.",
+    ),
+    (
+        3,
+        3 * DAY,
+        false,
+        Some("claude"),
+        false,
+        "The total is a flex child now; below 400 pixels it wraps under the Pay button. On dev for a look.",
     ),
     (
         3,

@@ -973,13 +973,25 @@ fn health(hosts: &[&str]) -> Vec<Health> {
         .new_agent();
     for host in hosts {
         let url = format!("https://{host}/_p99/health");
+        let fetch = std::env::var("P99_HOST_URL")
+            .ok()
+            .filter(|t| !t.is_empty())
+            .map_or_else(
+                || url.clone(),
+                |t| {
+                    format!(
+                        "{}/_p99/health",
+                        t.replace("{host}", host).trim_end_matches('/')
+                    )
+                },
+            );
         let mut last = String::new();
         let mut answered = None;
         for attempt in 0..6 {
             if attempt > 0 {
                 std::thread::sleep(Duration::from_secs(5));
             }
-            match agent.get(&url).call() {
+            match agent.get(&fetch).call() {
                 Ok(mut r) if r.status().as_u16() == 200 => {
                     let body: Value = r.body_mut().read_json().unwrap_or_default();
                     let version = body["version"].as_str().unwrap_or_default();

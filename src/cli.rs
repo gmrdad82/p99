@@ -634,8 +634,16 @@ fn code_state(code: &Code) -> &'static str {
 }
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let codes = client.codes(args.host.as_deref())?;
+    let codes = match demo() {
+        Some(d) => d
+            .codes()
+            .into_iter()
+            .filter(|c| args.host.as_ref().is_none_or(|h| c.hosts.contains(h)))
+            .collect(),
+        None => client_for(config, global, args.host.as_deref())?
+            .0
+            .codes(args.host.as_deref())?,
+    };
     if global.json {
         return print_json(&json!({"codes": codes}));
     }
@@ -695,7 +703,43 @@ fn summary_line(item: &Summary) -> String {
     line
 }
 
+fn demo() -> Option<crate::tui::demo::Demo> {
+    (std::env::var("P99_DEMO").as_deref() == Ok("1")).then(crate::tui::demo::Demo::new)
+}
+
+fn demo_list(args: &ListArgs) -> Option<Vec<Summary>> {
+    let wanted = |s: &Summary| {
+        let status = match args.status.as_str() {
+            "any" => true,
+            "open" => crate::wire::open(&s.status),
+            "closed" => !crate::wire::open(&s.status),
+            one => s.status == one,
+        };
+        let text = args.query.as_deref().map(str::to_lowercase);
+        status
+            && args.kind.as_ref().is_none_or(|k| &s.kind == k)
+            && args
+                .host
+                .as_ref()
+                .is_none_or(|h| s.host.as_ref() == Some(h))
+            && (!args.mine || s.reporter.email == crate::tui::demo::ME.1)
+            && text.is_none_or(|t| s.title.to_lowercase().contains(&t))
+    };
+    let mut found: Vec<Summary> = demo()?
+        .list()
+        .into_iter()
+        .map(|e| e.summary)
+        .filter(wanted)
+        .collect();
+    found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    found.truncate(args.limit);
+    Some(found)
+}
+
 fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String> {
+    if let Some(found) = demo_list(args) {
+        return listed(found, false, global);
+    }
     let accounts: Vec<String> = if args.all && global.account.is_none() {
         config.accounts.keys().cloned().collect()
     } else {
@@ -742,6 +786,10 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         }
     }
     found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    listed(found, more, global)
+}
+
+fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String> {
     if global.json {
         return print_json(&json!({"issues": found, "more": more}));
     }
@@ -857,10 +905,13 @@ fn print_thread(thread: &Thread) {
 }
 
 fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String> {
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let thread = client
-        .with_host(args.host.as_deref())
-        .thread(&key_of(&args.key)?)?;
+    let thread = match demo() {
+        Some(mut d) => d.thread(&key_of(&args.key)?)?,
+        None => client_for(config, global, args.host.as_deref())?
+            .0
+            .with_host(args.host.as_deref())
+            .thread(&key_of(&args.key)?)?,
+    };
     if global.json {
         return print_json(&thread);
     }
