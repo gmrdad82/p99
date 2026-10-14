@@ -136,9 +136,15 @@ description=$(sed -n 's/^description = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
   awk '
     /^## Install/ { exit }
     /^<p align="center"><img / {
-      src = $0; sub(/.*src="/, "", src); sub(/".*/, "", src)
-      alt = $0; sub(/.*alt="/, "", alt); sub(/".*/, "", alt)
-      print "![" alt "](" src ")"
+      line = $0
+      while (match(line, /<img [^>]*>/)) {
+        tag = substr(line, RSTART, RLENGTH)
+        line = substr(line, RSTART + RLENGTH)
+        src = tag; sub(/.*src="/, "", src); sub(/".*/, "", src)
+        alt = tag; sub(/.*alt="/, "", alt); sub(/".*/, "", alt)
+        print "![" alt "](" src ")"
+        print ""
+      }
       next
     }
     /^# / { next }
@@ -159,8 +165,9 @@ description=$(sed -n 's/^description = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
   echo "- [Host reference](reference/hosts.md): the tag, the route, Content-Security-Policy, privacy and the host config."
   echo "- [Changelog](changelog.md): what changed in each version."
   echo
-  awk '/^## Licence/ { found = 1 } found && /^## / && !/^## Licence/ { exit } found { print }' README.md | relink ""
+  awk '/^## Licence/ { found = 1 } found && /^## / && !/^## Licence/ { exit } found && /^<img / { next } found { print }' README.md | cat -s | relink ""
 } > "$out/index.md"
+! grep -n '<img\|](assets/' "$out/index.md" || fail "index.md keeps an HTML image or a repo-root asset the bundle lacks"
 
 cp docs/install.md "$out/install.md"
 
