@@ -1,9 +1,14 @@
 #![allow(dead_code)]
 
 mod cli;
+mod client;
 mod config;
 mod setup;
+mod sign;
+mod trailers;
 mod tui;
+mod vault;
+mod wire;
 
 use std::process::ExitCode;
 
@@ -16,21 +21,23 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 #[command(
     name = "p99",
     version,
-    about = "P99: issue and feedback reporting for any website, on Cloudflare; with no command it opens the inbox"
+    about = "P99: issue and feedback reporting for any website, on Cloudflare",
+    subcommand_required = true,
+    arg_required_else_help = false
 )]
 struct P99 {
     #[command(subcommand)]
-    command: Option<Command>,
-    #[command(flatten)]
-    tui: tui::Args,
+    command: Command,
     #[command(flatten)]
     global: cli::Global,
 }
 
 #[derive(Subcommand)]
 enum Command {
+    #[command(about = "open the inbox in the terminal")]
+    Tui(tui::Args),
     #[command(
-        about = "set up an account: the Cloudflare token, the Worker, D1, R2, routes and keys"
+        about = "set up an account, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"
     )]
     Setup(setup::SetupArgs),
     #[command(about = "take over an existing tracker deployment in place, keys unchanged")]
@@ -44,11 +51,11 @@ enum Command {
 fn main() -> ExitCode {
     let p99 = P99::parse();
     let result = match p99.command {
-        None => return tui::run(&p99.tui),
-        Some(Command::Setup(args)) => setup::setup(&args, &p99.global),
-        Some(Command::Adopt(args)) => setup::adopt(&args, &p99.global),
-        Some(Command::Deploy(args)) => setup::deploy(&args, &p99.global),
-        Some(Command::Work(command)) => cli::run(command, &p99.global),
+        Command::Tui(args) => return tui::run(&args, &p99.global),
+        Command::Setup(args) => setup::setup(&args, &p99.global),
+        Command::Adopt(args) => setup::adopt(&args, &p99.global),
+        Command::Deploy(args) => setup::deploy(&args, &p99.global),
+        Command::Work(command) => cli::run(command, &p99.global),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

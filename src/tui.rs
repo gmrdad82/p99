@@ -51,7 +51,7 @@ fn keys(value: &str) -> Result<Vec<KeyEvent>, String> {
     dump::keys(value).map_err(|key| format!("no key is called {key}"))
 }
 
-pub fn run(options: &Args) -> ExitCode {
+pub fn run(options: &Args, _global: &crate::cli::Global) -> ExitCode {
     if let Some(dir) = &options.capture {
         return match capture::capture(Path::new(dir), &walk(), tui) {
             Ok(frames) => {

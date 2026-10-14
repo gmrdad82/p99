@@ -3,7 +3,6 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -176,24 +175,13 @@ impl Config {
             [Some(&a.token), Some(&a.key), a.resend_key.as_ref()]
                 .into_iter()
                 .flatten()
-                .any(|s| !s.is_empty() && !s.starts_with("op://"))
+                .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
         })
     }
 }
 
 pub fn secret(value: &str) -> Result<String, String> {
-    if !value.starts_with("op://") {
-        return Ok(value.to_owned());
-    }
-    let out = Command::new("op")
-        .args(["read", "--no-newline", value])
-        .output()
-        .map_err(|error| format!("op read {value}: {error}; is 1Password's CLI installed?"))?;
-    if !out.status.success() {
-        let why = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("op read {value}: {}", why.trim()));
-    }
-    String::from_utf8(out.stdout).map_err(|_| format!("op read {value}: not UTF-8"))
+    crate::vault::read(value)
 }
 
 pub fn agent(flag: Option<&str>) -> Option<String> {
