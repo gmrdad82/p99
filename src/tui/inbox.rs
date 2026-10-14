@@ -14,12 +14,10 @@ use pito_tui::ratatui::{
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
-use crate::wire::{self, Change, Issue, Thread};
+use crate::wire::{self, Change, Issue, Thread, kind_word, status_word};
 
 use super::Msg;
-use super::source::{
-    Entry, Source, hits, kind_word, merged_hosts, person, status_word, unix, words,
-};
+use super::source::{Entry, Source, hits, merged_hosts, person, unix, words};
 
 const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),

@@ -2,8 +2,8 @@
 
 ## Supported versions
 
-Fixes land on main and ship in the next release. Only the latest release gets
-them; install a newer tag to pick one up.
+Only the latest release is supported. A fix is released as a new tag; install
+it to pick the fix up.
 
 ## Reporting a vulnerability
 

@@ -254,6 +254,30 @@ pub const STATUSES: [&str; 7] = [
     "abandoned",
     "duplicate",
 ];
+pub fn kind_word(kind: &str) -> &str {
+    match kind {
+        "bug" => "Bug",
+        "feature" => "Idea",
+        "improvement" => "Improvement",
+        "question" => "Question",
+        "task" => "Task",
+        other => other,
+    }
+}
+
+pub fn status_word(status: &str) -> &str {
+    match status {
+        "new" => "New",
+        "confirmed" => "Confirmed",
+        "in_progress" => "In progress",
+        "waiting" => "Waiting",
+        "resolved" => "Resolved",
+        "abandoned" => "Dropped",
+        "duplicate" => "Duplicate",
+        other => other,
+    }
+}
+
 pub const ROLES: [&str; 4] = ["screenshot", "page", "region", "file"];
 pub const ATTACHMENT_LIMIT: usize = 20 << 20;
 pub const FILE_TYPES: [(&str, &str); 20] = [

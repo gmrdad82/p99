@@ -10,7 +10,6 @@ const KEY_IDS = { p99: ["KEY_P99", "KEY_P99_NEXT"], test: ["KEY_TEST"] };
 const KIND_PREFIXES = { bug: "BUG", feature: "FEAT", improvement: "IMP", question: "Q", task: "TASK" };
 const STATUSES = ["new", "confirmed", "in_progress", "waiting", "resolved", "abandoned", "duplicate"];
 const OPEN_STATUSES = new Set(["new", "confirmed", "in_progress", "waiting"]);
-const RANKS = ["everyone", "administrator", "super_administrator"];
 const ENV_KINDS = ["development", "release"];
 const CORNERS = ["bottom-right", "bottom-left", "top-right", "top-left"];
 const ERROR_CODES = {
@@ -24,7 +23,7 @@ const ERROR_CODES = {
   500: "internal",
 };
 
-const MAX_SKEW_SECONDS = 300;
+const MAX_SKEW_SECONDS = 60;
 const MAX_JSON_BYTES = 256 * 1024;
 const MAX_BUILD_BYTES = 1024 * 1024;
 const MAX_TITLE_CHARS = 200;
@@ -184,6 +183,18 @@ async function sha256Hex(bytes) {
   return hex(await crypto.subtle.digest("SHA-256", bytes));
 }
 
+let pepperKey = null;
+
+async function codeHash(env, secret) {
+  const pepper = env.CODE_PEPPER;
+  if (typeof pepper !== "string" || pepper.length === 0) fail(500, "the Worker has no CODE_PEPPER secret; run p99 deploy");
+  if (!pepperKey || pepperKey.pepper !== pepper) {
+    const key = await crypto.subtle.importKey("raw", encoder.encode(pepper), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    pepperKey = { pepper, key };
+  }
+  return hex(await crypto.subtle.sign("HMAC", pepperKey.key, encoder.encode(secret)));
+}
+
 const encoder = new TextEncoder();
 
 function base64UrlBytes(text) {
@@ -269,32 +280,9 @@ function decodeActor(header) {
   if (!isObject(actor)) return null;
   if (!isEmail(actor.email)) return null;
   if (!isText(actor.name, 0, 200)) return null;
-  if (!RANKS.includes(actor.rank)) return null;
-  if (actor.function !== null && actor.function !== undefined && !isText(actor.function, 0, 100)) return null;
   if (actor.agent !== null && actor.agent !== undefined && typeof actor.agent !== "boolean") return null;
-  const agent = actor.agent === true;
-  let party = null;
-  if (actor.party !== null && actor.party !== undefined) {
-    if (!isObject(actor.party)) return null;
-    const { id, name } = actor.party;
-    if (!(isNumber(id) || isText(id, 1, 64)) || !isText(name, 0, 300)) return null;
-    party = { id, name };
-  }
-  let person = null;
-  if (actor.person !== null && actor.person !== undefined) {
-    if (!(Number.isSafeInteger(actor.person) || isText(actor.person, 1, 254))) return null;
-    person = actor.person;
-  }
   const email = actor.email.toLowerCase();
-  return {
-    email,
-    name: actor.name || email,
-    rank: actor.rank,
-    agent,
-    function: actor.function ?? null,
-    party,
-    person,
-  };
+  return { email, name: actor.name || email, agent: actor.agent === true };
 }
 
 function isLocal(url) {
@@ -353,7 +341,7 @@ async function verifySignature(request, env, url) {
   const bodyHash = request.headers.get("x-content-sha256") || "";
   if (!/^[0-9a-f]{64}$/.test(bodyHash)) fail(401, "missing or malformed X-Content-SHA256");
   if (Math.abs(Math.floor(Date.now() / 1000) - Number(auth[1])) > MAX_SKEW_SECONDS) {
-    fail(401, "the signature's timestamp is outside the allowed window");
+    fail(401, "the signature's timestamp is more than a minute away from the Worker's clock; check this computer's clock");
   }
   const actorHeader = request.headers.get("x-p99-actor") ?? "";
   const message = encoder.encode(
@@ -409,7 +397,7 @@ async function findCode(env, request, hash) {
 async function authoriseCode(env, ctx, request, header, host, now) {
   const secret = normaliseCode(header);
   if (!secret) fail(401, "a valid X-P99-Code is required");
-  const code = await findCode(env, request, await sha256Hex(encoder.encode(secret)));
+  const code = await findCode(env, request, await codeHash(env, secret));
   if (!code || code.revoked_at || !code.hosts.includes(host)) fail(401, "this code is not valid here");
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
@@ -671,12 +659,6 @@ function issueOf(row, c, lc) {
   return {
     ...summaryOf(row, c, lc),
     body: row.body,
-    reporter: {
-      ...parseJson(row.reporter_json, {}),
-      email: row.reporter_email,
-      name: row.reporter_name,
-      agent: Boolean(row.reporter_agent),
-    },
     duplicate_of: row.duplicate_of === null ? null : keyOf(row.duplicate_kind, row.duplicate_of),
     closed_at: row.closed_at,
     context: parseJson(row.context_json, {}),
@@ -685,12 +667,12 @@ function issueOf(row, c, lc) {
   };
 }
 
-function commentOf(row, attachmentIds = []) {
+function commentOf(row, c, attachmentIds = []) {
   return {
     id: row.id,
     client_uid: row.client_uid,
     author: {
-      email: row.author_email,
+      email: c.manager || row.author_email === c.actor.email ? row.author_email : null,
       name: row.author_name,
       manager: Boolean(row.author_manager),
       agent: Boolean(row.author_agent),
@@ -1267,7 +1249,7 @@ function creationTarget(c, body) {
 }
 
 function reporterJson(c) {
-  return JSON.stringify(c.browser ? { email: c.actor.email, name: c.actor.name } : c.actor);
+  return JSON.stringify({ email: c.actor.email, name: c.actor.name, agent: Boolean(c.actor.agent) });
 }
 
 async function createIssue(c) {
@@ -1398,7 +1380,7 @@ async function getIssue(c, rawKey) {
   }
   return json(200, {
     issue: issueOf({ ...row, unread: 0 }, c, lc),
-    comments: comments.map((cm) => commentOf(cm, byComment.get(cm.id) || [])),
+    comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
     events: events.map((ev) => eventOf(ev, c)),
   });
@@ -1524,7 +1506,7 @@ async function postComment(c, rawKey) {
   const existing = await DB.prepare("SELECT * FROM comments WHERE client_uid = ?1").bind(body.client_uid).first();
   if (existing) {
     if (existing.author_email !== c.actor.email || existing.item_id !== row.id) fail(409, "client_uid is already used");
-    return json(200, commentOf(existing, await commentAttachmentIds(c, row.id, existing.id)));
+    return json(200, commentOf(existing, c, await commentAttachmentIds(c, row.id, existing.id)));
   }
   if (typeof body.body !== "string" || body.body.trim().length === 0 || body.body.length > MAX_BODY_CHARS) {
     fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
@@ -1579,7 +1561,7 @@ async function postComment(c, rawKey) {
     if (!isUniqueViolation(error)) throw error;
     const raced = await DB.prepare("SELECT * FROM comments WHERE client_uid = ?1").bind(body.client_uid).first();
     if (!raced || raced.author_email !== c.actor.email || raced.item_id !== row.id) fail(409, "client_uid is already used");
-    return json(200, commentOf(raced, await commentAttachmentIds(c, row.id, raced.id)));
+    return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
   if (!c.manager) {
@@ -1587,7 +1569,7 @@ async function postComment(c, rawKey) {
   } else if (!internal) {
     sendMail(c, row, [row.reporter_email], { template: "comment_to_reporter", body: body.body, ref: `comment-${inserted.id}` });
   }
-  return json(201, commentOf(inserted));
+  return json(201, commentOf(inserted, c));
 }
 
 async function commentAttachmentIds(c, itemId, commentId) {
@@ -1959,7 +1941,7 @@ async function postCode(c) {
   const manager = body.manager ?? false;
   if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
   const secret = newSecret();
-  const hash = await sha256Hex(encoder.encode(secret));
+  const hash = await codeHash(c.env, secret);
   const row = await c.env.DB.prepare(
     `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
