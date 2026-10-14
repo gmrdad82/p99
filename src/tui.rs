@@ -23,8 +23,6 @@ use source::{Entry, Source};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct Args {
-    #[arg(long, help = "serve built-in sample data: no config and no network")]
-    pub demo: bool,
     #[arg(long, value_name = "WxH", value_parser = size, help = "draw one frame at a size such as 120x34 as text, then quit")]
     pub dump: Option<(u16, u16)>,
     #[arg(long, value_name = "keys", value_parser = keys, help = "the keys --dump presses first, such as \"tab / a enter\"")]
@@ -65,7 +63,7 @@ fn keys(value: &str) -> Result<String, String> {
 
 pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     let headless = options.dump.is_some() || options.bench.is_some();
-    let source = if options.demo {
+    let source = if global.demo {
         Source::demo(if headless { Duration::ZERO } else { PACE })
     } else {
         Source::live(global.account.as_deref(), global.agent)

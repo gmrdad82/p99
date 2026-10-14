@@ -80,7 +80,7 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 - Statuses: `new`, `confirmed`, `in_progress`, `waiting` (on the reporter), `resolved`, `abandoned`, `duplicate` (with `duplicate_of`); the first four are open.
 - Managers change `status`, `kind`, `assignee`, `duplicate_of` and `title`; the reporter changes `title` and `body` while `new`, sets `abandoned` on an open item, and `new` to reopen a resolved one. Every change is one event.
 - Everyone but a manager sees only what they reported; internal comments and their files are for managers only.
-- Attachments: 20 MiB each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is checked against the file's first bytes.
+- Attachments: 20 MiB each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension).
 - Limits per person and day: 30 items, 200 comments, 100 MiB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 

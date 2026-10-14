@@ -44,8 +44,6 @@ pub struct Account {
     pub database_id: String,
     #[serde(default = "p99")]
     pub bucket: String,
-    #[serde(default = "p99")]
-    pub key_id: String,
     #[serde(default)]
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -182,20 +180,6 @@ impl Config {
             .get_key_value(name)
             .map(|(k, v)| (k.as_str(), v))
             .ok_or_else(|| format!("no account is called {name}"))
-    }
-
-    pub fn host(&self, host: &str) -> Result<(&Host, &Account), String> {
-        let entry = self
-            .hosts
-            .get(host)
-            .ok_or_else(|| format!("no host is called {host}; p99 hosts lists them"))?;
-        let account = self.accounts.get(&entry.account).ok_or_else(|| {
-            format!(
-                "{host} names the account {}, which is missing",
-                entry.account
-            )
-        })?;
-        Ok((entry, account))
     }
 
     pub fn hosts_of(&self, account: &str) -> Vec<&str> {

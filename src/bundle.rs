@@ -7,6 +7,7 @@ use crate::cloudflare::Module;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub const MAIN: &str = "worker.js";
+pub const COMPATIBILITY_DATE: &str = "2026-09-15";
 
 const ES: &str = "application/javascript+module";
 const TEXT: &str = "text/plain";
@@ -124,5 +125,12 @@ mod tests {
             assert_eq!(info.sha256.len(), 64);
         }
         assert!(listed.iter().any(|m| m.name == MAIN));
+    }
+
+    #[test]
+    fn the_upload_runs_under_the_date_the_tests_run_under() {
+        let wrangler = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/worker/wrangler.toml"));
+        let line = format!("compatibility_date = \"{COMPATIBILITY_DATE}\"");
+        assert!(wrangler.lines().any(|l| l.trim() == line));
     }
 }

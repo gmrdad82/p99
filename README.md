@@ -46,7 +46,7 @@ cargo install --locked --git https://github.com/gmrdad82/p99 --tag vX.Y.Z p99
 
 ## Use
 
-**Set up an account.** `p99 setup` walks you through it: which Cloudflare API token to create and where, with the permissions it needs and why; it checks the token, then creates the D1 database, the R2 bucket, the Worker, its key and a route for each of your sites, and ends with what exists and what to run next. It is safe to run again, and running it on a second Cloudflare account adds that account beside the first.
+**Set up an account.** `p99 setup` walks you through it: which Cloudflare API token to create and where, with the permissions it needs and why; it checks the token, then creates the D1 database, the R2 bucket, the Worker, its key and a route for each of your sites, and ends with what exists and what to run next. It is safe to run again, and running it on a second Cloudflare account adds that account beside the first. It asks for the token without echoing it; a script sets `P99_TOKEN` (and `P99_RESEND_KEY` for mail) in the environment rather than passing `--token`, which would land in the shell history and in `ps`.
 
 **Put P99 on a site** with one tag in the `<head>` of every page:
 

@@ -1,18 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Counts {
-    #[serde(default)]
-    pub page_open: i64,
-    #[serde(default)]
-    pub mine_open: i64,
-    #[serde(default)]
-    pub mine_unread: i64,
-    #[serde(default)]
-    pub all_open: Option<i64>,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageRef {
     #[serde(default)]
@@ -31,16 +19,6 @@ pub struct Person {
     pub name: String,
     #[serde(default)]
     pub agent: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Landed {
-    #[serde(default)]
-    pub at: String,
-    #[serde(default)]
-    pub sha: String,
-    #[serde(default)]
-    pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -242,12 +220,6 @@ pub struct Download {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Filed {
-    pub created: bool,
-    pub issue: Box<Issue>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Announced {
     pub sha: String,
     pub branch: String,
@@ -283,9 +255,46 @@ pub const STATUSES: [&str; 7] = [
     "duplicate",
 ];
 pub const ROLES: [&str; 4] = ["screenshot", "page", "region", "file"];
-pub const IMAGE_ROLES: [&str; 3] = ["screenshot", "page", "region"];
-pub const SCOPES: [&str; 3] = ["mine", "all", "page"];
 pub const ATTACHMENT_LIMIT: usize = 20 << 20;
+pub const FILE_TYPES: [(&str, &str); 20] = [
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("webp", "image/webp"),
+    ("gif", "image/gif"),
+    ("pdf", "application/pdf"),
+    ("txt", "text/plain"),
+    ("csv", "text/csv"),
+    ("log", "text/x-log"),
+    ("json", "application/json"),
+    ("zip", "application/zip"),
+    (
+        "docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ),
+    (
+        "xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ),
+    (
+        "pptx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ),
+    ("odt", "application/vnd.oasis.opendocument.text"),
+    ("ods", "application/vnd.oasis.opendocument.spreadsheet"),
+    ("odp", "application/vnd.oasis.opendocument.presentation"),
+    ("doc", "application/msword"),
+    ("xls", "application/vnd.ms-excel"),
+    ("ppt", "application/vnd.ms-powerpoint"),
+];
+
+pub fn content_type(name: &str) -> Option<&'static str> {
+    let (_, extension) = name.rsplit_once('.')?;
+    FILE_TYPES
+        .iter()
+        .find(|(e, _)| e.eq_ignore_ascii_case(extension))
+        .map(|&(_, kind)| kind)
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewIssue {
@@ -318,17 +327,6 @@ pub struct Change {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-}
-
-impl Change {
-    pub fn is_empty(&self) -> bool {
-        self.status.is_none()
-            && self.kind.is_none()
-            && self.assignee.is_none()
-            && self.duplicate_of.is_none()
-            && self.title.is_none()
-            && self.body.is_none()
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -535,4 +533,22 @@ pub struct ImportFinish {
     pub recounted: u64,
     #[serde(default)]
     pub duplicates: DuplicateLinks,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_file_type_is_one_the_worker_takes() {
+        let worker = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src/worker.js"));
+        let start = worker.find("const FILE_SIGNATURES = {").unwrap();
+        let table = &worker[start..start + worker[start..].find("};").unwrap()];
+        for (_, kind) in FILE_TYPES {
+            assert!(table.contains(&format!("\"{kind}\":")), "{kind}");
+        }
+        assert_eq!(content_type("Report.PDF"), Some("application/pdf"));
+        assert_eq!(content_type("notes.html"), None);
+        assert_eq!(content_type("README"), None);
+    }
 }

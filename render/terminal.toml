@@ -54,7 +54,7 @@ poster = "before-closure"
 kind = "still"
 line = "p99 list --json on sample data: items across example.com and shop.example.com, as agents and scripts read them"
 tape = "render/terminal/list-json.tape"
-launch = "export P99_DEMO=1 && clear"
+launch = "clear"
 settle = "300ms"
 
 [shots.thread]
