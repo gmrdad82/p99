@@ -32,7 +32,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 
 - A page's address is recorded without its query string and hash. Page text is read only from regions the person marks, and never from elements marked `data-p99-redact`, which are blanked in every capture; `data-p99-ignore` leaves an element out of captures altogether.
 - P99 stays off on pages that carry `<meta name="p99" content="off">` and on paths the host's config lists in `off` (patterns such as `/checkout/*/done`): there the loader draws nothing, reads nothing and captures nothing.
-- A personal code is read from `?p99=<code>` once, kept in the site's `localStorage` and removed from the address bar at once.
+- A personal code comes in the link's fragment, `https://<host>/#p99=<code>`, which browsers never send to a server, so it stays out of your server's, Cloudflare's and any analytics' logs and `Referer` headers. The loader keeps it in the site's `localStorage` and removes it from the address bar and the history entry at once. Treat the link as the secret it is.
 - The panel never locks the page's scroll; it scrolls inside itself.
 
 ## Host config
