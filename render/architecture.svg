@@ -1,0 +1,166 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7aa2f7"/>
+    </marker>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#565f89"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f6a35b"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#9ece6a"/>
+    </marker>
+    <style>
+      text { font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif; fill: #c0caf5; }
+      .title { font-size: 22px; font-weight: 700; }
+      .group { font-size: 15px; font-weight: 700; letter-spacing: 1.5px; }
+      .head { font-size: 19px; font-weight: 700; }
+      .body { font-size: 15px; fill: #a9b1d6; }
+      .small { font-size: 13px; fill: #8b93b8; }
+      .mono { font-family: "JetBrains Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace; font-size: 14px; }
+      .label { font-size: 13px; fill: #a9b1d6; }
+      .box { fill: #1f2335; stroke: #414868; stroke-width: 1.5; }
+      .worker { fill: #24283b; stroke: #f6a35b; stroke-width: 2; }
+      .store { fill: #1f2335; stroke: #9ece6a; stroke-width: 1.5; }
+      .flow { stroke: #7aa2f7; stroke-width: 2.2; fill: none; }
+      .ship { stroke: #f6a35b; stroke-width: 2.2; fill: none; }
+      .data { stroke: #9ece6a; stroke-width: 2.2; fill: none; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="#16161e"/>
+
+  <text x="40" y="52" class="title">P99 on Cloudflare</text>
+  <text x="40" y="78" class="body">Every page talks only to its own origin; one Worker serves every host of the account.</text>
+
+  <text x="40" y="128" class="group" fill="#7dcfff" style="fill:#7dcfff">VISITORS</text>
+
+  <g>
+    <rect x="40" y="145" width="300" height="150" rx="10" class="box"/>
+    <rect x="40" y="145" width="300" height="34" rx="10" fill="#292e42"/>
+    <rect x="40" y="168" width="300" height="11" fill="#292e42"/>
+    <circle cx="60" cy="162" r="5" fill="#f7768e"/><circle cx="76" cy="162" r="5" fill="#e0af68"/><circle cx="92" cy="162" r="5" fill="#9ece6a"/>
+    <rect x="108" y="152" width="216" height="20" rx="10" fill="#16161e"/>
+    <text x="120" y="167" class="mono" style="font-size:13px">https://example.com/</text>
+    <text x="60" y="212" class="head">A page on example.com</text>
+    <text x="60" y="242" class="mono" style="fill:#bb9af7">&lt;script src="/_p99/p99.js"&gt;</text>
+    <text x="60" y="272" class="small">the "?" for people with a personal code</text>
+  </g>
+
+  <g>
+    <rect x="40" y="340" width="300" height="150" rx="10" class="box"/>
+    <rect x="40" y="340" width="300" height="34" rx="10" fill="#292e42"/>
+    <rect x="40" y="363" width="300" height="11" fill="#292e42"/>
+    <circle cx="60" cy="357" r="5" fill="#f7768e"/><circle cx="76" cy="357" r="5" fill="#e0af68"/><circle cx="92" cy="357" r="5" fill="#9ece6a"/>
+    <rect x="108" y="347" width="216" height="20" rx="10" fill="#16161e"/>
+    <text x="120" y="362" class="mono" style="font-size:13px">https://shop.example.com/</text>
+    <text x="60" y="407" class="head">A page on shop.example.com</text>
+    <text x="60" y="437" class="mono" style="fill:#bb9af7">&lt;script src="/_p99/p99.js"&gt;</text>
+    <text x="60" y="467" class="small">files items with a screen capture</text>
+  </g>
+
+  <rect x="410" y="105" width="800" height="760" rx="14" fill="none" stroke="#f6a35b" stroke-width="1.5" stroke-dasharray="7 6"/>
+  <text x="434" y="138" class="group" style="fill:#f6a35b">YOUR CLOUDFLARE ACCOUNT</text>
+
+  <g>
+    <rect x="440" y="170" width="300" height="100" rx="10" class="box"/>
+    <text x="460" y="200" class="small">route on the zone</text>
+    <text x="460" y="228" class="mono" style="font-size:16px">example.com/_p99/*</text>
+    <text x="460" y="254" class="small">other paths reach the site as before</text>
+  </g>
+  <g>
+    <rect x="440" y="365" width="300" height="100" rx="10" class="box"/>
+    <text x="460" y="395" class="small">route on the zone</text>
+    <text x="460" y="423" class="mono" style="font-size:16px">shop.example.com/_p99/*</text>
+    <text x="460" y="449" class="small">other paths reach the site as before</text>
+  </g>
+
+  <path d="M590,467 L590,516" stroke="#565f89" stroke-width="1.8" stroke-dasharray="4 4" fill="none" marker-end="url(#arrow-gray)"/>
+  <g>
+    <rect x="440" y="520" width="300" height="110" rx="10" fill="none" stroke="#414868" stroke-width="1.5" stroke-dasharray="5 5"/>
+    <text x="460" y="552" class="head" style="fill:#a9b1d6">Your sites</text>
+    <text x="460" y="578" class="body">any origin, Pages project or</text>
+    <text x="460" y="600" class="body">Worker, left as it is</text>
+  </g>
+
+  <g>
+    <rect x="820" y="170" width="360" height="250" rx="12" class="worker"/>
+    <text x="842" y="205" class="head">Worker p99</text>
+    <text x="842" y="236" class="body">one for every host of the account</text>
+    <text x="842" y="268" class="mono">/_p99/p99.js</text><text x="990" y="268" class="small">the 2 KB loader</text>
+    <text x="842" y="294" class="mono">/_p99/panel.js</text><text x="990" y="294" class="small">the lazy panel</text>
+    <text x="842" y="320" class="mono">/_p99/api/*</text><text x="990" y="320" class="small">for personal codes</text>
+    <text x="842" y="346" class="mono">/_p99/v1/*</text><text x="990" y="346" class="small">the signed API</text>
+    <text x="842" y="372" class="mono">/_p99/health</text><text x="990" y="372" class="small">its version</text>
+    <text x="842" y="402" class="small">cron */15: the weekly backup, in small steps</text>
+  </g>
+
+  <g>
+    <rect x="820" y="470" width="172" height="190" rx="10" class="store"/>
+    <text x="840" y="502" class="head">D1</text>
+    <text x="872" y="502" class="small">database p99</text>
+    <text x="840" y="534" class="body">items</text>
+    <text x="840" y="558" class="body">comments</text>
+    <text x="840" y="582" class="body">events</text>
+    <text x="840" y="606" class="body">codes</text>
+    <text x="840" y="630" class="body">hosts</text>
+  </g>
+  <g>
+    <rect x="1008" y="470" width="172" height="190" rx="10" class="store"/>
+    <text x="1028" y="502" class="head">R2</text>
+    <text x="1060" y="502" class="small">bucket p99</text>
+    <text x="1028" y="534" class="body">attachments</text>
+    <text x="1028" y="558" class="body">screen captures</text>
+    <text x="1028" y="582" class="body">weekly backups</text>
+  </g>
+
+  <g>
+    <rect x="820" y="725" width="360" height="110" rx="10" class="box"/>
+    <text x="842" y="757" class="head">Cloudflare API</text>
+    <text x="842" y="783" class="body">creates D1, R2 and the routes,</text>
+    <text x="842" y="805" class="body">uploads the Worker and its secrets</text>
+  </g>
+
+  <text x="1280" y="128" class="group" style="fill:#bb9af7">YOUR MACHINE</text>
+  <g>
+    <rect x="1280" y="170" width="280" height="104" rx="10" class="box"/>
+    <text x="1300" y="202" class="head">p99 CLI</text>
+    <text x="1300" y="230" class="mono" style="font-size:13px">list · show · file · comment</text>
+    <text x="1300" y="252" class="mono" style="font-size:13px">status · invite · --json</text>
+  </g>
+  <g>
+    <rect x="1280" y="300" width="280" height="100" rx="10" class="box"/>
+    <text x="1300" y="332" class="head">p99 tui</text>
+    <text x="1300" y="360" class="body">the inbox: threads, replies,</text>
+    <text x="1300" y="382" class="body">status and codes</text>
+  </g>
+  <g>
+    <rect x="1280" y="725" width="280" height="110" rx="10" class="box"/>
+    <text x="1300" y="757" class="head">p99 setup · p99 deploy</text>
+    <text x="1300" y="783" class="body">the Worker build travels</text>
+    <text x="1300" y="805" class="body">inside the binary</text>
+  </g>
+
+  <path d="M340,220 L440,220" class="flow" marker-end="url(#arrow)"/>
+  <path d="M340,415 L440,415" class="flow" marker-end="url(#arrow)"/>
+  <path d="M740,220 C780,220 780,250 818,250" class="flow" marker-end="url(#arrow)"/>
+  <path d="M740,415 C785,415 780,330 818,330" class="flow" marker-end="url(#arrow)"/>
+
+  <path d="M906,420 L906,468" class="data" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+  <path d="M1094,420 L1094,468" class="data" marker-start="url(#arrow-green)" marker-end="url(#arrow-green)"/>
+
+  <path d="M1280,222 L1182,222" class="flow" marker-end="url(#arrow)"/>
+  <path d="M1280,350 L1182,350" class="flow" marker-end="url(#arrow)"/>
+  <text x="1245" y="212" class="label" text-anchor="middle">signed</text>
+  <text x="1245" y="340" class="label" text-anchor="middle">signed</text>
+
+  <path d="M1280,780 L1182,780" class="ship" marker-end="url(#arrow-orange)"/>
+  <path d="M820,780 C790,780 790,700 790,640 L790,310 C790,295 800,290 818,290" class="ship" marker-end="url(#arrow-orange)"/>
+  <text x="776" y="700" class="label" text-anchor="end">uploads the</text>
+  <text x="776" y="718" class="label" text-anchor="end">embedded build</text>
+
+  <text x="375" y="208" class="label" text-anchor="middle">/_p99/*</text>
+  <text x="375" y="403" class="label" text-anchor="middle">/_p99/*</text>
+</svg>

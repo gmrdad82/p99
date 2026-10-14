@@ -85,14 +85,14 @@ impl Cloudflare {
     fn get(&self, path: &str) -> Answer<Value> {
         let response = self
             .agent
-            .get(&format!("{API}{path}"))
+            .get(&format!("{}{path}", api()))
             .header("Authorization", &self.auth())
             .call();
         envelope(response, path)
     }
 
     fn send_json(&self, method: &str, path: &str, body: &Value) -> Answer<Value> {
-        let url = format!("{API}{path}");
+        let url = format!("{}{path}", api());
         let request = match method {
             "POST" => self.agent.post(&url),
             "PATCH" => self.agent.patch(&url),
@@ -123,7 +123,7 @@ impl Cloudflare {
     fn get_full(&self, path: &str) -> Answer<Value> {
         let response = self
             .agent
-            .get(&format!("{API}{path}"))
+            .get(&format!("{}{path}", api()))
             .header("Authorization", &self.auth())
             .call();
         whole(response, path)
@@ -265,7 +265,7 @@ impl Cloudflare {
         let path = format!("/accounts/{account}/workers/scripts/{script}");
         let response = self
             .agent
-            .put(&format!("{API}{path}"))
+            .put(&format!("{}{path}", api()))
             .header("Authorization", &self.auth())
             .header(
                 "Content-Type",
@@ -419,6 +419,14 @@ fn boundary() -> String {
         "p99-{}",
         bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
     )
+}
+
+fn api() -> String {
+    std::env::var("P99_CLOUDFLARE_API")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(|v| v.trim_end_matches('/').to_owned())
+        .unwrap_or_else(|| API.to_owned())
 }
 
 fn named(value: &Value) -> Named {

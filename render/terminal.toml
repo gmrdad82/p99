@@ -41,3 +41,32 @@ tape = "render/terminal/inbox.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
 closure = { crossfade = 0.5 }
+
+[shots.setup]
+kind = "clip"
+line = "p99 setup on a mock Cloudflare account: the questions, the token check, D1, R2, the Worker, two hosts and the summary"
+tape = "render/terminal/setup.tape"
+launch = "mkdir -p shim && printf '#!/bin/sh\\nexit 1\\n' > shim/op && chmod +x shim/op && export PATH=\"$PWD/shim:$PATH\" HOME='~' P99_MOCK_PORT=$((20000 + RANDOM % 20000)) && export P99_CLOUDFLARE_API=http://127.0.0.1:$P99_MOCK_PORT/client/v4 P99_HOST_URL=http://127.0.0.1:$P99_MOCK_PORT/{host} && (node {app}/render/mock-cloudflare.mjs >/dev/null 2>&1 &) && clear"
+settle = "800ms"
+poster = "before-closure"
+
+[shots.list-json]
+kind = "still"
+line = "p99 list --json on sample data: items across example.com and shop.example.com, as agents and scripts read them"
+tape = "render/terminal/list-json.tape"
+launch = "export P99_DEMO=1 && clear"
+settle = "300ms"
+
+[shots.thread]
+kind = "still"
+line = "A thread in the TUI: an item with comments, an agent's reply and its landings in dev and production"
+tape = "render/terminal/thread.tape"
+launch = "p99 tui --demo"
+settle = "400ms"
+
+[shots.codes]
+kind = "still"
+line = "The codes screen: who can file on which hosts, active and revoked"
+tape = "render/terminal/codes.tape"
+launch = "p99 tui --demo"
+settle = "400ms"

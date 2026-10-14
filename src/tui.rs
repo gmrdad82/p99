@@ -1,5 +1,5 @@
 mod codes;
-mod demo;
+pub mod demo;
 mod inbox;
 mod source;
 
