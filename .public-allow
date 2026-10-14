@@ -15,3 +15,5 @@ commit/b305924b9b81:src/config.rs:196 the first draft's secret reference reader
 commit/ad8e98f6d0b6:.public-allow:1 the first waiver file's comment
 commit/ad8e98f6d0b6:.public-allow:2 the first waiver file's reason
 commit/ad8e98f6d0b6:.public-allow:4 the first waiver file's reason
+commit/c3cdb73c1f48:bin/marks:4 the first marks script's default checkout path, replaced by PITO_ASSETS
+commit/c3cdb73c1f48:NOTICE:13 the first NOTICE named the brand masters' repository

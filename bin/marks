@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-assets="${PITO_ASSETS:-$HOME/Projects/pito-assets}"
+assets="${PITO_ASSETS:?PITO_ASSETS names the checkout of the PITO MD brand masters}"
 rev=fe97f221c8c071389283144c416f4fcde87b3958
 mkdir -p assets/marks .github
 for file in p99.svg p99-dark.svg lockup.svg lockup-dark.svg p99-icon.png; do
