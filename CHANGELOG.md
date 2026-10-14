@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.0.2 — 2026-10-14
+
+### Changed
+
+- The panel leaves room between the P99 head and the first heading of every view.
+
 ## v1.0.1 — 2026-10-14
 
 ### Changed
