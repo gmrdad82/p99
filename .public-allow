@@ -1,0 +1,4 @@
+# P99 reads secrets through the 1Password CLI as a documented feature (the plan's config secrets)
+src/vault.rs:3 the op:// scheme P99 reads secrets through
+src/vault.rs:4 the name of the tool P99 asks for in its error
+docs/config.md:33 the config docs explain 1Password references to users
