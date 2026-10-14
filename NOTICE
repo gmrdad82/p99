@@ -9,6 +9,10 @@ MIT licence below:
   (https://github.com/qq15725/modern-screenshot), vendored as published,
   sha256 bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b.
 
+The README GIF in docs/images/ is recorded by prec from this repository's own
+shot (render/terminal.toml, p99 tui --demo on sample data) and made a GIF by
+pconv, under the MIT licence like the code.
+
 The P99 marks in assets/marks/ and .github/icon.png are copied by bin/marks
 from the PITO MD brand masters at fe97f221c8c071389283144c416f4fcde87b3958. The lockup's
 tagline lettering is outlined from Saira Condensed (SIL Open Font License 1.1,
