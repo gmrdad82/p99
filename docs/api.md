@@ -104,7 +104,7 @@ The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the b
 
 ## Host config
 
-`PUT /v1/hosts/{host}`'s `config` is `{"theme":{…},"strings":{…},"corner":"bottom-right"|"bottom-left"|"top-right"|"top-left","offset":{"x":16,"y":16}}`. `theme` holds `--p99-*` custom properties without their prefix, `strings` any of the panel's English words by key, and `corner` with `offset` (pixels from the corner's two edges) place the "?" button clear of the site's own fixed elements. `/_p99/api/me` answers all four.
+`PUT /v1/hosts/{host}`'s `config` is `{"theme":{…},"strings":{…},"corner","offset":{"x","y"},"above","off":[…]}`, as docs/hosts.md describes. The Worker writes the host's `corner`, `offset`, `above`, `off` and `theme.accent` into the loader it serves for that host (replacing `__P99_HOST__` with that JSON), so the button draws in place before any request; `/_p99/api/me` answers the whole config.
 
 ## Test vector
 
