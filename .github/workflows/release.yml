@@ -78,6 +78,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: docs bundle
+        run: |
+          mkdir -p tmp/bin
+          tar -xzf "dist/p99-${TAG}-linux-x86_64.tar.gz" -C tmp/bin p99
+          P99_BIN=tmp/bin/p99 bin/docs-bundle "${TAG#v}"
+          test -f "dist/docs-${TAG}.tar.gz"
       - name: checksums
         working-directory: dist
         run: sha256sum p99-* > SHA256SUMS && cat SHA256SUMS
