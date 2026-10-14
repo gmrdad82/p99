@@ -46,6 +46,8 @@ enum Command {
     Adopt(setup::AdoptArgs),
     #[command(about = "upload this version's Worker to an account")]
     Deploy(setup::DeployArgs),
+    #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
+    Bundle,
     #[command(flatten)]
     Work(cli::Command),
 }
@@ -57,6 +59,7 @@ fn main() -> ExitCode {
         Command::Setup(args) => setup::setup(&args, &p99.global),
         Command::Adopt(args) => setup::adopt(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
+        Command::Bundle => bundle::run(&p99.global),
         Command::Work(command) => cli::run(command, &p99.global),
     };
     match result {
