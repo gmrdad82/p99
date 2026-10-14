@@ -19,6 +19,8 @@ flow.gif joins render/web/record.mjs's frame-exact recording of the web panel
 on the sample shop in render/web/site/ with prec's arrives shot, made a GIF by
 pconv; panel-light.png, panel-dark.png, badge-light.png, badge-dark.png and
 capture.png are that script's stills of the same shop, all on sample data.
+web-sizes-bars.png, web-times-bars.png and tui-frames-bars.png are drawn by
+pito-compare (pcmp) from the measurements in render/charts/.
 
 The P99 marks in assets/marks/ and .github/icon.png are copied by bin/marks
 from the PITO MD brand masters at fe97f221c8c071389283144c416f4fcde87b3958. The lockup's

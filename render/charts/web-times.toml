@@ -1,0 +1,21 @@
+title = "HOW FAST THE WIDGET SHOWS"
+unit = "MILLISECONDS, MEDIAN OF 10"
+better = "lower"
+subtitle = "HEADLESS CHROMIUM 152 ON LOCALHOST, AMD RYZEN 9 9950X"
+date = "2026-10-14"
+suffix = " MS"
+notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT."]
+parties = [{ name = "P99 1.0.0" }]
+
+[[groups]]
+name = "THE BUTTON"
+rows = [
+  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [2.0] },
+  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [2.1] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [18.3] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [9.2] },
+]
+
+[[groups]]
+name = "THE PANEL"
+rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [33.8] }]
