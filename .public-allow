@@ -19,3 +19,5 @@ commit/c3cdb73c1f48:bin/marks:4 the first marks script's default checkout path, 
 commit/c3cdb73c1f48:NOTICE:13 the first NOTICE named the brand masters' repository
 commit/f2955102c963:src/vault.rs:3 the reference scheme P99 reads secrets through, before the setup part moved it
 commit/f2955102c963:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
+commit/404579d295e4:src/vault.rs:3 the reference scheme P99 reads secrets through, before the setup part moved it
+commit/404579d295e4:src/vault.rs:4 the name of the tool P99 asks for, before the setup part moved it
