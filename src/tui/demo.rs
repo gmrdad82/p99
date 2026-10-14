@@ -216,7 +216,7 @@ const COMMENTS: [Said; 12] = [
         3,
         3 * DAY,
         false,
-        Some("claude"),
+        true,
         false,
         "The total is a flex child now; below 400 pixels it wraps under the Pay button. On dev for a look.",
     ),
