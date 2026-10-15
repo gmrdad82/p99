@@ -394,6 +394,7 @@ fn is_hostname(host: &str) -> bool {
 struct Session<'a> {
     ask: Ask,
     access: &'a Access,
+    hosts: Vec<String>,
     vault: Option<Option<String>>,
 }
 
@@ -581,9 +582,13 @@ impl Session<'_> {
                     &account.name
                 }
             ));
-            let missing = probe(&cf, &account.id)?;
+            let missing = probe(&cf, &account.id, &self.hosts)?;
             if missing.is_empty() {
-                done("the token can list Workers, D1, R2, zones and routes");
+                done(if self.hosts.is_empty() {
+                    "the token can list Workers, D1 and R2"
+                } else {
+                    "the token can list Workers, D1 and R2, and the routes of the hosts' zones"
+                });
                 let kept = if configured.as_deref() == Some(raw.as_str()) {
                     raw
                 } else {
@@ -625,9 +630,9 @@ fn reach(cf: &Cloudflare) -> Result<Vec<Named>, String> {
     Err("Cloudflare doesn't accept this token".into())
 }
 
-fn probe(cf: &Cloudflare, account: &str) -> Result<Vec<&'static str>, String> {
+fn probe(cf: &Cloudflare, account: &str, hosts: &[String]) -> Result<Vec<String>, String> {
     let mut missing = Vec::new();
-    let mut check = |result: Result<(), ApiError>, permission: &'static str| match result {
+    let mut check = |result: Result<(), ApiError>, permission: String| match result {
         Ok(()) => Ok(()),
         Err(e) if e.denied() => {
             missing.push(permission);
@@ -635,19 +640,33 @@ fn probe(cf: &Cloudflare, account: &str) -> Result<Vec<&'static str>, String> {
         }
         Err(e) => Err(e.message),
     };
-    check(cf.scripts(account).map(drop), PERMISSIONS[0].0)?;
-    check(cf.databases(account).map(drop), PERMISSIONS[1].0)?;
-    check(cf.buckets(account).map(drop), PERMISSIONS[2].0)?;
-    let zones = cf.zones(account);
-    let first = zones.as_ref().ok().and_then(|z| z.first().cloned());
-    check(zones.map(drop), PERMISSIONS[4].0)?;
-    match first {
-        Some(zone) => check(cf.routes(&zone.id).map(drop), PERMISSIONS[3].0)?,
-        None if !missing.contains(&PERMISSIONS[4].0) => {
-            note("the token reaches no zone yet; routes are checked when hosts are added")
-        }
-        None => {}
+    check(cf.scripts(account).map(drop), PERMISSIONS[0].0.into())?;
+    check(cf.databases(account).map(drop), PERMISSIONS[1].0.into())?;
+    check(cf.buckets(account).map(drop), PERMISSIONS[2].0.into())?;
+    if hosts.is_empty() {
+        note("no host is named yet; zones and routes are checked when hosts are added");
+        return Ok(missing);
     }
+    let zones = cf.zones(account);
+    let found = zones.as_ref().map(|z| z.to_vec()).unwrap_or_default();
+    check(zones.map(drop), PERMISSIONS[4].0.into())?;
+    let mut seen = Vec::new();
+    let mut blind = Vec::new();
+    for host in hosts {
+        let Some(zone) = crate::cloudflare::zone_of(&found, host) else {
+            blind.push(format!("{} on the zone of {host}", PERMISSIONS[4].0));
+            continue;
+        };
+        if seen.contains(&zone.id) {
+            continue;
+        }
+        seen.push(zone.id.clone());
+        check(
+            cf.routes(&zone.id).map(drop),
+            format!("{} on {} (for {host})", PERMISSIONS[3].0, zone.name),
+        )?;
+    }
+    missing.extend(blind);
     Ok(missing)
 }
 
@@ -1118,6 +1137,11 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             yes: args.access.yes,
         },
         access: &args.access,
+        hosts: args
+            .hosts
+            .iter()
+            .map(|spec| parse_host(spec).map(|h| h.host))
+            .collect::<Result<_, _>>()?,
         vault: None,
     };
     let total = 9;

@@ -21,7 +21,7 @@ You need a Cloudflare account whose zones hold your sites' hostnames, and an API
 | Zone › Workers Routes: Edit | add the route `<host>/_p99/*` on each host's zone |
 | Zone › Zone: Read | find the zone each host belongs to |
 
-Setup prints the same list when it asks for the token, and checks the token against Cloudflare before it creates anything; a missing permission is named, and setup waits for you to edit the token and paste it again.
+Setup prints the same list when it asks for the token, and checks the token against Cloudflare before it creates anything; a missing permission is named, and setup waits for you to edit the token and paste it again. The zone permissions are checked only on the zones of the hosts you name with `--host`, and P99 never calls the API on any other zone of the account, so a token limited to those zones is enough.
 
 ## Run it
 
