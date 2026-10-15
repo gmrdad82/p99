@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.3 — 2026-10-15
+
+### Changed
+
+- `p99 setup` checks a token's zone permissions only on the zones of the hosts named with `--host`, and never calls the API on any other zone of the account, so a token limited to those zones is accepted; a host whose zone the token can't see is named.
+
 ## v1.1.2 — 2026-10-15
 
 ### Added
