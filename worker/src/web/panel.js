@@ -1130,13 +1130,14 @@ function dress(clone, c) {
     }
     n.style.background = "#e4e1dc";
   });
-  clone.querySelectorAll("input[type=password], [data-p99-hide] input, [data-p99-hide] textarea").forEach((n) => {
+  clone.querySelectorAll("input[type=password], [data-p99-hide] input, [data-p99-hide] textarea, [data-p99-redact] input, [data-p99-redact] textarea").forEach((n) => {
     n.removeAttribute("value");
     n.value = "";
     n.textContent = "";
   });
-  clone.querySelectorAll("[data-p99-hide]").forEach((n) => {
-    const box = c.hidden[Number(n.getAttribute("data-p99-hide"))];
+  clone.querySelectorAll("[data-p99-hide], [data-p99-redact]").forEach((n) => {
+    const i = n.getAttribute("data-p99-hide");
+    const box = i === null ? null : c.hidden[Number(i)];
     n.removeAttribute("data-p99-hide");
     while (n.firstChild) n.removeChild(n.firstChild);
     ["value", "src", "srcset", "href", "xlink:href", "placeholder", "poster"].forEach((a) => n.removeAttribute(a));
