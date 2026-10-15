@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.2.1 — 2026-10-15
+
+### Changed
+
+- The panel's concrete texture drifts by a few pixels over a minute and a half, just enough to catch the eye, at almost no cost to the CPU or GPU; it stands still for people who ask their system for reduced motion.
+
 ## v1.2.0 — 2026-10-15
 
 ### Added
