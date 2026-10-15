@@ -76,11 +76,11 @@ p99 invites totp 3
 ```
 
 ```text
-totp:   otpauth://totp/P99:grace%40example.com?secret=JZSYQOK4JSQHGPHGPEF3T2UT7Y2P42PV&issuer=P99
-key:    JZSY QOK4 JSQH GPHG PEF3 T2UT 7Y2P 42PV   (for apps that only take a setup key)
+key:    <32 base32 characters>   (paste it as a one-time password or setup key; totp is the same as a link)
+totp:   otpauth://totp/P99:grace@example.com?secret=<32 base32 characters>&issuer=P99&algorithm=SHA1&digits=6&period=30
 ```
 
-Both lines carry the same secret, shown this once. In 1Password, add a One-Time Password field to an item and paste the `otpauth://` line; Bitwarden and Apple Passwords take it the same way. Google Authenticator and Authy take the key under "enter a setup key". Send it apart from the link, so one forwarded message never carries both.
+Both lines carry the same secret, shown this once. Paste the key: in 1Password as an item's One-Time Password field, in Bitwarden or Apple Passwords as the authenticator key, in Google Authenticator or Authy under "enter a setup key". The `otpauth://` line is for apps that take a setup link; if an app shows codes P99 refuses, set it up from the key instead. Send both apart from the link, so one forwarded message never carries both.
 
 The first time a browser opens the panel with that code, it asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
 

@@ -9,7 +9,7 @@ parties = [{ name = "P99" }]
 
 [[groups]]
 name = "EVERY PAGE"
-rows = [{ label = "LOADER (P99.JS, AS SERVED)", values = [1.98] }]
+rows = [{ label = "LOADER (P99.JS, AS SERVED)", values = [2.0] }]
 
 [[groups]]
 name = "ON DEMAND"

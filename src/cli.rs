@@ -833,26 +833,17 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
 
 fn otpauth(email: &str, key: &str) -> String {
     format!(
-        "otpauth://totp/P99:{}?secret={key}&issuer=P99",
-        crate::client::encode(email)
+        "otpauth://totp/P99:{}?secret={key}&issuer=P99&algorithm=SHA1&digits=6&period=30",
+        crate::client::encode(email).replace("%40", "@")
     )
 }
 
-fn grouped(key: &str) -> String {
-    key.as_bytes()
-        .chunks(4)
-        .map(|c| String::from_utf8_lossy(c).into_owned())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
 fn print_totp(code: &Code, key: &str) {
-    out!("totp:   {}", otpauth(&code.email, key));
     out!(
-        "key:    {}   (for apps that only take a setup key)",
-        grouped(key)
+        "key:    {key}   (paste it as a one-time password or setup key; totp is the same as a link)"
     );
-    println!("send the totp line apart from the link; each browser asks for its 6-digit code once");
+    out!("totp:   {}", otpauth(&code.email, key));
+    println!("send these apart from the link; each browser asks for its 6-digit code once");
 }
 
 fn totp(config: &Config, global: &Global, id: i64) -> Result<(), String> {
