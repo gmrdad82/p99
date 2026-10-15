@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.3.0 — 2026-10-15
+
+### Added
+
+- `p99 people rename <old> <new>` moves a person's items, assignments, comments, events, attachments and codes to a new e-mail on the whole account, in one transaction, keeping their links and authenticators.
+
 ## v1.2.1 — 2026-10-15
 
 ### Changed
