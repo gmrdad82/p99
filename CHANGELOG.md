@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.2 — 2026-10-15
+
+### Added
+
+- `p99 deploy` and `p99 hosts add` take `P99_TOKEN` from the environment over the configured token or its reference, so they run unattended without unlocking a password manager.
+
 ## v1.1.1 — 2026-10-15
 
 ### Changed
