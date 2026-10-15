@@ -3,7 +3,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 limit=2048
 loader=worker/src/web/p99.js
-raw=$(wc -c < "$loader")
-packed=$(gzip -9 -c "$loader" | wc -c)
-echo "budget: $loader is $raw bytes, $packed gzipped, $((limit - packed)) under the $limit limit"
-[ "$packed" -le "$limit" ] || { echo "budget: the loader is over $limit bytes gzipped" >&2; exit 1; }
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+host=$(sed -n '/^function placementOf(/,/^}/p' worker/src/worker.js | node -e 'process.stdout.write(JSON.stringify(Function(require("fs").readFileSync(0, "utf8") + "return placementOf({});")()))')
+served=$(sed -e "s|__P99_HOST__|$host|g" -e "s|__P99_VERSION__|$version|g" "$loader"; echo .)
+served=${served%.}
+source_packed=$(gzip -9 < "$loader" | wc -c)
+packed=$(printf '%s' "$served" | gzip -9 | wc -c)
+echo "budget: $loader is $(wc -c < "$loader") bytes, $source_packed gzipped as written"
+echo "budget: served with placement $host and version $version it is $(printf '%s' "$served" | wc -c) bytes, $packed gzipped, $((limit - packed)) under the $limit limit"
+[ "$packed" -le "$limit" ] || { echo "budget: the loader as served is over $limit bytes gzipped" >&2; exit 1; }
