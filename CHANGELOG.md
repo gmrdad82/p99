@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.6 — 2026-10-15
+
+### Changed
+
+- `p99 deploy` and `p99 setup` skip the health check of a host with no DNS record yet, with a note, instead of failing.
+
 ## v1.1.5 — 2026-10-15
 
 ### Changed
