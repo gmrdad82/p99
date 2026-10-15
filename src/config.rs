@@ -269,6 +269,13 @@ pub fn secret(value: &str) -> Result<String, String> {
     crate::vault::read(value)
 }
 
+pub fn token(account: &Account) -> Result<String, String> {
+    match env::var("P99_TOKEN") {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        _ => secret(&account.token),
+    }
+}
+
 pub fn agent(flag: bool, me: &Me) -> bool {
     if flag {
         return true;

@@ -1025,7 +1025,7 @@ pub fn add_route(config: &Config, account: &str, host: &str) -> Result<(), Strin
         .accounts
         .get(account)
         .ok_or_else(|| format!("no account is called {account}"))?;
-    let cf = Cloudflare::new(&vault::read(&entry.token)?);
+    let cf = Cloudflare::new(&crate::config::token(entry)?);
     let zones = cf.zones(&entry.account_id)?;
     for line in route(&cf, &entry.account_id, &entry.worker, &zones, host)?.notes {
         eprintln!("{line}");
@@ -1544,7 +1544,7 @@ fn deploy_into(
     report.account = name.to_owned();
     report.account_id = account.account_id.clone();
     report.worker = account.worker.clone();
-    let cf = Cloudflare::new(&vault::read(&account.token)?);
+    let cf = Cloudflare::new(&crate::config::token(account)?);
     let id = &account.account_id;
     say!("Deploying P99 {VERSION} to the account {name} ({id}):");
     let bindings = cf.bindings(id, &account.worker)?.ok_or_else(|| {

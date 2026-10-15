@@ -121,7 +121,7 @@ Then add the tag to your site's `<head>` and open the link `p99 invite` printed.
 ## More
 
 - [docs/hosts.md](docs/hosts.md): placement, themes, Content-Security-Policy, Cloudflare Access and the pages P99 stays off.
-- [docs/config.md](docs/config.md): `~/.config/p99/config.toml`, several accounts and hosts, secrets inline (mode 0600) or as password-manager references. A script sets `P99_TOKEN` rather than passing `--token`, which would land in shell history.
+- [docs/config.md](docs/config.md): `~/.config/p99/config.toml`, several accounts and hosts, secrets inline (mode 0600) or as password-manager references. A script sets `P99_TOKEN` rather than passing `--token`, which would land in shell history; every command that talks to Cloudflare takes it over the configured token, so `p99 deploy` runs unattended.
 - [docs/import.md](docs/import.md): bring items from another tracker with `p99 import`, keeping their keys and numbers.
 - [docs/api.md](docs/api.md): the Worker's HTTP API, signing and its test vector.
 - [docs/guides/](docs/guides/): one task a page, also on [docs.pitomd.com](https://docs.pitomd.com/p99/).
