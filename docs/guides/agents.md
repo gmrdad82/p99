@@ -42,7 +42,10 @@ p99 show BUG-11 --json
 p99 comment BUG-11 "The cart reads the total once and never again after a remove." --internal --json
 p99 status BUG-11 in_progress --json
 p99 assign BUG-11 me --json
+p99 edit Q-4 --title "Which grind sizes does the chart cover?" --text-file q4.md --json
 ```
+
+`p99 edit` changes an item's title or details (`--text`, or `--text-file` with `-` for standard input); the item's history keeps the old and new text, and no one is mailed, so a batch of edits stays quiet.
 
 The objects are described field by field in [the API reference](../reference/formats.md#items): a summary in a list carries `key`, `kind`, `status`, `title`, `host`, `env`, the `page`, the `reporter` (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
 

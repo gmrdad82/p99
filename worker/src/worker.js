@@ -1530,7 +1530,7 @@ async function patchIssue(c, rawKey) {
     if (next.title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   }
   if (has("body")) {
-    if (!(reporter && row.status === "new")) fail(403, "only the reporter may change the body, while the item is new");
+    if (!c.manager && !(reporter && row.status === "new")) fail(403, "only a manager, or the reporter while the item is new, may change the details");
     const text = clean(body.body);
     if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
@@ -1586,7 +1586,7 @@ async function patchIssue(c, rawKey) {
     statements.push(eventStatement(c, row.id, actor, "assignee", { from: row.assignee, to: next.assignee }));
   }
   if (next.title !== row.title) statements.push(eventStatement(c, row.id, actor, "title", { from: row.title, to: next.title }));
-  if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "body", {}));
+  if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "body", { from: row.body, to: next.body }));
   if (statements.length === 0) return issueResponse(c, row.id, 200);
 
   const open = OPEN_STATUSES.has(next.status);

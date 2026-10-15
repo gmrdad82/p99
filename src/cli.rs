@@ -64,6 +64,10 @@ pub enum Command {
     Status(StatusArgs),
     #[command(about = "assign an item to someone, or to no one")]
     Assign(AssignArgs),
+    #[command(
+        about = "change an item's title or details; the history keeps the old and new text, and no one is mailed"
+    )]
+    Edit(EditArgs),
     #[command(about = "download an attachment")]
     Download(DownloadArgs),
     #[command(about = "tell P99 which items this checkout's commits fixed or referred to")]
@@ -293,6 +297,26 @@ pub struct AssignArgs {
 }
 
 #[derive(Debug, clap::Args)]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file"])))]
+pub struct EditArgs {
+    #[arg(help = "the item's key, such as BUG-12, or its number")]
+    pub key: String,
+    #[arg(long, help = "the new title")]
+    pub title: Option<String>,
+    #[arg(long, help = "the new details, or - to read them from standard input")]
+    pub text: Option<String>,
+    #[arg(
+        long,
+        value_name = "path",
+        conflicts_with = "text",
+        help = "read the new details from a file, or - for standard input"
+    )]
+    pub text_file: Option<PathBuf>,
+    #[arg(long, help = "the host the item belongs to")]
+    pub host: Option<String>,
+}
+
+#[derive(Debug, clap::Args)]
 pub struct DownloadArgs {
     #[arg(help = "the file's id, from p99 show")]
     pub id: i64,
@@ -344,6 +368,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Comment(a) => comment(&config, global, &a),
         Command::Status(a) => status(&config, global, &a),
         Command::Assign(a) => assign(&config, global, &a),
+        Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
         Command::Announce(a) => announce(&config, global, &a),
         Command::Import(a) => import(&config, global, &a),
@@ -1193,6 +1218,41 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
         issue.key,
         crate::wire::status_word(&issue.status).to_lowercase()
     );
+    Ok(())
+}
+
+fn edit(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String> {
+    let body = match (&args.text, &args.text_file) {
+        (Some(text), _) => Some(text_arg(text)?),
+        (None, Some(path)) if path.as_os_str() == "-" => Some(read_stdin()?.trim_end().to_owned()),
+        (None, Some(path)) => Some(
+            std::fs::read_to_string(path)
+                .map_err(|e| format!("{}: {e}", path.display()))?
+                .trim_end()
+                .to_owned(),
+        ),
+        (None, None) => None,
+    };
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let change = Change {
+        title: args.title.clone(),
+        body: body.clone(),
+        ..Change::default()
+    };
+    let issue = client
+        .with_host(args.host.as_deref())
+        .change(&key_of(&args.key)?, &change)?;
+    if global.json {
+        return print_json(&issue);
+    }
+    let what: Vec<&str> = [
+        args.title.as_ref().map(|_| "title"),
+        body.as_ref().map(|_| "details"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    out!("{} edited: {}", issue.key, what.join(" and "));
     Ok(())
 }
 
