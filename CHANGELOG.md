@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.5 — 2026-10-15
+
+### Changed
+
+- The panel's title no longer shows a focus ring when a view opens.
+
 ## v1.1.4 — 2026-10-15
 
 ### Changed
