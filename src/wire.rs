@@ -1,5 +1,35 @@
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+macro_rules! out {
+    ($($arg:tt)*) => {
+        println!("{}", $crate::wire::clean(&format!($($arg)*)))
+    };
+}
+pub(crate) use out;
+
+fn unsafe_char(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0}'..='\u{8}'
+            | '\u{b}'..='\u{1f}'
+            | '\u{7f}'..='\u{9f}'
+            | '\u{200e}'
+            | '\u{200f}'
+            | '\u{202a}'..='\u{202e}'
+            | '\u{2066}'..='\u{2069}'
+    )
+}
+
+pub fn clean(text: &str) -> Cow<'_, str> {
+    if text.chars().any(unsafe_char) {
+        Cow::Owned(text.chars().filter(|c| !unsafe_char(*c)).collect())
+    } else {
+        Cow::Borrowed(text)
+    }
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageRef {
@@ -468,6 +498,7 @@ pub struct Code {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewCode {
+    pub client_uid: String,
     pub name: String,
     pub email: String,
     pub hosts: Vec<String>,
@@ -478,7 +509,8 @@ pub struct NewCode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Minted {
     pub code: Code,
-    pub secret: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
     #[serde(default)]
     pub links: Vec<String>,
 }
@@ -562,6 +594,13 @@ pub struct ImportFinish {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn printed_text_loses_escapes_and_bidi_controls() {
+        let raw = "a\x1b]52;c;eA==\x07b\u{9b}2J\r\u{202e}c\u{2066}\n\td\u{7f}";
+        assert_eq!(clean(raw), "a]52;c;eA==b2Jc\n\td");
+        assert!(matches!(clean("plain é ✓\n"), Cow::Borrowed(_)));
+    }
 
     #[test]
     fn every_file_type_is_one_the_worker_takes() {

@@ -125,7 +125,7 @@ const PERMISSIONS: [(&str, &str); 5] = [
     ("Zone › Zone: Read", "find the zone each host belongs to"),
 ];
 
-#[derive(Debug, Default, clap::Args)]
+#[derive(Default, clap::Args)]
 pub struct Access {
     #[arg(
         long,
@@ -155,7 +155,7 @@ pub struct Access {
     pub yes: bool,
 }
 
-#[derive(Debug, clap::Args)]
+#[derive(clap::Args)]
 pub struct SetupArgs {
     #[command(flatten)]
     pub access: Access,

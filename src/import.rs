@@ -616,13 +616,13 @@ fn print_summary(
             "these managers have no manager code yet; mint one each, or list them in MANAGERS:"
         );
         for email in managers {
-            println!("  p99 invite {host} --manager --name \"<name>\" --email {email}");
+            crate::wire::out!("  p99 invite {host} --manager --name \"<name>\" --email {email}");
         }
     }
     if !conflicts.is_empty() {
         println!("conflicts:");
         for (kind, c) in conflicts {
-            println!("  {kind} {}: {}", c.reference, c.reason);
+            crate::wire::out!("  {kind} {}: {}", c.reference, c.reason);
         }
     }
 }

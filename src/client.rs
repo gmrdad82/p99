@@ -18,7 +18,7 @@ const TIMEOUT: Duration = Duration::from_secs(10);
 const TRANSFER: Duration = Duration::from_secs(60);
 const ANSWER_LIMIT: u64 = 32 << 20;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Client {
     account: String,
     bases: Arc<[String]>,
@@ -456,7 +456,10 @@ impl Client {
             Some((host, to)) if to.is_empty() => {
                 format!("{host} answered with a web page instead of answering as P99")
             }
-            Some((host, to)) => format!("{host} redirected to {to} instead of answering as P99"),
+            Some((host, to)) => format!(
+                "{host} redirected to {} instead of answering as P99",
+                crate::wire::clean(&to)
+            ),
             None => format!(
                 "every host of the account {} is behind Cloudflare Access, which answered with its login; set `url` for the account to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
                 self.account
@@ -509,7 +512,7 @@ fn http(timeout: Duration) -> ureq::Agent {
 fn problem(reply: &Reply) -> String {
     let parsed: Value = serde_json::from_slice(&reply.bytes).unwrap_or(Value::Null);
     match parsed.get("message").and_then(Value::as_str) {
-        Some(message) => format!("{message} ({})", reply.status),
+        Some(message) => format!("{} ({})", crate::wire::clean(message), reply.status),
         None => format!("the Worker answered {}", reply.status),
     }
 }
