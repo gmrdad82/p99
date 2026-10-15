@@ -230,6 +230,12 @@ function isUid(value) {
   return typeof value === "string" && /^[A-Za-z0-9._-]{1,64}$/.test(value);
 }
 
+const CONTROL_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
+
+function clean(value) {
+  return typeof value === "string" ? value.replace(CONTROL_CHARS, "") : value;
+}
+
 function isText(value, min, max) {
   return typeof value === "string" && value.length >= min && value.length <= max;
 }
@@ -349,9 +355,11 @@ async function verifySignature(request, env, url) {
   );
   const signature = hexBytes(auth[2]);
   for (const secret of secrets) {
-    const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-      "verify",
-    ]);
+    let key = signingKeys.get(secret);
+    if (!key) {
+      key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+      signingKeys.set(secret, key);
+    }
     if (await crypto.subtle.verify("HMAC", key, signature, message)) {
       return { bodyHash, actorHeader, keyId };
     }
@@ -360,6 +368,7 @@ async function verifySignature(request, env, url) {
 }
 
 const codeCache = new Map();
+const signingKeys = new Map();
 
 function normaliseCode(raw) {
   if (typeof raw !== "string" || raw.length > 64) return null;
@@ -484,12 +493,24 @@ function inScope(c, row) {
   return c.scope.all || row.host === c.scope.host;
 }
 
-async function checkUsage(c, field, amount) {
+function usageQuery(c, field) {
+  if (c.manager) return null;
+  return c.env.DB.prepare(`SELECT ${field} AS used FROM usage WHERE actor_email = ?1 AND day = ?2`).bind(
+    c.actor.email,
+    today(c.now),
+  );
+}
+
+function checkUsage(c, field, amount, row) {
   if (c.manager) return;
-  const row = await c.env.DB.prepare(`SELECT ${field} AS used FROM usage WHERE actor_email = ?1 AND day = ?2`)
-    .bind(c.actor.email, today(c.now))
-    .first();
   if ((row ? row.used : 0) + amount > DAILY_LIMITS[field]) fail(429, `today's limit of ${DAILY_PHRASES[field]} is reached`);
+}
+
+async function firstRows(DB, statements) {
+  const live = statements.filter(Boolean);
+  const results = live.length > 0 ? await DB.batch(live) : [];
+  let next = 0;
+  return statements.map((statement) => (statement ? (results[next++].results[0] ?? null) : null));
 }
 
 function usageStatement(c, field, amount) {
@@ -530,12 +551,19 @@ function searchText(title, body) {
 
 const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind FROM items i LEFT JOIN items d ON d.id = i.duplicate_of`;
 
-async function loadItem(c, raw) {
+function itemKeyId(raw) {
   const id = parseKey(raw);
   if (id === null) fail(404, "no such item");
-  const row = await c.env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id).first();
+  return id;
+}
+
+function allowedItem(c, row) {
   if (!row || !inScope(c, row) || (!c.manager && row.reporter_email !== c.actor.email)) fail(404, "no such item");
   return row;
+}
+
+async function loadItem(c, raw) {
+  return allowedItem(c, await c.env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(itemKeyId(raw)).first());
 }
 
 function actionEnv(c, row) {
@@ -854,7 +882,7 @@ function validPage(page) {
   if (!isText(page.path, 1, 2048)) return null;
   const path = cleanPath(page.path);
   if (!isText(path, 1, 512) || !/^\/(?![\/\\])/.test(path) || /[\\\s\u0000-\u001f\u007f]/.test(path)) return null;
-  const title = page.title ?? "";
+  const title = clean(page.title ?? "");
   if (!isText(title, 0, 300)) return null;
   return { url, path, title };
 }
@@ -884,9 +912,9 @@ function validMarks(marks) {
     for (const element of elements) {
       if (!element || typeof element !== "object") return null;
       const box = validBox(element.box, ["x", "y", "w", "h"]);
-      const selector = element.selector ?? "";
-      const label = element.label ?? "";
-      const text = element.text ?? "";
+      const selector = clean(element.selector ?? "");
+      const label = clean(element.label ?? "");
+      const text = clean(element.text ?? "");
       if (!box || !isText(selector, 0, 1000) || !isText(label, 0, 300) || !isText(text, 0, 1000)) return null;
       cleanElements.push({ selector, label, text, box });
     }
@@ -897,7 +925,7 @@ function validMarks(marks) {
 
 function validTitle(value) {
   if (typeof value !== "string") return null;
-  const title = value.trim();
+  const title = clean(value).replace(/\s+/g, " ").trim();
   return title.length >= 1 && title.length <= MAX_TITLE_CHARS ? title : null;
 }
 
@@ -1027,7 +1055,7 @@ async function postBuilds(c) {
     if (itemId === null) fail(400, "an item id is not a key or a number");
     if (entry.rel !== "fixes" && entry.rel !== "refs") fail(400, "rel must be fixes or refs");
     if (!isText(entry.sha, 7, 64) || !/^[0-9a-f]+$/.test(entry.sha)) fail(400, "an item sha is not a commit id");
-    const subject = typeof entry.subject === "string" ? entry.subject.slice(0, 300) : "";
+    const subject = typeof entry.subject === "string" ? clean(entry.subject).slice(0, 300) : "";
     const unique = `${itemId} ${entry.rel} ${entry.sha}`;
     if (seen.has(unique)) continue;
     seen.add(unique);
@@ -1255,9 +1283,11 @@ function reporterJson(c) {
 async function createIssue(c) {
   const body = await readJson(c, MAX_JSON_BYTES);
   if (!isUid(body.client_uid)) fail(400, "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores");
-  const existing = await c.env.DB.prepare("SELECT id, reporter_email FROM items WHERE client_uid = ?1")
-    .bind(body.client_uid)
-    .first();
+  const { DB } = c.env;
+  const [existing, used] = await firstRows(DB, [
+    DB.prepare("SELECT id, reporter_email FROM items WHERE client_uid = ?1").bind(body.client_uid),
+    usageQuery(c, "issues"),
+  ]);
   if (existing) {
     if (existing.reporter_email !== c.actor.email) fail(409, "client_uid is already used");
     return issueResponse(c, existing.id, 200);
@@ -1266,7 +1296,7 @@ async function createIssue(c) {
   if (body.kind === "task") requireManager(c);
   const title = validTitle(body.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
-  const text = body.body ?? "";
+  const text = clean(body.body ?? "");
   if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const page = validPage(body.page);
   if (!page) fail(400, "page must have an http(s) url, a path starting with / and a title");
@@ -1277,8 +1307,8 @@ async function createIssue(c) {
   const marks = validMarks(body.marks);
   if (marks === null) fail(400, `marks must be at most ${MAX_MARKS} marks with rect, viewport and elements`);
   const target = creationTarget(c, body);
-  await checkUsage(c, "issues", 1);
-  const { DB } = c.env;
+  page.url = `https://${target.host}${page.path}`;
+  checkUsage(c, "issues", 1, used);
   const byUid = "FROM items WHERE client_uid = ?1";
   const reporter = reporterJson(c);
   let results;
@@ -1360,18 +1390,24 @@ async function createIssue(c) {
 
 async function getIssue(c, rawKey) {
   requireEmptyBody(c);
-  const row = await loadItem(c, rawKey);
+  const id = itemKeyId(rawKey);
   const { DB } = c.env;
   const visible = c.manager ? "" : " AND internal = 0";
   const results = await DB.batch([
-    DB.prepare(`SELECT * FROM comments WHERE item_id = ?1${visible} ORDER BY id`).bind(row.id),
-    DB.prepare(`SELECT * FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL${visible} ORDER BY id`).bind(row.id),
-    DB.prepare(`SELECT * FROM events WHERE item_id = ?1${visible} ORDER BY id`).bind(row.id),
-    ...landingStatements(c.env, [row.id]),
-    readStatement(c, row.id),
+    DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id),
+    DB.prepare(`SELECT * FROM comments WHERE item_id = ?1${visible} ORDER BY id`).bind(id),
+    DB.prepare(`SELECT * FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL${visible} ORDER BY id`).bind(id),
+    DB.prepare(`SELECT * FROM events WHERE item_id = ?1${visible} ORDER BY id`).bind(id),
+    ...landingStatements(c.env, [id]),
+    DB.prepare(
+      `INSERT INTO reads (actor_email, item_id, read_at)
+       SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR reporter_email = ?1)
+       ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
+    ).bind(c.actor.email, id, c.now, c.scope.all ? 1 : 0, c.scope.host, c.manager ? 1 : 0),
   ]);
-  const [comments, attachments, events] = results.slice(0, 3).map((r) => r.results);
-  const lc = landingContext(results.slice(3, 6), c.dir);
+  const row = allowedItem(c, results[0].results[0] ?? null);
+  const [comments, attachments, events] = results.slice(1, 4).map((r) => r.results);
+  const lc = landingContext(results.slice(4, 7), c.dir);
   const byComment = new Map();
   for (const a of attachments) {
     if (a.comment_id === null) continue;
@@ -1406,8 +1442,9 @@ async function patchIssue(c, rawKey) {
   }
   if (has("body")) {
     if (!(reporter && row.status === "new")) fail(403, "only the reporter may change the body, while the item is new");
-    if (!isText(body.body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
-    next.body = body.body;
+    const text = clean(body.body);
+    if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+    next.body = text;
   }
   if (has("kind")) {
     requireManager(c);
@@ -1503,18 +1540,22 @@ async function postComment(c, rawKey) {
   const row = await loadItem(c, rawKey);
   if (!isUid(body.client_uid)) fail(400, "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores");
   const { DB } = c.env;
-  const existing = await DB.prepare("SELECT * FROM comments WHERE client_uid = ?1").bind(body.client_uid).first();
+  const [existing, used] = await firstRows(DB, [
+    DB.prepare("SELECT * FROM comments WHERE client_uid = ?1").bind(body.client_uid),
+    usageQuery(c, "comments"),
+  ]);
   if (existing) {
     if (existing.author_email !== c.actor.email || existing.item_id !== row.id) fail(409, "client_uid is already used");
     return json(200, commentOf(existing, c, await commentAttachmentIds(c, row.id, existing.id)));
   }
-  if (typeof body.body !== "string" || body.body.trim().length === 0 || body.body.length > MAX_BODY_CHARS) {
+  const text = clean(body.body);
+  if (typeof text !== "string" || text.trim().length === 0 || text.length > MAX_BODY_CHARS) {
     fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
   }
   const internal = body.internal === true;
   if (body.internal !== undefined && typeof body.internal !== "boolean") fail(400, "internal must be a boolean");
   if (internal) requireManager(c);
-  await checkUsage(c, "comments", 1);
+  checkUsage(c, "comments", 1, used);
   const reopen = row.reporter_email === c.actor.email && !internal;
   let results;
   try {
@@ -1530,7 +1571,7 @@ async function postComment(c, rawKey) {
         c.actor.email,
         c.actor.name,
         c.manager ? 1 : 0,
-        body.body,
+        text,
         internal ? 1 : 0,
         actionEnv(c, row),
         c.now,
@@ -1565,9 +1606,9 @@ async function postComment(c, rawKey) {
   }
   const inserted = results[0].results[0];
   if (!c.manager) {
-    sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: body.body, ref: `comment-${inserted.id}` });
+    sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });
   } else if (!internal) {
-    sendMail(c, row, [row.reporter_email], { template: "comment_to_reporter", body: body.body, ref: `comment-${inserted.id}` });
+    sendMail(c, row, [row.reporter_email], { template: "comment_to_reporter", body: text, ref: `comment-${inserted.id}` });
   }
   return json(201, commentOf(inserted, c));
 }
@@ -1691,13 +1732,24 @@ async function putAttachment(c, rawKey, rawUid) {
     return json(200, attachmentOf(found));
   };
   const byUid = DB.prepare("SELECT * FROM attachments WHERE client_uid = ?1").bind(uid);
-  let reserved = await byUid.first();
+  const params = c.url.searchParams;
+  const commentParam = params.get("comment");
+  const [found, comment, used] = await firstRows(DB, [
+    byUid,
+    commentParam
+      ? DB.prepare("SELECT id, internal, author_email FROM comments WHERE id = ?1 AND item_id = ?2").bind(
+          Number(commentParam) || 0,
+          row.id,
+        )
+      : null,
+    usageQuery(c, "bytes"),
+  ]);
+  let reserved = found;
   let made = false;
   if (reserved) {
     reserved = await settled(reserved);
     if (reserved instanceof Response) return reserved;
   }
-  const params = c.url.searchParams;
   const role = params.get("role") || "file";
   if (!ATTACHMENT_ROLES.includes(role)) fail(400, "role must be screenshot, page, region or file");
   const markText = params.get("mark");
@@ -1718,11 +1770,7 @@ async function putAttachment(c, rawKey, rawUid) {
   }
   let commentId = null;
   let internal = false;
-  const commentParam = params.get("comment");
   if (commentParam) {
-    const comment = await DB.prepare("SELECT id, internal, author_email FROM comments WHERE id = ?1 AND item_id = ?2")
-      .bind(Number(commentParam) || 0, row.id)
-      .first();
     if (!comment || (comment.internal && !c.manager) || (!c.manager && comment.author_email !== c.actor.email)) {
       fail(404, "no such comment on this item");
     }
@@ -1735,7 +1783,7 @@ async function putAttachment(c, rawKey, rawUid) {
   if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MB");
   if (length === 0 || !c.request.body) fail(400, "the file is empty");
   if (row.attachment_count >= MAX_FILES_PER_ITEM) fail(409, `an item holds at most ${MAX_FILES_PER_ITEM} files`);
-  await checkUsage(c, "bytes", length);
+  checkUsage(c, "bytes", length, used);
   if (!reserved) {
     reserved = await DB.prepare(
       `INSERT INTO attachments (item_id, client_uid, comment_id, internal, role, name, type, bytes, sha256, r2_key,
@@ -1931,7 +1979,20 @@ async function listCodes(c) {
 
 async function postCode(c) {
   const body = await readJson(c, MAX_JSON_BYTES);
-  if (!isText(body.name, 1, 200) || body.name.trim().length === 0) fail(400, "name must be 1 to 200 characters");
+  const uid = body.client_uid ?? null;
+  if (uid !== null && !isUid(uid)) fail(400, "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores");
+  const { DB } = c.env;
+  const minted = async () => {
+    const row = await DB.prepare("SELECT * FROM codes WHERE client_uid = ?1").bind(uid).first();
+    if (row && row.created_by !== c.actor.email) fail(409, "client_uid is already used");
+    return row && json(200, { code: codeOf(row) });
+  };
+  if (uid !== null) {
+    const done = await minted();
+    if (done) return done;
+  }
+  const name = clean(body.name);
+  if (!isText(name, 1, 200) || name.trim().length === 0) fail(400, "name must be 1 to 200 characters");
   if (!isEmail(body.email)) fail(400, "email must be an e-mail address");
   if (!Array.isArray(body.hosts) || body.hosts.length === 0 || body.hosts.length > MAX_CODE_HOSTS) {
     fail(400, `hosts must list 1 to ${MAX_CODE_HOSTS} hosts`);
@@ -1942,13 +2003,21 @@ async function postCode(c) {
   if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
   const secret = newSecret();
   const hash = await codeHash(c.env, secret);
-  const row = await c.env.DB.prepare(
-    `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-     RETURNING *`,
-  )
-    .bind(hash, secret.slice(-4), body.name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email)
-    .first();
+  let row;
+  try {
+    row = await DB.prepare(
+      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+       RETURNING *`,
+    )
+      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid)
+      .first();
+  } catch (error) {
+    if (uid === null || !isUniqueViolation(error)) throw error;
+    const raced = await minted();
+    if (!raced) throw error;
+    return raced;
+  }
   codeCache.delete(hash);
   return json(201, {
     code: codeOf(row),
@@ -2162,7 +2231,7 @@ function importItem(r, host) {
   if (!STATUSES.includes(status)) fail(400, "status is not known");
   const title = validTitle(r.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
-  const body = r.body ?? "";
+  const body = clean(r.body ?? "");
   if (!isText(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const env = r.env ?? host.env;
   if (!isEnvName(env)) fail(400, "env must name an environment");
@@ -2207,7 +2276,8 @@ function importRecord(r, host) {
   const item = importRef(r.item);
   if (r.type === "comment") {
     const uid = importUid(r.uid);
-    if (typeof r.body !== "string" || r.body.trim().length === 0 || r.body.length > MAX_BODY_CHARS) {
+    const body = clean(r.body);
+    if (typeof body !== "string" || body.trim().length === 0 || body.length > MAX_BODY_CHARS) {
       fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
     }
     return {
@@ -2216,7 +2286,7 @@ function importRecord(r, host) {
       item,
       uid,
       author: importPerson(r.author, "author"),
-      body: r.body,
+      body,
       internal: importFlag(r.internal, "internal"),
       createdAt: importStamp(r.created_at, "created_at"),
     };

@@ -240,7 +240,7 @@ async function run() {
 
   await check("a reporter cannot read another's item, and the page address loses its query", async () => {
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
-    assert.equal(filed.json.page.url, "https://example.com/orders");
+    assert.equal(filed.json.page.url, `https://${here}/orders`);
     assert.equal(filed.json.host, here);
     assert.equal((await browse("GET", `/issues/${key}`, adaHere.secret)).status, 200);
     assert.equal((await browse("GET", `/issues/${key}`, graceHere.secret)).status, 404);
