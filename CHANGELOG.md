@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.4.2 — 2026-10-15
+
+### Changed
+
+- The panel's background shines like the P99 logo.
+
 ## v1.4.1 — 2026-10-15
 
 ### Changed
