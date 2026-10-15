@@ -50,6 +50,8 @@ pub enum Command {
     Invites(InvitesArgs),
     #[command(about = "revoke a personal code")]
     Revoke(RevokeArgs),
+    #[command(about = "move a person's items, comments, events and codes to another e-mail")]
+    People(PeopleArgs),
     #[command(about = "list items")]
     List(ListArgs),
     #[command(about = "show an item with its comments, events and landings")]
@@ -68,6 +70,25 @@ pub enum Command {
     Announce(AnnounceArgs),
     #[command(about = "bring items over from another tracker, keeping their keys and numbers")]
     Import(crate::import::ImportArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct PeopleArgs {
+    #[command(subcommand)]
+    pub action: PeopleAction,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum PeopleAction {
+    #[command(
+        about = "move everything filed, said or held under one e-mail to another, on the whole account"
+    )]
+    Rename {
+        #[arg(help = "the e-mail the items are under now")]
+        from: String,
+        #[arg(help = "the e-mail they move to")]
+        to: String,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -314,6 +335,9 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Invite(a) => invite(&config, global, &a),
         Command::Invites(a) => invites(&config, global, &a),
         Command::Revoke(a) => revoke(&config, global, &a),
+        Command::People(PeopleArgs {
+            action: PeopleAction::Rename { from, to },
+        }) => rename(&config, global, &from, &to),
         Command::List(a) => list(&config, global, &a),
         Command::Show(a) => show(&config, global, &a),
         Command::File(a) => file(&config, global, &a),
@@ -806,6 +830,28 @@ fn revoke(config: &Config, global: &Global, args: &RevokeArgs) -> Result<(), Str
         return print_json(&code);
     }
     out!("revoked code {} of {} <{}>", code.id, code.name, code.email);
+    Ok(())
+}
+
+fn rename(config: &Config, global: &Global, from: &str, to: &str) -> Result<(), String> {
+    let (client, _) = client_for(config, global, None)?;
+    let moved = client.rename(from, to)?;
+    if global.json {
+        return print_json(&moved);
+    }
+    let n = |k: &str| moved[k].as_i64().unwrap_or(0);
+    out!(
+        "moved {} to {}: {} items, {} assigned, {} comments, {} events, {} attachments, {} codes",
+        moved["from"].as_str().unwrap_or(from),
+        moved["to"].as_str().unwrap_or(to),
+        n("items"),
+        n("assigned"),
+        n("comments"),
+        n("events"),
+        n("attachments"),
+        n("codes")
+    );
+    println!("set the same e-mail in your config's [me] so new work lands there too");
     Ok(())
 }
 

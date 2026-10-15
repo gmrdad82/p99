@@ -84,6 +84,18 @@ Both lines carry the same secret, shown this once. In 1Password, add a One-Time 
 
 The first time a browser opens the panel with that code, it asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
 
+## Move a person to a new e-mail
+
+```sh
+p99 people rename grace@example.com grace.hopper@example.org
+```
+
+```text
+moved grace@example.com to grace.hopper@example.org: 2 items, 0 assigned, 1 comments, 3 events, 0 attachments, 1 codes
+```
+
+Everything under the old e-mail moves in one transaction on the whole account: items, assignments, comments, events, attachments and codes, with their authenticators and links unchanged. Set the new e-mail in your config's `[me]` too, so your own new work lands under it.
+
 ## Next
 
 [Work the inbox](inbox.md): read and answer what people file.

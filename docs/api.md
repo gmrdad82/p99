@@ -72,6 +72,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `GET /_p99/v1/codes?host=` | the key | `{"codes":[code]}`, newest first |
 | `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager","client_uid","totp"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/#p99=<secret>"]}`, plus `"totp_key":"<base32>"` when `totp` is true; the secret and the key are shown this once, and the same `client_uid` again answers 200 `{"code":code}` without them |
 | `POST /_p99/v1/codes/{id}/totp` | the key | 200 `{"code":code,"totp_key":"<base32>"}`: adds an authenticator to the code, or replaces it; every browser of that code asks for a 6-digit code again |
+| `POST /_p99/v1/people/rename` | the key | `{"from","to"}`; 200 `{"from","to","items","assigned","comments","events","attachments","codes"}`: moves everything filed, said, assigned or held under one e-mail to another on the whole account, in one transaction |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |

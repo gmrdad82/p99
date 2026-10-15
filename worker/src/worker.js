@@ -2119,6 +2119,32 @@ async function postCode(c) {
   });
 }
 
+async function renamePerson(c) {
+  const body = await readJson(c, MAX_JSON_BYTES);
+  const from = typeof body.from === "string" ? body.from.trim().toLowerCase() : "";
+  const to = typeof body.to === "string" ? body.to.trim().toLowerCase() : "";
+  if (!isEmail(from) || !isEmail(to)) fail(400, "from and to must be e-mail addresses");
+  if (from === to) fail(400, "from and to are the same e-mail");
+  const { DB } = c.env;
+  const run = (sql) => DB.prepare(sql).bind(from, to);
+  const results = await DB.batch([
+    run("UPDATE items SET reporter_email = ?2 WHERE reporter_email = ?1"),
+    run("UPDATE items SET assignee = ?2 WHERE assignee = ?1"),
+    run("UPDATE comments SET author_email = ?2 WHERE author_email = ?1"),
+    run("UPDATE events SET actor_email = ?2 WHERE actor_email = ?1"),
+    run("UPDATE attachments SET actor_email = ?2 WHERE actor_email = ?1"),
+    run("UPDATE codes SET email = ?2 WHERE email = ?1"),
+    run("UPDATE codes SET created_by = ?2 WHERE created_by = ?1"),
+    run("UPDATE OR IGNORE reads SET actor_email = ?2 WHERE actor_email = ?1"),
+    run("DELETE FROM reads WHERE actor_email = ?1 AND ?2 = ?2"),
+    run("UPDATE OR IGNORE usage SET actor_email = ?2 WHERE actor_email = ?1"),
+    run("DELETE FROM usage WHERE actor_email = ?1 AND ?2 = ?2"),
+  ]);
+  codeCache.clear();
+  const n = (i) => (results[i].meta && results[i].meta.changes) || 0;
+  return json(200, { from, to, items: n(0), assigned: n(1), comments: n(2), events: n(3), attachments: n(4), codes: n(5) });
+}
+
 async function postCodeTotp(c, rawId) {
   requireEmptyBody(c);
   const totp = await newTotp(c.env);
@@ -2839,6 +2865,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes$/, postCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
+  ["POST", /^\/people\/rename$/, renamePerson, {}],
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
   ["POST", /^\/import$/, postImport, {}],
   ["POST", /^\/import\/finish$/, finishImport, {}],

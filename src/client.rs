@@ -233,6 +233,14 @@ impl Client {
         self.json("POST", &format!("/v1/codes/{id}/revoke"), None)
     }
 
+    pub fn rename(&self, from: &str, to: &str) -> Result<serde_json::Value, String> {
+        self.json(
+            "POST",
+            "/v1/people/rename",
+            Some(serde_json::json!({ "from": from, "to": to })),
+        )
+    }
+
     pub fn totp(&self, id: i64) -> Result<crate::wire::TotpKey, String> {
         self.json("POST", &format!("/v1/codes/{id}/totp"), None)
     }
