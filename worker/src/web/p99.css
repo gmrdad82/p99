@@ -1,5 +1,6 @@
 :host {
   --p99-art: url("/_p99/art/concrete.svg?v=__P99_VERSION__");
+  --p99-glow: color-mix(in srgb, #3b7dd8 22%, #ffffff);
   --p99-base: #a3b6cb;
   --p99-raised: #eef3f8;
   --p99-ink: #0c1a2b;
@@ -52,6 +53,7 @@
 @media (prefers-color-scheme: dark) {
   :host {
     --p99-art: url("/_p99/art/concrete-dark.svg?v=__P99_VERSION__");
+    --p99-glow: color-mix(in srgb, #3b7dd8 55%, #ffffff);
     --p99-base: #1f2c3c;
     --p99-raised: #2a3b50;
     --p99-ink: #e9f0f7;
@@ -131,8 +133,13 @@
   position: absolute;
   inset: -72px;
   z-index: -1;
-  background-image: var(--p99-art);
-  background-size: 400px 400px;
+  background-color: var(--p99-glow);
+  background-image:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 28%, transparent 52%),
+    linear-gradient(150deg, transparent 58%, rgba(255, 255, 255, 0.07) 70%, transparent 84%),
+    var(--p99-art);
+  background-size: 100% 100%, 100% 100%, 400px 400px;
+  background-blend-mode: normal, normal, multiply;
   pointer-events: none;
   will-change: transform;
   animation: p99-drift 45s ease-in-out infinite alternate;
@@ -142,7 +149,11 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: inset 4px 0 0 var(--p99-edge), inset 5px 0 0 rgba(255, 255, 255, 0.18);
+  box-shadow:
+    inset 4px 0 0 var(--p99-edge),
+    inset 5px 0 0 rgba(255, 255, 255, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    inset 0 -2px 0 rgba(0, 0, 0, 0.18);
   pointer-events: none;
 }
 .p99-head { display: flex; align-items: center; justify-content: space-between; gap: var(--p99-space-sm); flex: none; min-height: 56px; padding: var(--p99-space-md) var(--p99-space-sm) 0 var(--p99-space-xl); }
