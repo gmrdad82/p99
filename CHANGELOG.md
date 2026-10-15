@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.4.1 — 2026-10-15
+
+### Changed
+
+- The panel's texture drifts twice as far, about 60 pixels, on a 45-second loop, so the movement is easier to notice.
+
 ## v1.4.0 — 2026-10-15
 
 ### Added
