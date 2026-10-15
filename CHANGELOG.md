@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.5.1 — 2026-10-15
+
+### Changed
+
+- `p99 watch` says on stderr when it reads the account key from the password manager, when it connects and when it reconnects, so a quiet stream reads as connected.
+
 ## v1.5.0 — 2026-10-15
 
 ### Added
