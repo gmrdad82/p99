@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.1 — 2026-10-15
+
+### Changed
+
+- The README's load times are the medians of five runs alternated with 1.0.6, replacing a single reading taken while the machine was busy.
+
 ## v1.1.0 — 2026-10-15
 
 ### Changed
