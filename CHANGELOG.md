@@ -2,6 +2,13 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.4 — 2026-10-15
+
+### Changed
+
+- The button that files an item shows a "+" instead of a "?".
+- The P99 logo in the panel's head keeps its own blue, white and font on every site instead of taking the host's theme colours.
+
 ## v1.1.3 — 2026-10-15
 
 ### Changed
