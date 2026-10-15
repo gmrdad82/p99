@@ -3,14 +3,17 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use pito_tui::Waker;
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 
 use crate::client::Client;
 use crate::config::Config;
+use crate::stream::Heard;
 use crate::wire::{
     Change, Code, Comment, Issue, ListQuery, Summary, Thread, kind_word, status_word,
 };
 
+use super::Msg;
 use super::demo::Demo;
 
 #[derive(Debug, Clone)]
@@ -218,6 +221,26 @@ impl Source {
             Source::Demo(..) => self.sample(|demo| demo.change(key, change)),
             Source::Live(live) => live.client(account, host)?.change(key, change),
             Source::Broken(why) => Err(why.clone()),
+        }
+    }
+
+    pub fn follow(&self, waker: &Waker<Msg>) {
+        let Source::Live(live) = self else { return };
+        let Ok(clients) = live.clients() else { return };
+        for (account, client) in clients.iter().enumerate() {
+            let (client, waker) = (client.clone(), waker.clone());
+            thread::spawn(move || {
+                let _ = crate::stream::follow(&client, None, |heard| match heard {
+                    Heard::Open { again: false } | Heard::Dropped(..) => true,
+                    Heard::Open { again: true } => waker.send(Msg::Pushed(account, None)),
+                    Heard::Event(text) => {
+                        let key = serde_json::from_str::<serde_json::Value>(text)
+                            .ok()
+                            .and_then(|event| event["key"].as_str().map(str::to_owned));
+                        waker.send(Msg::Pushed(account, key))
+                    }
+                });
+            });
         }
     }
 

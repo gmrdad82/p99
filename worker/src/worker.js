@@ -1,3 +1,4 @@
+import { DurableObject } from "cloudflare:workers";
 import { composeMail } from "./mail.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
@@ -58,6 +59,7 @@ const TOTP_STEP_SECONDS = 30;
 const TOTP_MAX_FAILS = 10;
 const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const DIRECTORY_TTL_MS = 30 * 1000;
+const HUB_NAME = "hub";
 const MANAGERS_TOKEN = Symbol("managers");
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
@@ -882,6 +884,82 @@ function sendMail(c, row, recipients, data) {
   c.outbox.push({ item_id: row.id, host: row.host ?? null, to: recipients, template: data.template, ref: data.ref, ...content });
 }
 
+function hubOf(env) {
+  return env.HUB.get(env.HUB.idFromName(HUB_NAME));
+}
+
+function push(c, type, row, extra = {}) {
+  if (!c.env.HUB) return;
+  c.pushes.push({
+    type,
+    key: row ? keyOf(row.kind, row.id) : null,
+    host: row ? (row.host ?? null) : (c.scope.host ?? null),
+    title: row ? row.title : null,
+    by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null,
+    at: c.now,
+    ...extra,
+  });
+}
+
+async function flushPushes(c) {
+  try {
+    await hubOf(c.env).publish(c.pushes.splice(0));
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+  }
+}
+
+async function openStream(c) {
+  if (!c.env.HUB) fail(404, "this Worker has no push yet; run p99 deploy");
+  if ((c.request.headers.get("upgrade") || "").toLowerCase() !== "websocket") fail(400, "the stream takes a WebSocket upgrade");
+  const target = new URL("https://hub.p99/connect");
+  if (!c.scope.all) target.searchParams.set("host", c.scope.host);
+  return hubOf(c.env).fetch(new Request(target, c.request));
+}
+
+export class P99Hub extends DurableObject {
+  constructor(ctx, env) {
+    super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
+
+  async fetch(request) {
+    if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") return new Response(null, { status: 400 });
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
+    this.ctx.acceptWebSocket(server);
+    server.serializeAttachment({ host: new URL(request.url).searchParams.get("host") });
+    return new Response(null, { status: 101, webSocket: client });
+  }
+
+  async publish(events) {
+    const lines = events.map((event) => [event.host, JSON.stringify(event)]);
+    for (const socket of this.ctx.getWebSockets()) {
+      const wanted = (socket.deserializeAttachment() || {}).host ?? null;
+      for (const [host, line] of lines) {
+        if (wanted !== null && host !== wanted) continue;
+        try {
+          socket.send(line);
+        } catch {}
+      }
+    }
+  }
+
+  async webSocketMessage() {}
+
+  async webSocketClose(socket, code, reason) {
+    try {
+      socket.close(code, reason);
+    } catch {}
+  }
+
+  async webSocketError(socket) {
+    try {
+      socket.close(1011, "error");
+    } catch {}
+  }
+}
+
 function mailable(address, c) {
   return Boolean(address) && !address.endsWith(".invalid") && address !== (c.actor ? c.actor.email : null);
 }
@@ -1474,6 +1552,7 @@ async function createIssue(c) {
     unread: 0,
   };
   if (!c.manager) sendMail(c, row, MANAGERS_TOKEN, { template: "created", body: text, ref: "created" });
+  push(c, "item", row);
   return json(201, issueOf(row, c, emptyLandingContext(c.dir)));
 }
 
@@ -1614,6 +1693,9 @@ async function patchIssue(c, rawKey) {
   );
   statements.push(readStatement(c, row.id));
   await c.env.DB.batch(statements);
+  push(c, "change", { ...row, kind: next.kind, title: next.title }, {
+    what: ["status", "kind", "assignee", "title", "body"].filter((f) => next[f] !== row[f]),
+  });
   if (c.manager && next.status !== row.status) {
     sendMail(c, { ...row, kind: next.kind, title: next.title }, [row.reporter_email], {
       template: "status",
@@ -1694,6 +1776,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
+  push(c, "comment", row, { internal });
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });
   } else if (!internal) {
@@ -1948,6 +2031,7 @@ async function putAttachment(c, rawKey, rawUid) {
     ).bind(reserved.id, token, c.actor.email, today(c.now), length),
     readStatement(c, row.id),
   ]);
+  if (results[0].meta.changes === 1) push(c, "attachment", row, { internal: Boolean(reserved.internal) });
   return json(results[0].meta.changes === 1 ? 201 : 200, attachmentOf({ ...reserved, sha256 }));
 }
 
@@ -2712,6 +2796,7 @@ async function postImport(c) {
   if (!dry && statements.length > 0) {
     if (touched.length > 0) statements.push(recountStatement(DB, touched));
     await DB.batch(statements);
+    push(c, "import", null, { host, items: counts.item.new, comments: counts.comment.new });
   }
   return json(200, { dry_run: dry, counts, upload, managers: missing });
 }
@@ -2855,6 +2940,7 @@ const BROWSER_ROUTES = [["GET", /^\/me$/, getMe], ["POST", /^\/verify$/, postVer
 const SIGNED_ROUTES = [
   ["POST", /^\/builds$/, postBuilds, { actor: false }],
   ["GET", /^\/counts$/, getCounts, { listed: true }],
+  ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
   ["GET", /^\/hosts$/, listHosts, {}],
   ["PUT", /^\/hosts\/([^/]+)$/, putHost, {}],
@@ -2884,6 +2970,7 @@ function findRoute(routes, method, path) {
 async function runHandler(c, handler, args) {
   const response = await handler(c, ...args);
   if (c.outbox.length > 0) c.ctx.waitUntil(flushMail(c));
+  if (c.pushes.length > 0) c.ctx.waitUntil(flushPushes(c));
   return response;
 }
 
@@ -2914,6 +3001,7 @@ async function browserRequest(request, env, ctx, url, path) {
     actionEnv: hostRow.env,
     now,
     outbox: [],
+    pushes: [],
   };
   return runHandler(c, found.route[2], found.args);
 }
@@ -2950,6 +3038,7 @@ async function signedRequest(request, env, ctx, url, path) {
     actionEnv: null,
     now: new Date().toISOString(),
     outbox: [],
+    pushes: [],
   };
   return runHandler(c, found.route[2], found.args);
 }

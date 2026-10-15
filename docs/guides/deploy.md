@@ -41,7 +41,7 @@ p99 deploy --account shop
 `p99 deploy` works on one account, the default one or the one `--account` names. It:
 
 1. applies the migrations the database hasn't had yet, in order, recording each in `d1_migrations`;
-2. uploads the Worker with its bindings, keeping its secrets (`KEY_P99`, `MANAGERS`, the mail key) as they are;
+2. uploads the Worker with its bindings, keeping its secrets (`KEY_P99`, `MANAGERS`, the mail key) as they are, and creates its Durable Object, `P99Hub`, the first time (a Worker set up before P99 had live updates gets it on its next deploy, and `p99 watch` asks for one until then);
 3. checks each host's route `<host>/_p99/*` and adds a missing one;
 4. checks that every host answers the new version on `/_p99/health`.
 

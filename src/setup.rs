@@ -106,11 +106,13 @@ const RESERVED_NAMESPACES: [u64; 2] = [7301, 7302];
 const FIRST_NAMESPACE: u64 = 1001;
 const RATE_LIMIT: u64 = 120;
 const RATE_PERIOD: u64 = 60;
+const HUB_CLASS: &str = "P99Hub";
+const HUB_TAG: &str = "p99-hub-1";
 
 const PERMISSIONS: [(&str, &str); 5] = [
     (
         "Account › Workers Scripts: Edit",
-        "upload the P99 Worker, set its secrets and its cron schedule",
+        "upload the P99 Worker with its Durable Object, set its secrets and its cron schedule",
     ),
     (
         "Account › D1: Edit",
@@ -788,11 +790,23 @@ fn merge_bindings(existing: &[Value], ours: Vec<Value>) -> Vec<Value> {
     all
 }
 
+fn hub_migration(tag: Option<&str>) -> Option<Value> {
+    if tag == Some(HUB_TAG) {
+        return None;
+    }
+    let mut step = json!({ "new_tag": HUB_TAG, "new_sqlite_classes": [HUB_CLASS] });
+    if let Some(tag) = tag {
+        step["old_tag"] = json!(tag);
+    }
+    Some(step)
+}
+
 fn our_bindings(account: &Account, rate: Option<u64>) -> Vec<Value> {
     let mut ours = vec![
         json!({ "type": "d1", "name": "DB", "database_id": account.database_id }),
         json!({ "type": "r2_bucket", "name": "BUCKET", "bucket_name": account.bucket }),
         json!({ "type": "plain_text", "name": "VERSION", "text": VERSION }),
+        json!({ "type": "durable_object_namespace", "name": "HUB", "class_name": HUB_CLASS }),
     ];
     if let Some(ns) = rate {
         ours.push(json!({
@@ -883,11 +897,14 @@ fn upload(
     rate: Option<u64>,
 ) -> Result<Uploaded, String> {
     let bindings = merge_bindings(existing, our_bindings(account, rate));
+    let tag = cf.migration_tag(&account.account_id, &account.worker)?;
+    let migrations = hub_migration(tag.as_deref());
     cf.upload(
         &account.account_id,
         &account.worker,
         bundle::MAIN,
         &bindings,
+        migrations.clone(),
         &bundle::modules(),
     )?;
     let names: Vec<String> = bindings
@@ -899,6 +916,11 @@ fn upload(
         account.worker,
         names.join(", ")
     ));
+    if migrations.is_some() {
+        done(&format!(
+            "Durable Object {HUB_CLASS} created ({HUB_TAG}), which holds the live streams of p99 tui and p99 watch"
+        ));
+    }
     cf.put_schedules(&account.account_id, &account.worker, &[CRON])?;
     done(&format!(
         "cron schedule {CRON} (the weekly backup runs in its steps)"
@@ -1343,7 +1365,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         8,
         total,
         "The Worker",
-        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION) and its secrets (KEY_P99, MANAGERS, and CODE_PEPPER, which keys the stored\nhashes of the personal codes so the database alone can't recover one).",
+        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION, HUB) and its secrets (KEY_P99, MANAGERS, and CODE_PEPPER, which keys the stored\nhashes of the personal codes so the database alone can't recover one).",
     );
     let existing = cf.bindings(&id, &account.worker)?;
     if let Some(bindings) = &existing

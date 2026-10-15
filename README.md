@@ -74,6 +74,15 @@ p99 status BUG-12 resolved
 
 <p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first item's JSON: key, kind, status, title, host, env, page, reporter, counts and landing."></p>
 
+**Changes arrive live.** A new item, a comment, a change of status, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open inbox and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new items as they come.
+
+```
+$ p99 watch --host shop.example.com
+BUG-12  item  shop.example.com  Grace Hopper: The total does not update
+BUG-12  comment  shop.example.com  Ada Lovelace*: The total does not update
+BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
+```
+
 **Where a fix landed.** `p99 announce` reads your commits' `Fixes: BUG-12` and `Refs: FEAT-3` trailers and tells P99 which environment a build reached. Each item then shows when its fix is on dev and in production, and its reporter can be told when it ships.
 
 **Setup that explains itself.** `p99 setup` says which Cloudflare API token to create, where, and why each permission is needed. It checks the token and every permission, then creates the D1 database, the R2 bucket, the key, the Worker and a route for each site, showing its progress. It ends with what exists and the command to run next. It is safe to run again, and a second Cloudflare account goes in beside the first. `p99 deploy` uploads a new version later, keeping every secret.

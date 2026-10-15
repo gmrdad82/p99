@@ -7,6 +7,7 @@ mod docs;
 mod import;
 mod setup;
 mod sign;
+mod stream;
 mod trailers;
 mod tui;
 mod vault;

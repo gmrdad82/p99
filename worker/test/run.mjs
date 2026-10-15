@@ -54,6 +54,21 @@ async function call(method, path, { actor = grace, body, raw, type, keyId = "p99
   return { status: response.status, json: await jsonOf(response), response };
 }
 
+function listen(path, heard) {
+  const ts = Math.floor(Date.now() / 1000);
+  const actor = actorHeader(grace);
+  const hash = sha256(Buffer.alloc(0));
+  const auth = sign({ secret: keys.p99, ts, method: "GET", path, actor, hash });
+  const socket = new WebSocket(base.replace(/^http/, "ws") + path, {
+    headers: { "x-p99-key-id": "p99", "x-p99-actor": actor, "x-content-sha256": hash, "x-p99-auth": auth },
+  });
+  socket.addEventListener("message", (message) => heard.push(JSON.parse(message.data)));
+  return new Promise((resolve, reject) => {
+    socket.addEventListener("open", () => resolve(socket));
+    socket.addEventListener("error", () => reject(new Error("the stream did not open")));
+  });
+}
+
 async function browse(method, path, code, body) {
   const headers = {};
   if (code !== undefined) headers["x-p99-code"] = code;
@@ -235,8 +250,20 @@ async function run() {
     assert.equal((await browse("GET", "/me", doomed.secret)).status, 401);
   });
 
+  const heard = [];
+  const stream = await listen(`/_p99/v1/stream?host=${here}`, heard);
   const filed = await browse("POST", "/issues", adaHere.secret, issueBody());
   const key = filed.json && filed.json.key;
+
+  await check("a signed client on the stream hears an item filed through the browser", async () => {
+    for (let i = 0; i < 50 && !heard.some((e) => e.key === key); i++) await new Promise((r) => setTimeout(r, 100));
+    stream.close();
+    const event = heard.find((e) => e.key === key);
+    assert.ok(event, JSON.stringify(heard));
+    assert.equal(event.type, "item");
+    assert.equal(event.host, here);
+    assert.equal(event.by.name, "Ada Lovelace");
+  });
 
   await check("a reporter cannot read another's item, and the page address loses its query", async () => {
     assert.equal(filed.status, 201, JSON.stringify(filed.json));

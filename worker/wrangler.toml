@@ -19,6 +19,14 @@ migrations_dir = "migrations"
 binding = "BUCKET"
 bucket_name = "p99"
 
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "P99Hub"
+
+[[migrations]]
+tag = "p99-hub-1"
+new_sqlite_classes = ["P99Hub"]
+
 [[ratelimits]]
 name = "RATE"
 namespace_id = "1001"

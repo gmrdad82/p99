@@ -165,6 +165,7 @@ pub enum Msg {
     Commented(String, Result<bool, String>),
     Changed(String, Result<Issue, String>),
     Codes(Result<Vec<Code>, String>),
+    Pushed(usize, Option<String>),
 }
 
 fn report(

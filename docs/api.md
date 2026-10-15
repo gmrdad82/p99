@@ -1,6 +1,6 @@
 # The P99 Worker
 
-One Worker, one D1 database (binding `DB`) and one R2 bucket (binding `BUCKET`) per Cloudflare account. The Worker is mounted on every host it serves as the route `<host>/_p99/*`, so a page talks only to its own origin. It may also sit on a custom domain of its own.
+One Worker, one D1 database (binding `DB`), one R2 bucket (binding `BUCKET`) and one SQLite-backed Durable Object, `P99Hub` (binding `HUB`), per Cloudflare account. The Worker is mounted on every host it serves as the route `<host>/_p99/*`, so a page talks only to its own origin. It may also sit on a custom domain of its own.
 
 The host of a request is the URL's hostname. A host must be listed in the `hosts` table to be served; an unknown host answers 404 on everything but `/_p99/health`. The signed API is the exception: it names the host itself (below), so it answers on any address the Worker is mounted on.
 
@@ -61,6 +61,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | --- | --- | --- |
 | `POST /_p99/v1/builds` | the key | `{"sha","branch","version","dirty","env","items":[{"id","rel","sha","subject"}]}` replaces that environment's row for that branch; an `env` that is not an environment answers 400; 204 |
 | `GET /_p99/v1/counts?path=` | actor | `{"page_open","mine_open","mine_unread","all_open"}` |
+| `GET /_p99/v1/stream` | actor | a WebSocket (`Upgrade: websocket`) that carries one event per change, as [Live events](#live-events) describes; with `host=<host>`, only that host's |
 | `GET /_p99/v1/issues?scope=&path=&status=&kind=&q=&cursor=&limit=` | actor; `all` managers only | as the browser API; with `host=*`, every host's items |
 | `POST /_p99/v1/issues` | actor | as the browser API, plus `"host"`; 201 issue |
 | `GET /_p99/v1/issues/{key}`, `PATCH`, `POST …/comments`, `PUT …/attachments/{uid}`, `GET /_p99/v1/files/{id}` | as the browser API | |
@@ -78,6 +79,24 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
 
 A code object is `{"id","name","email","hosts","manager","hint","created_at","created_by","revoked_at","last_used_at"}`, `hint` the secret's last four characters.
+
+## Live events
+
+`GET /_p99/v1/stream` is signed like every other route, with an empty body, and upgrades to a WebSocket held by the Durable Object `P99Hub`, one per account. Every successful write sends each open socket one text message, a JSON event:
+
+```json
+{"type":"comment","key":"BUG-12","host":"shop.example.com","title":"The total does not update","by":{"name":"Ada Lovelace","agent":true},"at":"2026-10-15T09:30:00.000Z","internal":false}
+```
+
+| `type` | When | Adds |
+| --- | --- | --- |
+| `item` | an item is filed | |
+| `comment` | a comment is added | `internal` |
+| `change` | status, kind, assignee, title or body change | `what`, the fields that changed |
+| `attachment` | a file is stored | `internal` |
+| `import` | an import writes records | `items` and `comments`, the counts of new ones; `key` and `title` are null |
+
+`title` is the item's title after the change and `by` the actor, `null` for a write without one. Internal comments and files are included, since only the signed API listens. A socket opened with `host=<host>` hears only that host's events; an unlisted host answers 404. The socket answers the text `ping` with `pong`, which keeps it open through idle proxies; the CLI and the TUI send one every 30 seconds and reconnect when it drops. A Worker without the `HUB` binding (one not deployed since live updates came) answers 404 `this Worker has no push yet; run p99 deploy`, and its writes skip the event. The event is sent after the response, so a write never waits on it, and a socket that is not open misses it: a client that reconnects reads the list again.
 
 ## Items
 

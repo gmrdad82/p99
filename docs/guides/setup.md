@@ -15,7 +15,7 @@ You need a Cloudflare account whose zones hold your sites' hostnames, and an API
 
 | Permission | Why P99 needs it |
 | --- | --- |
-| Account › Workers Scripts: Edit | upload the P99 Worker, set its secrets and its cron schedule |
+| Account › Workers Scripts: Edit | upload the P99 Worker with its Durable Object, set its secrets and its cron schedule |
 | Account › D1: Edit | create the D1 database and apply its migrations |
 | Account › Workers R2 Storage: Edit | create the R2 bucket that keeps attachments and backups |
 | Zone › Workers Routes: Edit | add the route `<host>/_p99/*` on each host's zone |
@@ -38,7 +38,7 @@ The steps and what each asks:
 5. **The R2 bucket** `p99`, which keeps screenshots, attachments and the weekly backups.
 6. **The key.** 32 random bytes the CLI and the TUI sign every request with; the Worker holds the same key as its secret `KEY_P99`.
 7. **Mail (optional).** P99 sends no mail by default: the TUI is the inbox. Answer yes to give a Resend API key and a sender such as `P99 <p99@example.com>`; P99 then mails managers about new items and reporters about replies and fixes.
-8. **The Worker,** uploaded with its bindings (`DB`, `BUCKET`, `RATE`, `VERSION`), its secrets (`KEY_P99`, `MANAGERS`) and a cron schedule for the backups. Setup picks a rate-limiting namespace no other Worker in the account uses.
+8. **The Worker,** uploaded with its bindings (`DB`, `BUCKET`, `RATE`, `VERSION`, and `HUB`, the Durable Object that holds the live streams of `p99 tui` and `p99 watch`; SQLite-backed Durable Objects are on the Workers free plan), its secrets (`KEY_P99`, `MANAGERS`) and a cron schedule for the backups. Setup picks a rate-limiting namespace no other Worker in the account uses.
 9. **The hosts.** The hostnames this account serves, comma separated, and each one's environment and kind. A host has one environment: `production` (a `release` kind) by default; a development address is its own host, with an environment such as `dev` (a `development` kind). Each host gets the route `<host>/_p99/*` on its zone. A Pages project, Custom Domain or Worker already serving the host is named and left as it is: the route only runs in front of it for `/_p99/*`.
 
 Setup ends by checking that each host answers this version on `/_p99/health`, then prints a summary:

@@ -8,6 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
+use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
     Attachment, Build, Change, Code, Comment, Download, EnvEntry, HostEntry, ImportFinish,
     ImportReport, Issue, IssueList, ListQuery, Minted, NewCode, NewIssue, Thread,
@@ -17,6 +18,7 @@ const KEY_ID: &str = "p99";
 const TIMEOUT: Duration = Duration::from_secs(10);
 const TRANSFER: Duration = Duration::from_secs(60);
 const ANSWER_LIMIT: u64 = 32 << 20;
+pub const NO_PUSH: &str = "this Worker has no push yet; run p99 deploy";
 
 #[derive(Clone)]
 pub struct Client {
@@ -464,7 +466,11 @@ impl Client {
                 Err(problem(&reply))
             };
         }
-        Err(match moved {
+        Err(self.lost(moved))
+    }
+
+    fn lost(&self, moved: Option<(String, String)>) -> String {
+        match moved {
             Some((host, to)) if to.is_empty() => {
                 format!("{host} answered with a web page instead of answering as P99")
             }
@@ -476,7 +482,58 @@ impl Client {
                 "every host of the account {} is behind Cloudflare Access, which answered with its login; set `url` for the account to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
                 self.account
             ),
-        })
+        }
+    }
+
+    pub fn stream(&self, host: Option<&str>) -> Result<Stream, Trouble> {
+        let pq = format!("/v1/stream{}", query(&[("host", host.map(str::to_owned))]));
+        let mut moved: Option<(String, String)> = None;
+        for at in self.order() {
+            let base = &self.bases[at];
+            let mut headers = self.headers(base, now(), "GET", &pq, true, &[]);
+            if let Some((id, secret)) = &self.access {
+                headers.push(("CF-Access-Client-Id", id.clone()));
+                headers.push(("CF-Access-Client-Secret", secret.clone()));
+            }
+            let url = format!("{}{pq}", websocket_base(base));
+            let refused = match crate::stream::open(&url, &headers) {
+                Ok(stream) => {
+                    self.answered.store(at + 1, Ordering::Relaxed);
+                    return Ok(stream);
+                }
+                Err(Opening::Failed(why)) => {
+                    return Err(Trouble::Passing(format!("cannot reach {base}: {why}")));
+                }
+                Err(Opening::Refused(refused)) => refused,
+            };
+            match classify(refused.status, &refused.content_type, &refused.location) {
+                Outcome::Answer => {}
+                Outcome::Access => continue,
+                Outcome::Moved(to) => {
+                    moved.get_or_insert((host_of(base).to_owned(), to));
+                    continue;
+                }
+                Outcome::Foreign => {
+                    moved.get_or_insert((host_of(base).to_owned(), String::new()));
+                    continue;
+                }
+            }
+            self.answered.store(at + 1, Ordering::Relaxed);
+            let reply = Reply {
+                status: refused.status,
+                content_type: refused.content_type,
+                disposition: String::new(),
+                bytes: refused.body,
+            };
+            let said = problem(&reply);
+            return Err(match reply.status {
+                404 if said.starts_with("no such host") => Trouble::Fatal(said),
+                404 => Trouble::Fatal(NO_PUSH.to_owned()),
+                400..=428 => Trouble::Fatal(said),
+                _ => Trouble::Passing(said),
+            });
+        }
+        Err(Trouble::Fatal(self.lost(moved)))
     }
 }
 

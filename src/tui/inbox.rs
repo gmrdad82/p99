@@ -118,6 +118,9 @@ pub struct Inbox {
     now: i64,
     picking: Option<Picking>,
     open: Option<Open>,
+    following: bool,
+    refreshing: bool,
+    again: bool,
 }
 
 impl Inbox {
@@ -139,6 +142,46 @@ impl Inbox {
             counts: (0, 0),
             picking: None,
             open: None,
+            following: false,
+            refreshing: false,
+            again: false,
+        }
+    }
+
+    fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
+        if self.entries.is_none() {
+            return;
+        }
+        if self.refreshing {
+            self.again = true;
+            return;
+        }
+        self.refreshing = true;
+        let source = self.source.clone();
+        cx.detach(move || Msg::Inbox(source.inbox()));
+    }
+
+    fn pushed(&mut self, account: usize, key: Option<String>, cx: &mut Cx<'_, Msg>) {
+        self.refresh(cx);
+        let reread = self.open.as_ref().is_some_and(|open| {
+            !open.sending && open.account == account && key.as_deref() == Some(open.key.as_str())
+        });
+        if reread {
+            self.read_thread(cx);
+        }
+    }
+
+    fn keep(&mut self, kept: Option<(usize, String)>) {
+        let (Some((account, key)), Some(entries)) = (kept, &self.entries) else {
+            return;
+        };
+        let at = self.filter.shown().iter().position(|&index| {
+            entries
+                .get(index)
+                .is_some_and(|e| e.account == account && e.summary.key == key)
+        });
+        if let Some(at) = at {
+            self.filter.list_mut().select(at);
         }
     }
 
@@ -752,13 +795,38 @@ impl Screen<Msg> for Inbox {
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
-            Msg::Inbox(Ok(entries)) => {
-                self.hosts = merged_hosts(self.source.hosts(), &entries);
-                self.now = self.source.now();
-                self.entries = Some(entries);
-                self.sift();
+            Msg::Inbox(result) => {
+                let refreshed = std::mem::take(&mut self.refreshing);
+                match result {
+                    Ok(entries) => {
+                        let kept = self
+                            .filter
+                            .current()
+                            .and_then(|at| self.entries.as_ref()?.get(at))
+                            .map(|e| (e.account, e.summary.key.clone()));
+                        self.hosts = merged_hosts(self.source.hosts(), &entries);
+                        self.now = self.source.now();
+                        if let Some(open) = &mut self.open {
+                            open.entry = entries.iter().position(|e| {
+                                e.account == open.account && e.summary.key == open.key
+                            });
+                        }
+                        self.entries = Some(entries);
+                        self.sift();
+                        self.keep(kept);
+                        if !self.following && !self.source.is_demo() {
+                            self.following = true;
+                            self.source.follow(&cx.waker());
+                        }
+                    }
+                    Err(_) if refreshed && self.entries.is_some() => {}
+                    Err(error) => self.error = Some(error),
+                }
+                if refreshed && std::mem::take(&mut self.again) {
+                    self.refresh(cx);
+                }
             }
-            Msg::Inbox(Err(error)) => self.error = Some(error),
+            Msg::Pushed(account, key) => self.pushed(account, key, cx),
             Msg::Thread(key, result) => {
                 let Some(open) = self.open.as_mut().filter(|o| o.key == key) else {
                     return;

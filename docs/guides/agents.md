@@ -49,6 +49,23 @@ p99 edit Q-4 --title "Which grind sizes does the chart cover?" --text-file q4.md
 
 The objects are described field by field in [the API reference](../reference/formats.md#items): a summary in a list carries `key`, `kind`, `status`, `title`, `host`, `env`, the `page`, the `reporter` (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
 
+## React to changes as they happen
+
+`p99 watch --json` keeps a WebSocket open to the Worker and prints one JSON event per line on standard output for each new item, comment, change and file, until it is stopped. `--host` limits it to one host's items. It sends a keepalive every 30 seconds and reconnects by itself after a drop, saying so on standard error; changes made while it was away are not replayed, so read the list again after a reconnect.
+
+```sh
+p99 watch --host shop.example.com --json | while read -r event; do
+  key=$(jq -r 'select(.type == "item") | .key' <<<"$event")
+  [ -n "$key" ] && p99 show "$key" --json
+done
+```
+
+```json
+{"type":"item","key":"BUG-14","host":"shop.example.com","title":"The coupon field rejects lowercase codes","by":{"name":"Grace Hopper","agent":false},"at":"2026-10-15T09:30:00.000Z"}
+```
+
+Each event has `type` (`item`, `comment`, `change`, `attachment` or `import`), `key`, `host`, `title`, `by` (`name` and `agent`) and `at`; [the API reference](../reference/formats.md#live-events) lists the rest. A Worker not deployed since live updates came answers `p99: this Worker has no push yet; run p99 deploy`, with exit code 1.
+
 ## Exit codes
 
 - `0`: done.

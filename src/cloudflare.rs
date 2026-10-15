@@ -221,6 +221,18 @@ impl Cloudflare {
             .collect())
     }
 
+    pub fn migration_tag(&self, account: &str, script: &str) -> Answer<Option<String>> {
+        let result = self.get(&format!("/accounts/{account}/workers/scripts"))?;
+        Ok(result
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|s| s["id"] == script)
+            .and_then(|s| s["migration_tag"].as_str())
+            .filter(|tag| !tag.is_empty())
+            .map(str::to_owned))
+    }
+
     pub fn settings(&self, account: &str, script: &str) -> Answer<Option<Value>> {
         match self.get(&format!(
             "/accounts/{account}/workers/scripts/{script}/settings"
@@ -255,9 +267,10 @@ impl Cloudflare {
         script: &str,
         main_module: &str,
         bindings: &[Value],
+        migrations: Option<Value>,
         modules: &[Module],
     ) -> Answer<Value> {
-        let metadata = metadata(main_module, bindings);
+        let metadata = metadata(main_module, bindings, migrations);
         let boundary = boundary();
         let body = multipart(&boundary, &metadata, modules);
         let path = format!("/accounts/{account}/workers/scripts/{script}");
@@ -351,14 +364,18 @@ impl Cloudflare {
     }
 }
 
-pub fn metadata(main_module: &str, bindings: &[Value]) -> Value {
-    json!({
+pub fn metadata(main_module: &str, bindings: &[Value], migrations: Option<Value>) -> Value {
+    let mut metadata = json!({
         "main_module": main_module,
         "compatibility_date": crate::bundle::COMPATIBILITY_DATE,
         "bindings": bindings,
         "keep_bindings": ["secret_text"],
         "observability": { "enabled": true },
-    })
+    });
+    if let Some(migrations) = migrations {
+        metadata["migrations"] = migrations;
+    }
+    metadata
 }
 
 pub fn multipart(boundary: &str, metadata: &Value, modules: &[Module]) -> Vec<u8> {
@@ -491,6 +508,7 @@ mod tests {
         let meta = metadata(
             "worker.js",
             &[json!({"type":"d1","name":"DB","database_id":"x"})],
+            None,
         );
         let modules = [
             Module {

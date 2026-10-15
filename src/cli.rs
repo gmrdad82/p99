@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use crate::client::Client;
 use crate::config::{CORNERS, Config, Host, Offset};
+use crate::stream::Heard;
 use crate::trailers;
 use crate::wire::{
     ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
@@ -74,6 +75,16 @@ pub enum Command {
     Announce(AnnounceArgs),
     #[command(about = "bring items over from another tracker, keeping their keys and numbers")]
     Import(crate::import::ImportArgs),
+    #[command(
+        about = "print each new item, comment, change and attachment as it happens, until stopped"
+    )]
+    Watch(WatchArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct WatchArgs {
+    #[arg(long, help = "only this host's items")]
+    pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -372,7 +383,57 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Download(a) => download(&config, global, &a),
         Command::Announce(a) => announce(&config, global, &a),
         Command::Import(a) => import(&config, global, &a),
+        Command::Watch(a) => watch(&config, global, &a),
     }
+}
+
+fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), String> {
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let (client, _) = client_for(config, global, host.as_deref())?;
+    let json = global.json;
+    crate::stream::follow(&client, host.as_deref(), |heard| {
+        match heard {
+            Heard::Open { .. } => {}
+            Heard::Event(text) if json => out!("{text}"),
+            Heard::Event(text) => {
+                if let Some(line) = event_line(text) {
+                    out!("{line}");
+                }
+            }
+            Heard::Dropped(why, wait) => eprintln!(
+                "{}: the stream dropped ({}); reconnecting in {} s",
+                crate::NAME,
+                crate::wire::clean(why),
+                wait.as_secs()
+            ),
+        }
+        true
+    })
+}
+
+fn event_line(text: &str) -> Option<String> {
+    let event: Value = serde_json::from_str(text).ok()?;
+    let field = |name: &str| event[name].as_str().unwrap_or("-").to_owned();
+    let by = &event["by"];
+    let name = who(
+        "",
+        by["name"].as_str().unwrap_or("P99"),
+        by["agent"].as_bool().unwrap_or(false),
+    );
+    let said = match event["type"].as_str() {
+        Some("import") => format!(
+            "{} items, {} comments",
+            event["items"].as_u64().unwrap_or(0),
+            event["comments"].as_u64().unwrap_or(0)
+        ),
+        _ => field("title"),
+    };
+    Some(format!(
+        "{}  {}  {}  {name}: {said}",
+        field("key"),
+        field("type"),
+        field("host")
+    ))
 }
 
 fn import(
