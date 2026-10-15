@@ -2,6 +2,13 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.5.2 — 2026-10-16
+
+### Fixed
+
+- The authenticator setup leads with the key to paste into 1Password, Bitwarden, Apple Passwords, Google Authenticator or Authy, and its `otpauth://` link now spells out SHA-1, 6 digits and 30 seconds, after a pasted link gave wrong codes in one password manager.
+- The README gives the loader's size as served today: 2,044 bytes gzipped.
+
 ## v1.5.1 — 2026-10-15
 
 ### Changed
