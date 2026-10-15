@@ -83,7 +83,7 @@ The Worker is built into the binary, so there is nothing else to install: no Nod
    p99 invite example.com --name "Ada Lovelace" --email ada@example.com --manager
    ```
 
-   The "?" now shows on your pages. File a bug from it, then read it in the terminal:
+   The "+" now shows on your pages. File a bug from it, then read it in the terminal:
 
    ```sh
    p99 list example.com

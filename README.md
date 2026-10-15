@@ -1,10 +1,10 @@
-<p align="center"><img src="docs/images/flow.gif" width="800" alt="A sample coffee shop's checkout page: Grace Hopper presses the blue question mark in the corner, the P99 panel opens, she picks Bug, types a title and a detail, marks the payment form (the card number shows blanked in the capture), sends it, and the item BUG-5 appears. The clip cuts to a terminal running p99 tui, where BUG-5 sits at the top of the inbox on host shop.example.com and opens."></p>
+<p align="center"><img src="docs/images/flow.gif" width="800" alt="A sample coffee shop's checkout page: Grace Hopper presses the blue plus in the corner, the P99 panel opens, she picks Bug, types a title and a detail, marks the payment form (the card number shows blanked in the capture), sends it, and the item BUG-5 appears. The clip cuts to a terminal running p99 tui, where BUG-5 sits at the top of the inbox on host shop.example.com and opens."></p>
 
 # P99
 
 [![CI](https://github.com/gmrdad82/p99/actions/workflows/ci.yml/badge.svg)](https://github.com/gmrdad82/p99/actions/workflows/ci.yml) [![Version](https://img.shields.io/github/v/tag/gmrdad82/p99)](https://github.com/gmrdad82/p99/tags)
 
-P99 is issue and feedback reporting for any website, part of [PITO MD](https://pitomd.com). The people you invite see a small "?" on your site; it opens a panel where they file a bug, an idea, an improvement, a question or a task, with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` is a CLI with `--json` for scripts and agents, and `p99 tui` is the inbox.
+P99 is issue and feedback reporting for any website, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a bug, an idea, an improvement, a question or a task, with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` is a CLI with `--json` for scripts and agents, and `p99 tui` is the inbox.
 
 Cloudflare is the whole infrastructure: one Worker, one D1 database and one R2 bucket per Cloudflare account, mounted on each site's own domain at `/_p99/*`. The page talks only to its own origin. There is no other backend, no CORS, no framework, no build step and nothing from your stack.
 
@@ -15,8 +15,8 @@ Works on Linux and macOS (Windows through WSL). The widget runs in any modern br
 | | |
 | --- | --- |
 | What every page downloads | **2,030 bytes** gzipped: the loader as served, nothing else |
-| Loader start to the "?" painted | **10.6 ms** cold, **2.6 ms** warm |
-| Page navigation to the "?" painted | **26.9 ms** cold, **10.1 ms** warm |
+| Loader start to the "+" painted | **10.6 ms** cold, **2.6 ms** warm |
+| Page navigation to the "+" painted | **26.9 ms** cold, **10.1 ms** warm |
 | Click to the panel's form on screen | **31.1 ms** cold: panel and styles load only then (27.8 KB gzipped) |
 | TUI frame time at 120×34 | **0.05 to 0.12 ms** average: 120 fps leaves 8.33 ms |
 | Backend | **0** servers: one Cloudflare Worker, D1 and R2 per account |
@@ -29,13 +29,13 @@ Measured on 2026-10-15 for 1.1.0: sizes with `gzip -9`, the loader as a host wit
 
 ## On your site
 
-**One tag, every page.** The loader is a classic script of about 2 KB that draws the "?" in its own closed Shadow DOM, only for people holding a personal code. For everyone else it reads nothing and draws nothing. It adds one element and one global, `P99`, and works under a strict Content-Security-Policy: no `'unsafe-inline'`, no `eval`, no frames, nothing from another origin.
+**One tag, every page.** The loader is a classic script of about 2 KB that draws the "+" in its own closed Shadow DOM, only for people holding a personal code. For everyone else it reads nothing and draws nothing. It adds one element and one global, `P99`, and works under a strict Content-Security-Policy: no `'unsafe-inline'`, no `eval`, no frames, nothing from another origin.
 
 ```html
 <script src="/_p99/p99.js" async></script>
 ```
 
-<p align="center"><img src="docs/images/badge-light.png" width="40%" alt="The bottom-right corner of a light page: a blue question mark button and a list button carrying an unread count of 1."> <img src="docs/images/badge-dark.png" width="40%" alt="The same corner on a dark page."></p>
+<p align="center"><img src="docs/images/badge-light.png" width="40%" alt="The bottom-right corner of a light page: a blue plus button and a list button carrying an unread count of 1."> <img src="docs/images/badge-dark.png" width="40%" alt="The same corner on a dark page."></p>
 
 **The panel loads on the first click.** It files bugs, ideas, improvements, questions and tasks, lists what the person sent with what's new for them, and shows each thread with its replies, files, status changes and where its fix has landed. It follows the page's light or dark scheme and takes the site's colours through CSS variables.
 
@@ -49,7 +49,7 @@ Measured on 2026-10-15 for 1.1.0: sizes with `gzip -9`, the loader as a host wit
 
 <p align="center"><img src="docs/images/pitomd.gif" width="800" alt="The Splicer page on pitomd.com: Grace Hopper presses the question mark, picks Idea, types &quot;The download button could say which platform it detected&quot;, marks the Download free button and sends it, and FEAT-4 appears. The clip cuts to p99 tui, where FEAT-4 sits at the top of the inbox on host dev.pitomd.com and opens."></p>
 
-This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on its dev server with a local P99 Worker and sample people. The site added one tag and nothing else; its host config keeps the "?" clear of the site's own back-to-top button.
+This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on its dev server with a local P99 Worker and sample people. The site added one tag and nothing else; its host config keeps the "+" clear of the site's own back-to-top button.
 
 <p align="center"><img src="docs/images/pitomd-corner.png" width="40%" alt="The corner of the Splicer page at the top: the P99 buttons at their usual offset."> <img src="docs/images/pitomd-corner-scrolled.png" width="40%" alt="The same corner after scrolling: the site's back-to-top button has appeared and the P99 buttons sit just above it."></p>
 

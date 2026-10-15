@@ -48,7 +48,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `offset` | `{ x = 16, y = 16 }`, pixels from the corner's two edges |
 | `above` | a CSS selector; while that element is visible the button sits above it |
 | `off` | path patterns (`*` matches one segment, `**` any) where P99 never loads |
-| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }` |
+| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font |
 | `strings` | any of the panel's English words, by key |
 
 ## Environments

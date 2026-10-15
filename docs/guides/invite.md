@@ -7,7 +7,7 @@ sidebar:
 
 ![The codes screen of p99 tui: who can file on which hosts, active and revoked](../images/codes.png)
 
-P99 has no accounts and no sign-up. Each person you invite gets a **personal code**, 12 characters, for one or more hosts of one account. The "?" shows only in a browser that holds a code; everyone else sees nothing.
+P99 has no accounts and no sign-up. Each person you invite gets a **personal code**, 12 characters, for one or more hosts of one account. The "+" shows only in a browser that holds a code; everyone else sees nothing.
 
 ## Mint a code
 
@@ -64,7 +64,7 @@ p99 revoke 3
 revoked code 3 of Grace Hopper <grace@example.com>
 ```
 
-The next request with that code answers 401, and the loader forgets it, so the "?" disappears from that browser. The person's items and comments stay. To give someone a new code, mint one; a code can't be changed or shown again.
+The next request with that code answers 401, and the loader forgets it, so the "+" disappears from that browser. The person's items and comments stay. To give someone a new code, mint one; a code can't be changed or shown again.
 
 ## Next
 

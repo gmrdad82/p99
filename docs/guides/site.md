@@ -30,7 +30,7 @@ One tag in the shared `<head>` of every page:
 <script src="/_p99/p99.js" async></script>
 ```
 
-The loader is under 2 KB gzipped. It draws the "?" only for people holding a personal code and does nothing for anyone else; the panel and the screen capture load only when the "?" is pressed. Shipping the tag before the route exists is harmless: the script fails to load and nothing is drawn.
+The loader is under 2 KB gzipped. It draws the "+" only for people holding a personal code and does nothing for anyone else; the panel and the screen capture load only when the "+" is pressed. Shipping the tag before the route exists is harmless: the script fails to load and nothing is drawn.
 
 ## 3. Place and theme the button
 
@@ -77,4 +77,4 @@ Either way, P99's own signature still guards every request. `p99 setup` and `p99
 
 ## Next
 
-[Invite people](invite.md): the "?" shows only for someone holding a personal code.
+[Invite people](invite.md): the "+" shows only for someone holding a personal code.
