@@ -1,5 +1,5 @@
 title = "HOW FAST THE WIDGET SHOWS"
-unit = "MILLISECONDS, MEDIAN OF 10"
+unit = "MILLISECONDS, MEDIAN OF 5 RUNS OF 10"
 better = "lower"
 subtitle = "HEADLESS CHROMIUM 152 ON LOCALHOST, AMD RYZEN 9 9950X"
 date = "2026-10-15"
@@ -10,12 +10,12 @@ parties = [{ name = "P99 1.1.0" }]
 [[groups]]
 name = "THE BUTTON"
 rows = [
-  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [6.2] },
-  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [2.4] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [23.4] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [9.3] },
+  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [10.6] },
+  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [2.6] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [26.9] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [10.1] },
 ]
 
 [[groups]]
 name = "THE PANEL"
-rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [30.6] }]
+rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [31.1] }]
