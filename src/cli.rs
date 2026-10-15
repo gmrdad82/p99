@@ -389,11 +389,28 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
 
 fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), String> {
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let account = account_of(config, global, host.as_deref())?;
+    if config
+        .accounts
+        .get(&account)
+        .is_some_and(|a| crate::vault::is_reference(&a.key))
+    {
+        eprintln!(
+            "{}: reading the account key from {}",
+            crate::NAME,
+            crate::vault::tool()
+        );
+    }
     let (client, _) = client_for(config, global, host.as_deref())?;
     let json = global.json;
+    let scope = host.clone().unwrap_or_else(|| "every host".to_owned());
     crate::stream::follow(&client, host.as_deref(), |heard| {
         match heard {
-            Heard::Open { .. } => {}
+            Heard::Open { again } => eprintln!(
+                "{}: watching {scope}, {}",
+                crate::NAME,
+                if again { "reconnected" } else { "connected" }
+            ),
             Heard::Event(text) if json => out!("{text}"),
             Heard::Event(text) => {
                 if let Some(line) = event_line(text) {
