@@ -10,7 +10,6 @@ use pito_tui::ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::Paragraph,
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
@@ -115,6 +114,7 @@ pub struct Inbox {
     hosts: Vec<String>,
     host: Option<String>,
     shown: Shown,
+    counts: (usize, usize),
     now: i64,
     picking: Option<Picking>,
     open: Option<Open>,
@@ -136,6 +136,7 @@ impl Inbox {
                 .hint("enter keeps the filter · esc clears it"),
             host: None,
             shown: Shown::Open,
+            counts: (0, 0),
             picking: None,
             open: None,
         }
@@ -193,6 +194,15 @@ impl Inbox {
             Row::new(cells)
         };
         filter.sift(&entries, keeps, line);
+        self.counts = entries
+            .iter()
+            .filter(|e| {
+                host.as_ref()
+                    .is_none_or(|h| e.summary.host.as_ref() == Some(h))
+            })
+            .fold((0, 0), |(all, unread), e| {
+                (all + 1, unread + usize::from(e.summary.unread))
+            });
         self.filter = filter;
         self.entries = Some(entries);
     }
@@ -465,13 +475,11 @@ impl Inbox {
         let height = usize::from(area.height);
         let last = lines.len().saturating_sub(height);
         open.scroll = open.scroll.min(last);
-        let shown: Vec<Line> = lines
-            .iter()
-            .skip(open.scroll)
-            .take(height)
-            .cloned()
-            .collect();
-        frame.render_widget(Paragraph::new(shown), area);
+        for (row, line) in lines.iter().skip(open.scroll).take(height).enumerate() {
+            frame
+                .buffer_mut()
+                .set_line(area.x, area.y + row as u16, line, area.width);
+        }
         if lines.len() > height && area.width > 0 {
             let thumb = (height * height / lines.len()).max(1);
             let top = ((height - thumb) * open.scroll)
@@ -1007,21 +1015,13 @@ impl Screen<Msg> for Inbox {
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
-        let Some(entries) = &self.entries else {
+        if self.entries.is_none() {
             return Vec::new();
-        };
-        let in_scope = entries
-            .iter()
-            .filter(|e| {
-                self.host
-                    .as_ref()
-                    .is_none_or(|h| e.summary.host.as_ref() == Some(h))
-            })
-            .collect::<Vec<_>>();
-        let unread = in_scope.iter().filter(|e| e.summary.unread).count();
+        }
+        let (in_scope, unread) = self.counts;
         let shown = self.filter.shown().len();
         let mut facts = vec![(self.shown.word().to_owned(), self.palette.strong)];
-        facts.push((format!("{shown} of {} items", in_scope.len()), Style::new()));
+        facts.push((format!("{shown} of {in_scope} items"), Style::new()));
         if unread > 0 {
             facts.push((format!("{unread} unread"), self.palette.accent));
         }

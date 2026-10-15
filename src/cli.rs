@@ -11,6 +11,7 @@ use crate::trailers;
 use crate::wire::{
     ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
     Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, STATUSES, Summary, Thread, content_type,
+    out,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -494,7 +495,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             "HOST", "ACCOUNT", "ENV"
         );
         for (host, row) in &rows {
-            println!(
+            out!(
                 "{host:<width$}  {:<account$}  {:<env$}  {}",
                 row.account,
                 row.env,
@@ -659,19 +660,23 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
     }
     let (client, _) = client_for(config, global, hosts.first().map(String::as_str))?;
     let minted = client.mint(&NewCode {
+        client_uid: crate::client::uid(),
         name: args.name.clone(),
         email: args.email.clone(),
         hosts,
         manager: args.manager,
     })?;
+    let Some(secret) = &minted.secret else {
+        return Err("this invite was already minted; revoke it and invite again".into());
+    };
     if global.json {
         return print_json(&minted);
     }
     let role = if args.manager { " (manager)" } else { "" };
-    println!("{} <{}>{role}", minted.code.name, minted.code.email);
-    println!("secret: {}", minted.secret);
+    out!("{} <{}>{role}", minted.code.name, minted.code.email);
+    out!("secret: {secret}");
     for link in &minted.links {
-        println!("link:   {link}");
+        out!("link:   {link}");
     }
     println!("this is the only time the secret is shown");
     Ok(())
@@ -704,7 +709,7 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
     }
     for code in &codes {
         let role = if code.manager { "manager" } else { "member" };
-        println!(
+        out!(
             "{:>4}  {}  {} <{}>  {role}  ...{}  {}  hosts: {}  last used: {}",
             code.id,
             code_state(code),
@@ -727,7 +732,7 @@ fn revoke(config: &Config, global: &Global, args: &RevokeArgs) -> Result<(), Str
     if global.json {
         return print_json(&code);
     }
-    println!("revoked code {} of {} <{}>", code.id, code.name, code.email);
+    out!("revoked code {} of {} <{}>", code.id, code.name, code.email);
     Ok(())
 }
 
@@ -849,7 +854,7 @@ fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String
         println!("no items");
     }
     for item in &found {
-        println!("{}", summary_line(item));
+        out!("{}", summary_line(item));
     }
     if more {
         eprintln!("more items follow; raise --limit");
@@ -859,20 +864,20 @@ fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String
 
 fn print_thread(thread: &Thread) {
     let issue: &Issue = &thread.issue;
-    println!(
+    out!(
         "{}  {}  {}",
         issue.key,
         crate::wire::kind_word(&issue.kind),
         crate::wire::status_word(&issue.status)
     );
-    println!("{}", issue.title);
+    out!("{}", issue.title);
     let reporter = &issue.reporter;
     let text = |field: &str| reporter.get(field).and_then(Value::as_str).unwrap_or("");
     let agent = reporter
         .get("agent")
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    println!(
+    out!(
         "reported by {} on {}  {}{}",
         who(text("email"), text("name"), agent),
         issue.host.as_deref().unwrap_or("-"),
@@ -884,16 +889,16 @@ fn print_thread(thread: &Thread) {
         }
     );
     if !issue.page.url.is_empty() {
-        println!("page: {}", issue.page.url);
+        out!("page: {}", issue.page.url);
     }
     if let Some(assignee) = &issue.assignee {
-        println!("assigned to {assignee}");
+        out!("assigned to {assignee}");
     }
     if let Some(of) = &issue.duplicate_of {
-        println!("duplicate of {of}");
+        out!("duplicate of {of}");
     }
     for reached in &issue.landing.envs {
-        println!(
+        out!(
             "landed in {} ({}) {}  {}{}",
             reached.env,
             reached.kind,
@@ -909,12 +914,12 @@ fn print_thread(thread: &Thread) {
         println!("a fix sits on a branch no environment carries yet");
     }
     if !issue.body.is_empty() {
-        println!("\n{}", issue.body);
+        out!("\n{}", issue.body);
     }
     if !issue.commits.is_empty() {
         println!("\ncommits");
         for commit in &issue.commits {
-            println!(
+            out!(
                 "  {} {} {}  [{}]",
                 commit.sha.chars().take(8).collect::<String>(),
                 commit.rel,
@@ -926,20 +931,20 @@ fn print_thread(thread: &Thread) {
     if !thread.attachments.is_empty() {
         println!("\nattachments");
         for a in &thread.attachments {
-            println!("  {}  {}  {}  {} bytes", a.id, a.role, a.name, a.bytes);
+            out!("  {}  {}  {}  {} bytes", a.id, a.role, a.name, a.bytes);
         }
     }
     for comment in &thread.comments {
         let author = &comment.author;
-        println!(
+        out!(
             "\n{} {}{}",
             when(&comment.created_at),
             who(&author.email, &author.name, author.agent),
             if comment.internal { "  [internal]" } else { "" }
         );
-        println!("{}", comment.body);
+        out!("{}", comment.body);
         for id in &comment.attachments {
-            println!("  attachment {id}");
+            out!("  attachment {id}");
         }
     }
     if !thread.events.is_empty() {
@@ -950,7 +955,7 @@ fn print_thread(thread: &Thread) {
                 Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            println!(
+            out!(
                 "  {}  {}  {}  {}",
                 when(&e.at),
                 e.actor.as_deref().unwrap_or("-"),
@@ -1012,9 +1017,9 @@ fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String>
     if global.json {
         return print_json(&json!({"issue": filed, "attachments": attached}));
     }
-    println!("{} filed on {host}: {}", filed.key, filed.title);
+    out!("{} filed on {host}: {}", filed.key, filed.title);
     for a in &attached {
-        println!("attached {} as {}", a.name, a.id);
+        out!("attached {} as {}", a.name, a.id);
     }
     Ok(())
 }
@@ -1064,7 +1069,7 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     if global.json {
         return print_json(&issue);
     }
-    println!(
+    out!(
         "{} is now {}",
         issue.key,
         crate::wire::status_word(&issue.status).to_lowercase()
@@ -1098,8 +1103,8 @@ fn assign(config: &Config, global: &Global, args: &AssignArgs) -> Result<(), Str
         return print_json(&issue);
     }
     match &issue.assignee {
-        Some(who) => println!("{} is assigned to {who}", issue.key),
-        None => println!("{} is assigned to no one", issue.key),
+        Some(who) => out!("{} is assigned to {who}", issue.key),
+        None => out!("{} is assigned to no one", issue.key),
     }
     Ok(())
 }
@@ -1128,7 +1133,7 @@ fn download(config: &Config, global: &Global, args: &DownloadArgs) -> Result<(),
             "path": target.display().to_string(),
         }));
     }
-    println!("{} bytes saved to {}", file.bytes.len(), target.display());
+    out!("{} bytes saved to {}", file.bytes.len(), target.display());
     Ok(())
 }
 
