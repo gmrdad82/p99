@@ -129,13 +129,13 @@
 .p99-panel::before {
   content: "";
   position: absolute;
-  inset: -40px;
+  inset: -72px;
   z-index: -1;
   background-image: var(--p99-art);
   background-size: 400px 400px;
   pointer-events: none;
   will-change: transform;
-  animation: p99-drift 90s ease-in-out infinite alternate;
+  animation: p99-drift 45s ease-in-out infinite alternate;
 }
 .p99-panel::after {
   content: "";
@@ -558,7 +558,7 @@
 @keyframes p99-bar-in { from { opacity: 0; transform: translate(-50%, var(--p99-rise, 12px)); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes p99-shimmer { from { background-position: -100% 0, 0 0; } to { background-position: 200% 0, 0 0; } }
 @keyframes p99-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
-@keyframes p99-drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-28px, -20px, 0); } }
+@keyframes p99-drift { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-60px, -40px, 0); } }
 
 @media (max-width: 599px) {
   .p99-panel {
