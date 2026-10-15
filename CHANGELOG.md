@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.5.3 — 2026-10-16
+
+### Changed
+
+- The TUI runs on pito-tui 1.0.2, with pito-header, pito-footer and pito-hourglass 1.0.1 and pito-list 1.0.1 under it.
+
 ## v1.5.2 — 2026-10-16
 
 ### Fixed
