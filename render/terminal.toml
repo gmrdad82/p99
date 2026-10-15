@@ -77,3 +77,11 @@ line = "The item the web widget just filed, at the top of the inbox with its hos
 tape = "render/terminal/arrives.tape"
 launch = "P99_CONFIG={tmp}/web/home/.config/p99/config.toml p99 tui"
 settle = "1200ms"
+
+[shots.invite-totp]
+kind = "still"
+grid = [104, 12]
+line = "p99 invite --totp: the link, and apart from it the authenticator setup as an otpauth link and a setup key; needs render/web/serve.mjs running and seeded"
+tape = "render/terminal/invite-totp.tape"
+launch = "export P99_CONFIG={tmp}/web/home/.config/p99/config.toml && clear"
+settle = "300ms"

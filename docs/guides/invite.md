@@ -66,6 +66,24 @@ revoked code 3 of Grace Hopper <grace@example.com>
 
 The next request with that code answers 401, and the loader forgets it, so the "+" disappears from that browser. The person's items and comments stay. To give someone a new code, mint one; a code can't be changed or shown again.
 
+## Add an authenticator
+
+A code can ask for a 6-digit code from an authenticator app the first time each browser uses it. Mint it that way with `--totp`, or add an authenticator to a code someone already holds, keeping their link:
+
+```sh
+p99 invite example.com --name "Grace Hopper" --email grace@example.com --totp
+p99 invites totp 3
+```
+
+```text
+totp:   otpauth://totp/P99:grace%40example.com?secret=JZSYQOK4JSQHGPHGPEF3T2UT7Y2P42PV&issuer=P99
+key:    JZSY QOK4 JSQH GPHG PEF3 T2UT 7Y2P 42PV   (for apps that only take a setup key)
+```
+
+Both lines carry the same secret, shown this once. In 1Password, add a One-Time Password field to an item and paste the `otpauth://` line; Bitwarden and Apple Passwords take it the same way. Google Authenticator and Authy take the key under "enter a setup key". Send it apart from the link, so one forwarded message never carries both.
+
+The first time a browser opens the panel with that code, it asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
+
 ## Next
 
 [Work the inbox](inbox.md): read and answer what people file.

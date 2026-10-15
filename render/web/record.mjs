@@ -1,4 +1,4 @@
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cpus } from "node:os";
@@ -370,6 +370,59 @@ async function stills(thread) {
   await browser.close();
 }
 
+function totpNow(key) {
+  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0;
+  let value = 0;
+  const bytes = [];
+  for (const ch of key.replace(/\s/g, "")) {
+    value = (value << 5) | abc.indexOf(ch);
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
+  const mac = createHmac("sha1", Buffer.from(bytes)).update(counter).digest();
+  const at = mac[mac.length - 1] & 15;
+  return String((mac.readUInt32BE(at) & 0x7fffffff) % 1000000).padStart(6, "0");
+}
+
+async function totp() {
+  const browser = await launch();
+  for (const scheme of ["light", "dark"]) {
+    const minted = await api("POST", "/codes", { client_uid: randomUUID(), name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false, totp: true }, ADA);
+    const ctx = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: scheme });
+    await ctx.addInitScript(openShadow);
+    const p = await ctx.newPage();
+    await p.goto(`${PAGE}#p99=${minted.secret}`);
+    await p.waitForFunction(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button.f"));
+    const b = await inside(p, ".w button.f");
+    await p.mouse.click(b.x + b.w / 2, b.y + b.h / 2);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-verify"));
+    await p.waitForTimeout(600);
+    await shot(p, `verify-${scheme}.png`);
+    await p.evaluate((code) => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      r.querySelector(".p99-verify input").value = code;
+      r.querySelector(".p99-verify").requestSubmit();
+    }, totpNow(minted.totp_key));
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new"), null, { timeout: 15000 });
+    const stored = await p.evaluate(() => localStorage.getItem("p99:code"));
+    if (!/^\w{12}\.[0-9a-f]{32}$/.test(stored)) throw new Error("record: the browser kept no device after the code");
+    await p.goto(PAGE);
+    await p.waitForFunction(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button.f"));
+    const again = await inside(p, ".w button.f");
+    await p.mouse.click(again.x + again.w / 2, again.y + again.h / 2);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new"), null, { timeout: 15000 });
+    console.log(`record: ${scheme}: the code was asked once, then the browser went straight to the form`);
+    await ctx.close();
+  }
+  await browser.close();
+}
+
 function timingScript() {
   const t = (window.__p99t = {});
   const q = Document.prototype.querySelector;
@@ -448,3 +501,4 @@ const { thread } = JSON.parse(readFileSync(seeded, "utf8"));
 if (step === "clip" || step === "all") await clip();
 if (step === "stills" || step === "all") await stills(thread);
 if (step === "measure" || step === "all") await measure();
+if (step === "totp" || step === "all") await totp();

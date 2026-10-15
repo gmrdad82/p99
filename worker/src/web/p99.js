@@ -3,7 +3,7 @@ let d=document,L=location,K="p99:code",A=addEventListener,h=__P99_HOST__,c,E,S,B
 O=()=>d.querySelector("meta[name=p99][content=off]")||h.f?.some(H),
 H=p=>RegExp("^"+p.replace(/[\\^$.?+(){}|[\]]/g,"\\$&").replace(/\*\*?/g,m=>m[1]?".*":"[^/]*")+"/?$").test(L.pathname),
 J=()=>/^#p99=([\w-]+)$/.exec(L.hash)?.[1],V=x=>/^\w{12}$/.test(x),
-T=x=>{try{x?localStorage[K]=x:x=localStorage[K]}catch{}return x};
+T=x=>{try{x&&!localStorage[K]?.startsWith(x)?localStorage[K]=x:x=localStorage[K]}catch{}return x};
 let x=J(),Z=()=>{let x=J();x&&(V(x)?L.reload():G("item",x))},
 G=(v,k)=>c&&E&&D().then(m=>m.open({root:S,code:c,me:M,view:v,key:k,ring:R,forget:F,refresh:Y}),n);
 c=T(V(x)&&(history.replaceState(history.state,"",L.pathname+L.search),x));

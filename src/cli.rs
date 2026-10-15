@@ -142,12 +142,30 @@ pub struct InviteArgs {
     pub email: String,
     #[arg(long, help = "let the person see and change every item")]
     pub manager: bool,
+    #[arg(
+        long,
+        help = "also ask for a 6-digit code from an authenticator app the first time each browser uses the link"
+    )]
+    pub totp: bool,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct InvitesArgs {
     #[arg(long, help = "only the codes for this host")]
     pub host: Option<String>,
+    #[command(subcommand)]
+    pub action: Option<InvitesAction>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum InvitesAction {
+    #[command(
+        about = "add an authenticator to a code, or replace it; the person's link stays, every browser asks for a 6-digit code again"
+    )]
+    Totp {
+        #[arg(help = "the code's id, from p99 invites")]
+        id: i64,
+    },
 }
 
 #[derive(Debug, clap::Args)]
@@ -665,6 +683,7 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         email: args.email.clone(),
         hosts,
         manager: args.manager,
+        totp: args.totp,
     })?;
     let Some(secret) = &minted.secret else {
         return Err("this invite was already minted; revoke it and invite again".into());
@@ -678,7 +697,53 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
     for link in &minted.links {
         out!("link:   {link}");
     }
+    if let Some(key) = &minted.totp_key {
+        print_totp(&minted.code, key);
+    }
     println!("this is the only time the secret is shown");
+    Ok(())
+}
+
+fn otpauth(email: &str, key: &str) -> String {
+    format!(
+        "otpauth://totp/P99:{}?secret={key}&issuer=P99",
+        crate::client::encode(email)
+    )
+}
+
+fn grouped(key: &str) -> String {
+    key.as_bytes()
+        .chunks(4)
+        .map(|c| String::from_utf8_lossy(c).into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn print_totp(code: &Code, key: &str) {
+    out!("totp:   {}", otpauth(&code.email, key));
+    out!(
+        "key:    {}   (for apps that only take a setup key)",
+        grouped(key)
+    );
+    println!("send the totp line apart from the link; each browser asks for its 6-digit code once");
+}
+
+fn totp(config: &Config, global: &Global, id: i64) -> Result<(), String> {
+    let (client, _) = client_for(config, global, None)?;
+    let set = client.totp(id)?;
+    if global.json {
+        let mut value = serde_json::to_value(&set).map_err(|e| e.to_string())?;
+        value["otpauth"] = json!(otpauth(&set.code.email, &set.totp_key));
+        return print_json(&value);
+    }
+    out!(
+        "code {} of {} <{}> now asks for an authenticator code",
+        set.code.id,
+        set.code.name,
+        set.code.email
+    );
+    print_totp(&set.code, &set.totp_key);
+    println!("this is the only time the key is shown");
     Ok(())
 }
 
@@ -691,6 +756,9 @@ fn code_state(code: &Code) -> &'static str {
 }
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
+    if let Some(InvitesAction::Totp { id }) = &args.action {
+        return totp(config, global, *id);
+    }
     let codes = match demo(global) {
         Some(d) => d
             .codes()
@@ -709,6 +777,11 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
     }
     for code in &codes {
         let role = if code.manager { "manager" } else { "member" };
+        let role = if code.totp {
+            format!("{role}, totp")
+        } else {
+            role.to_owned()
+        };
         out!(
             "{:>4}  {}  {} <{}>  {role}  ...{}  {}  hosts: {}  last used: {}",
             code.id,

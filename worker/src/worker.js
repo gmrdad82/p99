@@ -19,6 +19,7 @@ const ERROR_CODES = {
   404: "not_found",
   409: "conflict",
   413: "too_large",
+  428: "totp_required",
   429: "rate_limited",
   500: "internal",
 };
@@ -53,6 +54,9 @@ const CODE_TTL_MS = 10 * 1000;
 const STATIC_CACHE_MAX = 256;
 const CODE_CACHE_MAX = 2000;
 const CODE_TOUCH_MS = 60 * 60 * 1000;
+const TOTP_STEP_SECONDS = 30;
+const TOTP_MAX_FAILS = 10;
+const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const DIRECTORY_TTL_MS = 30 * 1000;
 const MANAGERS_TOKEN = Symbol("managers");
 
@@ -196,6 +200,69 @@ async function codeHash(env, secret) {
 }
 
 const encoder = new TextEncoder();
+
+let totpKey = null;
+
+async function totpCipher(env) {
+  await codeHash(env, "");
+  if (!totpKey || totpKey.pepper !== env.CODE_PEPPER) {
+    const base = await crypto.subtle.importKey("raw", encoder.encode(env.CODE_PEPPER), "HKDF", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      { name: "HKDF", hash: "SHA-256", salt: encoder.encode("p99 totp"), info: new Uint8Array(0) },
+      base,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"],
+    );
+    totpKey = { pepper: env.CODE_PEPPER, key };
+  }
+  return totpKey.key;
+}
+
+async function sealTotp(env, bytes) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const sealed = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, await totpCipher(env), bytes);
+  return hex(iv) + "." + hex(sealed);
+}
+
+async function openTotp(env, text) {
+  const [iv, sealed] = text.split(".");
+  return new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: hexBytes(iv) }, await totpCipher(env), hexBytes(sealed)));
+}
+
+function base32(bytes) {
+  let out = "";
+  let bits = 0;
+  let value = 0;
+  for (const b of bytes) {
+    value = (value << 8) | b;
+    bits += 8;
+    while (bits >= 5) {
+      out += BASE32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += BASE32[(value << (5 - bits)) & 31];
+  return out;
+}
+
+async function totpAt(key, step) {
+  const counter = new Uint8Array(8);
+  let n = step;
+  for (let i = 7; i >= 0; i--) {
+    counter[i] = n & 255;
+    n = Math.floor(n / 256);
+  }
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, counter));
+  const at = mac[mac.length - 1] & 15;
+  const binary = ((mac[at] & 127) << 24) | (mac[at + 1] << 16) | (mac[at + 2] << 8) | mac[at + 3];
+  return String(binary % 1000000).padStart(6, "0");
+}
+
+async function newTotp(env) {
+  const secret = crypto.getRandomValues(new Uint8Array(20));
+  return { sealed: await sealTotp(env, secret), key: base32(secret) };
+}
 
 function base64UrlBytes(text) {
   const padded = text.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((text.length + 3) % 4);
@@ -403,11 +470,27 @@ async function findCode(env, request, hash) {
   return entry;
 }
 
+const deviceCache = new Map();
+
+async function trustedDevice(env, code, device) {
+  if (!device || !/^[0-9a-f]{32}$/.test(device)) return false;
+  const hash = await codeHash(env, "device:" + device);
+  const hit = deviceCache.get(hash);
+  if (hit && Date.now() - hit.at < CODE_TTL_MS) return hit.code === code.id;
+  const row = await env.DB.prepare("SELECT code_id FROM code_devices WHERE token_hash = ?1").bind(hash).first();
+  deviceCache.delete(hash);
+  if (deviceCache.size >= CODE_CACHE_MAX) deviceCache.delete(deviceCache.keys().next().value);
+  deviceCache.set(hash, { at: Date.now(), code: row ? row.code_id : null });
+  return Boolean(row) && row.code_id === code.id;
+}
+
 async function authoriseCode(env, ctx, request, header, host, now) {
-  const secret = normaliseCode(header);
+  const [part, device] = typeof header === "string" ? header.split(".", 2) : [];
+  const secret = normaliseCode(part);
   if (!secret) fail(401, "a valid X-P99-Code is required");
   const code = await findCode(env, request, await codeHash(env, secret));
   if (!code || code.revoked_at || !code.hosts.includes(host)) fail(401, "this code is not valid here");
+  code.trusted = !code.totp_secret || (await trustedDevice(env, code, device));
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
     if (!outcome.success) fail(429, "too many requests with this code; try again in a minute");
@@ -755,6 +838,7 @@ function codeOf(row) {
     created_by: row.created_by,
     revoked_at: row.revoked_at,
     last_used_at: row.last_used_at,
+    totp: Boolean(row.totp_secret),
   };
 }
 
@@ -2006,16 +2090,19 @@ async function postCode(c) {
   for (const host of hosts) if (!c.dir.hosts.has(host)) fail(400, `${host} is not a listed host`);
   const manager = body.manager ?? false;
   if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
+  const wantsTotp = body.totp ?? false;
+  if (typeof wantsTotp !== "boolean") fail(400, "totp must be a boolean");
+  const totp = wantsTotp ? await newTotp(c.env) : null;
   const secret = newSecret();
   const hash = await codeHash(c.env, secret);
   let row;
   try {
     row = await DB.prepare(
-      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
        RETURNING *`,
     )
-      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid)
+      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid, totp && totp.sealed)
       .first();
   } catch (error) {
     if (uid === null || !isUniqueViolation(error)) throw error;
@@ -2028,7 +2115,57 @@ async function postCode(c) {
     code: codeOf(row),
     secret,
     links: hosts.map((host) => `https://${host}/#p99=${secret}`),
+    ...(totp ? { totp_key: totp.key } : {}),
   });
+}
+
+async function postCodeTotp(c, rawId) {
+  requireEmptyBody(c);
+  const totp = await newTotp(c.env);
+  const { DB } = c.env;
+  const [updated] = await DB.batch([
+    DB.prepare("UPDATE codes SET totp_secret = ?2, totp_step = 0, totp_fails = 0 WHERE id = ?1 AND revoked_at IS NULL RETURNING *").bind(
+      Number(rawId),
+      totp.sealed,
+    ),
+    DB.prepare("DELETE FROM code_devices WHERE code_id = ?1").bind(Number(rawId)),
+  ]);
+  const row = updated.results[0];
+  codeCache.clear();
+  deviceCache.clear();
+  if (!row) fail(404, "no such code, or it is revoked");
+  return json(200, { code: codeOf(row), totp_key: totp.key });
+}
+
+async function postVerify(c) {
+  const body = await readJson(c, MAX_JSON_BYTES);
+  const typed = typeof body.totp === "string" ? body.totp.replace(/\s/g, "") : "";
+  if (!/^\d{6}$/.test(typed)) fail(400, "the code is 6 digits");
+  const { DB } = c.env;
+  const row = await DB.prepare("SELECT totp_secret, totp_step, totp_fails FROM codes WHERE id = ?1").bind(c.code.id).first();
+  if (!row || !row.totp_secret) fail(400, "this code has no authenticator to check");
+  if (row.totp_fails >= TOTP_MAX_FAILS) fail(403, "too many wrong codes; ask for your authenticator to be set up again");
+  const key = await crypto.subtle.importKey("raw", await openTotp(c.env, row.totp_secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const now = Math.floor(Date.parse(c.now) / 1000 / TOTP_STEP_SECONDS);
+  let matched = null;
+  for (const step of [now - 1, now, now + 1]) {
+    if (step > row.totp_step && (await totpAt(key, step)) === typed) matched = step;
+  }
+  if (matched === null) {
+    await DB.prepare("UPDATE codes SET totp_fails = totp_fails + 1 WHERE id = ?1").bind(c.code.id).run();
+    const left = TOTP_MAX_FAILS - row.totp_fails - 1;
+    if (left <= 0) fail(403, "too many wrong codes; ask for your authenticator to be set up again");
+    fail(400, "that code doesn't match; check your device's clock and try the next one");
+  }
+  const device = hex(crypto.getRandomValues(new Uint8Array(16)));
+  const [claimed] = await DB.batch([
+    DB.prepare("UPDATE codes SET totp_step = ?2, totp_fails = 0 WHERE id = ?1 AND totp_step < ?2").bind(c.code.id, matched),
+    DB.prepare(
+      "INSERT INTO code_devices (code_id, token_hash, created_at) SELECT ?1, ?2, ?3 WHERE changes() > 0",
+    ).bind(c.code.id, await codeHash(c.env, "device:" + device), c.now),
+  ]);
+  if (!claimed.meta || claimed.meta.changes !== 1) fail(400, "that code was just used; wait for the next one");
+  return json(201, { device });
 }
 
 async function revokeCode(c, rawId) {
@@ -2687,7 +2824,7 @@ const ITEM_ROUTES = [
   ["GET", /^\/files\/(\d{1,15})$/, getFile],
 ];
 
-const BROWSER_ROUTES = [["GET", /^\/me$/, getMe], ...ITEM_ROUTES];
+const BROWSER_ROUTES = [["GET", /^\/me$/, getMe], ["POST", /^\/verify$/, postVerify], ...ITEM_ROUTES];
 
 const SIGNED_ROUTES = [
   ["POST", /^\/builds$/, postBuilds, { actor: false }],
@@ -2701,6 +2838,7 @@ const SIGNED_ROUTES = [
   ["GET", /^\/codes$/, listCodes, {}],
   ["POST", /^\/codes$/, postCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
+  ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
   ["POST", /^\/import$/, postImport, {}],
   ["POST", /^\/import\/finish$/, finishImport, {}],
@@ -2730,6 +2868,7 @@ async function browserRequest(request, env, ctx, url, path) {
   const code = await authoriseCode(env, ctx, request, request.headers.get("x-p99-code"), hostRow.host, now);
   const found = findRoute(BROWSER_ROUTES, request.method, path);
   if (!found) fail(404, "no such route");
+  if (!code.trusted && found.route[2] !== postVerify) fail(428, "enter the 6-digit code from your authenticator app");
   const declaredHash = request.headers.get("x-content-sha256");
   const c = {
     request,
@@ -2740,6 +2879,7 @@ async function browserRequest(request, env, ctx, url, path) {
     browser: true,
     signed: false,
     bodyHash: declaredHash && /^[0-9a-f]{64}$/.test(declaredHash) ? declaredHash : null,
+    code,
     actor: { email: code.email.toLowerCase(), name: code.name, agent: false },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
     scope: { all: false, host: hostRow.host },

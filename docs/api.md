@@ -18,17 +18,20 @@ Static files are answered from text modules bundled into the Worker (`worker/src
 
 ## Errors
 
-Every error is `{"error":"<code>","message":"<English>"}` with 400 `invalid`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `too_large`, 429 `rate_limited`, 500 `internal`. A `client_uid` seen before answers the original object with 200, never a duplicate. The message is written for the person who reads it: the panel and the CLI show it as it is.
+Every error is `{"error":"<code>","message":"<English>"}` with 400 `invalid`, 401 `unauthorized`, 403 `forbidden`, 404 `not_found`, 409 `conflict`, 413 `too_large`, 428 `totp_required`, 429 `rate_limited`, 500 `internal`. A `client_uid` seen before answers the original object with 200, never a duplicate. The message is written for the person who reads it: the panel and the CLI show it as it is.
 
 ## The browser API
 
 Every request carries `X-P99-Code: <code>`. A code is 12 characters of Crockford base32 (`0123456789abcdefghjkmnpqrstvwxyz`); the Worker lowercases it, reads `i` and `l` as `1` and `o` as `0`, drops `-` and spaces, and looks up its keyed hash, HMAC-SHA256 under the Worker secret `CODE_PEPPER`, so the `codes` table alone gives no code away (`p99 setup` makes that secret once and `p99 deploy` keeps it). A missing, unknown or revoked code, or one not scoped to the request's host, answers 401, and the loader then forgets it; a revocation takes effect everywhere within ten seconds. Each code is limited to 120 requests a minute (the `RATE` rate-limiting binding, when the Worker has one) and to the daily limits below. Since the code travels in a header and never in a cookie, there is no CSRF surface.
+
+A code with an authenticator (`totp`) answers 428 `totp_required` to every route but `POST /_p99/api/verify` until the browser holds a device token for it, and the header then carries both, `X-P99-Code: <code>.<device>`. The TOTP is RFC 6238 with SHA-1, 6 digits and 30-second steps; the Worker keeps its secret encrypted with AES-GCM under a key derived from `CODE_PEPPER`, accepts one step either side of now, never a step at or before the last one used, and after 10 wrong codes answers 403 until `p99 invites totp <id>` sets a new secret. Device tokens are 128 random bits, kept as keyed hashes in `code_devices`.
 
 The actor of a browser request is the code's person: `{email, name, manager}`. A manager is a code minted with `manager`, or an e-mail in the Worker's `MANAGERS` secret (comma separated).
 
 | Route | Who | Does |
 | --- | --- | --- |
 | `GET /_p99/api/me?path=` | any code | `{"name","email","manager","host","env","version","counts":{"page_open","mine_open","mine_unread","all_open"},"theme":{},"strings":{}}`; `all_open` is null for non-managers; `theme` and `strings` are the host's config |
+| `POST /_p99/api/verify` | a code with an authenticator | `{"totp":"<6 digits>"}`; 201 `{"device":"<32 hex>"}`; the panel stores `<code>.<device>` where the loader keeps the code |
 | `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any\|<status>&kind=&q=&cursor=&limit=` | any code; `all` managers only | `{"issues":[summary],"next_cursor"}`, newest first, this host's items only, `limit` at most 100 (default 50) |
 | `POST /_p99/api/issues` | any code (`task` managers only) | `{"client_uid","kind","title","body","page","context","marks"}`; 201 issue |
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
@@ -67,7 +70,8 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `GET /_p99/v1/envs` | managers | `{"envs":[{"name","kind","position","notify"}]}` |
 | `PUT /_p99/v1/envs/{name}` | the key | `{"kind":"development"\|"release","position","notify"}`; 200 env |
 | `GET /_p99/v1/codes?host=` | the key | `{"codes":[code]}`, newest first |
-| `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager","client_uid"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/#p99=<secret>"]}`; the secret is shown this once, and the same `client_uid` again answers 200 `{"code":code}` without it |
+| `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager","client_uid","totp"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/#p99=<secret>"]}`, plus `"totp_key":"<base32>"` when `totp` is true; the secret and the key are shown this once, and the same `client_uid` again answers 200 `{"code":code}` without them |
+| `POST /_p99/v1/codes/{id}/totp` | the key | 200 `{"code":code,"totp_key":"<base32>"}`: adds an authenticator to the code, or replaces it; every browser of that code asks for a 6-digit code again |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
@@ -102,7 +106,7 @@ The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the b
 
 ## Schema
 
-`worker/migrations/0001_p99.sql` is the schema. Migrations are recorded in `d1_migrations` (`id`, `name`, `applied_at`), the table wrangler keeps, so a database migrated by either stays in step.
+`worker/migrations/` holds the schema: `0001_p99.sql`, then each change in its own numbered file. Migrations are recorded in `d1_migrations` (`id`, `name`, `applied_at`), the table wrangler keeps, so a database migrated by either stays in step.
 
 ## Host config
 

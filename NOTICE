@@ -18,7 +18,9 @@ the same names; architecture.png is rendered from render/architecture.svg.
 flow.gif joins render/web/record.mjs's frame-exact recording of the web panel
 on the sample shop in render/web/site/ with prec's arrives shot, made a GIF by
 pconv; panel-light.png, panel-dark.png, badge-light.png, badge-dark.png and
-capture.png are that script's stills of the same shop, all on sample data.
+capture.png are that script's stills of the same shop, all on sample data;
+verify-light.png and verify-dark.png are its stills of the authenticator prompt,
+and invite-totp.png is a prec still of the shot of the same name, on a local Worker.
 pitomd.gif, pitomd-corner.png, pitomd-corner-scrolled.png, pitomd-panel-light.png
 and pitomd-panel-dark.png are render/web/pitomd.mjs's frame-exact recording and
 stills of P99 on the Splicer page of PITO MD's own site, pitomd.com, served by

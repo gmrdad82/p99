@@ -88,6 +88,12 @@ Each Cloudflare account holds one Worker, one D1 database and one R2 bucket, and
 
 Invites are personal codes rather than accounts. `p99 invite example.com --name "Ada Lovelace" --email ada@example.com` mints a 12-character code and a link, `https://example.com/#p99=<code>`. The code travels in the link's fragment, which browsers never send to a server, so it stays out of every log. Codes are revocable and rate-limited. Code holders see their own items; managers see everything.
 
+**A second factor, when you want one.** `p99 invite … --totp` adds an authenticator to the code, and `p99 invites totp <id>` adds one to a code someone already holds, keeping their link. P99 prints the setup once, as an `otpauth://` link that 1Password, Bitwarden or Apple Passwords take as a pasted one-time-password field, and as a setup key for Google Authenticator or Authy. Send it apart from the link. The first time a browser uses the code, the panel asks for the 6-digit code; after that the browser is remembered, and a forwarded link alone opens nothing anywhere else. The Worker keeps the secret encrypted, refuses a code already used, and locks the authenticator after 10 wrong tries. Nothing changes on the site: the prompt lives in the panel.
+
+<p align="center"><img src="docs/images/invite-totp.png" width="80%" alt="A terminal running p99 invite shop.example.com --name 'Grace Hopper' --email grace@example.com --totp on a local Worker: it prints the code, the link, an otpauth:// line and the same setup key in groups of four, a note to send the TOTP line apart from the link, and that the secret is shown only this once."></p>
+
+<p align="center"><img src="docs/images/verify-light.png" width="49%" alt="A sample shop's checkout page with the P99 panel open on Confirm it's you: a short note to enter the 6-digit code the authenticator app shows for P99, a Code field, and Cancel and Confirm buttons."> <img src="docs/images/verify-dark.png" width="49%" alt="The same prompt on the dark page."></p>
+
 ## Install and first use
 
 Each [release](https://github.com/gmrdad82/p99/releases/latest) carries a Linux (x86_64) and a macOS (Apple Silicon) binary with a `SHA256SUMS` file. On macOS the binary is built and its tests pass on GitHub's runner.

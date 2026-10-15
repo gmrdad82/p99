@@ -233,6 +233,10 @@ impl Client {
         self.json("POST", &format!("/v1/codes/{id}/revoke"), None)
     }
 
+    pub fn totp(&self, id: i64) -> Result<crate::wire::TotpKey, String> {
+        self.json("POST", &format!("/v1/codes/{id}/totp"), None)
+    }
+
     pub fn announce(&self, build: &Build) -> Result<(), String> {
         let body = serde_json::to_vec(build).map_err(|e| e.to_string())?;
         self.send("POST", "/v1/builds", false, false, &body, TIMEOUT)
@@ -529,7 +533,7 @@ fn field<T: DeserializeOwned>(mut value: Value, name: &str) -> Result<Vec<T>, St
     serde_json::from_value(list).map_err(|e| format!("unexpected answer: {e}"))
 }
 
-fn encode(value: &str) -> String {
+pub fn encode(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {

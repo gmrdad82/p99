@@ -494,6 +494,8 @@ pub struct Code {
     pub revoked_at: Option<String>,
     #[serde(default)]
     pub last_used_at: Option<String>,
+    #[serde(default)]
+    pub totp: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -504,6 +506,8 @@ pub struct NewCode {
     pub hosts: Vec<String>,
     #[serde(default)]
     pub manager: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub totp: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -513,6 +517,14 @@ pub struct Minted {
     pub secret: Option<String>,
     #[serde(default)]
     pub links: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totp_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TotpKey {
+    pub code: Code,
+    pub totp_key: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

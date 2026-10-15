@@ -413,6 +413,46 @@ async function run() {
     assert.equal(served.length === 0, source.length === 0);
   });
 
+  await check("a code with an authenticator opens nothing until a 6-digit code trusts the browser, and a used code is refused", async () => {
+    const minted = await mint("Ada Lovelace", "ada@example.com", ["127.0.0.1", "localhost"]);
+    const set = await call("POST", `/_p99/v1/codes/${minted.code.id}/totp`);
+    assert.equal(set.status, 200, JSON.stringify(set.json));
+    assert.equal(set.json.code.totp, true);
+    const blocked = await browse("GET", "/me", minted.secret);
+    assert.equal(blocked.status, 428);
+    assert.equal(blocked.json.error, "totp_required");
+    const totp = (offset) => {
+      const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+      let bits = 0;
+      let value = 0;
+      const bytes = [];
+      for (const ch of set.json.totp_key) {
+        value = (value << 5) | abc.indexOf(ch);
+        bits += 5;
+        if (bits >= 8) {
+          bytes.push((value >>> (bits - 8)) & 255);
+          bits -= 8;
+        }
+      }
+      const counter = Buffer.alloc(8);
+      counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+      const mac = createHmac("sha1", Buffer.from(bytes)).update(counter).digest();
+      return String((mac.readUInt32BE(mac[19] & 15) & 0x7fffffff) % 1000000).padStart(6, "0");
+    };
+    const wrong = await browse("POST", "/verify", minted.secret, { totp: totp(5) });
+    assert.equal(wrong.status, 400);
+    const right = totp(0);
+    const verified = await browse("POST", "/verify", minted.secret, { totp: right });
+    assert.equal(verified.status, 201, JSON.stringify(verified.json));
+    assert.match(verified.json.device, /^[0-9a-f]{32}$/);
+    const replay = await browse("POST", "/verify", minted.secret, { totp: right });
+    assert.equal(replay.status, 400);
+    const trusted = await browse("GET", "/me", `${minted.secret}.${verified.json.device}`);
+    assert.equal(trusted.status, 200, JSON.stringify(trusted.json));
+    const stranger = await browse("GET", "/me", `${minted.secret}.${"0".repeat(32)}`);
+    assert.equal(stranger.status, 428);
+  });
+
   await check("capture.js is an ES module whose default export is the capture library", async () => {
     const response = await fetch(`${base}/_p99/capture.js?v=dev`);
     assert.equal(response.status, 200);

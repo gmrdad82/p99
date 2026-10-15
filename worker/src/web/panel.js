@@ -24,6 +24,10 @@ const WORDS = {
   brand: "Feedback",
   close: "Close",
   loading: "Loading…",
+  verify_title: "Confirm it's you",
+  verify_help: "Enter the 6-digit code your authenticator app shows for P99. This browser is remembered after that.",
+  verify_label: "Code",
+  verify_send: "Confirm",
   failed: "Couldn't send; try again.",
   offline: "You're offline; try again when you're back.",
   retry: "Retry",
@@ -148,9 +152,13 @@ export function open(opts) {
   if (opts.view === "list" && S.open && S.view === "list") return close();
   return ready.then(() => {
     show();
-    if (opts.view === "item" && opts.key) item(opts.key);
-    else if (opts.view === "list") list(S.list || defaultList());
-    else fileFlow();
+    const go = () => {
+      if (opts.view === "item" && opts.key) item(opts.key);
+      else if (opts.view === "list") list(S.list || defaultList());
+      else fileFlow();
+    };
+    if (S.verify) verify(go);
+    else go();
   }).catch(() => {});
 }
 
@@ -239,6 +247,10 @@ function call(method, path, body, type) {
         close();
         o.forget();
       }
+      if (r.status === 428 && !S.verify) {
+        S.verify = true;
+        if (scroller) verify(fileFlow);
+      }
       if (!r.ok) {
         const e = new Error((data && data.message) || say("failed"));
         e.status = r.status;
@@ -309,6 +321,7 @@ function ensure() {
     const base = new CSSStyleSheet();
     base.replaceSync(text);
     const tint = new CSSStyleSheet();
+    S.tint = tint;
     try { tint.replaceSync(theme(me && me.theme)); } catch (x) {}
     chrome();
     root.adoptedStyleSheets = root.adoptedStyleSheets.concat([base, tint]);
@@ -432,7 +445,42 @@ function skeleton() {
   for (let i = 0; i < 5; i++) box.append(h("div", { class: "p99-shimmer" }));
   return box;
 }
+function verify(next) {
+  const input = h("input", { name: "totp", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", required: true, "aria-describedby": "p99-verify-help" });
+  const note = h("p", { class: "p99-error", role: "alert", hidden: true });
+  const send = h("button", { type: "submit", text: say("verify_send") });
+  const form = h("form", { class: "p99-view p99-verify", "data-view": "verify", novalidate: true },
+    h("h2", { id: "p99-title", text: say("verify_title") }),
+    h("p", { id: "p99-verify-help", class: "p99-note", text: say("verify_help") }),
+    h("label", { class: "p99-field" }, h("span", { text: say("verify_label") }), input),
+    note,
+    h("div", { class: "p99-actions" }, h("button", { type: "button", text: say("cancel"), onclick: () => close() }), send));
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    send.disabled = true;
+    note.hidden = true;
+    call("POST", "/verify", JSON.stringify({ totp: input.value }))
+      .then((d) => {
+        o.code = o.code.split(".")[0] + "." + d.device;
+        try { localStorage.setItem("p99:code", o.code); } catch (x) {}
+        S.verify = false;
+        return call("GET", "/me?path=" + enc(location.pathname)).then((m) => {
+          me = m;
+          try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
+        }, () => {});
+      })
+      .then(() => { if (!S.verify) next(); })
+      .catch((err) => {
+        note.textContent = problem(err);
+        note.hidden = false;
+        send.disabled = false;
+        input.select();
+      });
+  });
+  mount(form, input);
+}
 function mount(view, focus) {
+  if (S.verify && !view.classList.contains("p99-verify")) return;
   clear(scroller);
   scroller.append(view);
   scroller.scrollTop = 0;
