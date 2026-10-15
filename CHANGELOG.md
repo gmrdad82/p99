@@ -2,6 +2,23 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.1.0 — 2026-10-15
+
+### Changed
+
+- The Worker opens an item, files one and posts a comment with fewer database round trips: opening an item is one batch, filing one saves a trip.
+- The loader stays within its 2 KB budget as browsers receive it: 2,030 bytes gzipped for a site with default placement.
+- The "?" follows an `above` element at most once per animation frame while the page scrolls.
+- `p99 invite` can be retried safely: the same invite never mints a second code. `p99 deploy` adds the column this needs to the codes table.
+
+### Fixed
+
+- Escape and bidi control characters in titles, comments and names are stripped when the Worker stores them and again before the CLI prints them, so a reporter's text can't drive a manager's terminal.
+- Fields marked `data-p99-redact` are blanked in captures inside web components and same-origin frames too.
+- An item's page link always points at its own site.
+- Off-page patterns with regex characters such as `(` or `|` match exactly as written, and a host config whose patterns can't be matched is refused.
+- Secrets in the CLI's config and setup no longer show through debug output.
+
 ## v1.0.6 — 2026-10-14
 
 ### Fixed
