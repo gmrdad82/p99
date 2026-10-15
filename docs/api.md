@@ -67,7 +67,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `GET /_p99/v1/envs` | managers | `{"envs":[{"name","kind","position","notify"}]}` |
 | `PUT /_p99/v1/envs/{name}` | the key | `{"kind":"development"\|"release","position","notify"}`; 200 env |
 | `GET /_p99/v1/codes?host=` | the key | `{"codes":[code]}`, newest first |
-| `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/#p99=<secret>"]}`; the secret is shown this once |
+| `POST /_p99/v1/codes` | the key | `{"name","email","hosts":["…"],"manager","client_uid"}`; 201 `{"code":code,"secret":"<12 characters>","links":["https://<host>/#p99=<secret>"]}`; the secret is shown this once, and the same `client_uid` again answers 200 `{"code":code}` without it |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
