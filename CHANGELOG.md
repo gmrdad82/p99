@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.5.0 — 2026-10-15
+
+### Added
+
+- Changes arrive live: `p99 tui` reloads within about a second of a new item, comment, change or file, and the new `p99 watch` (with `--json` for agents and scripts) prints each one as it happens. A Durable Object holds the WebSocket. `p99 deploy` adds it to the account on the free plan, with the same token permissions.
+
 ## v1.4.2 — 2026-10-15
 
 ### Changed
