@@ -74,6 +74,8 @@ struct Health {
     version: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     access: bool,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    unresolved: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -1062,18 +1064,29 @@ fn health(hosts: &[&str]) -> Vec<Health> {
         .new_agent();
     for host in hosts {
         let url = format!("https://{host}/_p99/health");
-        let fetch = std::env::var("P99_HOST_URL")
-            .ok()
-            .filter(|t| !t.is_empty())
-            .map_or_else(
-                || url.clone(),
-                |t| {
-                    format!(
-                        "{}/_p99/health",
-                        t.replace("{host}", host).trim_end_matches('/')
-                    )
-                },
+        let local = std::env::var("P99_HOST_URL").ok().filter(|t| !t.is_empty());
+        if local.is_none() && std::net::ToSocketAddrs::to_socket_addrs(&(*host, 443)).is_err() {
+            say!(
+                "  --  {host} has no DNS record yet, so its check is skipped; p99 deploy checks it once it resolves"
             );
+            out.push(Health {
+                host: (*host).to_owned(),
+                ok: false,
+                version: None,
+                access: false,
+                unresolved: true,
+            });
+            continue;
+        }
+        let fetch = local.map_or_else(
+            || url.clone(),
+            |t| {
+                format!(
+                    "{}/_p99/health",
+                    t.replace("{host}", host).trim_end_matches('/')
+                )
+            },
+        );
         let mut last = String::new();
         let mut answered = None;
         let mut access = false;
@@ -1113,6 +1126,7 @@ fn health(hosts: &[&str]) -> Vec<Health> {
             ok: last.is_empty(),
             version: answered,
             access,
+            unresolved: false,
         });
         if access {
             done(&format!(
@@ -1629,7 +1643,7 @@ fn deploy_into(
     let unhealthy: Vec<&str> = report
         .health
         .iter()
-        .filter(|h| !h.ok)
+        .filter(|h| !h.ok && !h.unresolved)
         .map(|h| h.host.as_str())
         .collect();
     if unhealthy.is_empty() {
