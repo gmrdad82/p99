@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.2.0 — 2026-10-15
+
+### Added
+
+- A code can ask for a 6-digit code from an authenticator app the first time each browser uses it. `p99 invite … --totp` mints such a code, and `p99 invites totp <id>` adds an authenticator to a code someone already holds, keeping their link. The setup prints once, as an `otpauth://` link to paste into a password manager and as a setup key for authenticator apps. `p99 deploy` adds the tables this needs.
+
 ## v1.1.6 — 2026-10-15
 
 ### Changed
