@@ -407,8 +407,8 @@ async function run() {
     const source = readFileSync(join(root, "src", "web", "p99.js"), "utf8");
     assert.equal(served.includes("__P99_"), false);
     if (source.includes("__P99_HOST__")) {
-      assert.ok(served.includes('"corner":"top-left"'));
-      assert.ok(served.includes('"accent":"#3b7dd8"'));
+      assert.ok(served.includes('"c":"top-left"'));
+      assert.ok(served.includes('"t":"#3b7dd8"'));
     }
     assert.equal(served.length === 0, source.length === 0);
   });
