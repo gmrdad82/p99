@@ -374,7 +374,7 @@ function timingScript() {
   const t = (window.__p99t = {});
   const q = Document.prototype.querySelector;
   Document.prototype.querySelector = function (s) {
-    if (t.start == null && s === 'meta[name="p99"][content="off"]') t.start = performance.now();
+    if (t.start == null && /^meta\[name="?p99"?\]\[content="?off"?\]$/.test(s)) t.start = performance.now();
     return q.call(this, s);
   };
   const look = () => {
