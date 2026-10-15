@@ -242,6 +242,8 @@
 .p99-panel textarea:focus-visible,
 .p99-panel button:focus-visible,
 .p99-panel a:focus-visible { outline: 2px solid var(--p99-focus); outline-offset: 2px; }
+.p99-panel[tabindex="-1"]:focus,
+.p99-panel [tabindex="-1"]:focus { outline: none; }
 .p99-field { display: grid; gap: var(--p99-space-xs); }
 .p99-field > span,
 .p99-filters label > span,
