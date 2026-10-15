@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.4.0 — 2026-10-15
+
+### Added
+
+- `p99 edit <KEY> --title … --text …` (or `--text-file`, `-` for standard input) changes an item's title or details. Managers can edit any item, and a reporter can edit their own while it is new. The item's history keeps the old and new text, an agent's edit carries its mark, and no one is mailed.
+
 ## v1.3.0 — 2026-10-15
 
 ### Added
