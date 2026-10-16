@@ -2,6 +2,17 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.6.0 — 2026-10-16
+
+### Added
+
+- Events name the person who acted: the panel, `p99 show` and the TUI read "Ada Lovelace changed the status" where they showed an e-mail or "P99", and the API gives each event an `actor_name`. E-mails still show to managers only.
+
+### Changed
+
+- The panel opens lighter: its script and styles are 23.0 KB gzipped instead of 29.2 KB, and the form shows in 30.8 ms instead of 32.8 ms, because the capture and marking code now loads with the capture library just after the form appears.
+- The TUI runs on pito-tui 1.0.3, with pito-list 1.0.2 under it.
+
 ## v1.5.3 — 2026-10-16
 
 ### Changed
