@@ -310,6 +310,7 @@ async function run() {
     assert.equal(seen.json.attachments.some((a) => a.id === stored.json.id), false);
     assert.ok(seen.json.comments.length > 0);
     assert.equal(seen.json.comments.some((cm) => cm.author.email === grace.email), false);
+    assert.ok(seen.json.events.some((ev) => ev.actor === null && ev.actor_name === grace.name), JSON.stringify(seen.json.events));
     assert.equal((await browse("GET", `/files/${stored.json.id}`, adaHere.secret)).status, 404);
     assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { kind: "task" })).status, 403);
     const file = await call("GET", `/_p99/v1/files/${stored.json.id}?host=${here}`);

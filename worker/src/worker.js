@@ -6,6 +6,7 @@ import cssSource from "./web/p99.css";
 import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
 import captureVendor from "./web/vendor/modern-screenshot-4.7.0.js";
+import shotSource from "./web/shot.js";
 
 const KEY_IDS = { p99: ["KEY_P99", "KEY_P99_NEXT"], test: ["KEY_TEST"] };
 const KIND_PREFIXES = { bug: "BUG", feature: "FEAT", improvement: "IMP", question: "Q", task: "TASK" };
@@ -119,7 +120,7 @@ const USAGE_RETAIN_DAYS = 7;
 const BRANCH_BUILD_RETAIN_DAYS = 30;
 
 const JS_TYPE = "text/javascript; charset=utf-8";
-const CAPTURE_SOURCE = `var exports = {}, module = {};\n${captureVendor}\nexport default exports;\n`;
+const CAPTURE_SOURCE = `const ms = (() => {\nvar exports = {}, module = {};\n${captureVendor}\nreturn exports;\n})();\n${shotSource}`;
 const STATIC_FILES = {
   "/_p99/p99.js": { source: loaderSource, type: JS_TYPE, loader: true },
   "/_p99/panel.js": { source: panelSource, type: JS_TYPE },
@@ -812,8 +813,9 @@ function attachmentOf(row) {
   };
 }
 
-function eventOf(row, c) {
+function eventOf(row, c, names) {
   const open = c.manager || row.actor_email === c.actor.email;
+  const name = row.actor_email === null ? null : names.get(row.actor_email) || row.actor_name || null;
   const detail = parseJson(row.detail_json, {});
   if (!c.manager && row.kind === "assignee") {
     delete detail.from;
@@ -821,6 +823,7 @@ function eventOf(row, c) {
   }
   return {
     actor: open ? row.actor_email : null,
+    actor_name: name,
     agent: Boolean(row.actor_agent),
     kind: row.kind,
     detail,
@@ -1565,7 +1568,10 @@ async function getIssue(c, rawKey) {
     DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id),
     DB.prepare(`SELECT * FROM comments WHERE item_id = ?1${visible} ORDER BY id`).bind(id),
     DB.prepare(`SELECT * FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL${visible} ORDER BY id`).bind(id),
-    DB.prepare(`SELECT * FROM events WHERE item_id = ?1${visible} ORDER BY id`).bind(id),
+    DB.prepare(
+      `SELECT *, (SELECT name FROM codes WHERE email = events.actor_email ORDER BY id DESC LIMIT 1) AS actor_name
+       FROM events WHERE item_id = ?1${visible} ORDER BY id`,
+    ).bind(id),
     ...landingStatements(c.env, [id]),
     DB.prepare(
       `INSERT INTO reads (actor_email, item_id, read_at)
@@ -1582,11 +1588,13 @@ async function getIssue(c, rawKey) {
     if (!byComment.has(a.comment_id)) byComment.set(a.comment_id, []);
     byComment.get(a.comment_id).push(a.id);
   }
+  const names = new Map([[c.actor.email, c.actor.name], [row.reporter_email, row.reporter_name]]);
+  for (const cm of comments) names.set(cm.author_email, cm.author_name);
   return json(200, {
     issue: issueOf({ ...row, unread: 0 }, c, lc),
     comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
-    events: events.map((ev) => eventOf(ev, c)),
+    events: events.map((ev) => eventOf(ev, c, names)),
   });
 }
 

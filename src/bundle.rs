@@ -40,6 +40,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("mail.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
+    worker!("web/shot.js", TEXT),
     worker!("web/p99.css", TEXT),
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
     worker!("web/art/concrete.svg", TEXT),

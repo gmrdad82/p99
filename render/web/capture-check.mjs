@@ -20,9 +20,10 @@ const SLOW_IMAGE_MS = 3000;
 const VIEW = { width: 1280, height: 800 };
 
 const vendor = readFileSync(join(repo, "worker", "src", "web", "vendor", "modern-screenshot-4.7.0.js"), "utf8");
-const capture = `var exports = {}, module = {};\n${vendor}\nexport default exports;\n`;
+const shot = readFileSync(join(repo, "worker", "src", "web", "shot.js"), "utf8");
+const capture = `const ms = (() => {\nvar exports = {}, module = {};\n${vendor}\nreturn exports;\n})();\n${shot}`;
 const panel = readFileSync(args.panel, "utf8") +
-  "\nexport function __check() { o = { host: null, ring: [] }; root = document.createElement(\"div\"); document.body.append(root); return capture; }\n";
+  "\nexport function __check() { root = document.createElement(\"div\"); document.body.append(root); o = { host: null, root, ring: [] }; return capture; }\n";
 const page = readFileSync(join(here, "capture", "page.html"));
 
 const hues = [24, 200, 140, 330, 50, 260, 0, 170, 90, 300, 220, 10, 120, 280];

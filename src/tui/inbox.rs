@@ -726,8 +726,9 @@ fn lines(
                 _ => event.kind.replace('_', " "),
             };
             let by = event
-                .actor
+                .actor_name
                 .as_deref()
+                .or(event.actor.as_deref())
                 .map(|a| format!(" by {a}"))
                 .unwrap_or_default();
             let at = format!("  {:>4}  ", ago(&event.at));

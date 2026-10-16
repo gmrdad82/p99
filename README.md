@@ -15,17 +15,17 @@ Works on Linux and macOS (Windows through WSL). The widget runs in any modern br
 | | |
 | --- | --- |
 | What every page downloads | **2,044 bytes** gzipped: the loader as served, nothing else |
-| Loader start to the "+" painted | **10.6 ms** cold, **2.6 ms** warm |
-| Page navigation to the "+" painted | **26.9 ms** cold, **10.1 ms** warm |
-| Click to the panel's form on screen | **31.1 ms** cold: panel and styles load only then (27.8 KB gzipped) |
+| Loader start to the "+" painted | **9.8 ms** cold, **2.5 ms** warm |
+| Page navigation to the "+" painted | **27.1 ms** cold, **10.1 ms** warm |
+| Click to the panel's form on screen | **30.8 ms** cold: panel and styles load only then (23.0 KB gzipped), and the capture code right after the form shows |
 | TUI frame time at 120×34 | **0.05 to 0.12 ms** average: 120 fps leaves 8.33 ms |
 | Backend | **0** servers: one Cloudflare Worker, D1 and R2 per account |
 | Worker runtime dependencies | **0** (wrangler only to run its tests) |
 | p99 binary | **5.5 MB**, 10 direct crates, the Worker and widget embedded |
 
-Measured on 2026-10-15 for 1.1.0: sizes with `gzip -9`, the loader as a host with no placement settings gets it; browser times in headless Chromium 152 on localhost, an AMD Ryzen 9 9950X, each the median of 5 runs of 10 page loads, alternated run by run with 1.0.6 at a load average of 4 to 9 on 32 threads, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames); TUI times with `p99 tui --demo --bench 200` on a release build.
+Measured on 2026-10-16 for 1.6.0: sizes with `gzip -9`, the loader as a host with no placement settings gets it; browser times in headless Chromium 152 on localhost, an AMD Ryzen 9 9950X, each the median of 5 runs of 10 page loads, alternated run by run with 1.5.3 at a load average of 5 to 8 on 32 threads, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames); TUI times with `p99 tui --demo --bench 200` on a release build.
 
-<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 22.5, its styles 5.3 and the capture library 10.8."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 10.6 cold and 2.6 warm, page navigation to the button painted 26.9 cold and 10.1 warm, click to the panel's form 31.1 cold."></p>
+<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 17.3 and its styles 5.6 on the first click, then the capture code with its library 17.4."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 9.8 cold and 2.5 warm, page navigation to the button painted 27.1 cold and 10.1 warm, click to the panel's form 30.8 cold."></p>
 
 ## On your site
 

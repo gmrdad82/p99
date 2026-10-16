@@ -350,6 +350,7 @@ impl Demo {
         for &(item, ago, from, to) in &MOVES {
             threads[item - 1].events.push(Event {
                 actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
                 kind: "status".into(),
                 detail: json!({"from": from, "to": to}),
                 at: iso(NOW - ago),
@@ -438,6 +439,7 @@ impl Demo {
             }
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
                 kind: "status".into(),
                 detail: json!({"from": issue.status, "to": status}),
                 at: iso(NOW),
@@ -448,6 +450,7 @@ impl Demo {
         if let Some(assignee) = &change.assignee {
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
                 kind: "assignee".into(),
                 detail: json!({"from": issue.assignee, "to": assignee}),
                 at: iso(NOW),
@@ -503,6 +506,7 @@ fn thread(id: i64, item: &Item) -> Thread {
     Thread {
         events: vec![Event {
             actor: Some(email.into()),
+            actor_name: Some(name.into()),
             kind: "created".into(),
             detail: Value::Null,
             at: iso(NOW - item.created),

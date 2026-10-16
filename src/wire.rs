@@ -215,6 +215,8 @@ pub struct Event {
     #[serde(default)]
     pub actor: Option<String>,
     #[serde(default)]
+    pub actor_name: Option<String>,
+    #[serde(default)]
     pub kind: String,
     #[serde(default)]
     pub detail: Value,

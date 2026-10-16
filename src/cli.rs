@@ -1171,7 +1171,10 @@ fn print_thread(thread: &Thread) {
             out!(
                 "  {}  {}  {}  {}",
                 when(&e.at),
-                e.actor.as_deref().unwrap_or("-"),
+                e.actor_name
+                    .as_deref()
+                    .or(e.actor.as_deref())
+                    .unwrap_or("-"),
                 e.kind,
                 detail
             );
