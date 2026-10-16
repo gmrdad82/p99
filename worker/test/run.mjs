@@ -481,14 +481,14 @@ async function run() {
     assert.equal(stranger.status, 428);
   });
 
-  await check("capture.js is an ES module whose default export is the capture library", async () => {
+  await check("capture.js is an ES module that exports the panel's capture, marking and context calls", async () => {
     const response = await fetch(`${base}/_p99/capture.js?v=dev`);
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type"), /^text\/javascript/);
     assert.match(response.headers.get("cache-control"), /immutable/);
     const text = await response.text();
     const module = await import(`data:text/javascript;base64,${Buffer.from(text).toString("base64")}`);
-    assert.equal(typeof module.default.domToCanvas, "function");
+    for (const name of ["capture", "elementsAt", "context"]) assert.equal(typeof module[name], "function", name);
   });
 
   console.log(`${passed} checks passed`);
