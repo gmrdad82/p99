@@ -143,7 +143,7 @@ Then add the tag to your site's `<head>` and open the link `p99 invite` printed.
 
 ## Part of PITO MD
 
-P99 is one of [PITO MD](https://pitomd.com)'s open tools. Its inbox is built on [pito-tui](https://github.com/gmrdad82/pito-tui), the shared terminal app shell. Its clips and stills are recorded with [prec](https://github.com/gmrdad82/prec) and made GIFs with [pconv](https://github.com/gmrdad82/pconv). Its charts are drawn with [pito-compare](https://github.com/gmrdad82/pito-compare).
+P99 is one of [PITO MD](https://pitomd.com)'s open tools. Its inbox is built on [pito-tui](https://github.com/gmrdad82/pito-tui), the shared terminal app shell. Its clips and stills are recorded with [prec](https://github.com/gmrdad82/prec) and made GIFs with pcod from [pito-codecs](https://github.com/gmrdad82/pito-codecs). Its charts are drawn with [pito-compare](https://github.com/gmrdad82/pito-compare).
 
 ## Build and test
 

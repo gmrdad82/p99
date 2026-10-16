@@ -470,8 +470,8 @@ function gif() {
   const term = find(join(work, "renders"), (n) => n.endsWith(".mp4"));
   if (!term) throw new Error("pitomd: run the tui step first");
   const joined = join(work, "pitomd.mp4");
-  execFileSync("pconv", ["join", web, term, joined, "--crf", "1", "--force", "--no-progress"], { stdio: "inherit" });
-  execFileSync("pconv", [joined, join(images, "pitomd.gif"), "--size", "1280", "--fps", "12", "--force", "--no-progress"], { stdio: "inherit" });
+  execFileSync("pcod", ["join", web, term, joined, "--crf", "1", "--force", "--no-progress"], { stdio: "inherit" });
+  execFileSync("pcod", [joined, join(images, "pitomd.gif"), "--size", "1280", "--fps", "12", "--force", "--no-progress"], { stdio: "inherit" });
   console.log("pitomd: docs/images/pitomd.gif");
 }
 
