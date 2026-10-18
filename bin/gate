@@ -17,4 +17,6 @@ if [ "${1:-}" = --fast ]; then
   exit 0
 fi
 cargo build --release
+bin/budget
+(cd worker && npm ci --no-fund --no-audit && npm test)
 echo "gate: green"
