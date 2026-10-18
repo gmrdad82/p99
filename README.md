@@ -2,7 +2,7 @@
 
 # P99
 
-[![CI](https://github.com/gmrdad82/p99/actions/workflows/ci.yml/badge.svg)](https://github.com/gmrdad82/p99/actions/workflows/ci.yml) [![Version](https://img.shields.io/github/v/tag/gmrdad82/p99)](https://github.com/gmrdad82/p99/tags)
+[![Version](https://img.shields.io/github/v/tag/gmrdad82/p99)](https://github.com/gmrdad82/p99/tags)
 
 P99 is issue and feedback reporting for any website, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a bug, an idea, an improvement, a question or a task, with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` is a CLI with `--json` for scripts and agents, and `p99 tui` is the inbox.
 
@@ -105,7 +105,7 @@ Invites are personal codes rather than accounts. `p99 invite example.com --name 
 
 ## Install and first use
 
-Each [release](https://github.com/gmrdad82/p99/releases/latest) carries a Linux (x86_64) and a macOS (Apple Silicon) binary with a `SHA256SUMS` file. On macOS the binary is built and its tests pass on GitHub's runner.
+Each [release](https://github.com/gmrdad82/p99/releases/latest) carries a Linux (x86_64) and a macOS (Apple Silicon) binary with a `SHA256SUMS` file. The macOS binary is built on an Apple Silicon Mac.
 
 **Linux and WSL:**
 
@@ -153,8 +153,6 @@ bin/gate          # the same plus the release build
 bin/budget        # the loader's 2,048-byte gzipped budget
 cd worker && npm ci && npm test   # the Worker's tests on a local wrangler dev
 ```
-
-GitHub CI runs all of them on every push, on Ubuntu and macOS.
 
 ## Contributing
 
