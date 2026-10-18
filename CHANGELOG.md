@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.7.0 — 2026-10-19
+
+### Changed
+
+- `p99` on its own opens the inbox in the terminal, as `p99 tui` does (which still works); piped or in a script it prints the short usage error and exits 2, so nothing waits on a screen.
+
 ## v1.6.0 — 2026-10-16
 
 ### Added
