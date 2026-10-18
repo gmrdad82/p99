@@ -20,7 +20,7 @@ On Windows, install WSL (`wsl --install` in an administrator PowerShell), open t
 
 ## macOS
 
-The macOS binary is built for Apple Silicon, and its tests pass on GitHub's runner:
+The macOS binary is built for Apple Silicon, on an Apple Silicon Mac:
 
 ```sh
 v=$(basename "$(curl -fsSLo /dev/null -w '%{url_effective}' https://github.com/gmrdad82/p99/releases/latest)")
