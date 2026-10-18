@@ -4,7 +4,7 @@
 
 [![CI](https://github.com/gmrdad82/p99/actions/workflows/ci.yml/badge.svg)](https://github.com/gmrdad82/p99/actions/workflows/ci.yml) [![Version](https://img.shields.io/github/v/tag/gmrdad82/p99)](https://github.com/gmrdad82/p99/tags)
 
-P99 is issue and feedback reporting for any website, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a bug, an idea, an improvement, a question or a task, with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` is a CLI with `--json` for scripts and agents, and `p99 tui` is the inbox.
+P99 is issue and feedback reporting for any website, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a bug, an idea, an improvement, a question or a task, with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` alone opens the inbox in the terminal (also `p99 tui`), and its commands are a CLI with `--json` for scripts and agents.
 
 Cloudflare is the whole infrastructure: one Worker, one D1 database and one R2 bucket per Cloudflare account, mounted on each site's own domain at `/_p99/*`. The page talks only to its own origin. There is no other backend, no CORS, no framework, no build step and nothing from your stack.
 
@@ -57,7 +57,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 ## In your terminal
 
-**The inbox.** `p99 tui` shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row. Open a thread to read it, reply, add an internal note, change the status or assign it.
+**The inbox.** `p99` (or `p99 tui`) shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row. Open a thread to read it, reply, add an internal note, change the status or assign it.
 
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists items from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the status set to resolved, and the view switches to one host."></p>
 
@@ -129,6 +129,7 @@ mkdir -p ~/.local/bin && curl -fsSL "https://github.com/gmrdad82/p99/releases/do
 p99 tui --demo                      # the inbox on sample data, nothing to set up
 p99 setup                           # your Cloudflare account, step by step
 p99 invite example.com --name "Ada Lovelace" --email ada@example.com
+p99                                 # your inbox
 ```
 
 Then add the tag to your site's `<head>` and open the link `p99 invite` printed.

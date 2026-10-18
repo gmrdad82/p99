@@ -87,7 +87,7 @@ The Worker is built into the binary, so there is nothing else to install: no Nod
 
    ```sh
    p99 list example.com
-   p99 tui
+   p99
    ```
 
 The config lives in `~/.config/p99/config.toml`; [the configuration reference](reference/formats.md#configuration) lists every key.

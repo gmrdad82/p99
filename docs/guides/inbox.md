@@ -18,8 +18,10 @@ Its status is one of `new`, `confirmed`, `in_progress`, `waiting` (on the report
 ## The TUI
 
 ```sh
-p99 tui
+p99
 ```
+
+`p99` alone, in a terminal, opens the TUI, as `p99 tui` does; its flags (`--account`, `--agent`) go with `p99 tui`. Piped or in a script, a bare `p99` prints clap's short error and exits 2 instead of waiting on a screen.
 
 The Inbox screen lists the open items of every host, newest activity first, with a dot on the unread ones; the header counts the items shown and the unread. `tab`, or `1` and `2`, switch between the Inbox and the Codes screens.
 

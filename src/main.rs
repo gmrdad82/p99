@@ -13,6 +13,7 @@ mod tui;
 mod vault;
 mod wire;
 
+use std::io::IsTerminal;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
@@ -25,6 +26,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
     name = "p99",
     version,
     about = "P99: issue and feedback reporting for any website, on Cloudflare",
+    long_about = "P99: issue and feedback reporting for any website, on Cloudflare\n\n`p99` alone, in a terminal, opens the inbox (as `p99 tui` does); any command or flag is the CLI.",
     subcommand_required = true,
     arg_required_else_help = false
 )]
@@ -37,7 +39,7 @@ struct P99 {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "open the inbox in the terminal")]
+    #[command(about = "open the inbox in the terminal, as `p99` alone does")]
     Tui(tui::Args),
     #[command(
         about = "set up an account, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"
@@ -53,8 +55,18 @@ enum Command {
     DocsCli,
 }
 
+fn bare() -> bool {
+    std::env::args_os().len() == 1
+        && std::io::stdin().is_terminal()
+        && std::io::stdout().is_terminal()
+}
+
 fn main() -> ExitCode {
-    let p99 = P99::parse();
+    let p99 = if bare() {
+        P99::parse_from([NAME, "tui"])
+    } else {
+        P99::parse()
+    };
     let result = match p99.command {
         Command::Tui(args) => return tui::run(&args, &p99.global),
         Command::Setup(args) => setup::setup(&args, &p99.global),
