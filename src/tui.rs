@@ -1,4 +1,6 @@
+mod board;
 mod codes;
+mod deck;
 pub mod demo;
 mod inbox;
 mod source;
@@ -12,11 +14,12 @@ use pito_tui::crossterm::event::KeyEvent;
 use pito_tui::footer::Hint;
 use pito_tui::header::Section;
 use pito_tui::ratatui::style::Color;
-use pito_tui::{Palette, Tui, Words, dump};
+use pito_tui::{Modes, Palette, Tui, Words, dump};
 
 use crate::wire::{Code, Issue, Thread};
 use crate::{NAME, VERSION};
 
+use board::Board;
 use codes::Codes;
 use inbox::Inbox;
 use source::{Entry, Source};
@@ -138,7 +141,12 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
             .as_deref()
             .and_then(|keys| dump::keys(keys).ok())
             .unwrap_or_default();
-        let buffer = tui(source).shot(width, height, &keys, !options.loading);
+        let mut app = tui(source);
+        let mut buffer = app.shot(width, height, &keys, !options.loading);
+        if !options.loading {
+            app.advance(SETTLE);
+            buffer = app.frame(width, height);
+        }
         if options.ansi {
             print!("{}", dump::ansi(&buffer));
         } else {
@@ -158,6 +166,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
 const ACCENT: Color = Color::Rgb(0x3b, 0x7d, 0xd8);
 const PACE: Duration = Duration::from_millis(250);
 const SIZE: (u16, u16) = (120, 34);
+const SETTLE: Duration = Duration::from_secs(1);
 
 pub enum Msg {
     Inbox(Result<Vec<Entry>, String>),
@@ -166,6 +175,8 @@ pub enum Msg {
     Changed(String, Result<Issue, String>),
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
+    Board(Option<String>, Result<deck::BoardView, String>),
+    Shifted(String, Result<deck::Moved, String>),
 }
 
 fn report(
@@ -212,7 +223,9 @@ fn tui(source: Source) -> Tui<Msg> {
             Hint::new("ctrl+c", "twice quit").pinned(),
         ])
         .footer_look(|footer, _| footer.separator(" · "))
+        .modes(Modes::new().mouse(true))
         .screen(Section::new("Inbox"), Inbox::new(source.clone(), palette()))
+        .screen(Section::new("Board"), Board::new(source.clone(), palette()))
         .screen(Section::new("Codes"), Codes::new(source, palette()))
 }
 

@@ -85,3 +85,17 @@ line = "p99 invite --totp: the link, and apart from it the authenticator setup a
 tape = "render/terminal/invite-totp.tape"
 launch = "export P99_CONFIG={tmp}/web/home/.config/p99/config.toml && clear"
 settle = "300ms"
+
+[shots.board]
+kind = "still"
+line = "The board on sample data: four columns, item cards with priority and labels, and two nested boards with their rollups"
+tape = "render/terminal/board.tape"
+launch = "p99 tui --demo"
+settle = "400ms"
+
+[shots.board-drag]
+kind = "still"
+line = "A board card picked up with the keys and carried to another column, the column it will land in lit"
+tape = "render/terminal/board-drag.tape"
+launch = "p99 tui --demo"
+settle = "400ms"

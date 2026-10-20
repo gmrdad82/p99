@@ -159,7 +159,10 @@ impl Source {
         }
     }
 
-    fn sample<T>(&self, work: impl FnOnce(&mut Demo) -> Result<T, String>) -> Result<T, String> {
+    pub(super) fn sample<T>(
+        &self,
+        work: impl FnOnce(&mut Demo) -> Result<T, String>,
+    ) -> Result<T, String> {
         self.wait();
         match self {
             Source::Demo(demo, _) => {
