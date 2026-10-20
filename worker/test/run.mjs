@@ -29,6 +29,7 @@ const VECTOR = {
 
 const SEED_SQL = `
 INSERT INTO usage (actor_email, day, issues, comments, bytes) VALUES ('grace@example.com', date('now'), 30, 200, 0);
+INSERT INTO mail (id, provider, sender, updated_at) VALUES (1, 'resend', 'P99 <p99@example.com>', '2026-10-20T00:00:00Z');
 `;
 
 const LEGACY_ROWS = [
@@ -57,6 +58,35 @@ const LEGACY_SQL = [
   `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
    VALUES (905, NULL, 'status', '{"from":"confirmed","to":"resolved"}', 0, '2025-01-03T00:00:00.000Z');`,
 ].join("\n");
+
+const sent = [];
+
+function fakeResend() {
+  const server = createServer((request, response) => {
+    let body = "";
+    request.on("data", (chunk) => (body += chunk));
+    request.on("end", () => {
+      if (request.url === "/emails/batch" && request.headers.authorization === "Bearer test-resend") {
+        for (const message of JSON.parse(body)) sent.push(message);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ data: [] }));
+        return;
+      }
+      response.writeHead(401);
+      response.end();
+    });
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+}
+
+async function until(what, fn) {
+  for (let i = 0; i < 100; i++) {
+    const value = await fn();
+    if (value) return value;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`gave up waiting for ${what}`);
+}
 
 const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accent: "#3b7dd8" } };
 
@@ -211,6 +241,8 @@ async function main() {
   for (const host of ["127.0.0.1", "localhost"]) {
     vars.push(`GITHUB_HOOK_${sha256(Buffer.from(host)).slice(0, 16).toUpperCase()}:github-hook-secret`);
   }
+  const resend = await fakeResend();
+  vars.push("RESEND_API_KEY:test-resend", `RESEND_API_URL:http://127.0.0.1:${resend.address().port}`);
   const child = spawn(
     wrangler,
     [
@@ -240,6 +272,8 @@ async function main() {
     await run();
   } finally {
     stop();
+    resend.close();
+    resend.closeAllConnections();
   }
 }
 
@@ -839,6 +873,72 @@ async function run() {
     await new Promise((r) => setTimeout(r, 1700));
     assert.equal(await ticketSocket(late.json.ticket), null, "an expired ticket is refused");
     assert.equal(await ticketSocket("0".repeat(48)), null);
+  });
+
+  await check("a reporter's mail opens their item with their code, its opt-out works only for that item, and an opted-out reporter gets no more mail", async () => {
+    const linus = await mint("Linus Pauling", "linus@example.com", [here]);
+    const one = (await browse("POST", "/issues", linus.secret, issueBody({ title: "First" }))).json.key;
+    const two = (await browse("POST", "/issues", linus.secret, issueBody({ title: "Second" }))).json.key;
+    const reply = (k) => call("POST", `/_p99/v1/issues/${k}/comments?host=${here}`, { body: { client_uid: randomUUID(), body: "Looking into it." } });
+    const to = (k) => sent.filter((m) => m.to[0] === "linus@example.com" && m.subject.startsWith(`[${k}]`));
+    assert.equal((await reply(one)).status, 201);
+    const [first] = await until("the first reply's mail", () => to(one).length === 1 && to(one));
+    assert.ok(first.text.includes(`https://${here}/_p99/open?to=%2Forders&item=${one}#${linus.secret}`), first.text);
+    assert.equal(first.headers["List-Unsubscribe-Post"], "List-Unsubscribe=One-Click");
+    const token = /\/_p99\/mail\?t=(\S+)/.exec(first.text)[1];
+    const [id, email, mac] = token.split(".");
+    const twoId = two.split("-")[1];
+    const optOut = (t, init) => fetch(`${base}/_p99/mail?t=${t}`, init);
+    const flipped = mac.slice(0, -2) + (mac.endsWith("AA") ? "AB" : "AA");
+    assert.equal((await optOut(`${id}.${email}.${flipped}`)).status, 404);
+    assert.equal((await optOut(`${twoId}.${email}.${mac}`)).status, 404);
+    assert.equal((await optOut(`${id}.${Buffer.from("grace@example.com").toString("base64url")}.${mac}`)).status, 404);
+    const off = await optOut(token);
+    assert.equal(off.status, 200);
+    assert.match(await off.text(), /No more mail about/);
+    assert.equal((await reply(one)).status, 201);
+    assert.equal((await reply(two)).status, 201);
+    await until("the second item's mail", () => to(two).length === 1);
+    const skipped = await until("the opted-out mail's event", async () => {
+      const events = (await call("GET", `/_p99/v1/issues/${one}?host=${here}`)).json.events.filter((e) => e.kind === "mail" && e.detail.to === "linus@example.com");
+      return events.length === 2 && events;
+    });
+    assert.equal(skipped[1].detail.status, "opted_out");
+    assert.equal(to(one).length, 1);
+    const undo = await optOut(token, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: "undo=1" });
+    assert.match(await undo.text(), /back on/);
+    const open = await fetch(`${base}/_p99/open?to=%2Forders&item=${one}`);
+    assert.equal(open.status, 200);
+    assert.match(open.headers.get("content-security-policy"), /script-src 'sha256-/);
+    assert.ok((await open.text()).includes(`content="/orders#p99=${one}"`));
+    assert.equal((await fetch(`${base}/_p99/open?to=%2F%2Fevil.example`)).status, 404);
+  });
+
+  await check("the sealed copy of a code never appears in an API response", async () => {
+    const minted = await mint("Rosalind Franklin", "rosalind@example.com", [here]);
+    const read = spawnSync(
+      wrangler,
+      ["d1", "execute", "DB", "--local", "--persist-to", state, "--json", "--command", "SELECT sealed_code FROM codes WHERE sealed_code IS NOT NULL"],
+      { cwd: root, env: { ...process.env, CI: "1" }, encoding: "utf8" },
+    );
+    const sealed = JSON.parse(read.stdout)[0].results.map((r) => r.sealed_code);
+    assert.ok(sealed.length >= 2, read.stdout);
+    const filed = (await browse("POST", "/issues", minted.secret, issueBody())).json.key;
+    const answers = [
+      minted,
+      (await call("GET", "/_p99/v1/codes")).json,
+      (await call("GET", `/_p99/v1/codes?host=${here}`)).json,
+      (await browse("GET", "/me", minted.secret)).json,
+      (await browse("GET", `/issues/${filed}`, minted.secret)).json,
+      (await browse("GET", "/issues?scope=mine", minted.secret)).json,
+      (await call("GET", `/_p99/v1/issues/${filed}?host=${here}`)).json,
+      (await call("GET", `/_p99/v1/issues?host=${here}`)).json,
+    ];
+    for (const answer of answers) {
+      const text = JSON.stringify(answer);
+      assert.equal(/sealed/.test(text), false, text);
+      for (const s of sealed) assert.equal(text.includes(s), false);
+    }
   });
 
   await check("capture.js is an ES module that exports the panel's capture, marking and context calls", async () => {
