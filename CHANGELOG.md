@@ -2,6 +2,15 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.8.2 — 2026-10-20
+
+### Fixed
+
+- An invite link that a page or an app changed on its way, written `#P99=`, ending in a full stop, or rewritten by a site script before P99 starts, still signs the person in.
+- A link that needs the authenticator opens the 6-digit step by itself.
+- A code P99 refuses (mistyped, revoked, or for another site) shows one short line by the button instead of nothing.
+- The loader is smaller: 2,007 bytes gzipped.
+
 ## v1.8.1 — 2026-10-20
 
 ### Changed
