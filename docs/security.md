@@ -27,7 +27,7 @@ The P99 page is the account's own address (`p99 app` prints it), where a person 
 The page and its files are served with:
 
 ```text
-Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self' 'sha256-…'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 X-Frame-Options: DENY
@@ -36,7 +36,7 @@ Cross-Origin-Resource-Policy: same-origin
 Strict-Transport-Security: max-age=31536000
 ```
 
-The page has no inline script or style. Its own files (`app.js`, `app.css`) are served only on the page's address, and the sites' loader is not served there.
+The page has no inline script and one inline `<style>` block: the small style its first paint needs (the colours, the layout, the sign-in card and the loading shimmer), allowed by its own `'sha256-…'` hash and nothing else, so `'unsafe-inline'` stays out. The rest of the style, `app.css`, loads without holding up that paint. The worker suite checks that the hash in the header is the hash of the block as served (`npm run test:csp` runs that check alone). Its own files (`app.js`, `app.css`) are served only on the page's address, and the sites' loader is not served there.
 
 ## Same host as the CLI
 
