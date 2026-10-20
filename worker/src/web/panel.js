@@ -7,7 +7,7 @@ const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAA
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
-const LEGACY = { new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
+const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
 const TYPES = {
@@ -562,9 +562,12 @@ function statusWord(s, r) {
   return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
 }
 function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
-function statusPill(s, r, l) {
-  const named = l && me && me.manager ? l + (r && r !== "fixed" ? " · " + say("status_" + r) : "") : null;
-  return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), named || statusWord(s, r));
+function stateOf(x) { return choiceOf(x.stage || x.status, x.resolution); }
+function statusPill(x) {
+  const c = stateOf(x);
+  const res = c.split(":")[1];
+  const named = x.label && me && me.manager ? x.label + (res && res !== "fixed" ? " · " + say("status_" + res) : "") : null;
+  return pill("p99-status", "data-status", c.replace(":", "-"), named || statusWord(c));
 }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
 function landing(l) {
@@ -665,12 +668,12 @@ function row(r) {
   if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter)));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
-  return h("li", { class: "p99-item", "data-status": r.status, "data-kind": r.kind, "data-unread": !!r.unread },
+  return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
-      statusPill(r.status, r.resolution, r.label),
+      statusPill(r),
       kindPill(r.kind),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
@@ -719,10 +722,10 @@ function thread(t) {
   } })) : null;
   const shots = files.filter((a) => !a.comment_id && a.role !== "file");
   const loose = files.filter((a) => !a.comment_id && a.role === "file");
-  const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
+  const view = h("article", { class: "p99-view", "data-view": "item", "data-status": stateOf(i), "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution, i.label)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -741,10 +744,11 @@ function thread(t) {
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
-    if (i.status !== "done") acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "done", resolution: "abandoned" }, wrap, e.currentTarget) }));
-    if (i.status === "done" && i.resolution === "fixed") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "inbox" }, wrap, e.currentTarget) }));
+    const state = stateOf(i);
+    if (!state.startsWith("done")) acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "done", resolution: "abandoned" }, wrap, e.currentTarget) }));
+    if (state === "done:fixed") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "inbox" }, wrap, e.currentTarget) }));
     if (acts.firstChild) view.append(wrap);
-    if (i.status === "inbox") view.append(editForm(i));
+    if (state === "inbox") view.append(editForm(i));
   }
   return view;
 }
@@ -972,7 +976,7 @@ function duplicatePick(i) {
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    i.label == null ? h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))) : moveTo(i),
+    i.label == null ? h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, stateOf(i)))) : moveTo(i),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     assigneePick(i),
     duplicatePick(i),
