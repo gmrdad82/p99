@@ -143,7 +143,16 @@ const CHECKOUT: &str = "checkout-v2";
 const PAYMENTS: &str = "payments";
 const IMAGES: &str = "image-move";
 
-const SHELF: [(&str, &str, Option<&str>, Option<&str>, &str, f64); 7] = [
+type Shelved = (
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    Option<&'static str>,
+    &'static str,
+    f64,
+);
+
+const SHELF: [Shelved; 7] = [
     (
         SHOP,
         "shop.example.com",
@@ -220,7 +229,9 @@ const PLACES: [(i64, &str, f64); 22] = [
     (9, "dev-example-com", 2048.0),
 ];
 
-const MARKS: [(i64, &str, &[(&str, &str)]); 9] = [
+type Marks = (i64, &'static str, &'static [(&'static str, &'static str)]);
+
+const MARKS: [Marks; 9] = [
     (11, "urgent", &[("cart", "#f7768e")]),
     (13, "low", &[]),
     (5, "normal", &[("product", "#7dcfff")]),
@@ -477,10 +488,10 @@ impl Demo {
                 place.1 = home.clone();
                 place.2 = position;
             }
-            if let Some(key) = self.restatus(id, &column) {
-                if !changed.contains(&key) {
-                    changed.push(key);
-                }
+            if let Some(key) = self.restatus(id, &column)
+                && !changed.contains(&key)
+            {
+                changed.push(key);
             }
         }
         let view = self.board(Some(&home))?;

@@ -245,7 +245,7 @@ impl Source {
                 let tell = |send: &dyn Fn(&Waker<Msg>) -> bool| {
                     live.listeners
                         .lock()
-                        .map(|listeners| listeners.iter().fold(false, |any, w| send(w) || any))
+                        .map(|listeners| listeners.iter().filter(|w| send(w)).count() > 0)
                         .unwrap_or(false)
                 };
                 let _ = crate::stream::follow(&client, None, |heard| match heard {

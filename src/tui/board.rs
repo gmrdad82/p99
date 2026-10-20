@@ -108,7 +108,7 @@ pub struct Board {
 impl Board {
     pub fn new(source: Source, palette: Palette) -> Board {
         Board {
-            reader: Inbox::new(source.clone(), palette.clone()),
+            reader: Inbox::new(source.clone(), palette),
             following: false,
             stale: None,
             source,
@@ -498,6 +498,7 @@ impl Board {
         }
     }
 
+    #[allow(clippy::needless_range_loop)]
     fn draw_board(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
         if area != self.area {
             self.spots.clear();
@@ -752,6 +753,7 @@ const HELD: Edges = Edges {
     bottom: ["╚", "═", "╝"],
 };
 
+#[allow(clippy::too_many_arguments)]
 fn edge(
     buf: &mut Buffer,
     clip: Rect,
@@ -1088,10 +1090,10 @@ impl Screen<Msg> for Board {
                 }
                 self.reader.event(Msg::Changed(key, result), cx);
             }
-            event @ (Msg::Thread(..) | Msg::Commented(..) | Msg::Inbox(_) | Msg::Pushed(..)) => {
-                if self.reading_thread() {
-                    self.reader.event(event, cx);
-                }
+            event @ (Msg::Thread(..) | Msg::Commented(..) | Msg::Inbox(_) | Msg::Pushed(..))
+                if self.reading_thread() =>
+            {
+                self.reader.event(event, cx);
             }
             _ => {}
         }
