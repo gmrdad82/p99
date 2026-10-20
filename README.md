@@ -41,6 +41,8 @@ Measured on 2026-10-16 for 1.6.0: sizes with `gzip -9`, the loader as a host wit
 
 <p align="center"><img src="docs/images/panel-light.png" width="49%" alt="The P99 panel open over a light checkout page on item BUG-2: the report, a manager's reply, the reporter's answer, a status change to in progress and a reply from Ada Lovelace* (an agent acting for her)."> <img src="docs/images/panel-dark.png" width="49%" alt="The same panel and thread in the dark scheme."></p>
 
+**A board for the people who run the site.** A manager opens "Board" in the panel and gets the site's board over the page: four columns (Inbox, Doing, Review, Done, each one renameable), cards to drag with the mouse, a finger or the keyboard, and boards nested as cards inside other boards, each showing how much of it is done. A move made anywhere, in the browser, the terminal or by an agent, slides into place on every open board within about a second. The board's code loads only when a manager opens it.
+
 **Captures that keep secrets.** The visible screen, the whole page or regions the person marks go with the item. Fields marked `data-p99-redact` (and every password field) are blanked in every capture, the address is kept without its query string and hash, and a site can switch P99 off on any page, such as a checkout's receipt.
 
 <p align="center"><img src="docs/images/capture.png" width="80%" alt="The new-item form with a screen capture and a marked area of the payment form; the card number field is blank in both previews."></p>
@@ -62,6 +64,8 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists items from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the status set to resolved, and the view switches to one host."></p>
 
 <p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace* (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role, the code's last four characters, when it was last used, and whether it is active."></p>
+
+**Boards.** Every item sits on one board, in the column of its status, and a board can sit as a card in another board's column. Moving a board card moves everything on it, nested boards included. The Board tab of `p99 tui` drags cards with the keys (Space to pick up, the arrows, Enter to drop) or the mouse, and `p99 move` does the same from a script or an agent: `p99 move BUG-12 --to doing`, `p99 move board:site-v2 --to done`. `p99 boards`, `p99 board <slug>` and `p99 statuses` list and rename them, with `--json`.
 
 **A CLI for people and agents.** Every command answers `--json`. An agent acting for you runs with `--agent` (or `P99_AGENT=1`), and its items, comments and changes show as your name with an asterisk, `Ada Lovelace*`, so your words and your agent's never look alike.
 
@@ -88,6 +92,10 @@ BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 **One item for the same report.** `p99 merge BUG-14 BUG-15 --into BUG-12` folds duplicates into one item. Their reporters follow it: they read its public thread in the panel and get its replies, status changes and landings by mail.
 
 **GitHub, kept small.** `p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN` links a site to a repository: `p99 github open BUG-12` opens a GitHub issue for the item, and when a pull request carrying `Fixes: BUG-12` merges, or that issue is closed, the item is marked fixed ([docs/guides/github.md](docs/guides/github.md)).
+
+**Slack and Discord.** `p99 hooks set example.com --slack <webhook URL>` posts the site's new items, comments, status changes and shipped fixes to a channel, with no app to install; the URL is kept sealed and never shown again ([docs/hosts.md](docs/hosts.md)).
+
+**Mail for reporters.** With `p99 email set --provider resend --key-ref env:RESEND_KEY --from p99@example.com`, a reporter gets a mail when someone replies, when the status changes and when the fix ships, in the site's colours with a plain-text part. Each mail's link opens the item straight in the panel, and one click stops mail about that item.
 
 **Setup that explains itself.** `p99 setup` says which Cloudflare API token to create, where, and why each permission is needed. It checks the token and every permission, then creates the D1 database, the R2 bucket, the key, the Worker and a route for each site, showing its progress. It ends with what exists and the command to run next. It is safe to run again, and a second Cloudflare account goes in beside the first. `p99 deploy` uploads a new version later, keeping every secret.
 
