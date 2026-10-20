@@ -142,6 +142,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_migration_file_is_bundled_in_order() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/worker/migrations");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".sql"))
+            .collect();
+        files.sort();
+        let bundled: Vec<&str> = MIGRATIONS.iter().map(|m| m.0).collect();
+        assert_eq!(bundled, files);
+    }
+
+    #[test]
     fn the_listing_covers_every_module() {
         let listed = listing();
         assert_eq!(listed.len(), MODULES.len());
