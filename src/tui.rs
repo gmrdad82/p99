@@ -1,22 +1,27 @@
+mod board;
 mod codes;
+mod deck;
 pub mod demo;
 mod inbox;
 mod source;
 
+use std::io::Write;
 use std::path::Path;
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use pito_tui::capture::{self, Script, Walk};
-use pito_tui::crossterm::event::KeyEvent;
+use pito_tui::crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use pito_tui::footer::Hint;
 use pito_tui::header::Section;
 use pito_tui::ratatui::style::Color;
-use pito_tui::{Palette, Tui, Words, dump};
+use pito_tui::{FRAME, Modes, Palette, Tui, Words, dump};
 
 use crate::wire::{Code, Issue, Thread};
 use crate::{NAME, VERSION};
 
+use board::Board;
 use codes::Codes;
 use inbox::Inbox;
 use source::{Entry, Source};
@@ -113,7 +118,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
                 bench.worst,
             );
         }
-        let mut app = tui(source);
+        let mut app = tui(source.clone());
         app.shot(
             width,
             height,
@@ -130,6 +135,47 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         }
         let average = total / u32::try_from(frames.max(1)).unwrap_or(u32::MAX);
         report("Thread", frames, width, height, average, worst);
+        let carry = dump::keys("right right down left left up").unwrap_or_default();
+        let times = timed(&source, width, height, frames, "space", |app, frame| {
+            if frame % 6 == 0 {
+                app.key(carry[frame / 6 % carry.len()]);
+            }
+        });
+        spread(
+            "Board, carrying a card with the keys",
+            frames,
+            width,
+            height,
+            &times,
+        );
+        let reach = i32::from(width.saturating_sub(12));
+        let times = timed(&source, width, height, frames, "", |app, frame| {
+            let swing = (frame as i32 * 3) % (2 * reach);
+            let x = 6 + if swing < reach {
+                swing
+            } else {
+                2 * reach - swing
+            };
+            let y = 9 + (frame as i32 / 4) % 12;
+            let kind = if frame == 0 {
+                MouseEventKind::Down(MouseButton::Left)
+            } else {
+                MouseEventKind::Drag(MouseButton::Left)
+            };
+            app.mouse(MouseEvent {
+                kind,
+                column: x as u16,
+                row: y as u16,
+                modifiers: KeyModifiers::NONE,
+            });
+        });
+        spread(
+            "Board, dragging a card with the mouse",
+            frames,
+            width,
+            height,
+            &times,
+        );
         return ExitCode::SUCCESS;
     }
     if let Some((width, height)) = options.dump {
@@ -138,7 +184,12 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
             .as_deref()
             .and_then(|keys| dump::keys(keys).ok())
             .unwrap_or_default();
-        let buffer = tui(source).shot(width, height, &keys, !options.loading);
+        let mut app = tui(source);
+        let mut buffer = app.shot(width, height, &keys, !options.loading);
+        if !options.loading {
+            app.advance(SETTLE);
+            buffer = app.frame(width, height);
+        }
         if options.ansi {
             print!("{}", dump::ansi(&buffer));
         } else {
@@ -146,7 +197,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    match tui(source).run() {
+    match tui(source).after_draw(capture()).run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{NAME}: {error}");
@@ -155,9 +206,32 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     }
 }
 
+pub static BOARD_SHOWN: AtomicBool = AtomicBool::new(false);
+
+fn capture() -> impl FnMut(Duration) {
+    let mut on = true;
+    move |_| {
+        let want = BOARD_SHOWN.swap(false, Ordering::Relaxed);
+        if want == on {
+            return;
+        }
+        on = want;
+        let mut out = std::io::stdout();
+        let sent = if on {
+            pito_tui::crossterm::execute!(out, pito_tui::crossterm::event::EnableMouseCapture)
+        } else {
+            pito_tui::crossterm::execute!(out, pito_tui::crossterm::event::DisableMouseCapture)
+        };
+        if sent.is_ok() {
+            let _ = out.flush();
+        }
+    }
+}
+
 const ACCENT: Color = Color::Rgb(0x3b, 0x7d, 0xd8);
 const PACE: Duration = Duration::from_millis(250);
 const SIZE: (u16, u16) = (120, 34);
+const SETTLE: Duration = Duration::from_secs(1);
 
 pub enum Msg {
     Inbox(Result<Vec<Entry>, String>),
@@ -166,6 +240,13 @@ pub enum Msg {
     Changed(String, Result<Issue, String>),
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
+    Board(
+        Option<(usize, String)>,
+        Result<(usize, deck::BoardView), String>,
+    ),
+    Shifted(String, Result<deck::Moved, String>),
+    Heard(usize, String),
+    Boards(Result<Vec<(usize, deck::Boards)>, String>),
 }
 
 fn report(
@@ -180,6 +261,48 @@ fn report(
         "{NAME} --bench: {frames} frames of the {screen} screen at {width}x{height}: average {:.3} ms, worst {:.3} ms",
         average.as_secs_f64() * 1000.0,
         worst.as_secs_f64() * 1000.0,
+    );
+}
+
+fn timed(
+    source: &Source,
+    width: u16,
+    height: u16,
+    frames: usize,
+    lift: &str,
+    mut step: impl FnMut(&mut Tui<Msg>, usize),
+) -> Vec<Duration> {
+    let mut app = tui(source.clone());
+    app.shot(width, height, &dump::keys("tab").unwrap_or_default(), true);
+    for key in dump::keys(lift).unwrap_or_default() {
+        app.key(key);
+    }
+    let mut times = Vec::with_capacity(frames);
+    for frame in 0..frames {
+        step(&mut app, frame);
+        app.advance(FRAME);
+        let began = Instant::now();
+        app.frame(width, height);
+        times.push(began.elapsed());
+    }
+    times.sort();
+    times
+}
+
+fn spread(screen: &str, frames: usize, width: u16, height: u16, times: &[Duration]) {
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    let total: Duration = times.iter().sum();
+    let average = total / u32::try_from(times.len().max(1)).unwrap_or(u32::MAX);
+    let p99 = times
+        .get((times.len() * 99 / 100).min(times.len().saturating_sub(1)))
+        .copied()
+        .unwrap_or_default();
+    let worst = times.last().copied().unwrap_or_default();
+    println!(
+        "{NAME} --bench: {frames} frames of the {screen} at {width}x{height}, a slide always running: average {:.3} ms, p99 {:.3} ms, worst {:.3} ms",
+        ms(average),
+        ms(p99),
+        ms(worst),
     );
 }
 
@@ -212,7 +335,9 @@ fn tui(source: Source) -> Tui<Msg> {
             Hint::new("ctrl+c", "twice quit").pinned(),
         ])
         .footer_look(|footer, _| footer.separator(" · "))
+        .modes(Modes::new().mouse(true))
         .screen(Section::new("Inbox"), Inbox::new(source.clone(), palette()))
+        .screen(Section::new("Board"), Board::new(source.clone(), palette()))
         .screen(Section::new("Codes"), Codes::new(source, palette()))
 }
 

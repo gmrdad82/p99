@@ -7,6 +7,8 @@ use crate::wire::{
 
 use super::source::{Entry, iso};
 
+mod boards;
+
 pub const NOW: i64 = 1_791_979_200;
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
@@ -348,12 +350,14 @@ pub struct Demo {
     threads: Vec<Thread>,
     codes: Vec<Code>,
     next_comment: i64,
+    shelf: boards::Shelf,
 }
 
 impl Demo {
     pub fn new() -> Demo {
         let mut threads: Vec<Thread> = ITEMS
             .iter()
+            .chain(boards::ITEMS.iter())
             .enumerate()
             .map(|(at, item)| thread(at as i64 + 1, item))
             .collect();
@@ -424,6 +428,7 @@ impl Demo {
             threads,
             codes: codes(),
             next_comment,
+            shelf: boards::Shelf::new(),
         }
     }
 

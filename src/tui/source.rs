@@ -82,6 +82,7 @@ pub struct Live {
     accounts: Vec<String>,
     agent: bool,
     clients: OnceLock<Result<Vec<Client>, String>>,
+    listeners: Mutex<Vec<Waker<Msg>>>,
 }
 
 const PAGE: i64 = 100;
@@ -110,7 +111,24 @@ impl Source {
             accounts,
             agent,
             clients: OnceLock::new(),
+            listeners: Mutex::new(Vec::new()),
         }))
+    }
+
+    pub fn accounts(&self) -> Vec<String> {
+        match self {
+            Source::Demo(..) => vec!["sample".to_owned()],
+            Source::Live(live) => live.accounts.clone(),
+            Source::Broken(_) => Vec::new(),
+        }
+    }
+
+    pub(super) fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
+        match self {
+            Source::Live(live) => live.client(account, host),
+            Source::Demo(..) => Err("not the live data".into()),
+            Source::Broken(why) => Err(why.clone()),
+        }
     }
 
     pub fn is_demo(&self) -> bool {
@@ -162,7 +180,10 @@ impl Source {
         }
     }
 
-    fn sample<T>(&self, work: impl FnOnce(&mut Demo) -> Result<T, String>) -> Result<T, String> {
+    pub(super) fn sample<T>(
+        &self,
+        work: impl FnOnce(&mut Demo) -> Result<T, String>,
+    ) -> Result<T, String> {
         self.wait();
         match self {
             Source::Demo(demo, _) => {
@@ -230,17 +251,33 @@ impl Source {
     pub fn follow(&self, waker: &Waker<Msg>) {
         let Source::Live(live) = self else { return };
         let Ok(clients) = live.clients() else { return };
+        let Ok(mut listeners) = live.listeners.lock() else {
+            return;
+        };
+        listeners.push(waker.clone());
+        if listeners.len() > 1 {
+            return;
+        }
         for (account, client) in clients.iter().enumerate() {
-            let (client, waker) = (client.clone(), waker.clone());
+            let (client, live) = (client.clone(), Arc::clone(live));
             thread::spawn(move || {
+                let tell = |send: &dyn Fn(&Waker<Msg>) -> bool| {
+                    live.listeners
+                        .lock()
+                        .map(|listeners| listeners.iter().filter(|w| send(w)).count() > 0)
+                        .unwrap_or(false)
+                };
                 let _ = crate::stream::follow(&client, None, |heard| match heard {
                     Heard::Open { again: false } | Heard::Dropped(..) => true,
-                    Heard::Open { again: true } => waker.send(Msg::Pushed(account, None)),
+                    Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(account, None))),
                     Heard::Event(text) => {
                         let key = serde_json::from_str::<serde_json::Value>(text)
                             .ok()
                             .and_then(|event| event["key"].as_str().map(str::to_owned));
-                        waker.send(Msg::Pushed(account, key))
+                        tell(&|w| {
+                            w.send(Msg::Pushed(account, key.clone()))
+                                & w.send(Msg::Heard(account, text.to_owned()))
+                        })
                     }
                 });
             });
