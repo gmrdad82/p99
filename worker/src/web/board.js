@@ -94,7 +94,7 @@ const CSS = `
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, crumbs: null, roll: null, live: null, say: null, note: null, slug: null, data: null, boards: null, seq: 0, quiet: 0, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, crumbs: null, roll: null, live: null, say: null, note: null, slug: null, data: null, boards: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   B.ctx = ctx;
@@ -105,7 +105,7 @@ export function open(ctx) {
 
 export function close() {
   if (!B.open) return;
-  if (B.drag) cancel();
+  if (B.drag) { if (B.drag.keys) undo(); else abort(); }
   B.open = false;
   hang();
   B.el.classList.remove("is-open");
@@ -190,7 +190,10 @@ function load(slug) {
       B.data = d;
       paint();
     });
-  }).catch((e) => { if (seq === B.seq) note(e && e.message); });
+  }).catch((e) => {
+    if (e && e.status === 401) return close();
+    if (seq === B.seq) note(e && e.message);
+  });
 }
 
 function statuses() {
@@ -206,16 +209,35 @@ function nameOf(status) {
 function paint() {
   const d = B.data;
   paintHead(d.board);
-  B.cols.replaceChildren();
-  for (const s of statuses()) {
-    const list = h("ol", { class: "p99-cards", "data-empty": t("empty_column") });
-    const col = h("section", { class: "p99-col", "data-status": s.key, "aria-label": s.name },
-      h("header", { class: "p99-col-head" }, h("h3", { text: s.name }), h("span", { class: "p99-count", text: "0" })),
-      list);
-    for (const c of d.cards) if (c.status === s.key) list.append(card(c));
-    B.cols.append(col);
-  }
+  const list = statuses();
+  const same = B.cols.dataset.board === B.slug && B.cols.children.length === list.length && list.every((s, i) => B.cols.children[i].dataset.status === s.key);
+  const old = same ? new Map(cards().map((e) => [e.dataset.id, e])) : new Map();
+  const at = B.root.activeElement;
+  const fill = () => {
+    if (!same) {
+      B.cols.replaceChildren(...list.map((s) => h("section", { class: "p99-col", "data-status": s.key },
+        h("header", { class: "p99-col-head" }, h("h3"), h("span", { class: "p99-count", text: "0" })),
+        h("ol", { class: "p99-cards", "data-empty": t("empty_column") }))));
+      B.cols.dataset.board = B.slug;
+    }
+    list.forEach((s, i) => {
+      const col = B.cols.children[i];
+      col.setAttribute("aria-label", s.name);
+      col.querySelector("h3").textContent = s.name;
+      col.querySelector(".p99-cards").replaceChildren(...d.cards.filter((c) => c.status === s.key).map((c) => reuse(old.get(c.type === "board" ? "board:" + c.slug : c.key), card(c))));
+    });
+  };
+  if (same) flip(fill, TRAVEL, 260);
+  else fill();
+  if (at && at !== B.root.activeElement && at.isConnected) at.focus({ preventScroll: true });
   counts();
+}
+
+function reuse(e, n) {
+  if (!e) return n;
+  e.replaceChildren(...n.childNodes);
+  for (const a of ["aria-label", "data-pos", "data-type"]) e.setAttribute(a, n.getAttribute(a));
+  return e;
 }
 
 function paintHead(b) {
@@ -284,7 +306,7 @@ function flip(change, easing, ms) {
   if (still.matches) return;
   for (const e of cards()) {
     const a = from.get(e);
-    if (!a || (B.drag && B.drag.ghost && e === B.drag.card)) continue;
+    if (!a) continue;
     const b = e.getBoundingClientRect();
     const dx = a.left - b.left, dy = a.top - b.top;
     if (!dx && !dy) continue;
@@ -409,6 +431,7 @@ function abort() {
 }
 
 function land(d, then) {
+  if (d.scroll) cancelAnimationFrame(d.scroll);
   for (const c of B.cols.children) c.classList.remove("is-target");
   const g = d.ghost;
   const finish = () => {
@@ -429,7 +452,7 @@ function cancel() {
   const [list, next] = d.home;
   flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220);
   counts();
-  land(d, () => announce("cancelled", d.card));
+  land(d, () => { announce("cancelled", d.card); later(); });
 }
 
 function placeOf(e) {
@@ -443,13 +466,17 @@ function placeOf(e) {
 function commit(d) {
   const [list, next] = d.home;
   const e = d.card;
-  if (e.parentNode === list && e.nextSibling === next) return;
+  if (e.parentNode === list && e.nextSibling === next) return later();
+  const from = columnOf(list).dataset.status;
   const body = placeOf(e);
   announce("dropped", e, { column: nameOf(body.to) });
   B.ctx.call("POST", "/move", JSON.stringify(body)).then((r) => {
     if (r && r.moved && r.moved.position != null) e.dataset.pos = String(r.moved.position);
-    if (e.dataset.type === "board" || (r && r.changed && r.changed.length > 1)) soon();
+    if (e.dataset.type === "board" || (r && r.changed && r.changed.length > 1) || (from === "done") !== (body.to === "done")) soon();
+    else later();
   }, (err) => {
+    if (err && err.status === 401) return close();
+    later();
     flip(() => list.insertBefore(e, next && next.parentNode === list ? next : null), TRAVEL, 260);
     counts();
     note(t("move_failed", { card: e.dataset.id }) + (err && err.status && err.message ? " " + err.message : ""));
@@ -465,13 +492,17 @@ function tap(e) {
 function enter(c) {
   const id = c.dataset.id;
   if (id.startsWith("board:")) return load(id.slice(6));
-  B.focus = c;
-  if (B.ctx.item) B.ctx.item(id);
+  if (B.ctx.item) B.ctx.item(id, c);
 }
 
 function keys(e) {
   if (!B.open || e.defaultPrevented) return;
   const d = B.drag;
+  if (e.key === "Tab") {
+    if (d && d.keys) { e.preventDefault(); drop(); return; }
+    trap(e);
+    return;
+  }
   if (e.key === "Escape") {
     e.preventDefault();
     if (d) { if (d.keys) undo(); else abort(); }
@@ -491,6 +522,16 @@ function keys(e) {
   if (e.key === " ") { e.preventDefault(); grab(c); }
   else if (e.key === "Enter") { e.preventDefault(); enter(c); }
   else if (/^Arrow/.test(e.key)) { e.preventDefault(); walk(c, e.key); }
+}
+
+function trap(e) {
+  const at = B.root.activeElement;
+  if (at && !B.el.contains(at)) return;
+  const list = Array.from(B.el.querySelectorAll("a[href], button, [tabindex='0']")).filter((n) => n.offsetParent !== null);
+  if (!list.length) return;
+  const first = list[0], last = list[list.length - 1];
+  if (e.shiftKey && (at === first || at === B.el)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
 }
 
 function walk(c, key) {
@@ -556,6 +597,7 @@ function undo() {
   B.drag = null;
   d.card.focus({ preventScroll: true });
   announce("cancelled", d.card);
+  later();
 }
 
 function announce(key, e, args) {
@@ -609,24 +651,46 @@ function hang() {
 }
 
 function soon() {
+  B.stale = true;
   clearTimeout(B.reload);
-  B.reload = setTimeout(() => { B.boards = null; if (B.open) load(B.slug); }, 250);
+  B.reload = setTimeout(() => {
+    if (!B.open) return;
+    if (B.drag) return;
+    B.stale = false;
+    B.boards = null;
+    load(B.slug);
+  }, 250);
+}
+
+function later() {
+  if (B.stale) soon();
+}
+
+function within(slug) {
+  if (!B.boards) return true;
+  const by = new Map(B.boards.map((b) => [b.slug, b]));
+  for (let b = by.get(slug), n = 0; b && n < 64; b = by.get(b.parent), n++) if (b.slug === B.slug) return true;
+  return false;
 }
 
 function event(ev) {
   if (!ev || !B.data) return;
-  if (ev.type === "move") return place(ev.key, ev.board, ev.to, ev.position);
-  if (ev.type === "board.move") return place("board:" + ev.board, ev.parent, ev.to, ev.position);
+  if (ev.type === "move") return place(ev.key, ev.board, ev.from, ev.to, ev.position);
+  if (ev.type === "board.move") return place("board:" + ev.board, ev.parent, ev.from, ev.to, ev.position);
   soon();
 }
 
-function place(id, board, to, pos) {
-  if (B.drag && B.drag.id === id) return;
+function place(id, board, from, to, pos) {
+  if (B.drag && B.drag.id === id) return soon();
   const e = find(id);
+  if ((from === "done") !== (to === "done") && within(board)) soon();
   if (board !== B.slug) {
-    if (e) flip(() => e.remove(), TRAVEL, 200);
-    counts();
-    return soon();
+    if (e) {
+      flip(() => e.remove(), TRAVEL, 200);
+      counts();
+      soon();
+    } else if (within(board)) soon();
+    return;
   }
   const col = B.cols.querySelector(`.p99-col[data-status="${to}"]`);
   if (!e || !col) return soon();
@@ -637,5 +701,4 @@ function place(id, board, to, pos) {
   if (e.parentNode === list && e.nextSibling === before) return;
   flip(() => list.insertBefore(e, before), TRAVEL, 260);
   counts();
-  B.boards = null;
 }

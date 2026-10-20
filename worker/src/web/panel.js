@@ -361,7 +361,7 @@ function boardModule() {
 }
 function openBoard() {
   close();
-  boardModule().then((m) => m.open({ root, call, me, h, item: (key) => open(Object.assign({}, o, { view: "item", key })) }), () => {});
+  boardModule().then((m) => m.open({ root, call, me, h, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function keys(e) {
   if (e.key === "Escape") {
@@ -442,7 +442,7 @@ function close() {
   if (S.draft) S.draft.dispose();
   S.draft = null;
   if (/^#p99=/.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
-  const back = o.bar && o.bar.querySelector("button");
+  const back = (o.from && o.from.isConnected && o.from) || (o.bar && o.bar.querySelector("button"));
   if (back && panel.contains(root.activeElement)) back.focus();
 }
 function skeleton() {

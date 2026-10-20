@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { dirname, extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,8 @@ function boardView(slug) {
 }
 
 const sockets = new Set();
+const calls = [];
+let failNext = false;
 function frame(text) {
   const body = Buffer.from(text);
   const head = body.length < 126 ? Buffer.from([0x81, body.length]) : Buffer.from([0x81, 126, body.length >> 8, body.length & 255]);
@@ -122,6 +125,11 @@ function move(body) {
 }
 
 function api(method, path, body) {
+  calls.push({ method, path, body: body ? JSON.parse(body) : null });
+  if (failNext && method === "POST" && path === "/move") {
+    failNext = false;
+    return [500, { message: "the database is busy" }];
+  }
   if (path.startsWith("/me")) return [200, { name: ADA.name, email: ADA.email, manager: true, host: HOST, env: "production", version: "draft", counts: { mine_open: 0, mine_unread: 0, page_open: 2 }, theme: { accent: "#b5621e" }, strings: {} }];
   if (method === "GET" && path === "/boards") return [200, { statuses, boards: boards.map(summary) }];
   if (method === "GET" && path.startsWith("/boards/")) {
@@ -174,6 +182,10 @@ export function serve(port = PORT) {
   return new Promise((r) => server.listen(port, "127.0.0.1", () => r(server)));
 }
 
+export function drop() {
+  for (const s of sockets) s.destroy();
+}
+
 function openShadow() {
   const s = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (init) {
@@ -181,26 +193,168 @@ function openShadow() {
   };
 }
 
-async function draft() {
-  mkdirSync(out, { recursive: true });
-  const server = await serve();
-  const browser = await chromium.launch({
+function launch() {
+  return chromium.launch({
     executablePath: "/usr/bin/chromium",
     env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
     args: [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${PORT}`, `--unsafely-treat-insecure-origin-as-secure=${ORIGIN}`, "--hide-scrollbars", "--font-render-hinting=none"],
   });
+}
+
+async function board(browser, motion = "no-preference") {
+  const ctx = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: process.env.P99_SCHEME || "light", reducedMotion: motion });
+  await ctx.addInitScript(openShadow);
+  const p = await ctx.newPage();
+  const errors = [];
+  p.on("pageerror", (e) => errors.push(e.message));
+  await p.goto(`${ORIGIN}/checkout#p99=${CODE}`);
+  await p.waitForFunction(() => {
+    const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button:not(.f)");
+    return b && !b.hidden;
+  });
+  await p.locator("p99-root .w button:not(.f)").click();
+  await p.locator("p99-root .p99-board-open").click();
+  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card").length > 5);
+  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live");
+  await p.waitForTimeout(400);
+  return { p, errors };
+}
+
+const column = (p, status) => p.evaluate((s) => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-col[data-status="${s}"] .p99-card`), (e) => e.dataset.id), status);
+const lastMove = () => calls.filter((c) => c.method === "POST" && c.path === "/move").at(-1)?.body;
+const settle = (p) => p.waitForFunction(() => {
+  const r = document.querySelector("p99-root").shadowRoot;
+  return !r.querySelector(".p99-ghost") && r.getAnimations().every((a) => a.playState !== "running" || a.effect.getTiming().iterations === Infinity);
+});
+const shown = (p, sel) => p.waitForFunction((s) => document.querySelector("p99-root").shadowRoot.querySelector(s), sel);
+const evalIn = (p, fn, arg) => p.evaluate(fn, arg);
+
+async function drag(p, id, toId, steps = 12) {
+  const a = await p.locator(`p99-root .p99-card[data-id="${id}"]`).boundingBox();
+  const b = await p.locator(`p99-root .p99-card[data-id="${toId}"]`).boundingBox();
+  const x0 = a.x + a.width / 2, y0 = a.y + 20, x1 = b.x + b.width / 2, y1 = b.y + 6;
+  await p.mouse.move(x0, y0);
+  await p.mouse.down();
+  for (let i = 1; i <= steps; i++) {
+    await p.mouse.move(x0 + ((x1 - x0) * i) / steps, y0 + ((y1 - y0) * i) / steps);
+    await p.waitForTimeout(16);
+  }
+}
+
+async function check() {
+  const server = await serve();
+  const browser = await launch();
+  let passed = 0;
+  const ok = (name) => { passed++; console.log(`ok - ${name}`); };
   try {
-    const ctx = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: process.env.P99_SCHEME || "light" });
-    await ctx.addInitScript(openShadow);
-    const p = await ctx.newPage();
-    p.on("pageerror", (e) => console.error("page:", e.message));
-    await p.goto(`${ORIGIN}/checkout#p99=${CODE}`);
-    await p.waitForFunction(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button:not(.f)") && !document.querySelector("p99-root").shadowRoot.querySelector(".w button:not(.f)").hidden);
-    await p.locator("p99-root .w button:not(.f)").click();
-    await p.locator("p99-root .p99-board-open").click();
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card").length > 5);
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live");
-    await p.waitForTimeout(500);
+    const { p, errors } = await board(browser);
+    await p.evaluate(() => {
+      self.__loaf = [];
+      new PerformanceObserver((l) => self.__loaf.push(...l.getEntries().map((e) => e.duration))).observe({ type: "long-animation-frame" });
+    });
+    await drag(p, "FEAT-9", "TASK-3", 40);
+    const easing = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card")).flatMap((e) => e.getAnimations().map((a) => a.effect.getTiming().easing)));
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await settle(p);
+    assert.ok(easing.every((x) => x.startsWith("cubic-bezier")), `card animations ease: ${easing}`);
+    assert.deepEqual(lastMove(), { target: "FEAT-9", to: "doing", before: "TASK-3" });
+    assert.deepEqual((await column(p, "doing")).slice(-2), ["FEAT-9", "TASK-3"]);
+    const loaf = await p.evaluate(() => self.__loaf);
+    ok(`mouse drag moves FEAT-9 to Doing before TASK-3 (${easing.length} eased animations seen mid-drag, ${loaf.length} long animation frames)`);
+
+    await p.locator('p99-root .p99-card[data-id="BUG-9"]').focus();
+    await p.keyboard.press("Space");
+    await p.keyboard.press("ArrowRight");
+    await p.keyboard.press("ArrowDown");
+    await p.keyboard.press("Enter");
+    await settle(p);
+    assert.equal(lastMove().target, "BUG-9");
+    assert.equal(lastMove().to, "done");
+    assert.ok((await column(p, "done")).includes("BUG-9"));
+    ok("keyboard: Space lifts BUG-9, arrows carry it to Done, Enter drops it");
+
+    const before = calls.length;
+    await p.locator('p99-root .p99-card[data-id="Q-4"]').focus();
+    await p.keyboard.press("Space");
+    await p.keyboard.press("ArrowLeft");
+    await p.keyboard.press("Escape");
+    await settle(p);
+    assert.ok((await column(p, "review")).includes("Q-4"));
+    assert.equal(calls.slice(before).filter((c) => c.path === "/move").length, 0);
+    assert.equal(await evalIn(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board").hidden), false);
+    ok("keyboard: Escape puts Q-4 back with no move sent, and the board stays open");
+
+    failNext = true;
+    await drag(p, "IMP-6", "Q-4");
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await shown(p, ".p99-board-note");
+    await settle(p);
+    assert.ok((await column(p, "inbox")).includes("IMP-6"));
+    ok("a failed move animates IMP-6 back to Inbox and says so");
+
+    move({ target: "BUG-14", to: "review", after: "Q-4" });
+    await shown(p, '.p99-col[data-status="review"] .p99-card[data-id="BUG-14"]');
+    const live = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-card[data-id="BUG-14"]').getAnimations().map((a) => a.effect.getTiming().easing));
+    await settle(p);
+    assert.ok(live.length && live.every((x) => x.startsWith("cubic-bezier")), `live move eases: ${live}`);
+    assert.equal((await column(p, "review")).at(-1), "BUG-14");
+    ok("live: a move from another client slides BUG-14 into Review, eased");
+
+    const loads = calls.filter((c) => c.path === "/boards/shop-example-com").length;
+    move({ target: "board:spring-catalogue", to: "done" });
+    await shown(p, '.p99-col[data-status="done"] .p99-card[data-id="board:spring-catalogue"]');
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-card[data-id="board:spring-catalogue"] .p99-roll').textContent === "5/5");
+    assert.ok(calls.filter((c) => c.path === "/boards/shop-example-com").length > loads);
+    ok("live: a board card moved to Done by another client slides over, and its rollup reads 5/5");
+
+    drop();
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live").dataset.state !== "live");
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live").dataset.state === "live", null, { timeout: 5000 });
+    ok("the stream reconnects after the socket drops");
+
+    await p.locator('p99-root .p99-card[data-id="board:checkout-v2"]').click();
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "Checkout v2");
+    assert.ok((await column(p, "doing")).includes("BUG-12"));
+    await p.locator("p99-root .p99-crumbs a").click();
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "shop.example.com");
+    ok("a board card opens its board, and the breadcrumb goes back up");
+
+    await p.locator('p99-root .p99-card[data-id="BUG-14"]').click();
+    await shown(p, ".p99-panel.is-open");
+    assert.ok(calls.some((c) => c.path === "/issues/BUG-14"));
+    await p.keyboard.press("Escape");
+    await p.waitForFunction(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open"));
+    assert.equal(await evalIn(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board").hidden), false);
+    ok("an item card opens its thread in the panel; Escape closes the panel and leaves the board open");
+
+    await p.keyboard.press("Escape");
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board").hidden);
+    await p.waitForTimeout(300);
+    assert.equal(sockets.size, 0);
+    ok("Escape closes the board and its WebSocket");
+    assert.deepEqual(errors, []);
+
+    const quiet = await board(browser, "reduce");
+    await drag(quiet.p, "BUG-11", "BUG-7");
+    const running = await quiet.p.evaluate(() => document.querySelector("p99-root").shadowRoot.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).length);
+    await quiet.p.mouse.up();
+    assert.equal(running, 0);
+    ok("with reduced motion nothing animates");
+    console.log(`${passed} checks passed`);
+  } finally {
+    await browser.close();
+    server.close();
+  }
+}
+
+async function draft() {
+  mkdirSync(out, { recursive: true });
+  const server = await serve();
+  const browser = await launch();
+  try {
+    const { p } = await board(browser);
     const box = await p.locator('p99-root .p99-card[data-id="FEAT-9"]').boundingBox();
     const dest = await p.locator('p99-root .p99-card[data-id="TASK-3"]').boundingBox();
     await p.mouse.move(box.x + box.width / 2, box.y + 20);
@@ -220,4 +374,4 @@ async function draft() {
   }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) await draft();
+if (process.argv[1] === fileURLToPath(import.meta.url)) await (process.argv[2] === "check" ? check() : draft());
