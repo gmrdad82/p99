@@ -195,7 +195,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal((await app("GET", `/_p99/api/issues/${filed.json.key}?host=${here}`, { token: bossToken })).status, 200);
   });
 
-  await check("a session dies the moment its code is revoked or relinked", async () => {
+  await check("a session dies the moment its code is revoked, relinked or its authenticator is set up again", async () => {
     const ella = await person("Ella Baker", "ella.page@example.com", [here]);
     const opal = await person("Opal Tometi", "opal.page@example.com", [here]);
     const a = tokenOf(await signIn("ella.page@example.com", totpOf(ella.totp_key)));
@@ -207,6 +207,11 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal((await app("GET", "/_p99/app/spaces", { token: a })).status, 401);
     assert.equal((await app("GET", "/_p99/app/spaces", { token: b })).status, 401);
     assert.equal((await app("GET", `/_p99/api/me?host=${here}`, { token: b })).status, 401);
+    const june = await person("June Jordan", "june.page@example.com", [here]);
+    const c = tokenOf(await signIn("june.page@example.com", totpOf(june.totp_key)));
+    assert.equal((await app("GET", "/_p99/app/spaces", { token: c })).status, 200);
+    assert.equal((await call("POST", `/_p99/v1/codes/${june.code.id}/totp`)).status, 200);
+    assert.equal((await app("GET", "/_p99/app/spaces", { token: c })).status, 401);
   });
 
   await check("after ten wrong codes the authenticator is locked for sign-in too", async () => {

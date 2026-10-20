@@ -168,11 +168,12 @@ export async function listLabels(c) {
 async function guardLabel(c, v, labelId) {
   if (v.all) return;
   const elsewhere = await c.env.DB.prepare(
-    `SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE bc.label_id = ?1 AND (b.host IS NULL OR b.host <> ?2) LIMIT 1`,
+    `SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE bc.label_id = ?1 AND (b.host IS NULL OR b.host <> ?2)
+     UNION ALL SELECT 1 FROM items WHERE label_id = ?1 AND host <> ?2 LIMIT 1`,
   )
     .bind(labelId, v.host)
     .first();
-  if (elsewhere) K.fail(403, "that label is on boards of other hosts; change it from the CLI, without --host");
+  if (elsewhere) K.fail(403, "that label is used on other hosts; change it from the CLI, without --host");
 }
 
 export async function patchLabel(c, rawId) {

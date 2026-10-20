@@ -77,7 +77,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/issues` | actor | as the browser API, plus `"host"`; 201 issue |
 | `GET /_p99/v1/issues/{key}`, `PATCH`, `POST …/comments`, `PUT …/attachments/{uid}`, `GET /_p99/v1/files/{id}` | as the browser API | |
 | `GET /_p99/v1/labels` | managers | `{"labels":[{"id","name","closes","boards":[{"id","name","owner_username"}]}]}`: the labels used by an item or a board column, the four defaults first; `boards` are the boards in scope that use it as a column |
-| `PATCH /_p99/v1/labels/{id}` | managers | `{"name"}`; 200 `{"id","name","closes"}`: the name changes on every board and item at once; a name taken in any case answers 409; a manager scoped to one host renames only a label no other host's board uses (403 otherwise) |
+| `PATCH /_p99/v1/labels/{id}` | managers | `{"name"}`; 200 `{"id","name","closes"}`: the name changes on every board and item at once; a name taken in any case answers 409; a manager scoped to one host renames, or flips `closes` on, only a label no other host's board or item uses (403 otherwise) |
 | `POST /_p99/v1/merge` | actor | `{"items":[key],"into":key}`, at most 50 items; 200 `{"into","merged":[key],"unchanged":[key]}`, as [Merging duplicates](#merging-duplicates) describes |
 | `DELETE /_p99/v1/issues/{key}` | actor | deletes the item for good; 200 `{"key","comments","files","retrying","unlinked":[key]}`, as [Deleting an item](#deleting-an-item) describes |
 | `GET /_p99/v1/hosts` | managers | `{"hosts":[{"host","env","config","created_at"}]}` |
