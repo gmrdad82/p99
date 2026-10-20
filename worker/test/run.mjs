@@ -991,6 +991,22 @@ async function run() {
     assert.equal((await call("PATCH", `/_p99/v1/labels/${qa.id}`, { body: { name: "inbox" } })).status, 409);
   });
 
+  await check("a one-host manager can't close or rename a label that items of another host carry, even off every board", async () => {
+    const far = (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title: "Parked far away" }) })).json.key;
+    const park = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Park", columns: ["Inbox", "Parked", "Done"] } });
+    assert.equal(park.status, 201, JSON.stringify(park.json));
+    const moved = await call("POST", `/_p99/v1/move?host=${there}`, { body: { key: far, from: "Inbox", to: "Parked", board: park.json.id } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    assert.equal((await call("PUT", `/_p99/v1/boards/${park.json.id}?host=${there}`, { body: { columns: ["Inbox", "Building", "Done"] } })).status, 200);
+    const parked = (await call("GET", "/_p99/v1/labels")).json.labels.find((l) => l.name === "Parked");
+    const closing = await browse("POST", "/boards", boss.secret, { name: "Closer", columns: ["Inbox", { label: "Parked", closes: true }, "Done"] });
+    assert.equal(closing.status, 403, JSON.stringify(closing.json));
+    assert.equal((await browse("PATCH", `/labels/${parked.id}`, boss.secret, { name: "Gone" })).status, 403);
+    const still = (await call("GET", `/_p99/v1/issues/${far}?host=${there}`)).json.issue;
+    assert.deepEqual([still.label, still.stage], ["Parked", "in_progress"]);
+    assert.equal((await call("DELETE", `/_p99/v1/boards/${park.json.id}?host=${there}`)).status, 204);
+  });
+
   await check("a stream ticket opens one socket, once, and expires; a move is heard as a label change and an order", async () => {
     const first = await browse("POST", "/stream-ticket", boss.secret);
     assert.equal(first.status, 201, JSON.stringify(first.json));
