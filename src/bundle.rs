@@ -46,9 +46,11 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("mailer.js", ES),
     worker!("deletes.js", ES),
     worker!("links.js", ES),
+    worker!("people.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
     worker!("web/board.js", TEXT),
+    worker!("web/avatar.js", TEXT),
     worker!("web/shot.js", TEXT),
     worker!("web/p99.css", TEXT),
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
@@ -67,6 +69,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0008_mail.sql"),
     migration!("0009_merge.sql"),
     migration!("0010_deletions.sql"),
+    migration!("0012_people.sql"),
 ];
 
 pub fn modules() -> Vec<Module<'static>> {
