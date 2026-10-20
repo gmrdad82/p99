@@ -2,7 +2,7 @@
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:64 the config docs explain secret references to users
-README.md:125 the README names password managers that take the authenticator setup
+README.md:127 the README names password managers that take the authenticator setup
 docs/guides/invite.md:83 the invite guide tells users which password managers take the authenticator setup
 docs/hosts.md:61 the hooks docs show the secret-reference form a webhook URL is read through
 docs/hosts.md:68 the hooks docs explain secret references to users
@@ -12,7 +12,7 @@ src/hooks.rs:50 the --url-ref help names the reference schemes it reads
 src/hooks.rs:132 the --url-ref error names the reference schemes it reads
 src/github.rs:33 the --token-ref help names the reference schemes it reads
 src/vault.rs:86 the reference error names the schemes P99 reads
-worker/test/run.mjs:598 a refused webhook URL with a user part, in the test that guards the allowed hosts
+worker/test/run.mjs:599 a refused webhook URL with a user part, in the test that guards the allowed hosts
 docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
 docs/guides/setup.md:87 the setup guide explains secret references for the mail key
 src/email.rs:41 the --key-ref help names the reference schemes it reads
