@@ -4,22 +4,32 @@ better = "lower"
 subtitle = "HEADLESS CHROMIUM 154 ON LOCALHOST, AMD RYZEN 9 9950X"
 date = "2026-10-20"
 suffix = " MS"
-notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT.", "LOAD AVERAGE 26 TO 30 ON 32 THREADS; THE BOARD 11 TO 13."]
-parties = [{ name = "P99 1.8.0" }]
+notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT.", "THE P99 PAGE: 150 MS ROUND TRIPS, 1.6 MBPS, A 4X SLOWER CPU.", "LOAD AVERAGE 19 TO 30 ON 32 THREADS."]
+parties = [{ name = "P99 1.9.0" }]
 
 [[groups]]
 name = "THE BUTTON"
 rows = [
-  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [11.8] },
-  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [4.5] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [44.5] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [16.9] },
+  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [8.9] },
+  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [3.4] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [42.6] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [13.8] },
 ]
 
 [[groups]]
 name = "THE PANEL"
-rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [55.8] }]
+rows = [
+  { label = "CLICK TO THE FORM ON SCREEN, COLD", values = [59.0] },
+  { label = "CLICK TO THE FORM ON SCREEN, WARM", values = [25.5] },
+]
 
 [[groups]]
 name = "THE BOARD"
-rows = [{ label = "CLICK ON BOARD TO THE BOARD WITH ITS CARDS, COLD", values = [193.0] }]
+rows = [{ label = "CLICK ON BOARD TO THE BOARD WITH 270 CARDS, COLD", values = [294.1] }]
+
+[[groups]]
+name = "THE P99 PAGE ON A MID-RANGE PHONE"
+rows = [
+  { label = "FIRST PAINT, SIGNED OUT", values = [226] },
+  { label = "FIRST PAINT, SIGNED IN", values = [216] },
+]
