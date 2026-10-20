@@ -51,6 +51,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("tries.js", ES),
     worker!("badge.js", ES),
     worker!("standalone.js", ES),
+    worker!("brand.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
     worker!("web/board.js", TEXT),
@@ -63,6 +64,12 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
     worker!("web/art/concrete.svg", TEXT),
     worker!("web/art/concrete-dark.svg", TEXT),
+    worker!("web/art/lockup-dark.svg", TEXT),
+    worker!("web/badges/free.svg", TEXT),
+    worker!("web/badges/studio.svg", TEXT),
+    worker!("web/badges/agency.svg", TEXT),
+    worker!("web/badges/owner.svg", TEXT),
+    worker!("web/badges/ff.svg", TEXT),
 ];
 
 pub const MIGRATIONS: &[(&str, &str)] = &[
