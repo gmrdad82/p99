@@ -12,6 +12,7 @@ mod import;
 mod labels;
 mod license;
 mod links;
+mod migrate;
 mod setup;
 mod sign;
 mod stream;
@@ -56,6 +57,10 @@ enum Command {
     Setup(setup::SetupArgs),
     #[command(about = "upload this version's Worker to an account")]
     Deploy(setup::DeployArgs),
+    #[command(
+        about = "show, read-only, what this version's data-changing migrations would do on an account"
+    )]
+    Migrate(migrate::MigrateArgs),
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
     Bundle,
     #[command(
@@ -91,6 +96,7 @@ fn main() -> ExitCode {
         Command::Tui(args) => return tui::run(&args, &p99.global),
         Command::Setup(args) => setup::setup(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
+        Command::Migrate(args) => migrate::run(&args, &p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::License(args) => license::run(&args, &p99.global),
         Command::Email(args) => email::run(&args, &p99.global),

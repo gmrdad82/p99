@@ -55,6 +55,8 @@ fn emit<T: Serialize>(value: &T) -> Result<(), String> {
 struct Migrated {
     applied: Vec<String>,
     already: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    accepted: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -195,12 +197,24 @@ pub struct SetupArgs {
     pub mail_from: Option<String>,
     #[arg(long, help = "leave mail off without asking")]
     pub no_mail: bool,
+    #[arg(
+        long,
+        value_name = "hash",
+        help = "the hash `p99 migrate --plan` printed, which data-changing migrations need"
+    )]
+    pub accept_plan: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct DeployArgs {
     #[arg(long, help = "skip the health check of the account's hosts")]
     pub no_check: bool,
+    #[arg(
+        long,
+        value_name = "hash",
+        help = "the hash `p99 migrate --plan` printed, which data-changing migrations need"
+    )]
+    pub accept_plan: Option<String>,
 }
 
 struct Ask {
@@ -708,7 +722,7 @@ pub fn migration_sql(name: &str, sql: &str) -> String {
 
 const MIGRATIONS_TABLE: &str = "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);";
 
-fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, String> {
+pub fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, String> {
     let rows = cf.query(
         account,
         db,
@@ -725,7 +739,9 @@ fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, Stri
     }
 }
 
-fn migrate(cf: &Cloudflare, account: &str, db: &str) -> Result<Migrated, String> {
+fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
+    let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
+    let accepted = crate::migrate::gate(cf, entry, &applied(cf, account, db)?, accept)?;
     cf.query(account, db, MIGRATIONS_TABLE, &[])?;
     let applied = applied(cf, account, db)?;
     let todo = pending(bundle::MIGRATIONS, &applied);
@@ -736,6 +752,7 @@ fn migrate(cf: &Cloudflare, account: &str, db: &str) -> Result<Migrated, String>
             .filter(|(name, _)| applied.iter().any(|a| a == name))
             .map(|(name, _)| (*name).to_owned())
             .collect(),
+        accepted,
     };
     out.already.sort();
     if todo.is_empty() {
@@ -1297,7 +1314,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "The schema",
         "Migrations are applied in order and recorded in d1_migrations, as wrangler records them.",
     );
-    migrate(&cf, &id, &account.database_id)?;
+    migrate(&cf, &account, args.accept_plan.as_deref())?;
 
     step(
         5,
@@ -1621,7 +1638,7 @@ fn deploy_into(
             account.worker
         )
     })?;
-    report.migrations = migrate(&cf, id, &account.database_id)?;
+    report.migrations = migrate(&cf, account, args.accept_plan.as_deref())?;
     let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
         Some(_) => None,
         None => Some(

@@ -72,6 +72,8 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0012_people.sql"),
 ];
 
+pub const GATED: &[&str] = &["0011", "0012", "0013"];
+
 pub fn modules() -> Vec<Module<'static>> {
     MODULES
         .iter()
@@ -138,6 +140,47 @@ pub fn run(global: &Global) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_migration_file_is_bundled_in_order() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/worker/migrations");
+        let mut files: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".sql"))
+            .collect();
+        files.sort();
+        let bundled: Vec<&str> = MIGRATIONS.iter().map(|m| m.0).collect();
+        assert_eq!(bundled, files);
+    }
+
+    #[test]
+    fn every_worker_module_and_what_it_imports_is_bundled() {
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src");
+        let bundled: Vec<&str> = MODULES.iter().map(|m| m.0).collect();
+        let mut wanted: Vec<String> = std::fs::read_dir(src)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".js"))
+            .collect();
+        for (name, _, bytes) in MODULES.iter().filter(|m| m.1 == ES) {
+            let text = std::str::from_utf8(bytes).unwrap();
+            let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
+            for quote in ["from \"./", "import \"./"] {
+                for part in text.split(quote).skip(1) {
+                    let path = &part[..part.find('"').unwrap()];
+                    wanted.push(if dir.is_empty() {
+                        path.to_owned()
+                    } else {
+                        format!("{dir}/{path}")
+                    });
+                }
+            }
+        }
+        for file in wanted {
+            assert!(bundled.contains(&file.as_str()), "{file} is not bundled");
+        }
+    }
 
     #[test]
     fn the_listing_covers_every_module() {
