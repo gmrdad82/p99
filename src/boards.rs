@@ -354,7 +354,14 @@ pub fn columns(view: &BoardView) -> Vec<String> {
         for card in cards {
             lines.push(match card {
                 Card::Item(item) => {
-                    let mut line = format!("  {:<9} {}", item.key, item.title);
+                    let mark = crate::wire::priority_mark(item.priority.as_deref());
+                    let mut line = format!(
+                        "  {:<9} {}{}{}",
+                        item.key,
+                        mark,
+                        if mark.is_empty() { "" } else { " " },
+                        item.title
+                    );
                     if status.key == "done"
                         && let Some(resolution) = item.resolution.as_deref()
                         && resolution != "fixed"
@@ -366,6 +373,9 @@ pub fn columns(view: &BoardView) -> Vec<String> {
                     }
                     if let Some(assignee) = &item.assignee {
                         line.push_str(&format!("  -> {assignee}"));
+                    }
+                    if !item.labels.is_empty() {
+                        line.push_str(&format!("  labels: {}", crate::labels::tags(&item.labels)));
                     }
                     line
                 }

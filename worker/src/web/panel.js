@@ -7,6 +7,8 @@ const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
 const LEGACY = { new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
+const PRIORITIES = ["urgent", "high", "normal", "low"];
+const MARKS = { urgent: "!!", high: "!", low: "↓" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
 const TYPES = {
@@ -111,6 +113,17 @@ const WORDS = {
   event_landed: "the fix reached {env}",
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
+  event_priority: "set the priority to {to}",
+  event_priority_none: "cleared the priority",
+  event_labels: "changed the labels: {list}",
+  priority: "Priority",
+  priority_none: "None",
+  priority_urgent: "Urgent",
+  priority_high: "High",
+  priority_normal: "Normal",
+  priority_low: "Low",
+  labels: "Labels",
+  label_new: "New labels, comma-separated",
   capturing: "Capturing the screen…",
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
@@ -510,6 +523,14 @@ function statusWord(s, r) {
 function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
 function statusPill(s, r) { return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), statusWord(s, r)); }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
+function rankMark(p) { return MARKS[p] ? h("span", { class: "p99-rank", "data-priority": p, title: say("priority_" + p), text: MARKS[p] }) : null; }
+function rankPill(p) { return p ? pill("p99-kind p99-rank-pill", "data-priority", p, (MARKS[p] ? MARKS[p] + " " : "") + say("priority_" + p)) : null; }
+function tagChip(t) {
+  const e = h("span", { class: "p99-tag", text: t.name });
+  if (/^#[0-9a-f]{6}$/i.test(t.color || "")) e.style.setProperty("--p99-tag", t.color);
+  return e;
+}
+function tagChips(list) { return Array.isArray(list) && list.length ? h("span", { class: "p99-tags" }, list.map(tagChip)) : null; }
 function landing(l) {
   if (!l) return null;
   const envs = Array.isArray(l.envs) ? l.envs : [];
@@ -610,11 +631,13 @@ function row(r) {
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": r.status, "data-kind": r.kind, "data-unread": !!r.unread },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
+      rankMark(r.priority),
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
       statusPill(r.status, r.resolution),
       kindPill(r.kind),
+      tagChips(r.labels),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
 }
@@ -665,7 +688,7 @@ function thread(t) {
   const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution), " ", rankPill(i.priority), tagChips(i.labels)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -709,6 +732,8 @@ function eventText(ev) {
   if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: obj.to }) : say("event_unassigned");
+  if (ev.kind === "priority") return obj.to ? say("event_priority", { to: say("priority_" + obj.to) }) : say("event_priority_none");
+  if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
   if (("event_" + ev.kind) in WORDS) return say("event_" + ev.kind, { to: obj.to == null ? "" : obj.to, env: obj.env || "" });
@@ -809,6 +834,8 @@ function manageForm(i) {
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     h("label", null, h("span", { text: say("assignee") }), h("input", { type: "email", name: "assignee", value: i.assignee || "", autocomplete: "off" })),
     h("label", null, h("span", { text: say("duplicate_label") }), h("input", { name: "duplicate_of", value: i.duplicate_of || "", placeholder: say("duplicate_hint"), autocomplete: "off" })),
+    h("label", null, h("span", { text: say("priority") }), h("select", { name: "priority" }, [""].concat(PRIORITIES).map((p) => h("option", { value: p, selected: (i.priority || "") === p, text: say("priority_" + (p || "none")) })))),
+    tagPicker(i),
     statusLine(),
     h("button", { type: "submit", text: say("save") }));
   form.addEventListener("submit", (e) => {
@@ -821,9 +848,27 @@ function manageForm(i) {
       if (res) data.resolution = res;
     }
     if ("assignee" in data && !data.assignee) data.assignee = null;
+    if ("priority" in data) data.priority = data.priority || null;
+    const picked = Array.from(form.querySelectorAll(".p99-tag-pick input:checked"), (x) => x.value)
+      .concat(form.querySelector("[data-new-label]").value.split(",").map((n) => n.trim()).filter(Boolean));
+    const key = (list) => Array.from(new Set(list.map((n) => n.toLowerCase()))).sort().join("\n");
+    if (key(picked) !== key((i.labels || []).map((t) => t.name))) data.labels = picked;
     patch(i.key, data, form);
   });
   return form;
+}
+function tagPicker(i) {
+  const list = h("span", { class: "p99-tags" });
+  const seen = new Set();
+  const add = (t, on) => {
+    if (!t || seen.has(String(t.name).toLowerCase())) return;
+    seen.add(String(t.name).toLowerCase());
+    list.append(h("label", { class: "p99-tag-check" }, h("input", { type: "checkbox", value: t.name, checked: on }), tagChip(t)));
+  };
+  (i.labels || []).forEach((t) => add(t, true));
+  call("GET", "/labels").then((r) => ((r && r.labels) || []).forEach((t) => add(t, false)), () => {});
+  return h("fieldset", { class: "p99-tag-pick" }, h("legend", { text: say("labels") }), list,
+    h("input", { "data-new-label": true, placeholder: say("label_new"), autocomplete: "off", "aria-label": say("label_new") }));
 }
 function editForm(i) {
   const form = h("form", { class: "p99-edit", novalidate: true },

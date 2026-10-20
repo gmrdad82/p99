@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use crate::wire::{
     self, Author, Change, Code, Comment, Event, Issue, Landing, PageRef, Person, Reached, Summary,
-    Thread,
+    Tag, Thread,
 };
 
 use super::source::{Entry, iso};
@@ -10,6 +10,23 @@ use super::source::{Entry, iso};
 pub const NOW: i64 = 1_791_979_200;
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
+
+const LABELS: [(&str, &str); 4] = [
+    ("checkout", "#e0823d"),
+    ("mobile", "#539bf5"),
+    ("design", "#986ee2"),
+    ("copy", "#57ab5a"),
+];
+
+const TAGS: [(usize, Option<&str>, &[usize]); 7] = [
+    (1, Some("low"), &[1, 2]),
+    (3, Some("high"), &[0, 2]),
+    (4, Some("normal"), &[2]),
+    (5, Some("normal"), &[3]),
+    (8, Some("high"), &[1]),
+    (9, None, &[2]),
+    (11, Some("urgent"), &[0]),
+];
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 3600;
@@ -384,6 +401,12 @@ impl Demo {
         land(&mut threads[4], &[("dev", 18 * HOUR)]);
         threads[7].issue.landing.branch = true;
         threads[11].issue.duplicate_of = Some("BUG-11".into());
+        for &(item, priority, labels) in &TAGS {
+            if let Some(thread) = threads.get_mut(item - 1) {
+                thread.issue.priority = priority.map(Into::into);
+                thread.issue.labels = labels.iter().map(|&at| tag(LABELS[at].0)).collect();
+            }
+        }
         for thread in &mut threads {
             thread.events.sort_by(|a, b| a.at.cmp(&b.at));
         }
@@ -490,6 +513,27 @@ impl Demo {
         }
         if let Some(of) = &change.duplicate_of {
             issue.duplicate_of = Some(of.clone());
+        }
+        if let Some(priority) = &change.priority {
+            if priority
+                .as_deref()
+                .is_some_and(|p| !wire::PRIORITIES.contains(&p))
+            {
+                return Err("priority must be urgent, high, normal or low".into());
+            }
+            issue.priority = priority.clone();
+        }
+        if let Some(edit) = &change.labels {
+            let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
+            issue
+                .labels
+                .retain(|t| !edit.remove.iter().any(|r| same(r, &t.name)));
+            for name in &edit.add {
+                if !issue.labels.iter().any(|t| same(&t.name, name)) {
+                    issue.labels.push(tag(name));
+                }
+            }
+            issue.labels.sort_by_key(|t| t.name.to_lowercase());
         }
         issue.updated_at = iso(NOW);
         Ok(issue.clone())
@@ -598,6 +642,19 @@ pub fn summary(issue: &Issue) -> Summary {
         attachments: issue.attachments,
         unread: issue.unread,
         landing: issue.landing.clone(),
+        priority: issue.priority.clone(),
+        labels: issue.labels.clone(),
+    }
+}
+
+fn tag(name: &str) -> Tag {
+    let color = LABELS
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case(name))
+        .map_or("#39a5a0", |(_, c)| c);
+    Tag {
+        name: name.to_owned(),
+        color: color.to_owned(),
     }
 }
 

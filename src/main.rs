@@ -8,6 +8,7 @@ mod docs;
 mod hooks;
 mod github;
 mod import;
+mod labels;
 mod license;
 mod setup;
 mod sign;

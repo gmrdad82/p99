@@ -399,6 +399,59 @@ async function run() {
     assert.equal(forged.status, 400);
   });
 
+  await check("only managers set and see priority and labels, and the filters return the right rows", async () => {
+    const issue = (k, extra = "") => call("GET", `/_p99/v1/issues/${k}?host=${here}${extra}`);
+    const set = (k, body) => call("PATCH", `/_p99/v1/issues/${k}?host=${here}`, { body });
+    const file = async (title) => (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title }) })).json.key;
+    const [one, two] = [await file("Labelled one"), await file("Labelled two")];
+    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { priority: "urgent" })).status, 403);
+    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { labels: ["ui"] })).status, 403);
+    const tagged = await set(key, { priority: "urgent", labels: { add: ["Checkout", "ui"] } });
+    assert.equal(tagged.status, 200, JSON.stringify(tagged.json));
+    assert.equal(tagged.json.priority, "urgent");
+    assert.deepEqual(tagged.json.labels.map((t) => t.name), ["Checkout", "ui"]);
+    assert.match(tagged.json.labels[0].color, /^#[0-9a-f]{6}$/);
+    assert.equal((await set(one, { priority: "high", labels: { add: ["UI"] } })).json.labels[0].name, "ui");
+    assert.equal((await set(two, { priority: "bogus" })).status, 400);
+    const seen = await browse("GET", `/issues/${key}`, adaHere.secret);
+    assert.equal(seen.json.issue.priority, null);
+    assert.deepEqual(seen.json.issue.labels, []);
+    assert.equal(seen.json.events.some((ev) => ev.kind === "priority" || ev.kind === "labels"), false);
+    const mine = await browse("GET", "/issues?scope=mine", adaHere.secret);
+    assert.ok(mine.json.issues.every((i) => i.priority === null && i.labels.length === 0));
+    assert.equal((await browse("GET", "/issues?scope=mine&label=ui", adaHere.secret)).status, 403);
+    assert.equal((await browse("GET", "/issues?scope=mine&priority=urgent", adaHere.secret)).status, 403);
+    assert.equal((await browse("GET", "/labels", adaHere.secret)).status, 403);
+    const keys = async (q) =>
+      (await call("GET", `/_p99/v1/issues?scope=all&host=*&${q}`)).json.issues.map((i) => i.key).filter((k) => [key, one, two].includes(k)).sort();
+    assert.deepEqual(await keys("label=UI"), [key, one].sort());
+    assert.deepEqual(await keys("label=ui&label=checkout"), [key]);
+    assert.deepEqual(await keys("priority=urgent&priority=high"), [key, one].sort());
+    assert.deepEqual(await keys("priority=none"), [two]);
+    assert.equal((await call("GET", `/_p99/v1/issues?scope=all&priority=soon`)).status, 400);
+    assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "CHECKOUT" } })).status, 409);
+    assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "copy", color: "red" } })).status, 400);
+    assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "copy", color: "#57AB5A" } })).json.color, "#57ab5a");
+    const renamed = await call("PATCH", "/_p99/v1/labels/ui", { body: { name: "web ui" } });
+    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
+    assert.equal(renamed.json.items, 2);
+    assert.deepEqual((await issue(one)).json.issue.labels.map((t) => t.name), ["web ui"]);
+    assert.equal((await call("PATCH", `/_p99/v1/labels/copy?host=${here}`, { body: { name: "words" } })).status, 403);
+    const listed = await call("GET", "/_p99/v1/labels");
+    assert.deepEqual(listed.json.labels.map((l) => [l.name, l.items]), [["Checkout", 1], ["copy", 0], ["web ui", 2]]);
+    const gone = await call("DELETE", `/_p99/v1/labels/${encodeURIComponent("web ui")}`);
+    assert.deepEqual(gone.json, { name: "web ui", items: 2 });
+    assert.deepEqual((await issue(key)).json.issue.labels.map((t) => t.name), ["Checkout"]);
+    const board = await call("GET", `/_p99/v1/boards/${here.replace(/\./g, "-")}?host=${here}`);
+    assert.equal(board.status, 200, JSON.stringify(board.json));
+    const card = board.json.cards.find((cd) => cd.key === key);
+    assert.equal(card.priority, "urgent");
+    assert.deepEqual(card.labels.map((t) => t.name), ["Checkout"]);
+    const cleared = await set(key, { priority: null, labels: [] });
+    assert.equal(cleared.json.priority, null);
+    assert.deepEqual(cleared.json.labels, []);
+  });
+
   await check("a page path that leaves the host is refused", async () => {
     const page = { url: "https://example.com/x", path: "/\\evil.example/x", title: "Orders" };
     assert.equal((await browse("POST", "/issues", adaHere.secret, issueBody({ page }))).status, 400);

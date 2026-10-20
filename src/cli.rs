@@ -96,6 +96,14 @@ pub enum Command {
     Hooks(crate::hooks::HooksArgs),
     #[command(about = "link a host to a GitHub repository, and open GitHub issues for items")]
     Github(crate::github::GithubArgs),
+    #[command(about = "set an item's priority, or clear it")]
+    Priority(crate::labels::PriorityArgs),
+    #[command(about = "put labels on an item; a label that doesn't exist yet is made")]
+    Label(crate::labels::LabelArgs),
+    #[command(about = "take labels off an item")]
+    Unlabel(crate::labels::LabelArgs),
+    #[command(about = "list the account's labels; add, rename, recolour or remove one")]
+    Labels(crate::labels::LabelsArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -249,6 +257,18 @@ pub struct ListArgs {
         help = "items whose title or text holds these words, accents ignored"
     )]
     pub query: Option<String>,
+    #[arg(
+        long,
+        value_parser = ["urgent", "high", "normal", "low", "none"],
+        help = "only this priority; repeat it for any of several"
+    )]
+    pub priority: Vec<String>,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "only items with this label; repeat it for all of several"
+    )]
+    pub label: Vec<String>,
     #[arg(long, default_value_t = 50, help = "at most this many items")]
     pub limit: usize,
 }
@@ -409,6 +429,10 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Watch(a) => watch(&config, global, &a),
         Command::Hooks(a) => crate::hooks::run(&config, global, &a),
         Command::Github(a) => crate::github::run(&config, global, &a),
+        Command::Priority(a) => crate::labels::priority(&config, global, &a),
+        Command::Label(a) => crate::labels::label(&config, global, &a, true),
+        Command::Unlabel(a) => crate::labels::label(&config, global, &a, false),
+        Command::Labels(a) => crate::labels::labels(&config, global, &a),
     }
 }
 
@@ -992,12 +1016,15 @@ fn rename(config: &Config, global: &Global, from: &str, to: &str) -> Result<(), 
 }
 
 fn summary_line(item: &Summary) -> String {
+    let mark = crate::wire::priority_mark(item.priority.as_deref());
     let mut line = format!(
-        "{}{:<8} {:<11} {:<11} {}",
+        "{}{:<8} {:<11} {:<11} {}{}{}",
         if item.unread { "*" } else { " " },
         item.key,
         crate::wire::status_text(&item.status, item.resolution.as_deref()),
         item.host.as_deref().unwrap_or("-"),
+        mark,
+        if mark.is_empty() { "" } else { " " },
         item.title
     );
     if let Some(assignee) = &item.assignee {
@@ -1011,6 +1038,9 @@ fn summary_line(item: &Summary) -> String {
         line.push_str(&format!("  landed: {}", landed.join(", ")));
     } else if item.landing.branch {
         line.push_str("  fixed on a branch");
+    }
+    if !item.labels.is_empty() {
+        line.push_str(&format!("  labels: {}", crate::labels::tags(&item.labels)));
     }
     line
 }
@@ -1036,6 +1066,16 @@ fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
                 .is_none_or(|h| s.host.as_ref() == Some(h))
             && (!args.mine || s.reporter.email == crate::tui::demo::ME.1)
             && text.is_none_or(|t| s.title.to_lowercase().contains(&t))
+            && (args.priority.is_empty()
+                || args
+                    .priority
+                    .iter()
+                    .any(|p| s.priority.as_deref().unwrap_or("none") == p))
+            && args.label.iter().all(|l| {
+                s.labels
+                    .iter()
+                    .any(|t| t.name.to_lowercase() == l.to_lowercase())
+            })
     };
     let mut found: Vec<Summary> = demo(global)?
         .list()
@@ -1082,6 +1122,8 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 q: args.query.clone(),
                 cursor: cursor.clone(),
                 host: host.clone(),
+                priority: args.priority.clone(),
+                label: args.label.clone(),
                 limit: (args.limit - taken).min(100) as i64,
             };
             let page = client.list(&query)?;
@@ -1167,6 +1209,15 @@ fn print_thread(thread: &Thread) {
             link.rel,
             link.url
         );
+    }
+    if let Some(priority) = &issue.priority {
+        out!(
+            "priority {}",
+            crate::wire::priority_word(priority).to_lowercase()
+        );
+    }
+    if !issue.labels.is_empty() {
+        out!("labels: {}", crate::labels::tags(&issue.labels));
     }
     for reached in &issue.landing.envs {
         out!(
