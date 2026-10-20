@@ -743,21 +743,35 @@ pub fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, 
 
 fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
     let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
-    let accepted = crate::migrate::gate(cf, entry, &applied(cf, account, db)?, accept)?;
+    let before = applied(cf, account, db)?;
+    let mut early = Vec::new();
+    for (name, sql) in crate::migrate::early(&before) {
+        cf.query(account, db, &migration_sql(name, sql), &[])?;
+        done(&format!("applied {name}"));
+        early.push(name.to_owned());
+    }
+    let before = if early.is_empty() {
+        before
+    } else {
+        applied(cf, account, db)?
+    };
+    let accepted = crate::migrate::gate(cf, entry, &before, accept)?;
     cf.query(account, db, MIGRATIONS_TABLE, &[])?;
     let applied = applied(cf, account, db)?;
     let todo = pending(bundle::MIGRATIONS, &applied);
     let mut out = Migrated {
-        applied: Vec::new(),
         already: bundle::MIGRATIONS
             .iter()
-            .filter(|(name, _)| applied.iter().any(|a| a == name))
+            .filter(|(name, _)| {
+                applied.iter().any(|a| a == name) && !early.iter().any(|e| e == name)
+            })
             .map(|(name, _)| (*name).to_owned())
             .collect(),
+        applied: early,
         accepted,
     };
     out.already.sort();
-    if todo.is_empty() {
+    if todo.is_empty() && out.applied.is_empty() {
         done("every migration is applied");
     }
     for (name, sql) in todo {

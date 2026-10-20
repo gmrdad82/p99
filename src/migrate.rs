@@ -104,6 +104,19 @@ pub fn gated_pending(applied: &[String]) -> Vec<String> {
         .collect()
 }
 
+pub fn early(applied: &[String]) -> Vec<(&'static str, &'static str)> {
+    if applied.is_empty() {
+        return Vec::new();
+    }
+    let Some(first) = gated_pending(applied).into_iter().next() else {
+        return Vec::new();
+    };
+    crate::setup::pending(bundle::MIGRATIONS, applied)
+        .into_iter()
+        .filter(|(name, _)| *name < first.as_str())
+        .collect()
+}
+
 fn numbered(name: &str, prefix: &str) -> bool {
     name.strip_prefix(prefix)
         .is_some_and(|rest| rest.starts_with('_'))
@@ -218,7 +231,7 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     let legacy = pending.iter().any(|p| p.starts_with("0004"));
     if !legacy && !applied.iter().any(|a| numbered(a, "0005")) {
         return Err(
-            "this account's schema stops partway through P99 1.8 (0005 not applied): deploy that 1.8 release again, then plan"
+            "this account's schema stops between 0004 and 0005: run `p99 deploy` with this CLI, which adds 0005 to 0010 first and then asks for the plan"
                 .into(),
         );
     }
@@ -252,7 +265,7 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
                 }));
             }
         }
-        plan["people"] = json!({ "rows": derived.len(), "usernames": notable });
+        plan["people"] = json!({ "rows": derived.len(), "usernames": notable, "digest": hash(&json!(usernames)) });
     } else if applied.iter().any(|a| numbered(a, "0012")) {
         for row in select(cf, account, Q_USERNAMES)? {
             usernames.insert(text(&row, "email"), text(&row, "username"));
@@ -356,16 +369,24 @@ fn owner_decisions(
         .filter(|host| !reach.contains("*") && !reach.contains(host.as_str()))
         .map(String::as_str)
         .collect();
+    let mut spaces: BTreeMap<Option<&str>, usize> = BTreeMap::new();
+    for host in hosts {
+        *spaces.entry(host.as_deref()).or_default() += 1;
+    }
     match owner {
         None if !hosts.is_empty() => decisions.push(
             "no live manager code exists to own the boards: mint a manager code before deploying"
                 .into(),
         ),
-        Some((email, name)) if hosts.len() > BOARDS_PER_PERSON => decisions.push(format!(
-            "{} would own all {} boards ({why}), over the {BOARDS_PER_PERSON} a person may have: say who owns which, or which boards to remove first",
-            person(name, email),
-            hosts.len()
-        )),
+        Some((email, name)) => {
+            for (space, n) in spaces.iter().filter(|(_, n)| **n > BOARDS_PER_PERSON) {
+                decisions.push(format!(
+                    "{} would own all {n} boards of {} ({why}), over the {BOARDS_PER_PERSON} a person may have in one space: say who owns which, or which boards to remove first",
+                    person(name, email),
+                    space.unwrap_or("every host")
+                ));
+            }
+        }
         _ => {}
     }
     if let Some((email, name)) = owner
@@ -707,7 +728,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             None => "nobody (no live manager code)".into(),
         };
         out.push_str(&format!(
-            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first manager owns them; each column holds its cards newest first)\n"
+            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first manager code that isn't revoked owns them; each column holds its cards newest first)\n"
         ));
         for row in list(&plan["boards"]) {
             out.push_str(&format!(
@@ -736,7 +757,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             None => "nobody (no live manager code)".into(),
         };
         out.push_str(&format!(
-            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first manager owns them)\n"
+            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first manager code that isn't revoked owns them)\n"
         ));
         for row in list(&plan["boards"]) {
             let nest = row["parent"]
@@ -931,6 +952,53 @@ mod tests {
             gated_pending(&v17).first().map(String::as_str),
             Some("0004_boards.sql")
         );
+    }
+
+    #[test]
+    fn the_board_limit_counts_one_space_at_a_time() {
+        let owner: Owner = Some(("ada@example.com".into(), "Ada Lovelace".into()));
+        let reach: BTreeSet<String> = ["*".to_owned()].into();
+        let spread: Vec<Option<String>> = ["a", "b", "c", "d"]
+            .iter()
+            .map(|h| Some(format!("{h}.example.com")))
+            .collect();
+        let mut decisions = Vec::new();
+        owner_decisions(&owner, &reach, &spread, "test", &mut decisions);
+        assert!(decisions.is_empty(), "{decisions:?}");
+        let piled = vec![Some("example.com".to_owned()); 4];
+        owner_decisions(&owner, &reach, &piled, "test", &mut decisions);
+        assert_eq!(decisions.len(), 1, "{decisions:?}");
+        assert!(decisions[0].contains("all 4 boards of example.com"));
+        let everywhere = vec![None; 4];
+        owner_decisions(&owner, &reach, &everywhere, "test", &mut decisions);
+        assert_eq!(decisions.len(), 2, "{decisions:?}");
+        assert!(decisions[1].contains("all 4 boards of every host"));
+        let mut none = Vec::new();
+        owner_decisions(&None, &BTreeSet::new(), &spread, "test", &mut none);
+        assert_eq!(none.len(), 1);
+        assert!(none[0].starts_with("no live manager code"));
+    }
+
+    #[test]
+    fn ungated_migrations_before_the_first_gated_one_go_ahead() {
+        let upto = |n: usize| -> Vec<String> {
+            bundle::MIGRATIONS[..n]
+                .iter()
+                .map(|(m, _)| (*m).to_owned())
+                .collect()
+        };
+        let names = |v: Vec<(&str, &str)>| -> Vec<String> {
+            v.into_iter().map(|(n, _)| n[..4].to_owned()).collect()
+        };
+        assert!(early(&[]).is_empty());
+        assert_eq!(names(early(&upto(1))), ["0002", "0003"]);
+        assert!(early(&upto(3)).is_empty());
+        assert_eq!(
+            names(early(&upto(4))),
+            ["0005", "0006", "0007", "0008", "0009", "0010"]
+        );
+        assert!(early(&upto(10)).is_empty());
+        assert!(early(&upto(bundle::MIGRATIONS.len())).is_empty());
     }
 
     #[test]
