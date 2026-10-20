@@ -45,6 +45,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket answers 401 |
 | `GET /_p99/api/labels`, `POST /_p99/api/labels` | managers | as the signed API; the counts are this host's items |
 | `POST /_p99/api/merge` | managers | as the signed API |
+| `GET /_p99/api/people` | managers | `{"people":[{"name","email","manager"}]}`: the people with a live code for this host, by name, and the e-mails in `MANAGERS` (name empty when no code names them); never a code, a hint or a host list |
 
 ## The signed API
 

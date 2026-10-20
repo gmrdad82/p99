@@ -97,18 +97,22 @@ const WORDS = {
   comment_send: "Send reply",
   internal_note: "Internal note (the reporter doesn't see it)",
   manage: "Manage",
-  assignee: "Assignee (e-mail)",
+  assignee: "Assignee",
+  nobody: "Unassigned",
   duplicate_label: "Duplicate of",
-  duplicate_hint: "for example BUG-12",
+  duplicate_hint: "Key or words",
+  not_duplicate: "Not a duplicate",
+  no_match: "Nothing matches",
   save: "Save",
   saved: "Saved.",
   abandon: "Drop it",
   reopen: "Reopen",
   edit: "Edit what you wrote",
-  delete: "Delete this item",
-  delete_warn: "{key} goes for good, with its comments, internal notes, history and files. Items merged into it go back to the inbox. GitHub keeps its own issue.",
-  delete_type: "Type {key} to delete it, or hold the button",
-  delete_go: "Delete for good",
+  delete: "Delete {key}",
+  delete_warn: "Its comments, files and history go with it, and this can't be undone.",
+  delete_type: "Type {key} to confirm",
+  delete_go: "Hold to delete {key}",
+  delete_hold: "Keep holding until the button fills.",
   event_system: "P99",
   event_created: "opened the item",
   event_status: "changed the status: {from} → {to}",
@@ -131,7 +135,9 @@ const WORDS = {
   priority_normal: "Normal",
   priority_low: "Low",
   labels: "Labels",
-  label_new: "New labels, comma-separated",
+  label_new: "Add a label",
+  label_make: "Create “{name}”",
+  label_remove: "Remove {name}",
   capturing: "Capturing the screen…",
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
@@ -857,13 +863,113 @@ function submitComment(form, key) {
 function options(list, word, current) {
   return list.map((v) => h("option", { value: v, selected: v === current, text: word(v) }));
 }
+let seqId = 0;
+function combo(o) {
+  const id = "p99-c" + ++seqId;
+  const input = h("input", { id, role: "combobox", "aria-expanded": "false", "aria-autocomplete": "list", "aria-controls": id + "l", autocomplete: "off", spellcheck: "false", placeholder: o.hint, value: o.text, maxlength: o.max });
+  const lb = h("ul", { class: "p99-listbox", role: "listbox", id: id + "l", "aria-label": o.label, hidden: true });
+  let opts = [], at = -1, ask = 0, typed = false;
+  const mark = (k) => {
+    at = k;
+    Array.from(lb.children).forEach((li, j) => li.setAttribute("aria-selected", String(j === k)));
+    const li = k >= 0 && lb.children[k];
+    if (li) { input.setAttribute("aria-activedescendant", li.id); li.scrollIntoView({ block: "nearest" }); } else input.removeAttribute("aria-activedescendant");
+  };
+  const show = (on) => { lb.hidden = !on; input.setAttribute("aria-expanded", String(on)); if (!on) mark(-1); };
+  const fill = () => {
+    const n = ++ask;
+    const q = typed ? input.value.trim() : "";
+    Promise.resolve(o.find(q)).then((list) => {
+      if (n !== ask || root.activeElement !== input) return;
+      opts = list;
+      clear(lb);
+      list.forEach((x, j) => lb.append(h("li", { id: id + "-" + j, role: "option", "aria-selected": "false", class: x.make ? "is-new" : null }, x.el || h("span", { text: x.text }), x.sub ? h("small", { text: x.sub }) : null)));
+      if (!list.length) lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("no_match") }));
+      show(true);
+      mark(q && list.length ? 0 : -1);
+    }, () => {});
+  };
+  const pick = (k) => {
+    const x = opts[k];
+    if (!x) return;
+    o.pick(x, input);
+    typed = false;
+    if (o.keep) fill(); else show(false);
+  };
+  input.addEventListener("focus", () => { typed = false; if (!o.keep) input.select(); fill(); });
+  input.addEventListener("click", () => { if (lb.hidden) fill(); });
+  input.addEventListener("input", () => { typed = true; fill(); });
+  input.addEventListener("blur", () => { ask++; show(false); if (o.reset) o.reset(input); });
+  input.addEventListener("keydown", (e) => {
+    const k = e.key, len = opts.length;
+    if (e.isComposing) return;
+    if (k === "ArrowDown" || k === "ArrowUp") {
+      e.preventDefault();
+      if (lb.hidden) return fill();
+      if (len) mark(k === "ArrowDown" ? (at + 1) % len : (at <= 0 ? len : at) - 1);
+    } else if (k === "Enter") {
+      if (!lb.hidden && at >= 0) { e.preventDefault(); pick(at); } else if (o.keep && input.value.trim()) e.preventDefault();
+    } else if (k === "Escape" && !lb.hidden) {
+      e.preventDefault();
+      e.stopPropagation();
+      show(false);
+    } else if (k === "Backspace" && !input.value && o.back) o.back();
+  });
+  lb.addEventListener("mousedown", (e) => e.preventDefault());
+  lb.addEventListener("click", (e) => {
+    const li = e.target.closest("[role=option]");
+    if (li && li.getAttribute("aria-disabled") !== "true") pick(Array.prototype.indexOf.call(lb.children, li));
+  });
+  return { input, box: h("span", { class: "p99-combo" }, input, lb) };
+}
+const has = (q, ...words) => words.some((w) => String(w || "").toLowerCase().includes(q.toLowerCase()));
+function pickOne(label, name, now, find) {
+  const keep = h("input", { name, value: now.value, hidden: true });
+  const c = combo({
+    label,
+    hint: now.hint,
+    text: now.text,
+    find,
+    pick: (x, input) => { Object.assign(now, x); keep.value = x.value; input.value = x.text; },
+    reset: (input) => { input.value = now.text; },
+  });
+  return h("div", { class: "p99-picker" }, h("label", { for: c.input.id, text: label }), c.box, keep);
+}
+function assigneePick(i) {
+  const none = { value: "", text: say("nobody") };
+  const of = (p) => ({ value: p.email, text: p.name || p.email, sub: p.name ? p.email : null });
+  const now = i.assignee ? { value: i.assignee, text: i.assignee } : { ...none };
+  let people = null;
+  const load = () => people || (people = call("GET", "/people").then((r) => {
+    const list = ((r && r.people) || []).map(of);
+    if (i.assignee && !list.some((p) => p.value === i.assignee)) list.push(of({ email: i.assignee }));
+    return list;
+  }, () => (people = null, [])));
+  const el = pickOne(say("assignee"), "assignee", now, (q) => load().then((list) => (q ? [] : [none]).concat(list.filter((p) => has(q, p.text, p.sub)))));
+  if (i.assignee) load().then((list) => {
+    const p = list.find((x) => x.value === i.assignee);
+    const input = el.querySelector("[role=combobox]");
+    if (p && now.value === i.assignee) { now.text = p.text; if (root.activeElement !== input) input.value = p.text; }
+  });
+  return el;
+}
+function duplicatePick(i) {
+  const skip = new Set([i.key].concat((i.merged || []).map((m) => m.key)));
+  const none = { value: "", text: say("not_duplicate") };
+  const find = (q) => new Promise((ok) => setTimeout(ok, q ? 150 : 0))
+    .then(() => call("GET", "/issues?scope=all&status=any&limit=20" + (q ? "&q=" + enc(q) : "")))
+    .then((r) => (q || !i.duplicate_of ? [] : [none]).concat(((r && r.issues) || [])
+      .filter((x) => !skip.has(x.key) && !x.duplicate_of)
+      .map((x) => ({ value: x.key, text: x.key + " " + x.title, el: h("span", null, h("b", { text: x.key }), " ", x.title) }))));
+  return pickOne(say("duplicate_label"), "duplicate_of", { value: i.duplicate_of || "", text: i.duplicate_of || "", hint: say("duplicate_hint") }, find);
+}
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
     h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
-    h("label", null, h("span", { text: say("assignee") }), h("input", { type: "email", name: "assignee", value: i.assignee || "", autocomplete: "off" })),
-    h("label", null, h("span", { text: say("duplicate_label") }), h("input", { name: "duplicate_of", value: i.duplicate_of || "", placeholder: say("duplicate_hint"), autocomplete: "off" })),
+    assigneePick(i),
+    duplicatePick(i),
     h("label", null, h("span", { text: say("priority") }), h("select", { name: "priority" }, [""].concat(PRIORITIES).map((p) => h("option", { value: p, selected: (i.priority || "") === p, text: say("priority_" + (p || "none")) })))),
     tagPicker(i),
     statusLine(),
@@ -871,7 +977,7 @@ function manageForm(i) {
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const data = changed(form);
-    if (data.duplicate_of === "") delete data.duplicate_of;
+    if ("duplicate_of" in data) data.duplicate_of = data.duplicate_of || null;
     if (data.status) {
       const [key, res] = data.status.split(":");
       data.status = key;
@@ -879,8 +985,7 @@ function manageForm(i) {
     }
     if ("assignee" in data && !data.assignee) data.assignee = null;
     if ("priority" in data) data.priority = data.priority || null;
-    const picked = Array.from(form.querySelectorAll(".p99-tag-pick input:checked"), (x) => x.value)
-      .concat(form.querySelector("[data-new-label]").value.split(",").map((n) => n.trim()).filter(Boolean));
+    const picked = form.querySelector(".p99-tag-pick").p99Picked.map((t) => t.name);
     const key = (list) => Array.from(new Set(list.map((n) => n.toLowerCase()))).sort().join("\n");
     if (key(picked) !== key((i.labels || []).map((t) => t.name))) data.labels = picked;
     patch(i.key, data, form);
@@ -888,20 +993,23 @@ function manageForm(i) {
   return form;
 }
 function deleteBox(i) {
-  const input = h("input", { autocomplete: "off", autocapitalize: "characters", spellcheck: "false", placeholder: i.key });
-  const btn = h("button", { type: "button", text: say("delete_go") });
-  const box = h("details", { class: "p99-delete" },
-    h("summary", { text: say("delete") }),
-    h("p", { text: say("delete_warn", { key: i.key }) }),
-    h("label", { class: "p99-field" }, h("span", { text: say("delete_type", { key: i.key }) }), input),
-    statusLine(),
-    btn);
+  const id = "p99-d" + ++seqId;
+  const input = h("input", { id, autocomplete: "off", autocapitalize: "characters", spellcheck: "false", placeholder: i.key });
+  const btn = h("button", { type: "button", class: "p99-danger", disabled: true, "aria-describedby": id + "w" }, h("span", { text: say("delete_go", { key: i.key }) }));
+  const box = h("section", { class: "p99-delete", "aria-labelledby": id + "t" },
+    h("h3", { id: id + "t", text: say("delete", { key: i.key }) }),
+    h("p", { id: id + "w", text: say("delete_warn", { key: i.key }) }),
+    h("label", { class: "p99-field", for: id }, h("span", { text: say("delete_type", { key: i.key }) })),
+    input,
+    btn,
+    statusLine());
   const ok = () => input.value.trim().toUpperCase() === i.key.toUpperCase();
   let held = 0;
   const go = () => {
-    if (box.p99Busy) return;
+    if (box.p99Busy || !ok()) return;
     box.p99Busy = true;
     btn.disabled = true;
+    btn.toggleAttribute("data-busy", true);
     status(box, say("sending"));
     call("DELETE", "/issues/" + enc(i.key)).then(() => {
       if (/^#p99=/i.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
@@ -909,35 +1017,62 @@ function deleteBox(i) {
       list(S.list || defaultList());
     }, (e) => {
       box.p99Busy = false;
-      btn.disabled = false;
+      btn.disabled = !ok();
+      btn.removeAttribute("data-busy");
       status(box, problem(e));
     });
   };
-  const stop = () => { clearTimeout(held); btn.classList.remove("is-holding"); };
-  input.addEventListener("input", () => btn.toggleAttribute("data-ready", ok()));
-  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (ok()) go(); } });
+  const stop = () => {
+    if (!held) return;
+    clearTimeout(held);
+    held = 0;
+    btn.classList.remove("is-holding");
+    if (!box.p99Busy) status(box, say("delete_hold"));
+  };
+  input.addEventListener("input", () => { btn.disabled = box.p99Busy || !ok(); });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); go(); } });
   btn.addEventListener("pointerdown", (e) => {
-    if (ok() || e.button) return;
+    if (e.button || !ok() || box.p99Busy) return;
     btn.classList.add("is-holding");
-    held = setTimeout(() => { stop(); go(); }, 1200);
+    held = setTimeout(() => { held = 0; btn.classList.remove("is-holding"); go(); }, 1200);
   });
   ["pointerup", "pointerleave", "pointercancel"].forEach((n) => btn.addEventListener(n, stop));
   btn.addEventListener("contextmenu", (e) => e.preventDefault());
-  btn.addEventListener("click", () => { if (ok()) go(); else if (!box.p99Busy) status(box, say("delete_type", { key: i.key })); });
+  btn.addEventListener("click", (e) => { if (!e.detail) go(); });
   return box;
 }
 function tagPicker(i) {
-  const list = h("span", { class: "p99-tags" });
-  const seen = new Set();
-  const add = (t, on) => {
-    if (!t || seen.has(String(t.name).toLowerCase())) return;
-    seen.add(String(t.name).toLowerCase());
-    list.append(h("label", { class: "p99-tag-check" }, h("input", { type: "checkbox", value: t.name, checked: on }), tagChip(t)));
+  const chips = h("span", { class: "p99-tags" });
+  const picked = (i.labels || []).slice();
+  let all = null;
+  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
+  const load = () => all || (all = call("GET", "/labels").then((r) => (r && r.labels) || [], () => (all = null, [])));
+  const c = combo({
+    label: say("labels"),
+    hint: say("label_new"),
+    max: "32",
+    keep: true,
+    find: (q) => load().then((list) => {
+      const out = list.filter((t) => !picked.some((p) => same(p.name, t.name)) && has(q, t.name))
+        .map((t) => ({ value: t.name, text: t.name, tag: t, el: tagChip(t) }));
+      if (q && !list.concat(picked).some((t) => same(t.name, q))) out.push({ value: q, text: say("label_make", { name: q }), make: true, tag: { name: q } });
+      return out;
+    }),
+    pick: (x, input) => { picked.push(x.tag); input.value = ""; draw(); },
+    back: () => { if (picked.length) { picked.pop(); draw(); } },
+  });
+  const draw = () => {
+    clear(chips);
+    picked.forEach((t, k) => {
+      const chip = tagChip(t);
+      chip.append(h("button", { type: "button", class: "p99-x", "aria-label": say("label_remove", { name: t.name }), text: "×", onclick: () => { picked.splice(k, 1); draw(); c.input.focus(); } }));
+      chips.append(chip);
+    });
   };
-  (i.labels || []).forEach((t) => add(t, true));
-  call("GET", "/labels").then((r) => ((r && r.labels) || []).forEach((t) => add(t, false)), () => {});
-  return h("fieldset", { class: "p99-tag-pick" }, h("legend", { text: say("labels") }), list,
-    h("input", { "data-new-label": true, placeholder: say("label_new"), autocomplete: "off", "aria-label": say("label_new") }));
+  draw();
+  const box = h("div", { class: "p99-tag-pick p99-picker" }, h("label", { for: c.input.id, text: say("labels") }), chips, c.box);
+  box.p99Picked = picked;
+  return box;
 }
 function editForm(i) {
   const form = h("form", { class: "p99-edit", novalidate: true },
