@@ -91,7 +91,7 @@ BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 
 **One item for the same report.** `p99 merge BUG-14 BUG-15 --into BUG-12` folds duplicates into one item. Their reporters follow it: they read its public thread in the panel and get its replies, status changes and landings by mail.
 
-**GitHub, kept small.** `p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN` links a site to a repository: `p99 github open BUG-12` opens a GitHub issue for the item, and when a pull request carrying `Fixes: BUG-12` merges, or that issue is closed, the item is marked fixed ([docs/guides/github.md](docs/guides/github.md)).
+**GitHub, kept small.** `p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN` links a site to a repository: `p99 github open BUG-12` opens a GitHub issue for the item, and when a pull request carrying `Fixes: BUG-12` merges, or that issue is closed, the item is marked fixed ([the GitHub guide](docs/guides/github.md)).
 
 **Slack and Discord.** `p99 hooks set example.com --slack <webhook URL>` posts the site's new items, comments, status changes and shipped fixes to a channel, with no app to install; the URL is kept sealed and never shown again ([docs/hosts.md](docs/hosts.md)).
 

@@ -115,6 +115,7 @@ relink() {
     -e "s#(^|[^[/])docs/hosts\\.md#\\1[the host reference](${up}reference/hosts.md)#g" \
     -e "s#\\]\\(CHANGELOG\\.md\\)#](${up}changelog.md)#g" \
     -e "s#\\]\\((LICENSE|NOTICE|TRADEMARKS\\.md|SECURITY\\.md|CODE_OF_CONDUCT\\.md)\\)#](${repo}/\\1)#g" \
+    -e "s#\\]\\(docs/guides/#](${up}guides/#g" \
     -e "s#\\]\\(docs/images/#](${up}images/#g"
 }
 
