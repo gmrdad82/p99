@@ -11,6 +11,7 @@
     "capture-check": "node capture-check.mjs",
     "mobile-check": "node mobile-check.mjs",
     "manage-check": "node manage-check.mjs",
+    "search-check": "node search-check.mjs",
     "pitomd": "node pitomd.mjs"
   },
   "devDependencies": {
