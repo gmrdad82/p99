@@ -2,7 +2,7 @@
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:65 the config docs explain secret references to users
-README.md:127 the README names password managers that take the authenticator setup
+README.md:131 the README names password managers that take the authenticator setup
 docs/guides/invite.md:124 the invite guide tells users which password managers take the authenticator setup
 docs/hosts.md:61 the hooks docs show the secret-reference form a webhook URL is read through
 docs/hosts.md:68 the hooks docs explain secret references to users
@@ -15,7 +15,7 @@ src/vault.rs:86 the reference error names the schemes P99 reads
 docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
 docs/guides/setup.md:87 the setup guide explains secret references for the mail key
 src/email.rs:41 the --key-ref help names the reference schemes it reads
-README.md:135 the access-links section shows the secret-reference form a config's code can take
+README.md:139 the access-links section shows the secret-reference form a config's code can take
 docs/guides/invite.md:62 the invite guide explains the code's secret-reference form
 docs/guides/invite.md:66 the invite guide shows the secret-reference form
 src/links.rs:192 the p99 link error names the reference form it reads
