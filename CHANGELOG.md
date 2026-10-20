@@ -2,6 +2,13 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.8.1 — 2026-10-20
+
+### Changed
+
+- P99 says where to ask: "Got questions or doubts? Ping me on Discord" sits at the end of `p99 --help`, under the key hints in `p99 tui`, in the panel's footer for managers, and in the README and docs.
+- The README links the commercial licence and shows P99 1.8.0's numbers as measured on 2026-10-20: sizes, browser times with the board, the Worker's local p50 and p99, CLI and TUI start-up, the board's frames while dragging, and the binary.
+
 ## v1.8.0 — 2026-10-20
 
 ### Added
