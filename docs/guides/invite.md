@@ -23,7 +23,7 @@ link:   https://shop.example.com/#p99=<code>
 this is the only time the secret is shown
 ```
 
-In place of `<code>` it prints the 12 characters of the new code. Send the person a link. They open it once: the page keeps the code in the site's `localStorage` and removes it from the address bar and the history entry at once. The code sits in the link's fragment, which the browser never sends to a server, so it stays out of your server's, Cloudflare's and any analytics' logs and `Referer` headers. Treat the link as the secret it is. P99 keeps only the code's SHA-256, so a lost secret can't be shown again: mint a new code.
+In place of `<code>` it prints the 12 characters of the new code. Send the person a link. They open it once: the page keeps the code in the site's `localStorage` and removes it from the address bar and the history entry at once. The loader reads the link as the browser opened it, so a site script that rewrites the hash first doesn't lose the code, and it takes `#P99=` in capitals or a link that an app ended with a full stop. A code the Worker refuses (mistyped, revoked, or not for this host) shows one short line by the button, "This P99 link isn't valid here. Ask for a new one.", in place of the button; its × closes it, and the site forgets the code. The code sits in the link's fragment, which the browser never sends to a server, so it stays out of your server's, Cloudflare's and any analytics' logs and `Referer` headers. Treat the link as the secret it is. P99 keeps only the code's SHA-256, so a lost secret can't be shown again: mint a new code.
 
 `--json` prints the code object, the secret and the links, for a script that sends the invitations.
 
@@ -82,7 +82,7 @@ totp:   otpauth://totp/P99:grace@example.com?secret=<32 base32 characters>&issue
 
 Both lines carry the same secret, shown this once. Paste the key: in 1Password as an item's One-Time Password field, in Bitwarden or Apple Passwords as the authenticator key, in Google Authenticator or Authy under "enter a setup key". The `otpauth://` line is for apps that take a setup link; if an app shows codes P99 refuses, set it up from the key instead. Send both apart from the link, so one forwarded message never carries both.
 
-The first time a browser opens the panel with that code, it asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
+The first time a browser opens the link, the panel opens on its own and asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
 
 ## Move a person to a new e-mail
 

@@ -1259,7 +1259,7 @@ function validConfig(value) {
     if (!Array.isArray(value.off) || value.off.length > 100) return null;
     if (!value.off.every((p) => isText(p, 1, 300) && p.startsWith("/"))) return null;
     try {
-      for (const p of value.off) RegExp(`^${p.replace(/[\\^$.?+(){}|[\]]/g, "\\$&").replace(/\*\*?/g, (m) => (m[1] ? ".*" : "[^/]*"))}/?$`);
+      for (const p of value.off) RegExp(offSource(p));
     } catch {
       return null;
     }
@@ -1283,12 +1283,16 @@ function validConfig(value) {
   return out;
 }
 
+function offSource(p) {
+  return `^${p.replace(/[\\^$.?+(){}|[\]]/g, "\\$&").replace(/\*\*?/g, (m) => (m[1] ? ".*" : "[^/]*"))}/?$`;
+}
+
 function placementOf(config) {
   const out = {};
   if (config.corner) out.c = config.corner;
   if (config.offset) out.o = config.offset;
   if (config.above) out.a = config.above;
-  if (config.off && config.off.length) out.f = config.off;
+  if (config.off && config.off.length) out.f = config.off.map(offSource);
   if (config.theme && config.theme.accent) out.t = config.theme.accent;
   return out;
 }

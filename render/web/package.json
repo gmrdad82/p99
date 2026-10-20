@@ -9,6 +9,7 @@
     "serve": "node serve.mjs",
     "record": "node record.mjs",
     "capture-check": "node capture-check.mjs",
+    "mobile-check": "node mobile-check.mjs",
     "pitomd": "node pitomd.mjs"
   },
   "devDependencies": {

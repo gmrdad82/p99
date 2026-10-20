@@ -25,6 +25,7 @@ const WORDS = {
   board: "Board",
   close: "Close",
   loading: "Loading…",
+  gone: "This P99 link isn't valid here. Ask for a new one.",
   verify_title: "Confirm it's you",
   verify_help: "Enter the 6-digit code your authenticator app shows for P99. This browser is remembered after that.",
   verify_label: "Code",
@@ -161,12 +162,13 @@ export function open(opts) {
   o.host = o.root.host;
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
+  if (opts.view === 401) return Promise.resolve(gone());
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list") return close();
   return ready.then(() => {
     show();
     const go = () => {
-      if (opts.view === "item" && opts.key) item(opts.key);
+      if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
       else fileFlow();
     };
@@ -258,7 +260,7 @@ function call(method, path, body, type) {
       try { data = t ? JSON.parse(t) : null; } catch (x) {}
       if (r.status === 401) {
         close();
-        o.forget();
+        gone();
       }
       if (r.status === 428 && !S.verify) {
         S.verify = true;
@@ -432,6 +434,16 @@ function swipe(grip) {
   };
   grip.addEventListener("pointerup", end);
   grip.addEventListener("pointercancel", end);
+}
+function gone() {
+  try { delete localStorage["p99:code"]; } catch (x) {}
+  const bar = o.bar;
+  if (!bar || bar.querySelector(".p99-gone")) return;
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(".p99-gone{display:flex;align-items:center;gap:4px;max-width:min(340px,calc(100vw - 32px));margin:0;padding:6px 4px 6px 12px;border-radius:12px;background:#0c1a2b;color:#fff;font:500 13px/1.35 system-ui;box-shadow:0 4px 14px #0005;animation:p99-gone .3s cubic-bezier(.2,.7,.2,1)}.p99-gone button{all:unset;flex:none;cursor:pointer;width:32px;height:32px;border-radius:50%;text-align:center;font:700 18px/32px system-ui}.p99-gone button:focus-visible{outline:2px solid #fff}@keyframes p99-gone{from{opacity:0;transform:translateY(8px)}}@media (prefers-reduced-motion:reduce){.p99-gone{animation:none}}");
+  o.root.adoptedStyleSheets = o.root.adoptedStyleSheets.concat([sheet]);
+  for (const b of bar.querySelectorAll("button")) b.hidden = true;
+  bar.append(h("p", { class: "p99-gone", role: "alert" }, h("span", { text: say("gone") }), h("button", { type: "button", "aria-label": say("close"), title: say("close"), text: "×", onclick: () => o.forget() })));
 }
 function show() {
   if (S.open) return;
