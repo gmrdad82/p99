@@ -366,7 +366,7 @@ async function linkPull(c, setup, pr, rows, fixes) {
 async function onIssue(c, setup, payload) {
   const issue = payload.issue;
   if (payload.action !== "closed" || !K.isObject(issue) || !Number.isSafeInteger(issue.number)) return quiet();
-  if (K.isObject(issue.pull_request) || issue.state_reason === "not_planned") return quiet();
+  if (K.isObject(issue.pull_request) || ![undefined, null, "completed"].includes(issue.state_reason)) return quiet();
   const ids = (
     await c.env.DB.prepare("SELECT item_id FROM github_links WHERE repo = ?1 AND kind = 'issue' AND number = ?2 AND rel = 'opened'")
       .bind(setup.repo, issue.number)

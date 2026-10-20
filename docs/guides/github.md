@@ -56,7 +56,7 @@ Refs: FEAT-7
 ```
 
 - When a pull request with `Fixes: BUG-12` **merges**, P99 moves BUG-12 to Done with the resolution fixed, as a manager's move would: an event on the item, a live update, and the reporter's status mail when mail is on.
-- When an issue opened with `p99 github open` is **closed** as completed, its item is marked the same way. An issue closed with the reason `not_planned` changes nothing.
+- When an issue opened with `p99 github open` is **closed** as completed, its item is marked the same way. An issue closed as not planned or as a duplicate changes nothing.
 - `Refs:` only records the pull request on the item.
 
 Only items of the host the webhook belongs to are touched; a key of another host is skipped. Each delivery is checked against the `X-Hub-Signature-256` signature and counted once by its delivery id, so a redelivery from GitHub does nothing. Every other event is answered 204 and ignored.
