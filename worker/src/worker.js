@@ -14,6 +14,7 @@ import {
   useKit,
 } from "./boards.js";
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
+import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import cssSource from "./web/p99.css";
@@ -123,6 +124,8 @@ const BACKUP_TABLES = [
   { name: "boards", size: "length(name) + 200" },
   { name: "statuses", size: "100" },
   { name: "hooks", size: "length(url_sealed) + length(events_json) + 200" },
+  { name: "github", size: "length(repo) + 200" },
+  { name: "github_links", size: "length(repo) + coalesce(length(url), 0) + 200" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -1634,6 +1637,7 @@ async function getIssue(c, rawKey) {
        SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR reporter_email = ?1)
        ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
     ).bind(c.actor.email, id, c.now, c.scope.all ? 1 : 0, c.scope.host, c.manager ? 1 : 0),
+    ...(c.manager ? [githubLinksStatement(c, id)] : []),
   ]);
   const row = allowedItem(c, results[0].results[0] ?? null);
   const [comments, attachments, events] = results.slice(1, 4).map((r) => r.results);
@@ -1647,7 +1651,7 @@ async function getIssue(c, rawKey) {
   const names = new Map([[c.actor.email, c.actor.name], [row.reporter_email, row.reporter_name]]);
   for (const cm of comments) names.set(cm.author_email, cm.author_name);
   return json(200, {
-    issue: issueOf({ ...row, unread: 0 }, c, lc),
+    issue: { ...issueOf({ ...row, unread: 0 }, c, lc), github: c.manager ? githubLinks(results.at(-1)) : [] },
     comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
     events: events.map((ev) => eventOf(ev, c, names)),
@@ -3072,6 +3076,10 @@ const SIGNED_ROUTES = [
   ["POST", /^\/import\/finish$/, finishImport, {}],
   ["PUT", /^\/import\/attachments\/([^/]+)$/, putImportAttachment, {}],
   ...hookRoutes(HOOK_KIT),
+  ["GET", /^\/github$/, listGithub, {}],
+  ["PUT", /^\/github\/([^/]+)$/, putGithub, {}],
+  ["DELETE", /^\/github\/([^/]+)$/, deleteGithub, {}],
+  ["POST", /^\/issues\/([^/]+)\/github$/, openGithubIssue, {}],
 ];
 
 useKit({
@@ -3092,6 +3100,27 @@ useKit({
   requireEmptyBody,
   requireManager,
   sendMail,
+  sha256Hex,
+});
+
+useGithubKit({
+  encoder,
+  eventStatement,
+  fail,
+  hexBytes,
+  isObject,
+  isUniqueViolation,
+  json,
+  keyOf,
+  loadDirectory,
+  loadItem,
+  pageLink,
+  parseJson,
+  push,
+  readBody,
+  readJson,
+  requireEmptyBody,
+  runHandler,
   sha256Hex,
 });
 
@@ -3186,6 +3215,7 @@ async function handle(request, env, ctx) {
   const path = url.pathname;
   if (request.method === "GET" && path === "/_p99/health") return health(env);
   if (path === "/_p99/api/stream") return ticketStream(request, env, url);
+  if (request.method === "POST" && path === "/_p99/v1/github") return githubDelivery(request, env, ctx, url);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);

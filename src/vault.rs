@@ -75,3 +75,20 @@ pub fn store(vault: &str, title: &str, secret: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{TOOL} gave no item id"))?;
     Ok(format!("{SCHEME}{vault_id}/{item_id}/credential"))
 }
+
+pub fn resolve_ref(raw: &str) -> Result<String, String> {
+    let value = if is_reference(raw) {
+        read(raw)?
+    } else if let Some(name) = raw.strip_prefix("env:") {
+        std::env::var(name).map_err(|_| format!("{raw}: {name} is not set"))?
+    } else {
+        return Err(format!(
+            "{raw} is not a reference; give op://vault/item/field or env:NAME"
+        ));
+    };
+    let value = value.trim().to_owned();
+    if value.is_empty() {
+        return Err(format!("{raw} is empty"));
+    }
+    Ok(value)
+}

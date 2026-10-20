@@ -94,6 +94,8 @@ pub enum Command {
         about = "post a site's new items, comments, status changes and shipped fixes to Slack or Discord"
     )]
     Hooks(crate::hooks::HooksArgs),
+    #[command(about = "link a host to a GitHub repository, and open GitHub issues for items")]
+    Github(crate::github::GithubArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -406,6 +408,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Import(a) => import(&config, global, &a),
         Command::Watch(a) => watch(&config, global, &a),
         Command::Hooks(a) => crate::hooks::run(&config, global, &a),
+        Command::Github(a) => crate::github::run(&config, global, &a),
     }
 }
 
@@ -530,7 +533,7 @@ pub(crate) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
     Ok(())
 }
 
-fn key_of(raw: &str) -> Result<String, String> {
+pub(crate) fn key_of(raw: &str) -> Result<String, String> {
     crate::wire::item_number(raw)
         .map(|n| n.to_string())
         .ok_or_else(|| format!("{raw} is not an item key; try BUG-12 or 12"))
@@ -1151,6 +1154,19 @@ fn print_thread(thread: &Thread) {
     }
     if let Some(board) = &issue.board {
         out!("on the board {board}");
+    }
+    for link in &issue.github {
+        out!(
+            "github {} #{} ({}): {}",
+            if link.kind == "pull" {
+                "pull request"
+            } else {
+                "issue"
+            },
+            link.number,
+            link.rel,
+            link.url
+        );
     }
     for reached in &issue.landing.envs {
         out!(

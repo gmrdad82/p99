@@ -6,6 +6,7 @@ mod cloudflare;
 mod config;
 mod docs;
 mod hooks;
+mod github;
 mod import;
 mod license;
 mod setup;

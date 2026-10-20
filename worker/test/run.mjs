@@ -207,6 +207,9 @@ async function main() {
   vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500");
   const stub = await hookStub();
   vars.push(`HOOKS_TEST_ORIGIN:http://127.0.0.1:${stub.address().port}`);
+  for (const host of ["127.0.0.1", "localhost"]) {
+    vars.push(`GITHUB_HOOK_${sha256(Buffer.from(host)).slice(0, 16).toUpperCase()}:github-hook-secret`);
+  }
   const child = spawn(
     wrangler,
     [
@@ -552,6 +555,71 @@ async function run() {
     assert.equal(after.json.hooks[0].last_status, "500");
     assert.equal((await call("DELETE", `/_p99/v1/hooks/${here}?service=slack`)).status, 204);
     assert.equal((await call("DELETE", `/_p99/v1/hooks/${here}`)).status, 404);
+  });
+
+  const hookSecret = "github-hook-secret";
+  const deliver = async (event, payload, { id = randomUUID(), secret = hookSecret, signature } = {}) => {
+    const bytes = Buffer.from(JSON.stringify(payload));
+    const headers = { "content-type": "application/json", "x-github-event": event, "x-github-delivery": id };
+    const sig = signature ?? `sha256=${createHmac("sha256", secret).update(bytes).digest("hex")}`;
+    if (sig) headers["x-hub-signature-256"] = sig;
+    const response = await fetch(`${base}/_p99/v1/github`, { method: "POST", headers, body: bytes });
+    return { status: response.status, json: await jsonOf(response) };
+  };
+  const pullEvent = (number, action, merged, body) => ({
+    action,
+    repository: { full_name: "acme/shop" },
+    pull_request: { number, merged, title: "Keep the totals in step", body, html_url: `https://github.com/acme/shop/pull/${number}` },
+  });
+  const fileHere = async (on = here) => (await call("POST", `/_p99/v1/issues?host=${on}`, { body: issueBody() })).json;
+  const threadOf = async (item, on = here) => (await call("GET", `/_p99/v1/issues/${item.key}?host=${on}`)).json.issue;
+
+  await check("a GitHub delivery with a bad or no signature is refused, and a replayed one does nothing", async () => {
+    const linked = await call("PUT", `/_p99/v1/github/${here}`, { body: { repo: "acme/shop" } });
+    assert.equal(linked.status, 200, JSON.stringify(linked.json));
+    assert.equal(linked.json.secret, true);
+    const first = await fileHere();
+    const second = await fileHere();
+    const fixes = pullEvent(41, "closed", true, `Fixes: ${first.key}`);
+    assert.equal((await deliver("pull_request", fixes, { secret: "not-the-secret" })).status, 401);
+    assert.equal((await deliver("pull_request", fixes, { signature: "" })).status, 401);
+    assert.equal((await threadOf(first)).closed_at, null);
+    const id = randomUUID();
+    const once = await deliver("pull_request", pullEvent(42, "opened", false, `Refs: ${first.key}`), { id });
+    assert.equal(once.status, 200, JSON.stringify(once.json));
+    assert.deepEqual(once.json.linked, [first.key]);
+    const again = await deliver("pull_request", pullEvent(42, "closed", true, `Fixes: ${second.key}`), { id });
+    assert.equal(again.status, 204);
+    const untouched = await threadOf(second);
+    assert.equal(untouched.closed_at, null);
+    assert.deepEqual(untouched.github, []);
+    assert.equal((await deliver("ping", { zen: "Keep it logically awesome." })).status, 204);
+  });
+
+  await check("a merged pull request with Fixes marks only that item, and never an item of another host", async () => {
+    const fixed = await fileHere();
+    const referred = await fileHere();
+    const bystander = await fileHere();
+    const away = await fileHere(there);
+    const body = `Totals refresh.\n\nFixes: ${fixed.key}, ${away.key}\nRefs: ${referred.key}`;
+    const merged = await deliver("pull_request", pullEvent(43, "closed", true, body));
+    assert.equal(merged.status, 200, JSON.stringify(merged.json));
+    assert.deepEqual(merged.json.changed, [fixed.key]);
+    const done = await threadOf(fixed);
+    assert.ok(done.closed_at, JSON.stringify(done));
+    assert.equal(done.status, "done");
+    assert.equal(done.resolution, "fixed");
+    assert.deepEqual(
+      done.github.map((g) => [g.kind, g.rel, g.number]),
+      [["pull", "fixes", 43]],
+    );
+    const refs = await threadOf(referred);
+    assert.equal(refs.closed_at, null);
+    assert.deepEqual(refs.github.map((g) => g.rel), ["refs"]);
+    assert.equal((await threadOf(bystander)).closed_at, null);
+    const other = await threadOf(away, there);
+    assert.equal(other.closed_at, null);
+    assert.deepEqual(other.github, []);
   });
 
   await check("the loader carries the host's placement and version", async () => {

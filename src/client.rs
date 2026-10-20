@@ -353,7 +353,7 @@ impl Client {
         format!("{path}{}", query(&[("host", self.host.clone())]))
     }
 
-    fn item(&self, key: &str, tail: &str) -> Result<String, String> {
+    pub(crate) fn item(&self, key: &str, tail: &str) -> Result<String, String> {
         Ok(format!(
             "/v1/issues/{}{tail}{}",
             segment(key)?,

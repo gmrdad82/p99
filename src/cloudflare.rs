@@ -499,6 +499,50 @@ fn envelope(
     whole(response, path).map(|mut body| body["result"].take())
 }
 
+pub fn worker_secret(
+    config: &crate::config::Config,
+    account: &str,
+    name: &str,
+    value: &str,
+) -> Result<(), String> {
+    let (cf, entry) = account_api(config, account)?;
+    cf.put_secret(&entry.account_id, &entry.worker, name, value)?;
+    Ok(())
+}
+
+pub fn drop_worker_secret(
+    config: &crate::config::Config,
+    account: &str,
+    name: &str,
+) -> Result<(), String> {
+    let (cf, entry) = account_api(config, account)?;
+    let path = format!(
+        "/accounts/{}/workers/scripts/{}/secrets/{name}",
+        entry.account_id, entry.worker
+    );
+    let response = cf
+        .agent
+        .delete(&format!("{}{path}", api()))
+        .header("Authorization", &cf.auth())
+        .call();
+    match envelope(response, &path) {
+        Ok(_) => Ok(()),
+        Err(error) if error.missing() => Ok(()),
+        Err(error) => Err(error.message),
+    }
+}
+
+fn account_api<'a>(
+    config: &'a crate::config::Config,
+    account: &str,
+) -> Result<(Cloudflare, &'a crate::config::Account), String> {
+    let entry = config
+        .accounts
+        .get(account)
+        .ok_or_else(|| format!("no account is called {account}"))?;
+    Ok((Cloudflare::new(&crate::config::token(entry)?), entry))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
