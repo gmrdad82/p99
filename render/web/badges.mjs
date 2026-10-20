@@ -22,6 +22,12 @@ export const BADGES = [
   { state: "ff", word: "F&F", face: "#196d43", ink: "#ffffff" },
 ];
 
+export const FF_CANDIDATES = [
+  { id: "a", name: "warm rose", face: "#b8264d", ink: "#ffffff" },
+  { id: "b", name: "coral-red", face: "#b83530", ink: "#ffffff" },
+  { id: "c", name: "soft pink-red", face: "#f08497", ink: "#3a0614" },
+];
+
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 const css = (rgb) => "#" + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
 const shade = (c, k) => css(hex(c).map((v) => v * k));
@@ -72,72 +78,98 @@ function contrast(a, b) {
   return (x + 0.05) / (y + 0.05);
 }
 
-const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--font-render-hinting=none"] });
-mkdirSync(out, { recursive: true });
-mkdirSync(sheets, { recursive: true });
-const report = [];
-try {
+async function draw(browser, list) {
   const ctx = await browser.newContext({ viewport: { width: 400, height: 200 }, deviceScaleFactor: 1 });
   const p = await ctx.newPage();
   await p.setContent("<!doctype html><canvas></canvas>");
   const files = {};
-  for (const b of BADGES) {
+  for (const b of list) {
     const width = await p.evaluate(({ word, font }) => {
       const c = document.querySelector("canvas").getContext("2d");
       c.font = font;
       return c.measureText(word).width;
     }, { word: b.word, font: `italic 800 ${SIZE}px ${FONT}` });
-    const text = svg(b, width + SIZE * 0.01 * (b.word.length - 1));
-    files[b.state] = text;
-    writeFileSync(join(out, `${b.state}.svg`), text);
+    files[b.state] = svg(b, width + SIZE * 0.01 * (b.word.length - 1));
   }
+  await ctx.close();
+  return files;
+}
+
+async function measure(page, b) {
+  const faces = await page.evaluate(() => {
+    const word = document.querySelector(".word");
+    const r = word.getBBox();
+    const box = { x: r.x, y: r.y, width: r.width, height: r.height };
+    word.setAttribute("fill-opacity", "0");
+    return { box, src: new XMLSerializer().serializeToString(document.querySelector("svg")) };
+  });
+  const px = await page.evaluate(async ({ box, src }) => {
+    const img = new Image();
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(src);
+    await img.decode();
+    const k = 2;
+    const cv = document.createElement("canvas");
+    cv.width = img.width * k;
+    cv.height = img.height * k;
+    const g = cv.getContext("2d");
+    g.drawImage(img, 0, 0, cv.width, cv.height);
+    const d = g.getImageData(Math.floor(box.x * k), Math.floor(box.y * k), Math.ceil(box.width * k), Math.ceil(box.height * k)).data;
+    const list = [];
+    for (let i = 0; i < d.length; i += 4) list.push([d[i], d[i + 1], d[i + 2]]);
+    return list;
+  }, faces);
+  const ink = hex(b.ink);
+  const ratios = px.map((c) => contrast(c, ink)).sort((a, z) => a - z);
+  return { state: b.state, face: b.face, ink: b.ink, slab: slabs(b.face), flat: +contrast(hex(b.face), ink).toFixed(2), worst: +ratios[0].toFixed(2), p5: +ratios[Math.floor(ratios.length * 0.05)].toFixed(2), median: +ratios[Math.floor(ratios.length / 2)].toFixed(2) };
+}
+
+async function shoot(browser, list, files, write) {
+  const report = [];
   for (const scale of [1, 2]) {
     const c = await browser.newContext({ viewport: { width: 400, height: 200 }, deviceScaleFactor: scale });
     const page = await c.newPage();
-    for (const b of BADGES) {
+    for (const b of list) {
       await page.setContent(`<!doctype html><style>html,body{margin:0;background:transparent}svg{display:block}</style>${files[b.state]}`);
       const el = await page.$("svg");
-      await el.screenshot({ path: join(out, `${b.state}${scale === 2 ? "@2x" : ""}.png`), omitBackground: true });
-      if (scale === 2) {
-        const faces = await page.evaluate(() => {
-          const word = document.querySelector(".word");
-          const r = word.getBBox();
-          const box = { x: r.x, y: r.y, width: r.width, height: r.height };
-          word.setAttribute("fill-opacity", "0");
-          return { box, src: new XMLSerializer().serializeToString(document.querySelector("svg")) };
-        });
-        const px = await page.evaluate(async ({ box, src }) => {
-          const img = new Image();
-          img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(src);
-          await img.decode();
-          const k = 2;
-          const cv = document.createElement("canvas");
-          cv.width = img.width * k;
-          cv.height = img.height * k;
-          const g = cv.getContext("2d");
-          g.drawImage(img, 0, 0, cv.width, cv.height);
-          const d = g.getImageData(Math.floor(box.x * k), Math.floor(box.y * k), Math.ceil(box.width * k), Math.ceil(box.height * k)).data;
-          const list = [];
-          for (let i = 0; i < d.length; i += 4) list.push([d[i], d[i + 1], d[i + 2]]);
-          return list;
-        }, faces);
-        const ink = hex(b.ink);
-        const ratios = px.map((c) => contrast(c, ink)).sort((a, z) => a - z);
-        report.push({ state: b.state, face: b.face, ink: b.ink, slab: slabs(b.face), flat: +contrast(hex(b.face), ink).toFixed(2), worst: +ratios[0].toFixed(2), p5: +ratios[Math.floor(ratios.length * 0.05)].toFixed(2), median: +ratios[Math.floor(ratios.length / 2)].toFixed(2) });
-      }
+      if (write) await el.screenshot({ path: join(out, `${b.state}${scale === 2 ? "@2x" : ""}.png`), omitBackground: true });
+      if (scale === 2) report.push(await measure(page, b));
     }
     await c.close();
   }
-  for (const scheme of ["light", "dark"]) {
-    const c = await browser.newContext({ viewport: { width: 760, height: 240 }, deviceScaleFactor: 2, colorScheme: scheme });
-    const page = await c.newPage();
-    const ground = scheme === "light" ? "#c9d6e3" : "#1f2c3c";
-    const label = scheme === "light" ? "#3d4f63" : "#a8bbd0";
-    const row = (k) => BADGES.map((b) => `<figure><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(files[b.state])}" style="height:${k * (FACE_H + BLEED.top + BLEED.bottom)}px"><figcaption>${b.state}</figcaption></figure>`).join("");
-    await page.setContent(`<!doctype html><style>body{margin:0;padding:28px 32px;background:${ground};font:600 12px ${FONT};color:${label}}div{display:flex;gap:22px;align-items:flex-end;margin-bottom:22px}figure{margin:0;display:grid;justify-items:start;gap:6px}</style><div>${row(1)}</div><div>${row(2)}</div>`);
-    await page.waitForTimeout(100);
-    await page.screenshot({ path: join(sheets, `badges-${scheme}.png`), fullPage: true });
-    await c.close();
+  return report;
+}
+
+async function sheet(browser, list, files, scheme, path, captions = {}) {
+  const c = await browser.newContext({ viewport: { width: 760, height: 240 }, deviceScaleFactor: 2, colorScheme: scheme });
+  const page = await c.newPage();
+  const ground = scheme === "light" ? "#c9d6e3" : "#1f2c3c";
+  const label = scheme === "light" ? "#3d4f63" : "#a8bbd0";
+  const row = (k, cap) => list.map((b) => `<figure><img src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(files[b.state])}" style="height:${k * (FACE_H + BLEED.top + BLEED.bottom)}px"><figcaption>${b.state}${cap && captions[b.state] ? `<small>${captions[b.state]}</small>` : ""}</figcaption></figure>`).join("");
+  await page.setContent(`<!doctype html><style>body{margin:0;padding:28px 32px;background:${ground};font:600 12px ${FONT};color:${label};width:max-content}div{display:flex;gap:22px;align-items:flex-start;margin-bottom:22px}figure{margin:0;display:grid;justify-items:start;align-content:end;gap:6px}figcaption{display:grid;gap:2px}small{font:500 11px ${FONT};white-space:nowrap}</style><div>${row(1)}</div><div>${row(2, true)}</div>`);
+  await page.waitForTimeout(100);
+  await page.screenshot({ path, fullPage: true });
+  await c.close();
+}
+
+const browser = await chromium.launch({ executablePath: "/usr/bin/chromium", args: ["--font-render-hinting=none"] });
+mkdirSync(sheets, { recursive: true });
+const report = [];
+try {
+  if (process.argv[2] === "candidates") {
+    for (const f of FF_CANDIDATES) {
+      const list = BADGES.map((b) => (b.state === "ff" ? { ...b, face: f.face, ink: f.ink } : b));
+      const files = await draw(browser, list);
+      const ff = (await shoot(browser, list.filter((b) => b.state === "ff"), files, false))[0];
+      report.push({ id: f.id, name: f.name, ...ff });
+      const captions = { ff: `${f.name} ${f.face} / ${f.ink} · ${ff.flat}:1 (worst ${ff.worst}:1)` };
+      for (const scheme of ["light", "dark"]) await sheet(browser, list, files, scheme, join(sheets, `ff-candidate-${f.id}-${scheme}.png`), captions);
+    }
+  } else {
+    mkdirSync(out, { recursive: true });
+    const files = await draw(browser, BADGES);
+    for (const b of BADGES) writeFileSync(join(out, `${b.state}.svg`), files[b.state]);
+    report.push(...(await shoot(browser, BADGES, files, true)));
+    for (const scheme of ["light", "dark"]) await sheet(browser, BADGES, files, scheme, join(sheets, `badges-${scheme}.png`));
   }
 } finally {
   await browser.close();
