@@ -494,9 +494,9 @@ async function check(back) {
 
     const quiet = await board(browser, back, { motion: "reduce" });
     await drag(quiet.p, K("IMP-6"), K("FEAT-5"));
-    const running = await R(quiet.p, () => document.querySelector("p99-root").shadowRoot.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).length);
+    const running = await R(quiet.p, () => document.querySelector("p99-root").shadowRoot.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).map((a) => `${a.animationName || a.transitionProperty || a.id} on ${a.effect.target?.className}`));
     await quiet.p.mouse.up();
-    assert.equal(running, 0);
+    assert.deepEqual(running, []);
     ok("with reduced motion nothing animates");
 
     for (const [size, view] of SIZES) {

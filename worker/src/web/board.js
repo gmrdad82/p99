@@ -100,7 +100,7 @@ const CSS = `
 .p99-board-note{position:absolute;left:50%;bottom:var(--p99-space-lg);translate:-50% 0;max-width:min(560px,90%);padding:var(--p99-space-sm) var(--p99-space-lg);border-radius:var(--p99-radius-sm);background:var(--p99-ink);color:var(--p99-base);font-size:var(--p99-text-sm);animation:p99-fade var(--p99-motion-base) var(--p99-ease-enter) both}
 .p99-board .p99-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo{display:none}.p99-live{font-size:0;gap:0}}
-@media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-menu,.p99-chev{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
+@media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-col,.p99-menu,.p99-chev{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
