@@ -12,7 +12,7 @@ src/hooks.rs:50 the --url-ref help names the reference schemes it reads
 src/hooks.rs:132 the --url-ref error names the reference schemes it reads
 src/github.rs:33 the --token-ref help names the reference schemes it reads
 src/vault.rs:86 the reference error names the schemes P99 reads
-worker/test/run.mjs:600 a refused webhook URL with a user part, in the test that guards the allowed hosts
+worker/test/run.mjs:601 a refused webhook URL with a user part, in the test that guards the allowed hosts
 docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
 docs/guides/setup.md:87 the setup guide explains secret references for the mail key
 src/email.rs:41 the --key-ref help names the reference schemes it reads
@@ -22,3 +22,8 @@ docs/guides/invite.md:66 the invite guide shows the secret-reference form
 src/links.rs:192 the p99 link error names the reference form it reads
 worker/test/links.mjs:191 a fake op reference in the test that guards p99 link
 commit/12e728646da1:6 the access-links commit message names the reference form p99 link reads
+commit/218d97340879:worker/test/run.mjs:600 a refused webhook URL with a user part, as waived at worker/test/run.mjs:601
+commit/218d97340879:README.md:127 the README line that names password managers taking the authenticator setup, as waived at README.md:127
+commit/218d97340879:docs/config.md:64 the config docs explain secret references to users, as waived at docs/config.md:64
+commit/218d97340879:docs/guides/invite.md:83 the invite guide names password managers for the authenticator setup, as waived at docs/guides/invite.md:124
+commit/218d97340879:src/github.rs:33 the --token-ref help names the reference schemes it reads, as waived at src/github.rs:33
