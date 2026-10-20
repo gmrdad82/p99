@@ -58,7 +58,7 @@ async function seed() {
   const say = (actor, body) => api("POST", `/issues/${wrap.key}/comments?host=${HOST}`, { client_uid: uid(), body, internal: false }, actor);
   await say(ADA, "Thanks, Grace. I see it at 1100 px: the label breaks under the price.");
   await say(GRACE, "Same in Firefox, and on a tablet held upright.");
-  await api("PATCH", `/issues/${wrap.key}?host=${HOST}`, { status: "in_progress" }, ADA);
+  await api("PATCH", `/issues/${wrap.key}?host=${HOST}`, { status: "doing" }, ADA);
   await say({ ...ADA, agent: true }, "Found it: the button had no minimum width, so the price card squeezed it. The fix is on main with a check at 1100 px.");
   const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, LIVE], manager: false }, ADA);
   writeFileSync(join(work, "code"), minted.secret, { mode: 0o600 });

@@ -78,6 +78,12 @@ pub struct Summary {
     pub key: String,
     pub kind: String,
     pub status: String,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub board: Option<String>,
+    #[serde(default)]
+    pub position: Option<f64>,
     pub title: String,
     #[serde(default)]
     pub host: Option<String>,
@@ -121,6 +127,12 @@ pub struct Issue {
     pub key: String,
     pub kind: String,
     pub status: String,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub board: Option<String>,
+    #[serde(default)]
+    pub position: Option<f64>,
     pub title: String,
     #[serde(default)]
     pub host: Option<String>,
@@ -277,15 +289,29 @@ pub mod base64_bytes {
 }
 
 pub const KINDS: [&str; 5] = ["bug", "feature", "improvement", "question", "task"];
-pub const STATUSES: [&str; 7] = [
-    "new",
-    "confirmed",
-    "in_progress",
-    "waiting",
-    "resolved",
-    "abandoned",
-    "duplicate",
+pub const STATUSES: [&str; 4] = ["inbox", "doing", "review", "done"];
+pub const RESOLUTIONS: [&str; 3] = ["fixed", "abandoned", "duplicate"];
+pub const CHOICES: [(&str, Option<&str>); 6] = [
+    ("inbox", None),
+    ("doing", None),
+    ("review", None),
+    ("done", Some("fixed")),
+    ("done", Some("abandoned")),
+    ("done", Some("duplicate")),
 ];
+
+pub fn legacy(status: &str) -> Option<(&'static str, Option<&'static str>)> {
+    match status {
+        "new" => Some(("inbox", None)),
+        "confirmed" | "in_progress" => Some(("doing", None)),
+        "waiting" => Some(("review", None)),
+        "resolved" => Some(("done", Some("fixed"))),
+        "abandoned" => Some(("done", Some("abandoned"))),
+        "duplicate" => Some(("done", Some("duplicate"))),
+        _ => None,
+    }
+}
+
 pub fn kind_word(kind: &str) -> &str {
     match kind {
         "bug" => "Bug",
@@ -299,14 +325,31 @@ pub fn kind_word(kind: &str) -> &str {
 
 pub fn status_word(status: &str) -> &str {
     match status {
-        "new" => "New",
-        "confirmed" => "Confirmed",
-        "in_progress" => "In progress",
-        "waiting" => "Waiting",
-        "resolved" => "Resolved",
+        "inbox" => "Inbox",
+        "doing" => "Doing",
+        "review" => "Review",
+        "done" => "Done",
+        other => match legacy(other) {
+            Some((_, Some(resolution))) => resolution_word(resolution),
+            Some((key, None)) => status_word(key),
+            None => other,
+        },
+    }
+}
+
+pub fn resolution_word(resolution: &str) -> &str {
+    match resolution {
+        "fixed" => "Fixed",
         "abandoned" => "Dropped",
         "duplicate" => "Duplicate",
         other => other,
+    }
+}
+
+pub fn status_text<'a>(status: &'a str, resolution: Option<&'a str>) -> &'a str {
+    match (status, resolution) {
+        ("done", Some(resolution)) => resolution_word(resolution),
+        _ => status_word(status),
     }
 }
 
@@ -373,6 +416,8 @@ pub struct NewIssue {
 pub struct Change {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -450,7 +495,7 @@ pub fn page_path(raw: &str) -> String {
 }
 
 pub fn open(status: &str) -> bool {
-    matches!(status, "new" | "confirmed" | "in_progress" | "waiting")
+    !matches!(status, "done" | "resolved" | "abandoned" | "duplicate")
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -549,6 +594,158 @@ pub struct BuildItem {
     pub subject: String,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct StatusEntry {
+    pub key: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Rollup {
+    #[serde(default)]
+    pub done: i64,
+    #[serde(default)]
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Board {
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub parent: Option<String>,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub position: f64,
+    #[serde(default)]
+    pub home: bool,
+    #[serde(default)]
+    pub rollup: Rollup,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Boards {
+    #[serde(default)]
+    pub statuses: Vec<StatusEntry>,
+    #[serde(default)]
+    pub boards: Vec<Board>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CardPerson {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub agent: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ItemCard {
+    pub key: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub position: f64,
+    #[serde(default)]
+    pub assignee: Option<String>,
+    #[serde(default)]
+    pub reporter: CardPerson,
+    #[serde(default)]
+    pub priority: Option<String>,
+    #[serde(default)]
+    pub labels: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BoardCard {
+    pub slug: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub position: f64,
+    #[serde(default)]
+    pub rollup: Rollup,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Card {
+    Item(ItemCard),
+    Board(BoardCard),
+}
+
+impl Card {
+    pub fn status(&self) -> &str {
+        match self {
+            Card::Item(card) => &card.status,
+            Card::Board(card) => &card.status,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BoardView {
+    #[serde(default)]
+    pub statuses: Vec<StatusEntry>,
+    pub board: Board,
+    #[serde(default)]
+    pub cards: Vec<Card>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct NewBoard {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Move {
+    pub target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Moved {
+    pub moved: Card,
+    #[serde(default)]
+    pub changed: Vec<String>,
+}
+
 pub const IMPORT_TYPES: [&str; 7] = [
     "item",
     "comment",
@@ -627,5 +824,16 @@ mod tests {
         assert_eq!(content_type("Report.PDF"), Some("application/pdf"));
         assert_eq!(content_type("notes.html"), None);
         assert_eq!(content_type("README"), None);
+    }
+
+    #[test]
+    fn the_status_keys_are_the_workers() {
+        let boards = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src/boards.js"));
+        let keys: Vec<String> = STATUSES.iter().map(|s| format!("\"{s}\"")).collect();
+        let line = format!("export const STATUSES = [{}];", keys.join(", "));
+        assert!(boards.contains(&line), "{line}");
+        let resolutions: Vec<String> = RESOLUTIONS.iter().map(|s| format!("\"{s}\"")).collect();
+        let line = format!("export const RESOLUTIONS = [{}];", resolutions.join(", "));
+        assert!(boards.contains(&line), "{line}");
     }
 }

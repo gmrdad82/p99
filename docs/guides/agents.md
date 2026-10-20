@@ -40,14 +40,14 @@ Every command takes `--json`, which prints one JSON document on standard output 
 p99 list --all --json | jq -r '.issues[] | select(.unread) | .key'
 p99 show BUG-11 --json
 p99 comment BUG-11 "The cart reads the total once and never again after a remove." --internal --json
-p99 status BUG-11 in_progress --json
+p99 move BUG-11 --to doing --json
 p99 assign BUG-11 me --json
 p99 edit Q-4 --title "Which grind sizes does the chart cover?" --text-file q4.md --json
 ```
 
 `p99 edit` changes an item's title or details (`--text`, or `--text-file` with `-` for standard input); the item's history keeps the old and new text, and no one is mailed, so a batch of edits stays quiet.
 
-The objects are described field by field in [the API reference](../reference/formats.md#items): a summary in a list carries `key`, `kind`, `status`, `title`, `host`, `env`, the `page`, the `reporter` (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
+The objects are described field by field in [the API reference](../reference/formats.md#items): a summary in a list carries `key`, `kind`, `status` (with `resolution` once done), `board`, `title`, `host`, `env`, the `page`, the `reporter` (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
 
 ## React to changes as they happen
 
@@ -64,7 +64,7 @@ done
 {"type":"item","key":"BUG-14","host":"shop.example.com","title":"The coupon field rejects lowercase codes","by":{"name":"Grace Hopper","agent":false},"at":"2026-10-15T09:30:00.000Z"}
 ```
 
-Each event has `type` (`item`, `comment`, `change`, `attachment` or `import`), `key`, `host`, `title`, `by` (`name` and `agent`) and `at`; [the API reference](../reference/formats.md#live-events) lists the rest. A Worker not deployed since live updates came answers `p99: this Worker has no push yet; run p99 deploy`, with exit code 1.
+Each event has `type` (`item`, `comment`, `change`, `attachment`, `import`, and for boards `move`, `board.move`, `board` and `statuses`), `key`, `host`, `title`, `by` (`name` and `agent`) and `at`; [the API reference](../reference/formats.md#live-events) lists the rest. A Worker not deployed since live updates came answers `p99: this Worker has no push yet; run p99 deploy`, with exit code 1.
 
 ## Exit codes
 
@@ -79,7 +79,7 @@ Tell the agent what it may do in its own instructions, for example:
 ```text
 P99 is the issue tracker. Read items with `p99 list --all --json` and `p99 show <KEY> --json`.
 Answer with `p99 comment <KEY> "<text>"`, internal notes with --internal.
-Set statuses with `p99 status <KEY> <status>`; resolve an item only once its fix has landed.
+Set statuses with `p99 move <KEY> --to <status>` (or `p99 status <KEY> <status>`); move an item to done only once its fix has landed.
 Name items in commits with `Fixes: BUG-12` or `Refs: FEAT-3` trailers.
 ```
 

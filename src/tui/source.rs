@@ -10,7 +10,7 @@ use crate::client::Client;
 use crate::config::Config;
 use crate::stream::Heard;
 use crate::wire::{
-    Change, Code, Comment, Issue, ListQuery, Summary, Thread, kind_word, status_word,
+    Change, Code, Comment, Issue, ListQuery, Summary, Thread, kind_word, status_text,
 };
 
 use super::Msg;
@@ -42,7 +42,7 @@ impl Entry {
             item.kind,
             kind_word(&item.kind),
             item.status,
-            status_word(&item.status),
+            status_text(&item.status, item.resolution.as_deref()),
             item.title,
             item.host.as_deref().unwrap_or_default(),
             item.page.path,

@@ -1,3 +1,4 @@
+mod boards;
 mod bundle;
 mod cli;
 mod client;

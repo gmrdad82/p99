@@ -5,8 +5,8 @@ use serde_json::{Value, json};
 
 use crate::client::Client;
 use crate::wire::{
-    ATTACHMENT_LIMIT, IMPORT_TYPES, ImportConflict, ImportFinish, ImportTally, KINDS, ROLES,
-    STATUSES, item_number, prefix,
+    ATTACHMENT_LIMIT, IMPORT_TYPES, ImportConflict, ImportFinish, ImportTally, KINDS, RESOLUTIONS,
+    ROLES, STATUSES, item_number, prefix,
 };
 
 const BATCH_RECORDS: usize = 200;
@@ -164,8 +164,20 @@ fn check_item(value: &Value) -> Result<i64, String> {
             "body must be text of at most {BODY_CHARS} characters"
         ));
     }
-    if !absent(value, "status") && !STATUSES.contains(&need(value, "status")?) {
-        return Err(format!("status must be one of {}", STATUSES.join(", ")));
+    if !absent(value, "status") {
+        let status = need(value, "status")?;
+        if !STATUSES.contains(&status) && crate::wire::legacy(status).is_none() {
+            return Err(format!(
+                "status must be one of {}, or a P99 1.x status",
+                STATUSES.join(", ")
+            ));
+        }
+    }
+    if !absent(value, "resolution") && !RESOLUTIONS.contains(&need(value, "resolution")?) {
+        return Err(format!(
+            "resolution must be one of {}",
+            RESOLUTIONS.join(", ")
+        ));
     }
     person(value, "reporter")?;
     if !absent(value, "assignee") {

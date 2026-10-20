@@ -18,6 +18,7 @@ const DAY: i64 = 86_400;
 struct Item {
     kind: &'static str,
     status: &'static str,
+    resolution: Option<&'static str>,
     title: &'static str,
     host: &'static str,
     path: &'static str,
@@ -33,7 +34,8 @@ struct Item {
 const ITEMS: [Item; 12] = [
     Item {
         kind: "bug",
-        status: "abandoned",
+        status: "done",
+        resolution: Some("abandoned"),
         title: "Logo looks blurry on older phones",
         host: "example.com",
         path: "/",
@@ -47,7 +49,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "bug",
-        status: "resolved",
+        status: "done",
+        resolution: Some("fixed"),
         title: "Broken link on the about page",
         host: "example.com",
         path: "/about",
@@ -61,7 +64,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "bug",
-        status: "resolved",
+        status: "done",
+        resolution: Some("fixed"),
         title: "Checkout button overlaps the price",
         host: "shop.example.com",
         path: "/checkout",
@@ -75,7 +79,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "improvement",
-        status: "waiting",
+        status: "review",
+        resolution: None,
         title: "Make the footer links larger",
         host: "example.com",
         path: "/",
@@ -89,7 +94,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "improvement",
-        status: "confirmed",
+        status: "doing",
+        resolution: None,
         title: "Show delivery dates on product pages",
         host: "shop.example.com",
         path: "/products/lamp",
@@ -103,7 +109,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "task",
-        status: "in_progress",
+        status: "doing",
+        resolution: None,
         title: "Move product images to the new bucket",
         host: "shop.example.com",
         path: "/",
@@ -117,7 +124,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "feature",
-        status: "confirmed",
+        status: "doing",
+        resolution: None,
         title: "Export orders as CSV",
         host: "shop.example.com",
         path: "/orders",
@@ -131,7 +139,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "bug",
-        status: "in_progress",
+        status: "doing",
+        resolution: None,
         title: "Search box loses focus on mobile",
         host: "dev.example.com",
         path: "/search",
@@ -145,7 +154,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "feature",
-        status: "new",
+        status: "inbox",
+        resolution: None,
         title: "Dark mode for the blog",
         host: "dev.example.com",
         path: "/blog",
@@ -159,7 +169,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "question",
-        status: "new",
+        status: "inbox",
+        resolution: None,
         title: "Is the newsletter sent every week?",
         host: "example.com",
         path: "/newsletter",
@@ -173,7 +184,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "bug",
-        status: "new",
+        status: "inbox",
+        resolution: None,
         title: "The total does not update after removing a line",
         host: "shop.example.com",
         path: "/cart",
@@ -187,7 +199,8 @@ const ITEMS: [Item; 12] = [
     },
     Item {
         kind: "bug",
-        status: "duplicate",
+        status: "done",
+        resolution: Some("duplicate"),
         title: "Cart total stays the same after removing an item",
         host: "shop.example.com",
         path: "/cart",
@@ -302,16 +315,16 @@ const COMMENTS: [Said; 12] = [
     ),
 ];
 
-const MOVES: [(usize, i64, &str, &str); 9] = [
-    (1, 15 * DAY, "new", "abandoned"),
-    (2, 10 * DAY, "new", "confirmed"),
-    (2, 6 * DAY, "confirmed", "resolved"),
-    (3, 8 * DAY, "new", "in_progress"),
-    (3, 2 * DAY, "in_progress", "resolved"),
-    (4, DAY, "new", "waiting"),
-    (5, 20 * HOUR, "new", "confirmed"),
-    (7, 5 * HOUR, "new", "confirmed"),
-    (8, 2 * DAY, "new", "in_progress"),
+const MOVES: [(usize, i64, &str, &str, Option<&str>); 9] = [
+    (1, 15 * DAY, "inbox", "done", Some("abandoned")),
+    (2, 10 * DAY, "inbox", "doing", None),
+    (2, 6 * DAY, "doing", "done", Some("fixed")),
+    (3, 8 * DAY, "inbox", "doing", None),
+    (3, 2 * DAY, "doing", "done", Some("fixed")),
+    (4, DAY, "inbox", "review", None),
+    (5, 20 * HOUR, "inbox", "doing", None),
+    (7, 5 * HOUR, "inbox", "doing", None),
+    (8, 2 * DAY, "inbox", "doing", None),
 ];
 
 pub struct Demo {
@@ -347,12 +360,16 @@ impl Demo {
             threads[item - 1].issue.comments += 1;
             next_comment += 1;
         }
-        for &(item, ago, from, to) in &MOVES {
+        for &(item, ago, from, to, resolution) in &MOVES {
+            let mut detail = json!({"from": from, "to": to});
+            if let Some(resolution) = resolution {
+                detail["resolution"] = json!(resolution);
+            }
             threads[item - 1].events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
                 kind: "status".into(),
-                detail: json!({"from": from, "to": to}),
+                detail,
                 at: iso(NOW - ago),
             });
         }
@@ -437,15 +454,29 @@ impl Demo {
             if !wire::STATUSES.contains(&status.as_str()) {
                 return Err(format!("{status} is not a status"));
             }
+            let resolution = match (status.as_str(), &change.resolution) {
+                ("done", Some(resolution)) => Some(resolution.clone()),
+                ("done", None) => Some("fixed".to_owned()),
+                (_, Some(_)) => return Err("a resolution goes with done".into()),
+                _ => None,
+            };
+            let mut detail = json!({"from": issue.status, "to": status});
+            if let Some(resolution) = &resolution {
+                detail["resolution"] = json!(resolution);
+            }
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
                 kind: "status".into(),
-                detail: json!({"from": issue.status, "to": status}),
+                detail,
                 at: iso(NOW),
             });
             issue.closed_at = (!wire::open(status)).then(|| iso(NOW));
             issue.status = status.clone();
+            if resolution.as_deref() != Some("duplicate") && change.duplicate_of.is_none() {
+                issue.duplicate_of = None;
+            }
+            issue.resolution = resolution;
         }
         if let Some(assignee) = &change.assignee {
             thread.events.push(Event {
@@ -485,6 +516,7 @@ fn thread(id: i64, item: &Item) -> Thread {
         key,
         kind: item.kind.into(),
         status: item.status.into(),
+        resolution: item.resolution.map(Into::into),
         title: item.title.into(),
         host: Some(item.host.into()),
         env: env_of(item.host).into(),
@@ -547,6 +579,9 @@ pub fn summary(issue: &Issue) -> Summary {
         key: issue.key.clone(),
         kind: issue.kind.clone(),
         status: issue.status.clone(),
+        resolution: issue.resolution.clone(),
+        board: issue.board.clone(),
+        position: issue.position,
         title: issue.title.clone(),
         host: issue.host.clone(),
         env: issue.env.clone(),
