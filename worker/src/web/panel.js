@@ -57,6 +57,7 @@ const WORDS = {
   filter_any: "Any",
   filter_every_kind: "Any kind",
   list_empty: "Nothing here.",
+  list_empty_filtered: "Nothing matches these filters.",
   unread_mark: "New for you",
   comments: { one: "1 comment", other: "{count} comments" },
   more: "More",
@@ -538,9 +539,9 @@ function mount(view, focus) {
   if (!/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(focus.tagName) && !focus.hasAttribute("tabindex")) focus.setAttribute("tabindex", "-1");
   try { focus.focus({ preventScroll: true }); } catch (x) { focus.focus(); }
 }
-function failure(e) {
+function failure(e, retry) {
   const p = h("p", { class: "p99-error", role: "alert", id: "p99-title", text: problem(e) });
-  mount(h("section", { class: "p99-view" }, p), p);
+  mount(h("section", { class: "p99-view p99-failed" }, S.view === "item" ? back() : null, p, retry && e.status !== 404 ? h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry }) : null), p);
 }
 function statusLine() { return h("p", { class: "p99-status-line", role: "status", "aria-live": "polite" }); }
 function status(form, text, retry) {
@@ -625,12 +626,12 @@ function list(f) {
     const items = h("ol", { class: "p99-items" });
     const view = h("section", { class: "p99-view", "data-view": "list" }, title, nav, filters(f));
     const rows = (res && res.issues) || [];
-    if (!rows.length) view.append(h("p", { class: "p99-empty", text: say("list_empty") }));
+    if (!rows.length) view.append(h("p", { class: "p99-empty", text: say(f.kind || f.q || (f.status && f.status !== "open") ? "list_empty_filtered" : "list_empty") }));
     else view.append(items);
     rows.forEach((r) => items.append(row(r)));
     more(view, items, f, res && res.next_cursor);
     mount(view, title);
-  }, (e) => { if (seq === S.seq) failure(e); });
+  }, (e) => { if (seq === S.seq) failure(e, () => list(f)); });
 }
 function more(view, items, f, cursor) {
   if (!cursor) return;
@@ -688,7 +689,7 @@ function item(key) {
     const view = thread(t);
     mount(view, view.querySelector("#p99-title"));
     o.refresh && o.refresh();
-  }, (e) => { if (seq === S.seq) failure(e); });
+  }, (e) => { if (seq === S.seq) failure(e, () => item(key)); });
 }
 function back() {
   return h("a", { class: "p99-back", href: "#", text: say("back"), onclick: (e) => {
@@ -881,7 +882,16 @@ function combo(o) {
   const fill = () => {
     const n = ++ask;
     const q = typed ? input.value.trim() : "";
+    const slow = setTimeout(() => {
+      if (n !== ask || root.activeElement !== input) return;
+      opts = [];
+      clear(lb);
+      lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("loading") }));
+      show(true);
+      mark(-1);
+    }, 150);
     Promise.resolve(o.find(q)).then((list) => {
+      clearTimeout(slow);
       if (n !== ask || root.activeElement !== input) return;
       opts = list;
       clear(lb);
@@ -889,7 +899,10 @@ function combo(o) {
       if (!list.length) lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("no_match") }));
       show(true);
       mark(q && list.length ? 0 : -1);
-    }, () => {});
+    }, () => {
+      clearTimeout(slow);
+      if (n === ask) show(false);
+    });
   };
   const pick = (k) => {
     const x = opts[k];
