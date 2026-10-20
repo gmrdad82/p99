@@ -551,6 +551,24 @@ impl Demo {
         if let Some(of) = &change.duplicate_of {
             issue.duplicate_of = Some(of.clone());
         }
+        let closing = match (&change.status, &change.resolution, &change.duplicate_of) {
+            (None, Some(resolution), _) => Some(resolution.clone()),
+            (None, None, Some(_)) => Some("duplicate".to_owned()),
+            _ => None,
+        };
+        if let Some(resolution) = closing {
+            thread.events.push(Event {
+                actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
+                kind: "label".into(),
+                detail: json!({"from": issue.label, "to": "Done"}),
+                at: iso(NOW),
+            });
+            issue.label = Some("Done".into());
+            issue.status = "done".into();
+            issue.resolution = Some(resolution);
+            issue.closed_at = Some(iso(NOW));
+        }
         issue.updated_at = iso(NOW);
         Ok(issue.clone())
     }

@@ -184,6 +184,7 @@ mod tests {
                       "columns": [{"label": "Inbox", "closes": false}, {"label": "QA ready", "closes": false},
                                   {"label": "Done", "closes": true}]},
             "cards": [
+                {"key": "BUG-4", "kind": "bug", "title": "Four", "label": "Inbox", "assignee": null, "order": null},
                 {"key": "BUG-1", "kind": "bug", "title": "One", "label": "Inbox", "assignee": null, "order": "a0"},
                 {"key": "BUG-3", "kind": "bug", "title": "Three", "label": "Inbox", "assignee": null, "order": "a1"},
                 {"key": "BUG-2", "kind": "bug", "title": "Two", "label": "QA ready",
@@ -222,16 +223,16 @@ mod tests {
         let keys = |view: &BoardView| view.cards.iter().map(|c| c.key.clone()).collect::<Vec<_>>();
         let order = json!({"type": "order", "board": 7, "key": "BUG-3", "order": "Zz", "host": "example.com"});
         assert_eq!(patch(&mut view, &order), Patch::Patched);
-        assert_eq!(keys(&view), ["BUG-3", "BUG-1", "BUG-2"]);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1", "BUG-2"]);
         let elsewhere = json!({"type": "order", "board": "9", "key": "BUG-1", "order": "a", "host": "example.com"});
         assert_eq!(patch(&mut view, &elsewhere), Patch::Patched);
-        assert_eq!(keys(&view), ["BUG-3", "BUG-1", "BUG-2"]);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1", "BUG-2"]);
         let label = json!({"type": "label", "key": "BUG-1", "from": "Inbox", "to": "QA ready", "host": "example.com"});
         assert_eq!(patch(&mut view, &label), Patch::Patched);
-        assert_eq!(keys(&view), ["BUG-3", "BUG-2", "BUG-1"]);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-2", "BUG-1"]);
         let gone = json!({"type": "label", "key": "BUG-2", "from": "QA ready", "to": "Testing", "host": "example.com"});
         assert_eq!(patch(&mut view, &gone), Patch::Patched);
-        assert_eq!(keys(&view), ["BUG-3", "BUG-1"]);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1"]);
         let arrives = json!({"type": "label", "key": "BUG-9", "from": "Testing", "to": "Done", "host": "example.com"});
         assert_eq!(patch(&mut view, &arrives), Patch::Reload);
         let passes = json!({"type": "label", "key": "BUG-8", "from": "Testing", "to": "Shipped", "host": "example.com"});

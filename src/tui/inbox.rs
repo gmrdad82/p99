@@ -79,9 +79,11 @@ impl Shown {
     }
 }
 
+const DROP: &str = "Drop (close without fixing)";
+const DUPLICATE: &str = "Duplicate of…";
+
 enum Picking {
     Host,
-    Status,
     Assign(Vec<Option<String>>),
     Move(Vec<String>),
 }
@@ -477,23 +479,6 @@ impl Inbox {
         cx.pick(Pick::new("Host", options).selected(at).hints(pick_hints()));
     }
 
-    fn pick_status(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some(issue) = self.issue() else { return };
-        let at = wire::CHOICES
-            .iter()
-            .position(|&(s, r)| {
-                s == issue.status && (s != "done" || r == issue.resolution.as_deref())
-            })
-            .unwrap_or(0);
-        let options = wire::CHOICES.iter().map(|&(s, r)| status_text(s, r));
-        self.picking = Some(Picking::Status);
-        cx.pick(
-            Pick::new("Status", options)
-                .selected(at)
-                .hints(pick_hints()),
-        );
-    }
-
     fn pick_assignee(&mut self, cx: &mut Cx<'_, Msg>) {
         let Some(thread) = self.open.as_ref().and_then(|o| o.thread.as_ref()) else {
             return;
@@ -542,8 +527,10 @@ impl Inbox {
             .iter()
             .position(|l| *l == issue_label(issue))
             .unwrap_or(0);
-        self.picking = Some(Picking::Move(labels.clone()));
-        cx.pick(Pick::new("Move to", labels).selected(at).hints(pick_hints()));
+        let mut options = labels.clone();
+        options.extend([DROP.to_owned(), DUPLICATE.to_owned()]);
+        self.picking = Some(Picking::Move(labels));
+        cx.pick(Pick::new("Move to", options).selected(at).hints(pick_hints()));
     }
 
     fn issue(&self) -> Option<&Issue> {
@@ -604,8 +591,6 @@ impl Inbox {
                         let of = value.to_uppercase();
                         self.change(
                             Change {
-                                status: Some("done".into()),
-                                resolution: Some("duplicate".into()),
                                 duplicate_of: Some(of),
                                 ..Change::default()
                             },
@@ -632,7 +617,6 @@ impl Inbox {
                 self.read_thread(cx);
             }
             KeyCode::Char('r') if ready => open.typing = Some(Typing::Reply(Input::new())),
-            KeyCode::Char('s') if ready => self.pick_status(cx),
             KeyCode::Char('a') if ready => self.pick_assignee(cx),
             KeyCode::Char('m') if ready => self.pick_label(cx),
             KeyCode::Char('o') => self.browse(cx),
@@ -720,6 +704,17 @@ fn issue_label(issue: &Issue) -> String {
         .label
         .clone()
         .unwrap_or_else(|| status_word(&issue.status).to_owned())
+}
+
+fn state(issue: &Issue) -> String {
+    match issue.resolution.as_deref().filter(|r| *r != "fixed") {
+        Some(resolution) => format!(
+            "{} ({})",
+            issue_label(issue),
+            wire::resolution_word(resolution).to_lowercase()
+        ),
+        None => issue_label(issue),
+    }
 }
 
 fn label_style(palette: &Palette, item: &Summary) -> Style {
@@ -1142,13 +1137,7 @@ impl Screen<Msg> for Inbox {
                     Ok(issue) => {
                         let at = open.entry;
                         let said = match open.asked {
-                            Asked::Status => {
-                                format!(
-                                    "{key} is {}",
-                                    status_text(&issue.status, issue.resolution.as_deref())
-                                        .to_lowercase()
-                                )
-                            }
+                            Asked::Status => format!("{key} is {}", state(&issue)),
                             Asked::Label => format!("{key} moved to {}", issue_label(&issue)),
                         };
                         cx.say(said, Tone::Good);
@@ -1201,33 +1190,23 @@ impl Screen<Msg> for Inbox {
                     .and_then(|at| self.hosts.get(at).cloned());
                 self.sift();
             }
-            Picking::Status => {
-                let Some(&(status, resolution)) = wire::CHOICES.get(choice) else {
-                    return;
-                };
-                if self
-                    .issue()
-                    .is_some_and(|i| i.status == status && i.resolution.as_deref() == resolution)
-                {
-                    return;
-                }
-                if resolution == Some("duplicate") {
-                    if let Some(open) = &mut self.open {
-                        open.typing = Some(Typing::Duplicate(Input::new()));
-                    }
-                    return;
-                }
-                self.change(
-                    Change {
-                        status: Some(status.to_owned()),
-                        resolution: resolution.map(str::to_owned),
-                        ..Change::default()
-                    },
-                    cx,
-                );
-            }
             Picking::Move(labels) => {
                 let Some(to) = labels.get(choice).cloned() else {
+                    match choice - labels.len() {
+                        0 if self.issue().is_some_and(|i| i.resolution.is_none()) => self.change(
+                            Change {
+                                resolution: Some("abandoned".into()),
+                                ..Change::default()
+                            },
+                            cx,
+                        ),
+                        1 => {
+                            if let Some(open) = &mut self.open {
+                                open.typing = Some(Typing::Duplicate(Input::new()));
+                            }
+                        }
+                        _ => {}
+                    }
                     return;
                 };
                 if self.issue().is_some_and(|i| issue_label(i) == to) {
@@ -1351,7 +1330,6 @@ impl Screen<Msg> for Inbox {
             };
             return vec![
                 Hint::new("r", "reply"),
-                Hint::new("s", "status").rank(1),
                 Hint::new("a", "assign").rank(1),
                 Hint::new("m", "move to").rank(1),
                 Hint::new("i", internal).rank(2),

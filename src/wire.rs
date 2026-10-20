@@ -379,15 +379,6 @@ pub mod base64_bytes {
 pub const KINDS: [&str; 5] = ["bug", "feature", "improvement", "question", "task"];
 pub const STATUSES: [&str; 4] = ["inbox", "doing", "review", "done"];
 pub const RESOLUTIONS: [&str; 3] = ["fixed", "abandoned", "duplicate"];
-pub const CHOICES: [(&str, Option<&str>); 6] = [
-    ("inbox", None),
-    ("doing", None),
-    ("review", None),
-    ("done", Some("fixed")),
-    ("done", Some("abandoned")),
-    ("done", Some("duplicate")),
-];
-
 pub fn legacy(status: &str) -> Option<(&'static str, Option<&'static str>)> {
     match status {
         "new" => Some(("inbox", None)),
