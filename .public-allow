@@ -1,7 +1,7 @@
 # P99 reads config secrets through a password manager's CLI as a documented feature
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
-docs/config.md:64 the config docs explain secret references to users
+docs/config.md:65 the config docs explain secret references to users
 README.md:127 the README names password managers that take the authenticator setup
 docs/guides/invite.md:124 the invite guide tells users which password managers take the authenticator setup
 docs/hosts.md:61 the hooks docs show the secret-reference form a webhook URL is read through
