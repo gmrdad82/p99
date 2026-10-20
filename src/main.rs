@@ -5,6 +5,7 @@ mod client;
 mod cloudflare;
 mod config;
 mod docs;
+mod hooks;
 mod import;
 mod license;
 mod setup;

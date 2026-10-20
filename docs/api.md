@@ -78,6 +78,10 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/codes/{id}/totp` | the key | 200 `{"code":code,"totp_key":"<base32>"}`: adds an authenticator to the code, or replaces it; every browser of that code asks for a 6-digit code again |
 | `POST /_p99/v1/people/rename` | the key | `{"from","to"}`; 200 `{"from","to","items","assigned","comments","events","attachments","codes"}`: moves everything filed, said, assigned or held under one e-mail to another on the whole account, in one transaction |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
+| `GET /_p99/v1/hooks?host=` | managers | `{"hooks":[hook]}` |
+| `PUT /_p99/v1/hooks/{host}` | the key | `{"url","service"?,"events"?}`; adds or replaces that service's hook on a listed host; 200 hook |
+| `DELETE /_p99/v1/hooks/{host}?service=` | the key | removes the host's hooks, or only `slack` or `discord`; 204, or 404 when there was none |
+| `POST /_p99/v1/hooks/{host}/test` | the key | posts one test message to each of the host's hooks; 200 `{"results":[{"service","hint","ok","status"}]}` |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
 | `GET /_p99/v1/statuses` | actor | `{"statuses":[{"key","name","position"}]}` |
 | `PUT /_p99/v1/statuses/{key}` | actor | `{"name"}`; renames a status (its key stays); 200 `{"statuses"}`; a name another status has answers 409 |
@@ -88,6 +92,8 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `DELETE /_p99/v1/boards/{slug}` | actor | 204, only when the board holds no items and no boards, and is no host's home board (409 otherwise) |
 | `POST /_p99/v1/move` | actor | `{"target":"BUG-12"\|"board:<slug>","to"?,"board"?,"before"?,"after"?,"resolution"?}`; 200 `{"moved":card,"changed":["<key>"]}`, as [Boards](#boards) describes |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
+
+A hook object is `{"host","service","hint","events","created_at","updated_at","last_status","last_at"}`: `service` `slack` or `discord`, `hint` the URL's last four characters, `events` from `new`, `comment`, `status` and `shipped`, `last_status` `ok`, the HTTP status, `timeout` or `error`. No route ever answers the URL.
 
 A code object is `{"id","name","email","hosts","manager","hint","created_at","created_by","revoked_at","last_used_at"}`, `hint` the secret's last four characters.
 
@@ -148,6 +154,12 @@ An environment is a name with a kind. A `development` environment counts the bui
 ## Mail
 
 Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter; a first landing in a `notify` environment goes to the reporter. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an agent acting as a person reads as `Ada Lovelace*`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
+
+## Chat hooks
+
+Each host may hold one Slack and one Discord incoming webhook (the `hooks` table). A `url` is taken only when it is `https://hooks.slack.com/services/<a>/<b>/<c>` or `https://discord.com/api[/v<n>]/webhooks/<id>/<token>` (or `discordapp.com`), with no port, user, query or fragment; anything else answers 400, so a hook can reach no other address. The URL is stored sealed with AES-GCM under a key derived by HKDF from `CODE_PEPPER`, as the authenticator secrets are. `events` defaults to all four on a new hook and is kept when a later `PUT` leaves it out.
+
+After the response, in `waitUntil`, the Worker turns the request's live events into posts: `item` is `new`; a `comment` that is not internal is `comment`; a `move` to another column is `status` (once per item, whether it came from `POST /move` or a status change); a first landing in a `release` environment is `shipped`. Each hook gets one message per request listing up to ten items, Slack as `{"text","blocks"}` and Discord as `{"content","embeds","allowed_mentions":{"parse":[]}}` with the host's `theme.accent` as the embed colour. Each item shows its key, kind, title, status name, the actor (an agent as `Name*`) and its page link (`https://<host><path>#p99=<key>`); never an e-mail address, a comment body or an attachment. A post has 5 seconds, follows no redirect, and its outcome is kept as `last_status`; a failure is logged and never fails the request.
 
 ## Backups
 

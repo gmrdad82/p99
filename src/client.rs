@@ -210,6 +210,11 @@ impl Client {
             .map(|_| ())
     }
 
+    pub fn delete(&self, pq: &str) -> Result<(), String> {
+        self.send("DELETE", pq, true, false, &[], TIMEOUT)
+            .map(|_| ())
+    }
+
     pub fn envs(&self) -> Result<Vec<EnvEntry>, String> {
         let list: Value = self.json("GET", "/v1/envs", None)?;
         field(list, "envs")
@@ -356,7 +361,7 @@ impl Client {
         ))
     }
 
-    fn json<T: DeserializeOwned>(
+    pub(crate) fn json<T: DeserializeOwned>(
         &self,
         method: &str,
         pq: &str,
@@ -656,7 +661,7 @@ pub fn encode(value: &str) -> String {
     out
 }
 
-fn query(pairs: &[(&str, Option<String>)]) -> String {
+pub(crate) fn query(pairs: &[(&str, Option<String>)]) -> String {
     let parts: Vec<String> = pairs
         .iter()
         .filter_map(|(k, v)| {
@@ -672,7 +677,7 @@ fn query(pairs: &[(&str, Option<String>)]) -> String {
     }
 }
 
-fn segment(value: &str) -> Result<&str, String> {
+pub(crate) fn segment(value: &str) -> Result<&str, String> {
     let ok = !value.is_empty()
         && value.len() <= 255
         && value.bytes().any(|b| b.is_ascii_alphanumeric())

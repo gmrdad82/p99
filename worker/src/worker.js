@@ -13,6 +13,7 @@ import {
   postStreamTicket,
   useKit,
 } from "./boards.js";
+import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import cssSource from "./web/p99.css";
@@ -121,6 +122,7 @@ const BACKUP_TABLES = [
   { name: "codes", size: "length(hosts_json) + 400" },
   { name: "boards", size: "length(name) + 200" },
   { name: "statuses", size: "100" },
+  { name: "hooks", size: "length(url_sealed) + length(events_json) + 200" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -909,8 +911,7 @@ function hubOf(env) {
 }
 
 function push(c, type, row, extra = {}) {
-  if (!c.env.HUB) return;
-  c.pushes.push({
+  const event = {
     type,
     key: row ? keyOf(row.kind, row.id) : null,
     host: row ? (row.host ?? null) : (c.scope.host ?? null),
@@ -918,7 +919,9 @@ function push(c, type, row, extra = {}) {
     by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null,
     at: c.now,
     ...extra,
-  });
+  };
+  noteHook(c, event);
+  if (c.env.HUB) c.pushes.push(event);
 }
 
 async function flushPushes(c) {
@@ -1318,6 +1321,7 @@ async function postBuilds(c) {
   if (counts) {
     const landed = results[results.length - 1].results.map((r) => r.item_id);
     if (landed.length > 0) await announceLandings(c, envName, body, landed);
+    if (envKind(c.dir, envName) === "release") noteLanded(c, landed, envName, body.version);
   }
   return new Response(null, { status: 204 });
 }
@@ -3032,6 +3036,21 @@ const BROWSER_ROUTES = [
   ["POST", /^\/stream-ticket$/, postStreamTicket],
 ];
 
+const HOOK_KIT = {
+  fail,
+  json,
+  readJson,
+  requireEmptyBody,
+  requireManager,
+  decodeURIComponentSafe,
+  isHostName,
+  isLocal,
+  parseKey,
+  keyOf,
+  pageLink,
+  maxJson: MAX_JSON_BYTES,
+};
+
 const SIGNED_ROUTES = [
   ["POST", /^\/builds$/, postBuilds, { actor: false }],
   ["GET", /^\/counts$/, getCounts, { listed: true }],
@@ -3052,6 +3071,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/import$/, postImport, {}],
   ["POST", /^\/import\/finish$/, finishImport, {}],
   ["PUT", /^\/import\/attachments\/([^/]+)$/, putImportAttachment, {}],
+  ...hookRoutes(HOOK_KIT),
 ];
 
 useKit({
@@ -3088,6 +3108,7 @@ async function runHandler(c, handler, args) {
   const response = await handler(c, ...args);
   if (c.outbox.length > 0) c.ctx.waitUntil(flushMail(c));
   if (c.pushes.length > 0) c.ctx.waitUntil(flushPushes(c));
+  if (c.hooked && c.hooked.length > 0) c.ctx.waitUntil(flushHooks(c, HOOK_KIT));
   return response;
 }
 

@@ -51,6 +51,24 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-�
 | `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font |
 | `strings` | any of the panel's English words, by key |
 
+## Slack and Discord
+
+A host can post to a Slack channel, a Discord channel or both, through an incoming webhook made in Slack or Discord; there is no app to install and no OAuth.
+
+```sh
+p99 hooks set example.com --slack https://hooks.slack.com/services/T…/B…/…
+p99 hooks set example.com --url-ref op://Work/p99-discord/credential --on new,status
+p99 hooks
+p99 hooks test example.com
+p99 hooks remove example.com --discord
+```
+
+- `--on` picks what is posted, from `new` (an item is filed), `comment` (a comment that is not an internal note), `status` (an item changes column) and `shipped` (`p99 announce` lands its fix in a `release` environment); a new hook posts all four, and setting a hook again without `--on` keeps its list.
+- `--url-ref` reads the URL from 1Password (`op://…`) or an environment variable (`env:NAME`), so it never sits in the shell's history; with it, the URL itself says whether it is Slack or Discord.
+- Only `https://hooks.slack.com/services/…` and `https://discord.com/api/webhooks/…` (or `discordapp.com`) URLs are taken. The Worker keeps each one encrypted and never shows it again: `p99 hooks` shows its last four characters, its events and how the last post went.
+- A post names the item's key, kind, title and status (the account's names for the statuses), who acted (an agent as `Ada Lovelace*`) and a link that opens the item in the panel on the site. It never carries an e-mail address, an internal note or an attachment.
+- Posts go out after the Worker has answered, with a 5-second limit; a webhook that fails or hangs never fails or slows the change, and its answer shows in `p99 hooks`. A request that changes many items (a board moved to another column) posts one message per hook, listing up to ten of them.
+
 ## Environments
 
 A host has one environment. A site with a production and a development address makes them two hosts in one account, each with its own environment (`production` as `release`, `dev` as `development`), so their items stay apart and share one numbering.
