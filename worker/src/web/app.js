@@ -6,6 +6,9 @@ const WORDS = {
   limited: "Too many tries. Wait a few minutes, then try again.",
   needs: "Enter your e-mail and the 6-digit code.",
   signing: "Signing in…",
+  sign_in: "Sign in",
+  loading: "Loading…",
+  retry: "Try again",
   spaces: "Your spaces",
   spaces_help: "Each space is a site you can see P99 on. Open one to read its items and threads.",
   none: "No spaces yet. Ask the person who invited you for a P99 link.",
@@ -17,6 +20,7 @@ const WORDS = {
   username: "Username",
   username_help: "3 to 30 lowercase letters, digits, dots, dashes or underscores, starting and ending with a letter or digit. People see it as @username.",
   save: "Save",
+  saving: "Saving…",
   saved: "Saved.",
   taken: "That username is taken; try another.",
   bad_name: "Use 3 to 30 lowercase letters, digits, dots, dashes or underscores, starting and ending with a letter or digit.",
@@ -34,6 +38,17 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 
 const root = document.getElementById("app");
 const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0 };
+const link = document.getElementById("app-css");
+const styled = new Promise((done) => {
+  if (!link) return done();
+  const ready = () => {
+    link.media = "all";
+    done();
+  };
+  if (link.sheet) return ready();
+  link.addEventListener("load", ready, { once: true });
+  link.addEventListener("error", done, { once: true });
+});
 
 function say(key, args) {
   const v = WORDS[key] || key;
@@ -80,10 +95,22 @@ function problem(e) {
 }
 
 function mount(screen, view, focus) {
+  if (root.dataset.screen !== screen || root.querySelector(".app-wait")) view.classList.add("app-in");
   root.dataset.screen = screen;
-  view.classList.add("app-in");
   root.replaceChildren(view);
   if (focus) focus.focus({ preventScroll: true });
+}
+
+function waiting(title) {
+  mount("wait", h("div", { class: "app-screen" }, bar(title), h("div", { class: "app-wait", role: "status", "aria-busy": "true", "aria-label": say("loading") })));
+}
+
+function failed(e) {
+  if (signedOut(e)) return;
+  const again = h("button", { type: "button", text: say("retry"), onclick: route });
+  mount("problem", h("section", { class: "app-card app-problem" },
+    h("p", { class: "app-error", role: "alert", text: problem(e) }),
+    h("div", { class: "app-actions" }, again)), again);
 }
 
 function avatarModule() {
@@ -113,7 +140,7 @@ function signIn(note) {
       h("label", { class: "app-field" }, h("span", { text: "E-mail" }), h("input", { name: "email", type: "email", autocomplete: "username", inputmode: "email", required: true })),
       h("label", { class: "app-field" }, h("span", { text: "Code" }), h("input", { name: "totp", autocomplete: "one-time-code", inputmode: "numeric", maxlength: "7", pattern: "[0-9 ]*", required: true })),
       h("p", { class: "app-error", role: "alert", hidden: true }),
-      h("button", { class: "app-primary", type: "submit", text: "Sign in" }));
+      h("button", { class: "app-primary", type: "submit", text: say("sign_in") }));
     mount("signin", form);
   }
   root.dataset.screen = "signin";
@@ -129,6 +156,7 @@ function signIn(note) {
   form.onsubmit = (e) => {
     e.preventDefault();
     error.hidden = true;
+    totp.removeAttribute("aria-invalid");
     send.disabled = true;
     send.textContent = say("signing");
     call("POST", "/_p99/app/signin", { email: email.value.trim(), totp: totp.value.replace(/\s/g, "") })
@@ -141,7 +169,8 @@ function signIn(note) {
         error.textContent = problem(err);
         error.hidden = false;
         send.disabled = false;
-        send.textContent = "Sign in";
+        send.textContent = say("sign_in");
+        totp.setAttribute("aria-invalid", "true");
         totp.value = "";
         totp.focus();
       });
@@ -149,7 +178,7 @@ function signIn(note) {
 }
 
 function loadSpaces() {
-  return call("GET", "/_p99/app/spaces").then((d) => (S.spaces = d));
+  return Promise.all([call("GET", "/_p99/app/spaces"), styled]).then(([d]) => (S.spaces = d));
 }
 
 function signedOut(e) {
@@ -179,16 +208,17 @@ function spaces() {
         h("span", { class: "app-count", "data-open": s.open > 0, text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
     const title = h("h1", { tabindex: "-1", text: say("spaces") });
     const view = h("div", { class: "app-screen" }, bar(""),
-      h("section", { class: "app-card app-list" }, title, h("p", { class: "app-note", text: say("spaces_help") }),
+      h("section", { class: "app-card app-list" }, h("div", { class: "app-head" }, title, h("p", { class: "app-note", text: say("spaces_help") })),
         d.spaces.length ? list : h("p", { class: "app-empty", text: say("none") })));
     mount("spaces", view, root.dataset.screen === "spaces" ? null : title);
   };
   if (S.spaces) draw(S.spaces);
+  else if (!root.querySelector(".app-wait")) waiting("");
   loadSpaces().then((d) => {
     if (seq !== S.seq) return;
     draw(d);
     whoAmI();
-  }, (e) => { if (seq === S.seq && !signedOut(e)) mount("spaces", h("p", { class: "app-card app-error", role: "alert", text: problem(e) })); });
+  }, (e) => { if (seq === S.seq) failed(e); });
 }
 
 function whoAmI() {
@@ -205,6 +235,7 @@ function whoAmI() {
 function profile() {
   closeSpace();
   const seq = ++S.seq;
+  if (!S.spaces || !S.me) waiting(say("profile"));
   const ready = S.spaces ? Promise.resolve(S.spaces) : loadSpaces();
   ready.then(() => whoAmI()).then((m) => {
     if (seq !== S.seq) return;
@@ -214,6 +245,12 @@ function profile() {
     const face = h("div", { class: "app-face" }, disc(m.username, 96));
     const line = h("p", { class: "app-status", role: "status", "aria-live": "polite" });
     const save = h("button", { class: "app-primary", type: "submit", text: say("save") });
+    const tell = (text, bad) => {
+      line.textContent = text;
+      line.dataset.tone = bad ? "error" : "";
+      if (bad) input.setAttribute("aria-invalid", "true");
+      else input.removeAttribute("aria-invalid");
+    };
     input.addEventListener("input", () => face.replaceChildren(disc(input.value.trim().toLowerCase(), 96)));
     const form = h("form", { class: "app-card app-profile", novalidate: true },
       h("h1", { tabindex: "-1", text: say("profile") }),
@@ -227,22 +264,26 @@ function profile() {
       e.preventDefault();
       const name = input.value.trim().toLowerCase();
       if (!/^[a-z0-9][a-z0-9._-]{1,28}[a-z0-9]$/.test(name)) {
-        line.textContent = say("bad_name");
+        tell(say("bad_name"), true);
         return;
       }
       save.disabled = true;
-      line.textContent = "";
+      save.textContent = say("saving");
+      tell("", false);
       call("PATCH", "/_p99/api/me?host=" + encodeURIComponent(first.host), { username: name }).then((r) => {
         S.me = Object.assign({}, S.me, r && typeof r === "object" ? r : {}, { username: (r && r.username) || name });
         input.value = S.me.username;
-        line.textContent = say("saved");
+        tell(say("saved"), false);
       }, (err) => {
         if (signedOut(err)) return;
-        line.textContent = err.status === 409 ? say("taken") : err.status === 400 ? say("bad_name") : problem(err);
-      }).then(() => { save.disabled = false; });
+        tell(err.status === 409 ? say("taken") : err.status === 400 ? say("bad_name") : problem(err), true);
+      }).then(() => {
+        save.disabled = false;
+        save.textContent = say("save");
+      });
     });
     mount("profile", h("div", { class: "app-screen" }, bar(say("profile")), form), form.querySelector("h1"));
-  }, (e) => { if (!signedOut(e)) mount("profile", h("p", { class: "app-card app-error", role: "alert", text: problem(e) })); });
+  }, (e) => { if (seq === S.seq) failed(e); });
 }
 
 function signOut() {
@@ -294,7 +335,11 @@ function space(host) {
         signIn();
       },
     }),
-  ).catch((e) => { if (S.space === el) mount("space", h("p", { class: "app-card app-error", role: "alert", text: problem(e) })); });
+  ).catch((e) => {
+    if (S.space !== el) return;
+    closeSpace();
+    failed(e);
+  });
 }
 
 function route() {
