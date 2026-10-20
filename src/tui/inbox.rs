@@ -514,41 +514,28 @@ impl Inbox {
     }
 
     fn pick_assignee(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some((account, thread)) = self
-            .open
-            .as_ref()
-            .and_then(|o| o.thread.as_ref().map(|t| (o.account, t)))
-        else {
+        let Some(thread) = self.open.as_ref().and_then(|o| o.thread.as_ref()) else {
             return;
         };
-        let (name, email) = self.source.me(account);
-        let mut people: Vec<(Option<String>, String)> = vec![(None, "Nobody".into())];
-        let mut add = |email: &str, name: &str| {
-            if !email.is_empty() && !people.iter().any(|(e, _)| e.as_deref() == Some(email)) {
-                people.push((
-                    Some(email.to_owned()),
-                    format!("{} <{email}>", person(name, email, false)),
-                ));
+        let current = thread.issue.assignee.as_ref().map(|a| a.username.clone());
+        let mut people: Vec<(Option<String>, String)> =
+            vec![(None, "Nobody".into()), (Some("me".into()), "Me".into())];
+        for name in thread
+            .people
+            .iter()
+            .map(|m| &m.username)
+            .chain(current.as_ref())
+        {
+            if !people.iter().any(|(u, _)| u.as_ref() == Some(name)) {
+                people.push((Some(name.clone()), format!("@{name}")));
             }
-        };
-        add(&email, &name);
-        let reporter = &thread.issue.reporter;
-        add(
-            reporter["email"].as_str().unwrap_or_default(),
-            reporter["name"].as_str().unwrap_or_default(),
-        );
-        for comment in &thread.comments {
-            add(&comment.author.email, &comment.author.name);
-        }
-        if let Some(current) = &thread.issue.assignee {
-            add(current, "");
         }
         let at = people
             .iter()
-            .position(|(e, _)| e.as_ref() == thread.issue.assignee.as_ref())
+            .position(|(u, _)| u.is_some() && *u == current)
             .unwrap_or(0);
-        let (emails, labels): (Vec<_>, Vec<_>) = people.into_iter().unzip();
-        self.picking = Some(Picking::Assign(emails));
+        let (usernames, labels): (Vec<_>, Vec<_>) = people.into_iter().unzip();
+        self.picking = Some(Picking::Assign(usernames));
         cx.pick(
             Pick::new("Assign to", labels)
                 .selected(at)
@@ -1417,7 +1404,10 @@ impl Screen<Msg> for Inbox {
                 let Some(to) = people.get(choice).cloned() else {
                     return;
                 };
-                if self.issue().is_some_and(|i| i.assignee == to) {
+                if self
+                    .issue()
+                    .is_some_and(|i| i.assignee.as_ref().map(|a| &a.username) == to.as_ref())
+                {
                     return;
                 }
                 self.change(

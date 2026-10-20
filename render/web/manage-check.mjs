@@ -228,17 +228,17 @@ try {
     await hit(`${sel("assignee")} [role=combobox]`);
     await p.waitForTimeout(400);
     let l = await listbox(p, sel("assignee"));
-    check(`${label}: the assignee picker opens with Unassigned and the people (${l.items.join(" | ")})`, l.open && l.items[0] === "Unassigned" && l.items.some((t) => t.includes("grace@example.com")) && l.fits);
+    check(`${label}: the assignee picker opens with Unassigned and the people (${l.items.join(" | ")})`, l.open && l.items[0] === "Unassigned" && l.items.some((t) => t.includes("@grace.hopper")) && !l.items.some((t) => t.includes("@example.com")) && l.fits);
     await p.keyboard.type("hop");
     await p.waitForTimeout(200);
     l = await listbox(p, sel("assignee"));
-    check(`${label}:   typing filters it to Grace, first one active`, l.items.length === 1 && /Grace/.test(l.active || ""));
+    check(`${label}:   typing filters it to Grace, first one active`, l.items.length === 1 && /grace/.test(l.active || ""));
     await p.keyboard.press("Enter");
-    check(`${label}:   Enter picks her`, (await hidden(p, "assignee")) === "grace@example.com" && (await listbox(p, sel("assignee"))).value === "Grace Hopper" && !(await listbox(p, sel("assignee"))).open);
+    check(`${label}:   Enter picks her`, (await hidden(p, "assignee")) === "grace.hopper" && (await listbox(p, sel("assignee"))).value === "@grace.hopper" && !(await listbox(p, sel("assignee"))).open);
     await hit(`${sel("assignee")} [role=combobox]`);
     await p.waitForTimeout(300);
-    await hit(`${sel("assignee")} [role=option]:has-text("linus@example.com")`);
-    check(`${label}:   a ${touch ? "tap" : "click"} picks Linus`, (await hidden(p, "assignee")) === "linus@example.com");
+    await hit(`${sel("assignee")} [role=option]:has-text("@linus.park")`);
+    check(`${label}:   a ${touch ? "tap" : "click"} picks Linus`, (await hidden(p, "assignee")) === "linus.park");
 
     await hit(`${sel("duplicate")} [role=combobox]`);
     await p.waitForTimeout(500);
@@ -282,7 +282,7 @@ try {
       await p.locator(S(".p99-manage > button[type=submit]")).click();
       await p.waitForTimeout(1500);
       const got = (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
-      check(`Save sends the picks (${got.assignee}, ${got.duplicate_of}, ${(got.labels || []).map((t) => t.name).join(",")})`, got.assignee === "linus@example.com" && !!got.duplicate_of && (got.labels || []).map((t) => t.name).sort().join(",") === "Brand new,checkout,safari");
+      check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of}, ${(got.labels || []).map((t) => t.name).join(",")})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of && (got.labels || []).map((t) => t.name).sort().join(",") === "Brand new,checkout,safari");
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, status: "inbox", labels: ["checkout"] });
     }
     await ctx.close();

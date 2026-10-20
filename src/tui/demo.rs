@@ -1,8 +1,8 @@
 use serde_json::{Value, json};
 
 use crate::wire::{
-    self, Author, Change, Code, Comment, Event, Issue, Landing, PageRef, Person, Reached, Summary,
-    Tag, Thread,
+    self, Assignee, Author, Change, Code, Comment, Event, Issue, Landing, Member, PageRef, Person,
+    Reached, Summary, Tag, Thread,
 };
 
 use super::source::{Entry, iso};
@@ -78,7 +78,7 @@ const ITEMS: [Item; 12] = [
         created: 12 * DAY,
         updated: 6 * DAY,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "The \"Our story\" link points to a page that no longer exists.",
     },
     Item {
@@ -93,7 +93,7 @@ const ITEMS: [Item; 12] = [
         created: 9 * DAY,
         updated: 2 * DAY,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "On a narrow window the Pay button covers the total, so I can't read what I'm paying.",
     },
     Item {
@@ -123,7 +123,7 @@ const ITEMS: [Item; 12] = [
         created: 5 * DAY,
         updated: 20 * HOUR,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "Say when an order placed today would arrive, under the price.",
     },
     Item {
@@ -138,7 +138,7 @@ const ITEMS: [Item; 12] = [
         created: 4 * DAY,
         updated: 30 * MINUTE,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "Copy every product image, switch the URLs, then remove the old ones.",
     },
     Item {
@@ -153,7 +153,7 @@ const ITEMS: [Item; 12] = [
         created: 3 * DAY,
         updated: 5 * HOUR,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "I'd like to download this month's orders for the accounts.",
     },
     Item {
@@ -168,7 +168,7 @@ const ITEMS: [Item; 12] = [
         created: 2 * DAY,
         updated: 2 * HOUR,
         unread: false,
-        assignee: Some("ada@example.com"),
+        assignee: Some("ada.lovelace"),
         body: "Typing the second letter closes the keyboard on a phone. The input is re-rendered on every key.",
     },
     Item {
@@ -458,7 +458,14 @@ impl Demo {
     pub fn thread(&mut self, key: &str) -> Result<Thread, String> {
         let thread = self.find(key)?;
         thread.issue.unread = false;
-        Ok(thread.clone())
+        let mut thread = thread.clone();
+        thread.people = ["ada.lovelace", "grace.hopper"]
+            .map(|username| Member {
+                username: username.into(),
+                manager: username == "ada.lovelace",
+            })
+            .into();
+        Ok(thread)
     }
 
     pub fn comment(&mut self, key: &str, body: &str, internal: bool) -> Result<Comment, String> {
@@ -548,14 +555,17 @@ impl Demo {
             issue.resolution = resolution;
         }
         if let Some(assignee) = &change.assignee {
+            let to = assignee
+                .as_deref()
+                .map(|name| Assignee::new(if name == "me" { "ada.lovelace" } else { name }));
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
                 kind: "assignee".into(),
-                detail: json!({"from": issue.assignee, "to": assignee}),
+                detail: json!({"from": issue.assignee, "to": to}),
                 at: iso(NOW),
             });
-            issue.assignee = assignee.clone();
+            issue.assignee = to;
         }
         if let Some(of) = &change.duplicate_of {
             issue.duplicate_of = Some(of.clone());
@@ -616,7 +626,7 @@ fn thread(id: i64, item: &Item) -> Thread {
             title: String::new(),
         },
         reporter: json!({"email": email, "name": name, "agent": item.agent}),
-        assignee: item.assignee.map(Into::into),
+        assignee: item.assignee.map(Assignee::new),
         created_at: iso(NOW - item.created),
         updated_at: iso(NOW - item.updated),
         unread: item.unread,
@@ -636,6 +646,7 @@ fn thread(id: i64, item: &Item) -> Thread {
         issue,
         comments: Vec::new(),
         attachments: Vec::new(),
+        people: Vec::new(),
     }
 }
 

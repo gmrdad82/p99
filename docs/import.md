@@ -23,7 +23,7 @@ bundle/
 
 | Type | Fields |
 | --- | --- |
-| `item` | `key` (`BUG-3`; the number is taken from it, the prefix must match the kind), `kind`, `title`, `body`, `status` (`inbox`, `doing`, `review` or `done`, or a P99 1.x status such as `resolved`), `resolution` (with done: `fixed`, `abandoned` or `duplicate`; `fixed` when left out), `duplicate_of` (a key or null), `reporter` `{email, name, agent}`, `assignee` (an e-mail or null), `env` (null: the host's environment), `page` `{url, path, title}` (null: the host's front page), `context` `{}`, `marks` `[]`, `created_at`, `updated_at`, `closed_at` |
+| `item` | `key` (`BUG-3`; the number is taken from it, the prefix must match the kind), `kind`, `title`, `body`, `status` (`inbox`, `doing`, `review` or `done`, or a P99 1.x status such as `resolved`), `resolution` (with done: `fixed`, `abandoned` or `duplicate`; `fixed` when left out), `duplicate_of` (a key or null), `reporter` `{email, name, agent}`, `assignee` (an e-mail or null; it shows as that person's username, made from the e-mail when they have none), `env` (null: the host's environment), `page` `{url, path, title}` (null: the host's front page), `context` `{}`, `marks` `[]`, `created_at`, `updated_at`, `closed_at` |
 | `comment` | `item` (a key), `uid` (a stable id of your own), `author` `{email, name, agent, manager}`, `body`, `internal`, `created_at` |
 | `attachment` | `item`, `uid`, `comment` (a comment's `uid`, or null), `role` (`file`, `screenshot`, `page` or `region`), `mark` (a region's mark index), `name` (null: the file's name), `content_type`, `file` (a path inside the bundle directory), `internal`, `created_at` |
 | `event` | `item`, `actor` `{email, agent}` (or null for the system), `kind`, `detail` `{}`, `internal`, `at` |

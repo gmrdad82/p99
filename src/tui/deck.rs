@@ -216,7 +216,7 @@ mod tests {
                 {"type": "board", "slug": "v2", "name": "Site v2", "status": "inbox", "position": 2048,
                  "rollup": {"done": 1, "total": 2}},
                 {"type": "item", "key": "BUG-2", "kind": "bug", "title": "Two", "status": "doing",
-                 "resolution": null, "position": 1024, "assignee": "ada@example.com",
+                 "resolution": null, "position": 1024, "assignee": {"username": "ada.lovelace"},
                  "reporter": {"name": "Ada", "agent": true}, "priority": "high",
                  "labels": [{"name": "cart", "color": "#f7768e"}]}
             ]

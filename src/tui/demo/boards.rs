@@ -25,7 +25,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/products/lamp",
         true,
         9 * HOUR,
-        Some("ada@example.com"),
+        Some("ada.lovelace"),
         "The top of the lamp is cut off in every photo.",
     ),
     extra(
@@ -45,7 +45,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/checkout",
         false,
         2 * HOUR,
-        Some("ada@example.com"),
+        Some("ada.lovelace"),
         "Address, delivery and payment on one page.",
     ),
     extra(
@@ -55,7 +55,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/checkout",
         true,
         6 * HOUR,
-        Some("grace@example.com"),
+        Some("grace.hopper"),
         "Fill the address from the last order.",
     ),
     extra(
@@ -65,7 +65,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/cart",
         false,
         3 * DAY,
-        Some("ada@example.com"),
+        Some("ada.lovelace"),
         "The basket slides in from the right on every page.",
     ),
     extra(
@@ -85,7 +85,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/checkout",
         false,
         45 * MINUTE,
-        Some("grace@example.com"),
+        Some("grace.hopper"),
         "The provider's hosted card fields, one iframe.",
     ),
     extra(
@@ -95,7 +95,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
         "/checkout",
         false,
         2 * DAY,
-        Some("ada@example.com"),
+        Some("ada.lovelace"),
         "Required for cards issued in the EU.",
     ),
     extra(

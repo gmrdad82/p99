@@ -11,8 +11,8 @@ use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
     Attachment, Board, BoardView, Boards, Build, Change, Code, Comment, Download, EnvEntry,
-    HostEntry, ImportFinish, ImportReport, Issue, IssueList, Label, ListQuery, Minted, Move, Moved,
-    NewBoard, NewCode, NewIssue, StatusEntry, Thread,
+    HostEntry, ImportFinish, ImportReport, Issue, IssueList, Label, ListQuery, Member, Minted,
+    Move, Moved, NewBoard, NewCode, NewIssue, StatusEntry, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -288,6 +288,12 @@ impl Client {
 
     pub fn revoke(&self, id: i64) -> Result<Code, String> {
         self.json("POST", &format!("/v1/codes/{id}/revoke"), None)
+    }
+
+    pub fn people(&self) -> Result<Vec<Member>, String> {
+        let pq = format!("/v1/people{}", query(&[("host", self.host.clone())]));
+        let list: Value = self.json("GET", &pq, None)?;
+        field(list, "people")
     }
 
     pub fn rename(&self, from: &str, to: &str) -> Result<serde_json::Value, String> {
