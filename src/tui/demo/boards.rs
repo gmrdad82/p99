@@ -233,18 +233,18 @@ const PLACES: [(i64, &str, f64); 22] = [
     (9, "dev-example-com", 2048.0),
 ];
 
-type Marks = (i64, &'static str, &'static [(&'static str, &'static str)]);
+type Marks = (i64, &'static [(&'static str, &'static str)]);
 
 const MARKS: [Marks; 9] = [
-    (11, "urgent", &[("cart", "#f7768e")]),
-    (13, "low", &[]),
-    (5, "normal", &[("product", "#7dcfff")]),
-    (7, "high", &[("orders", "#e0af68")]),
-    (14, "normal", &[("photos", "#bb9af7")]),
-    (15, "high", &[("ipad", "#7aa2f7")]),
-    (16, "high", &[]),
-    (20, "urgent", &[("cards", "#9ece6a")]),
-    (6, "normal", &[("photos", "#bb9af7")]),
+    (11, &[("cart", "#f7768e")]),
+    (13, &[]),
+    (5, &[("product", "#7dcfff")]),
+    (7, &[("orders", "#e0af68")]),
+    (14, &[("photos", "#bb9af7")]),
+    (15, &[("ipad", "#7aa2f7")]),
+    (16, &[]),
+    (20, &[("cards", "#9ece6a")]),
+    (6, &[("photos", "#bb9af7")]),
 ];
 
 pub(super) struct Shelf {
@@ -291,9 +291,8 @@ fn card(issue: &Issue, position: f64) -> ItemCard {
             name: reporter["name"].as_str().map(Into::into),
             agent: reporter["agent"].as_bool().unwrap_or(false),
         },
-        priority: marks.map(|(_, priority, _)| (*priority).to_owned()),
         labels: marks
-            .map(|(_, _, labels)| {
+            .map(|(_, labels)| {
                 labels
                     .iter()
                     .map(|(name, color)| wire::Tag {

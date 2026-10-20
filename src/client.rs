@@ -128,7 +128,6 @@ impl Client {
             ("cursor", q.cursor.clone()),
             ("limit", Some(q.limit.clamp(1, 100).to_string())),
         ];
-        pairs.extend(q.priority.iter().map(|p| ("priority", Some(p.clone()))));
         pairs.extend(q.label.iter().map(|l| ("label", Some(l.clone()))));
         let pq = format!("/v1/issues{}", query(&pairs));
         self.json("GET", &pq, None)

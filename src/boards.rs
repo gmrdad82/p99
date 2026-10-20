@@ -354,14 +354,7 @@ pub fn columns(view: &BoardView) -> Vec<String> {
         for card in cards {
             lines.push(match card {
                 Card::Item(item) => {
-                    let mark = crate::wire::priority_mark(item.priority.as_deref());
-                    let mut line = format!(
-                        "  {:<9} {}{}{}",
-                        item.key,
-                        mark,
-                        if mark.is_empty() { "" } else { " " },
-                        item.title
-                    );
+                    let mut line = format!("  {:<9} {}", item.key, item.title);
                     if status.key == "done"
                         && let Some(resolution) = item.resolution.as_deref()
                         && resolution != "fixed"

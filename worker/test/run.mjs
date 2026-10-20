@@ -73,6 +73,30 @@ const LEGACY_SQL = [
   "UPDATE items SET assignee = 'Old.Hand@example.com' WHERE id = 902;",
 ].join("\n");
 
+const LANE_ROWS = [
+  [951, "low", "2025-02-01"],
+  [952, null, "2025-02-02"],
+  [953, "urgent", "2025-02-05"],
+  [954, "high", "2025-02-03"],
+  [955, "urgent", "2025-02-04"],
+  [956, "normal", "2025-02-06"],
+  [957, "high", "2025-02-07"],
+];
+
+const LANE_SQL = [
+  `INSERT INTO boards (id, slug, name, host, home, created_at, updated_at) VALUES (950, 'lanes-example', 'lanes.example', 'lanes.example', 1, '2025-02-01', '2025-02-01');`,
+  `INSERT INTO boards (id, slug, name, host, parent_id, status, position, created_at, updated_at) VALUES (951, 'lanes-nested', 'Nested', 'lanes.example', 950, 'inbox', 2500, '2025-02-01', '2025-02-01');`,
+  ...LANE_ROWS.map(([id, priority, day], n) => {
+    const at = `'${day}T00:00:00.000Z'`;
+    return `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
+      reporter_email, reporter_name, reporter_json, context_json, marks_json, search_text, activity_at, public_activity_at,
+      created_at, updated_at, board_id, position, priority)
+      VALUES (${id}, 'lane-${id}', 'bug', 'inbox', 1, 'Lane ${id}', '', 'production', 'lanes.example', 'https://lanes.example/', '/', '',
+      'old@example.com', 'Old', '{}', '{}', '[]', 'lane', ${at}, ${at}, ${at}, ${at}, 950, ${1000 * (n + 1)}, ${priority ? `'${priority}'` : "NULL"});`;
+  }),
+  `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at) VALUES (953, 'old@example.com', 'priority', '{"from":null,"to":"urgent"}', 1, '2025-02-05T00:00:00.000Z');`,
+].join("\n");
+
 const sent = [];
 
 function fakeResend() {
@@ -229,17 +253,21 @@ async function main() {
   rmSync(state, { recursive: true, force: true });
   mkdirSync(state, { recursive: true });
   const migrations = join(root, "migrations");
-  const before = readdirSync(migrations)
-    .filter((f) => f.endsWith(".sql") && f < "0004")
+  const files = readdirSync(migrations)
+    .filter((f) => f.endsWith(".sql"))
     .sort();
+  const before = files.filter((f) => f < "0004");
+  const lanes = files.filter((f) => f >= "0004" && f < "0011");
   const legacy = join(work, "test-legacy.sql");
   writeFileSync(
     legacy,
     [
       ...before.map((f) => readFileSync(join(migrations, f), "utf8")),
-      "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
-      ...before.map((f) => `INSERT INTO d1_migrations (name) VALUES ('${f}');`),
       LEGACY_SQL,
+      ...lanes.map((f) => readFileSync(join(migrations, f), "utf8")),
+      LANE_SQL,
+      "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+      ...[...before, ...lanes].map((f) => `INSERT INTO d1_migrations (name) VALUES ('${f}');`),
     ].join("\n"),
   );
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", legacy]);
@@ -448,36 +476,34 @@ async function run() {
     assert.equal(forged.status, 400);
   });
 
-  await check("only managers set and see priority and labels, and the filters return the right rows", async () => {
+  await check("only managers set and see labels, the filters return the right rows, and priority is refused everywhere", async () => {
     const issue = (k, extra = "") => call("GET", `/_p99/v1/issues/${k}?host=${here}${extra}`);
     const set = (k, body) => call("PATCH", `/_p99/v1/issues/${k}?host=${here}`, { body });
     const file = async (title) => (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title }) })).json.key;
     const [one, two] = [await file("Labelled one"), await file("Labelled two")];
-    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { priority: "urgent" })).status, 403);
     assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { labels: ["ui"] })).status, 403);
-    const tagged = await set(key, { priority: "urgent", labels: { add: ["Checkout", "ui"] } });
+    const refused = await set(key, { priority: "urgent", labels: ["ui"] });
+    assert.equal(refused.status, 400);
+    assert.match(refused.json.error, /place in its lane/);
+    assert.equal((await set(key, { priority: null })).status, 400);
+    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { priority: "high" })).status, 400);
+    assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&priority=urgent`)).status, 400);
+    const tagged = await set(key, { labels: { add: ["Checkout", "ui"] } });
     assert.equal(tagged.status, 200, JSON.stringify(tagged.json));
-    assert.equal(tagged.json.priority, "urgent");
     assert.deepEqual(tagged.json.labels.map((t) => t.name), ["Checkout", "ui"]);
     assert.match(tagged.json.labels[0].color, /^#[0-9a-f]{6}$/);
-    assert.equal((await set(one, { priority: "high", labels: { add: ["UI"] } })).json.labels[0].name, "ui");
-    assert.equal((await set(two, { priority: "bogus" })).status, 400);
+    assert.equal((await set(one, { labels: { add: ["UI"] } })).json.labels[0].name, "ui");
     const seen = await browse("GET", `/issues/${key}`, adaHere.secret);
-    assert.equal(seen.json.issue.priority, null);
     assert.deepEqual(seen.json.issue.labels, []);
-    assert.equal(seen.json.events.some((ev) => ev.kind === "priority" || ev.kind === "labels"), false);
+    assert.equal(seen.json.events.some((ev) => ev.kind === "labels"), false);
     const mine = await browse("GET", "/issues?scope=mine", adaHere.secret);
-    assert.ok(mine.json.issues.every((i) => i.priority === null && i.labels.length === 0));
+    assert.ok(mine.json.issues.every((i) => i.labels.length === 0));
     assert.equal((await browse("GET", "/issues?scope=mine&label=ui", adaHere.secret)).status, 403);
-    assert.equal((await browse("GET", "/issues?scope=mine&priority=urgent", adaHere.secret)).status, 403);
     assert.equal((await browse("GET", "/labels", adaHere.secret)).status, 403);
     const keys = async (q) =>
       (await call("GET", `/_p99/v1/issues?scope=all&host=*&${q}`)).json.issues.map((i) => i.key).filter((k) => [key, one, two].includes(k)).sort();
     assert.deepEqual(await keys("label=UI"), [key, one].sort());
     assert.deepEqual(await keys("label=ui&label=checkout"), [key]);
-    assert.deepEqual(await keys("priority=urgent&priority=high"), [key, one].sort());
-    assert.deepEqual(await keys("priority=none"), [two]);
-    assert.equal((await call("GET", `/_p99/v1/issues?scope=all&priority=soon`)).status, 400);
     assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "CHECKOUT" } })).status, 409);
     assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "copy", color: "red" } })).status, 400);
     assert.equal((await call("POST", "/_p99/v1/labels", { body: { name: "copy", color: "#57AB5A" } })).json.color, "#57ab5a");
@@ -494,10 +520,16 @@ async function run() {
     const board = await call("GET", `/_p99/v1/boards/${here.replace(/\./g, "-")}?host=${here}`);
     assert.equal(board.status, 200, JSON.stringify(board.json));
     const card = board.json.cards.find((cd) => cd.key === key);
-    assert.equal(card.priority, "urgent");
     assert.deepEqual(card.labels.map((t) => t.name), ["Checkout"]);
-    const cleared = await set(key, { priority: null, labels: [] });
-    assert.equal(cleared.json.priority, null);
+    const answers = [
+      (await issue(key)).json,
+      (await call("GET", `/_p99/v1/issues?scope=all&host=*`)).json,
+      board.json,
+      (await browse("GET", `/issues/${key}`, adaHere.secret)).json,
+      (await browse("GET", "/issues?scope=mine", adaHere.secret)).json,
+    ];
+    for (const answer of answers) assert.doesNotMatch(JSON.stringify(answer), /"priority"/);
+    const cleared = await set(key, { labels: [] });
     assert.deepEqual(cleared.json.labels, []);
   });
 
@@ -806,7 +838,16 @@ async function run() {
     assert.equal(board.status, 200, JSON.stringify(board.json));
     assert.deepEqual(board.json.board.rollup, { done: 3, total: 7 });
     const doing = board.json.cards.filter((c) => c.status === "doing").map((c) => c.key);
-    assert.deepEqual(doing, ["BUG-903", "BUG-902"]);
+    assert.deepEqual(doing, ["BUG-902", "BUG-903"]);
+  });
+
+  await check("the lane migration puts each lane in its old priority order, ties by age, and drops priority", async () => {
+    const board = await call("GET", "/_p99/v1/boards/lanes-example");
+    assert.equal(board.status, 200, JSON.stringify(board.json));
+    const lane = board.json.cards.filter((c) => c.status === "inbox").map((c) => c.key || `board:${c.slug}`);
+    assert.deepEqual(lane, ["BUG-955", "BUG-953", "board:lanes-nested", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
+    const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*");
+    assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
   });
 
   const boards = await call("GET", `/_p99/v1/boards?host=${here}`);

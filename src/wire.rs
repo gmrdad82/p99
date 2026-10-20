@@ -108,8 +108,6 @@ pub struct Summary {
     #[serde(default)]
     pub landing: Landing,
     #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
     pub labels: Vec<Tag>,
 }
 
@@ -135,27 +133,6 @@ pub struct LabelEdit {
     pub add: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove: Vec<String>,
-}
-
-pub const PRIORITIES: [&str; 4] = ["urgent", "high", "normal", "low"];
-
-pub fn priority_word(priority: &str) -> &str {
-    match priority {
-        "urgent" => "Urgent",
-        "high" => "High",
-        "normal" => "Normal",
-        "low" => "Low",
-        other => other,
-    }
-}
-
-pub fn priority_mark(priority: Option<&str>) -> &'static str {
-    match priority {
-        Some("urgent") => "!!",
-        Some("high") => "!",
-        Some("low") => "↓",
-        _ => "",
-    }
 }
 
 pub fn rgb(color: &str) -> Option<(u8, u8, u8)> {
@@ -226,8 +203,6 @@ pub struct Issue {
     pub marks: Vec<Value>,
     #[serde(default)]
     pub commits: Vec<CommitRef>,
-    #[serde(default)]
-    pub priority: Option<String>,
     #[serde(default)]
     pub labels: Vec<Tag>,
     #[serde(default)]
@@ -568,8 +543,6 @@ pub struct Change {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub priority: Option<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<LabelEdit>,
 }
 
@@ -589,8 +562,6 @@ pub struct ListQuery {
     pub cursor: Option<String>,
     #[serde(default)]
     pub host: Option<String>,
-    #[serde(default)]
-    pub priority: Vec<String>,
     #[serde(default)]
     pub label: Vec<String>,
     #[serde(default = "thirty")]
@@ -827,8 +798,6 @@ pub struct ItemCard {
     pub assignee: Option<Assignee>,
     #[serde(default)]
     pub reporter: CardPerson,
-    #[serde(default)]
-    pub priority: Option<String>,
     #[serde(default)]
     pub labels: Vec<Tag>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

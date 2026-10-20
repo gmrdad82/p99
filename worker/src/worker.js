@@ -1586,7 +1586,7 @@ async function listIssues(c) {
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
   const sql = `SELECT i.id, i.kind, i.status, i.resolution, i.position, i.title, i.host, i.origin_env, i.page_url, i.page_path,
       i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at,
-      i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, i.priority, b.slug AS board_slug,
+      i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, b.slug AS board_slug,
       ${assigneeColumn()}, ${activity} > COALESCE(r.read_at, '') AS unread
     FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id LEFT JOIN boards b ON b.id = i.board_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}

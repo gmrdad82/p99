@@ -3,7 +3,6 @@ import { avatarSrc } from "/_p99/avatar.js?v=__P99_VERSION__";
 const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
 const KEYS = ["inbox", "doing", "review", "done"];
-const MARKS = { urgent: "!!", high: "!", low: "↓" };
 const WORDS = {
   board: "Board",
   boards: "Boards",
@@ -14,9 +13,6 @@ const WORDS = {
   empty_column: "Nothing here",
   board_card: "Board",
   rollup: "{done} of {total} done",
-  priority_urgent: "Urgent",
-  priority_high: "High",
-  priority_low: "Low",
   resolution_abandoned: "Dropped",
   resolution_duplicate: "Duplicate",
   unassigned: "Unassigned",
@@ -74,10 +70,6 @@ const CSS = `
 .p99-tags{display:inline-flex;flex-wrap:wrap;gap:var(--p99-space-xs)}
 .p99-tag{display:inline-flex;align-items:center;gap:5px;padding:0 var(--p99-space-sm);border:1px solid color-mix(in srgb,var(--p99-tag) 55%,var(--p99-raised));border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--p99-tag) 16%,var(--p99-raised));color:var(--p99-ink);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text)}
 .p99-tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-tag)}
-.p99-rank{margin-right:6px;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono)}
-.p99-rank[data-priority=urgent]{color:var(--p99-danger)}
-.p99-rank[data-priority=high]{color:var(--p99-status-warning)}
-.p99-rank[data-priority=low]{color:var(--p99-muted)}
 .p99-card[data-type=board]{margin:0 6px 6px 0;border-color:color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 9%,var(--p99-raised));box-shadow:inset 4px 0 0 var(--p99-accent),inset 0 1px 0 rgba(255,255,255,.5),3px 3px 0 -1px var(--p99-raised),3px 3px 0 0 color-mix(in srgb,var(--p99-accent) 40%,var(--p99-rule)),6px 6px 0 -1px var(--p99-raised),6px 6px 0 0 color-mix(in srgb,var(--p99-accent) 25%,var(--p99-rule))}
 .p99-card[data-type=board] .p99-card-title{font-size:var(--p99-text-md);font-weight:var(--p99-weight-bold)}
 .p99-sub-mark{display:inline-flex;align-items:center;gap:5px;color:var(--p99-accent-ink);font:var(--p99-weight-bold) 11px var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
@@ -280,7 +272,6 @@ function card(c) {
     e.setAttribute("aria-label", c.name);
     return e;
   }
-  const rank = MARKS[c.priority] ? h("span", { class: "p99-rank", "data-priority": c.priority, title: t("priority_" + c.priority), "aria-label": t("priority_" + c.priority), text: MARKS[c.priority] }) : null;
   const chips = (c.labels || []).filter((l) => /^#[0-9a-f]{6}$/i.test(l.color || "")).map((l) => {
     const chip = h("span", { class: "p99-tag", text: l.name });
     chip.style.setProperty("--p99-tag", l.color);
@@ -288,9 +279,9 @@ function card(c) {
   });
   const res = c.status === "done" && c.resolution && c.resolution !== "fixed" ? h("span", { class: "p99-res", text: t("resolution_" + c.resolution) }) : null;
   const who = c.assignee && c.assignee.username ? h("img", { class: "p99-who", src: avatarSrc(c.assignee.username, 24), alt: "@" + c.assignee.username, title: "@" + c.assignee.username, width: 24, height: 24 }) : null;
-  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key })), h("b", { class: "p99-card-title" }, rank, c.title));
+  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key })), h("b", { class: "p99-card-title", text: c.title }));
   if (chips.length || res || who) e.append(h("div", { class: "p99-card-foot" }, res, chips.length ? h("span", { class: "p99-tags" }, chips) : null, who));
-  e.setAttribute("aria-label", c.key + ", " + (rank ? t("priority_" + c.priority) + ", " : "") + c.title);
+  e.setAttribute("aria-label", c.key + ", " + c.title);
   return e;
 }
 

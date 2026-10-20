@@ -23,7 +23,7 @@ const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 const ITEM_COLUMNS = `i.id, i.kind, i.title, i.host, i.status, i.resolution, i.open, i.board_id, i.position, i.duplicate_of,
-  i.assignee, i.reporter_email, i.reporter_name, i.reporter_agent, i.origin_env, i.page_path, i.closed_at, i.priority,
+  i.assignee, i.reporter_email, i.reporter_name, i.reporter_agent, i.origin_env, i.page_path, i.closed_at,
   ${assigneeColumn()}`;
 
 let K = null;
@@ -173,7 +173,6 @@ function itemCard(row) {
     position: row.position,
     assignee: assigneeOf(row),
     reporter: { name: row.reporter_name ?? null, agent: Boolean(row.reporter_agent) },
-    priority: row.priority ?? null,
     labels: Array.isArray(row.labels) ? row.labels : [],
   };
 }

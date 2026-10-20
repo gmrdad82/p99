@@ -2,19 +2,7 @@ use serde_json::json;
 
 use crate::cli::{Global, client_for, key_of, print_json};
 use crate::config::Config;
-use crate::wire::{Change, Issue, LabelEdit, Tag, out, priority_word};
-
-const PRIORITY_CHOICES: [&str; 5] = ["urgent", "high", "normal", "low", "none"];
-
-#[derive(Debug, clap::Args)]
-pub struct PriorityArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
-    pub key: String,
-    #[arg(value_parser = PRIORITY_CHOICES, help = "the priority, or none to clear it")]
-    pub priority: String,
-    #[arg(long, help = "the host the item belongs to")]
-    pub host: Option<String>,
-}
+use crate::wire::{Change, Issue, LabelEdit, Tag, out};
 
 #[derive(Debug, clap::Args)]
 pub struct LabelArgs {
@@ -72,27 +60,6 @@ pub fn tags(labels: &[Tag]) -> String {
         .map(|l| l.name.as_str())
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-pub fn priority(config: &Config, global: &Global, args: &PriorityArgs) -> Result<(), String> {
-    let to = (args.priority != "none").then(|| args.priority.clone());
-    let change = Change {
-        priority: Some(to),
-        ..Change::default()
-    };
-    let issue = changed(config, global, &args.key, args.host.as_deref(), &change)?;
-    if global.json {
-        return print_json(&issue);
-    }
-    match &issue.priority {
-        Some(p) => out!(
-            "{} is {} priority",
-            issue.key,
-            priority_word(p).to_lowercase()
-        ),
-        None => out!("{} has no priority", issue.key),
-    }
-    Ok(())
 }
 
 pub fn label(config: &Config, global: &Global, args: &LabelArgs, on: bool) -> Result<(), String> {
@@ -208,15 +175,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_change_sends_null_to_clear_and_add_remove_lists() {
-        let clear = Change {
-            priority: Some(None),
-            ..Change::default()
-        };
-        assert_eq!(
-            serde_json::to_value(&clear).unwrap(),
-            json!({"priority": null})
-        );
+    fn a_change_sends_add_remove_lists() {
         let edit = Change {
             labels: Some(LabelEdit {
                 add: vec!["ui".into()],

@@ -5,7 +5,6 @@ export function bindLabels(helpers) {
     helpers);
 }
 
-export const PRIORITIES = ["urgent", "high", "normal", "low"];
 const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5", "#986ee2", "#d260a8"];
 const NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:+-]{0,31}$/u;
 const MAX_LABELS = 200;
@@ -35,11 +34,7 @@ function colorFor(name) {
   return COLORS[hash % COLORS.length];
 }
 
-function priorityOf(value) {
-  if (value === null) return null;
-  if (PRIORITIES.includes(value)) return value;
-  fail(400, "priority must be urgent, high, normal, low or null");
-}
+const NO_PRIORITY = "items have no priority: an item's place in its lane is its priority, so move it up or down the lane";
 
 function names(list, what) {
   if (!Array.isArray(list)) fail(400, `${what} must be a list of label names`);
@@ -85,29 +80,15 @@ export function labelsByItem(result) {
 
 export function tagsOf(row, c) {
   return {
-    priority: c.manager ? (row.priority ?? null) : null,
     labels: c.manager ? (row.labels ?? []) : [],
   };
 }
 
 export function labelFilters(c, params, q, where) {
-  const priorities = params.getAll("priority");
+  if (params.has("priority")) fail(400, NO_PRIORITY);
   const wanted = params.getAll("label");
-  if (priorities.length === 0 && wanted.length === 0) return;
+  if (wanted.length === 0) return;
   requireManager(c);
-  if (priorities.length > 0) {
-    const set = [];
-    let none = false;
-    for (const p of priorities) {
-      if (p === "none") none = true;
-      else if (PRIORITIES.includes(p)) set.push(q.bind(p));
-      else fail(400, "priority must be urgent, high, normal, low or none");
-    }
-    const parts = [];
-    if (set.length > 0) parts.push(`i.priority IN (${set.join(", ")})`);
-    if (none) parts.push("i.priority IS NULL");
-    where.push(`(${parts.join(" OR ")})`);
-  }
   if (wanted.length > MAX_FILTER_LABELS) fail(400, `at most ${MAX_FILTER_LABELS} labels`);
   for (const raw of wanted) {
     const name = needName(raw);
@@ -120,20 +101,11 @@ export function labelFilters(c, params, q, where) {
 export async function labelChanges(c, row, body) {
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
   const out = { statements: [], what: [] };
-  if (!has("priority") && !has("labels")) return out;
+  if (has("priority")) fail(400, NO_PRIORITY);
+  if (!has("labels")) return out;
   requireManager(c);
   const { DB } = c.env;
   const actor = c.actor.email;
-  if (has("priority")) {
-    const next = priorityOf(body.priority);
-    const was = row.priority ?? null;
-    if (next !== was) {
-      out.statements.push(DB.prepare("UPDATE items SET priority = ?2 WHERE id = ?1").bind(row.id, next));
-      out.statements.push(eventStatement(c, row.id, actor, "priority", { from: was, to: next }, true));
-      out.what.push("priority");
-    }
-  }
-  if (!has("labels")) return out;
   const edit = body.labels;
   const exact = Array.isArray(edit);
   if (!exact && !isObject(edit)) fail(400, "labels must be a list of names, or {add, remove}");

@@ -38,7 +38,7 @@ impl Entry {
         let item = &self.summary;
         let labels: Vec<&str> = item.labels.iter().map(|t| t.name.as_str()).collect();
         self.haystack = fold(&format!(
-            "{} {} {} {} {} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {} {} {}",
             item.key,
             item.kind,
             kind_word(&item.kind),
@@ -49,7 +49,6 @@ impl Entry {
             item.page.path,
             item.reporter.name,
             item.reporter.email,
-            item.priority.as_deref().unwrap_or_default(),
             labels.join(" ")
         ));
     }
