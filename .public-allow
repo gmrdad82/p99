@@ -8,3 +8,5 @@ README.md:100 the README names password managers that take the authenticator set
 docs/guides/invite.md:83 the invite guide tells users which password managers take the authenticator setup
 commit/b8530bd8c85c:CHANGELOG.md:9 a release commit whose changelog line named a password manager, reworded in the next commit
 commit/1527045ba93a:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
+commit/28652d879738:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
+commit/7711136ee797:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
