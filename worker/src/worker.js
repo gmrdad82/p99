@@ -25,6 +25,7 @@ import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.j
 import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
+import { ipKey } from "./tries.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -503,7 +504,7 @@ async function findCode(env, request, hash) {
   const hit = codeCache.get(hash);
   if (hit && Date.now() - hit.at < CODE_TTL_MS) return hit.row;
   if (env.RATE) {
-    const ip = request.headers.get("cf-connecting-ip") || "?";
+    const ip = ipKey(request.headers.get("cf-connecting-ip") || "?");
     const outcome = await env.RATE.limit({ key: `miss:${ip}` });
     if (!outcome.success) fail(429, "too many requests; try again in a minute");
   }
@@ -1037,12 +1038,12 @@ export class P99Hub extends DurableObject {
   }
 
   async publish(events) {
-    const lines = events.map((event) => [event.host ?? null, event.type === "labels", JSON.stringify(event)]);
+    const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
     for (const socket of this.ctx.getWebSockets()) {
       const seen = socket.deserializeAttachment() || {};
       const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
-      for (const [host, every, line] of lines) {
-        if (wanted !== null && !every && !wanted.includes(host)) continue;
+      for (const [hosts, every, line] of lines) {
+        if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
         try {
           socket.send(line);
         } catch {}

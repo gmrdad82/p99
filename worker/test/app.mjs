@@ -1,6 +1,7 @@
 import { request } from "node:http";
-import { createHash, createHmac } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
+import { ipKey } from "../src/tries.js";
 
 export const APP_HOST = "app.localhost";
 
@@ -193,6 +194,15 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.deepEqual(listed.json.spaces.map((s) => [s.host, s.manager]), [[here, true], [there, true]].sort());
     assert.equal(JSON.stringify(listed.json).includes(boss.secret), false);
     assert.equal((await app("GET", `/_p99/api/issues/${filed.json.key}?host=${here}`, { token: bossToken })).status, 200);
+    const stored = await call("PUT", `/_p99/v1/issues/${filed.json.key}/attachments/${randomUUID()}?host=${here}&name=trace.txt`, {
+      raw: Buffer.from("cart: 500\n"),
+      type: "text/plain",
+    });
+    assert.equal(stored.status, 201, JSON.stringify(stored.json));
+    const file = await app("GET", `/_p99/api/files/${stored.json.id}?host=${here}`, { token: bossToken });
+    assert.equal(file.status, 200, file.text);
+    assert.equal(file.headers["content-security-policy"], "default-src 'none'; sandbox");
+    assert.equal(file.headers["x-frame-options"], "DENY");
   });
 
   await check("a session dies the moment its code is revoked, relinked or its authenticator is set up again", async () => {
@@ -230,5 +240,9 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     while (status !== 429 && n < 40) status = (await signIn(`fresh${n++}@example.com`, "123456")).status;
     assert.equal(status, 429);
     assert.ok(n <= 31, String(n));
+    assert.equal(ipKey("203.0.113.9"), "203.0.113.9");
+    for (const ip of ["2001:db8:1:2::9", "2001:0DB8:1:2:aaaa:bbbb:cccc:dddd", "2001:db8:1:2::"]) assert.equal(ipKey(ip), "2001:db8:1:2::/64");
+    assert.equal(ipKey("2001:db8::1"), "2001:db8:0:0::/64");
+    assert.notEqual(ipKey("2001:db8:1:3::9"), ipKey("2001:db8:1:2::9"));
   });
 }
