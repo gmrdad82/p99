@@ -21,6 +21,7 @@ const TYPES = {
 const ACCEPTED = new Set(Object.values(TYPES).concat(["text/x-log", "application/x-zip-compressed"]));
 const WORDS = {
   brand: "Feedback",
+  board: "Board",
   close: "Close",
   loading: "Loading…",
   verify_title: "Confirm it's you",
@@ -362,12 +363,21 @@ function chrome() {
   scroller = h("div", { class: "p99-scroll" });
   const x = h("button", { type: "button", class: "p99-x", "aria-label": say("close"), title: say("close"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
-  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: say("brand") })), x);
+  const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
+  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: say("brand") })), board, x);
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller);
   root.append(scrim, panel);
   swipe(head);
   root.addEventListener("keydown", keys);
   phone.addEventListener("change", () => { if (S.open) scrim.hidden = !phone.matches; });
+}
+function boardModule() {
+  if (!S.board) S.board = import("/_p99/board.js?v=" + V).catch((e) => { S.board = null; throw e; });
+  return S.board;
+}
+function openBoard() {
+  close();
+  boardModule().then((m) => m.open({ root, call, me, h, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function keys(e) {
   if (e.key === "Escape") {
@@ -448,7 +458,7 @@ function close() {
   if (S.draft) S.draft.dispose();
   S.draft = null;
   if (/^#p99=/.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
-  const back = o.bar && o.bar.querySelector("button");
+  const back = (o.from && o.from.isConnected && o.from) || (o.bar && o.bar.querySelector("button"));
   if (back && panel.contains(root.activeElement)) back.focus();
 }
 function skeleton() {

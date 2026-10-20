@@ -852,6 +852,12 @@ async function run() {
   });
 
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
+  await check("board.js is served as the module the panel imports for managers", async () => {
+    const response = await fetch(`${base}/_p99/board.js?v=dev`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /^text\/javascript/);
+    assert.match(await response.text(), /^export function open\(/m);
+  });
 
   console.log(`${passed} checks passed`);
 }

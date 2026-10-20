@@ -11,6 +11,18 @@ its own MIT licence below:
   (https://github.com/qq15725/modern-screenshot), vendored as published,
   sha256 bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b.
 
+The web board, worker/src/web/board.js, ports two pieces of MIT-licensed code,
+each under its own licence below: its eased reordering animation (each card's
+place measured before and after a move, then animated from the old place to the
+new, from the place it is shown at while an earlier move still runs) and its
+midpoint rule for where a dragged card lands come from SortableJS 1.15.7
+(https://github.com/SortableJS/Sortable, src/Animation.js and src/Sortable.js),
+redone with the Web Animations API; its keyboard dragging (Space lifts, the
+arrows move, Space, Enter or Tab drops, Escape cancels) and its screen-reader
+announcements follow dnd-kit's @dnd-kit/core 6.3.1
+(https://github.com/clauderic/dnd-kit, packages/core/src/sensors/keyboard and
+packages/core/src/components/Accessibility).
+
 The images in docs/images/ are made from this repository's own sources, and
 are licensed with the code. inbox.gif and setup.gif are recorded by prec
 from the shots in render/terminal.toml (p99 tui --demo on sample data, and
@@ -69,3 +81,51 @@ FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
 COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+----- SortableJS 1.15.7, LICENSE
+
+MIT License
+
+Copyright (c) 2019 All contributors to Sortable
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----- @dnd-kit/core 6.3.1, LICENSE
+
+MIT License
+
+Copyright (c) 2021, Claudéric Demers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
