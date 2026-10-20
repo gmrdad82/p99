@@ -130,6 +130,10 @@ Invites are personal codes rather than accounts. `p99 invite example.com --name 
 
 <p align="center"><img src="docs/images/verify-light.png" width="49%" alt="A sample shop's checkout page with the P99 panel open on Confirm it's you: a short note to enter the 6-digit code the authenticator app shows for P99, a Code field, and Cancel and Confirm buttons."> <img src="docs/images/verify-dark.png" width="49%" alt="The same prompt on the dark page."></p>
 
+## Access links
+
+When the account has mail on (`p99 email set`), `p99 invite` mails the person their link: one "Open P99 on <host>" button per host the code covers, and the plain `https://<host>/#p99=<code>` lines in the text part, with replies going to whoever sent it. Without mail, or with `--no-mail`, the terminal prints the links once. `p99 revoke <id>` ends a code at once, and `p99 relink <id|email>` gives someone a new code in place of the one they hold: the old code stops working in the same request, the new link is mailed, and their authenticator, items and history carry over, since those follow the e-mail. With an authenticator on the code, a forwarded link alone opens nothing in another browser. Your own links are printed in the terminal, never mailed unless you add `--mail-me`; P99 writes them nowhere, so save them in your password manager if you keep them there. `p99 link [host]` opens your link in the browser from the `code` your config keeps (inline, or an `op://` reference read at that moment), and `--print` prints it. More in [docs/guides/invite.md](docs/guides/invite.md).
+
 ## Install and first use
 
 Each [release](https://github.com/gmrdad82/p99/releases/latest) carries a Linux (x86_64) and a macOS (Apple Silicon) binary with a `SHA256SUMS` file. The macOS binary is built on an Apple Silicon Mac.
@@ -159,7 +163,7 @@ p99 invite example.com --name "Ada Lovelace" --email ada@example.com
 p99                                 # your inbox
 ```
 
-Then add the tag to your site's `<head>` and open the link `p99 invite` printed.
+Then add the tag to your site's `<head>` and open the link `p99 invite` printed for you.
 
 ## More
 

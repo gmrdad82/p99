@@ -281,6 +281,11 @@ impl Client {
         self.json("POST", "/v1/codes", Some(body))
     }
 
+    pub fn relink(&self, id: i64, relink: &crate::wire::Relink) -> Result<Minted, String> {
+        let body = serde_json::to_value(relink).map_err(|e| e.to_string())?;
+        self.json("POST", &format!("/v1/codes/{id}/relink"), Some(body))
+    }
+
     pub fn revoke(&self, id: i64) -> Result<Code, String> {
         self.json("POST", &format!("/v1/codes/{id}/revoke"), None)
     }

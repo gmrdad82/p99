@@ -54,6 +54,12 @@ pub enum Command {
     #[command(about = "revoke a personal code")]
     Revoke(RevokeArgs),
     #[command(
+        about = "give a person a new code in place of their current one, which stops working; mails the new link"
+    )]
+    Relink(crate::links::RelinkArgs),
+    #[command(about = "open your own P99 link in the browser, from the code your config keeps")]
+    Link(crate::links::LinkArgs),
+    #[command(
         about = "move a person's items, comments, events and codes to another e-mail",
         subcommand_required = true,
         arg_required_else_help = false
@@ -221,6 +227,14 @@ pub struct InviteArgs {
         help = "also ask for a 6-digit code from an authenticator app the first time each browser uses the link"
     )]
     pub totp: bool,
+    #[arg(long, help = "print the link here instead of mailing it")]
+    pub no_mail: bool,
+    #[arg(
+        long,
+        conflicts_with = "no_mail",
+        help = "when you invite yourself, also mail you the link; it is printed here either way"
+    )]
+    pub mail_me: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -422,6 +436,8 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Invite(a) => invite(&config, global, &a),
         Command::Invites(a) => invites(&config, global, &a),
         Command::Revoke(a) => revoke(&config, global, &a),
+        Command::Relink(a) => crate::links::relink(&config, global, &a),
+        Command::Link(a) => crate::links::link(&config, global, &a),
         Command::People(PeopleArgs {
             action: PeopleAction::Rename { from, to },
         }) => rename(&config, global, &from, &to),
@@ -545,7 +561,11 @@ fn import(
     crate::import::run(&client, args, global.json)
 }
 
-fn account_of(config: &Config, global: &Global, host: Option<&str>) -> Result<String, String> {
+pub(crate) fn account_of(
+    config: &Config,
+    global: &Global,
+    host: Option<&str>,
+) -> Result<String, String> {
     if let Some(name) = &global.account {
         return config.account(Some(name)).map(|(n, _)| n.to_owned());
     }
@@ -886,6 +906,8 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         }
     }
     let (client, _) = client_for(config, global, hosts.first().map(String::as_str))?;
+    let mine = crate::links::owner(config, &account, &args.email);
+    let asked = crate::links::mailing(mine, args.no_mail, args.mail_me);
     let minted = client.mint(&NewCode {
         client_uid: crate::client::uid(),
         name: args.name.clone(),
@@ -893,24 +915,15 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         hosts,
         manager: args.manager,
         totp: args.totp,
+        mail: asked,
     })?;
-    let Some(secret) = &minted.secret else {
+    if minted.secret.is_none() {
         return Err("this invite was already minted; revoke it and invite again".into());
-    };
+    }
     if global.json {
         return print_json(&minted);
     }
-    let role = if args.manager { " (manager)" } else { "" };
-    out!("{} <{}>{role}", minted.code.name, minted.code.email);
-    out!("secret: {secret}");
-    for link in &minted.links {
-        out!("link:   {link}");
-    }
-    if let Some(key) = &minted.totp_key {
-        print_totp(&minted.code, key);
-    }
-    println!("this is the only time the secret is shown");
-    Ok(())
+    crate::links::report(&minted, mine, asked)
 }
 
 fn otpauth(email: &str, key: &str) -> String {
@@ -920,7 +933,7 @@ fn otpauth(email: &str, key: &str) -> String {
     )
 }
 
-fn print_totp(code: &Code, key: &str) {
+pub(crate) fn print_totp(code: &Code, key: &str) {
     out!(
         "key:    {key}   (paste it as a one-time password or setup key; totp is the same as a link)"
     );

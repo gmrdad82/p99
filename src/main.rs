@@ -11,6 +11,7 @@ mod hooks;
 mod import;
 mod labels;
 mod license;
+mod links;
 mod setup;
 mod sign;
 mod stream;
