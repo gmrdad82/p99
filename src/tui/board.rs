@@ -1,8 +1,9 @@
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 use pito_tui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
-use pito_tui::footer::{Hint, Tone};
+use pito_tui::footer::{Hint, InputBar, Tone};
 use pito_tui::ratatui::{
     Frame,
     buffer::Buffer,
@@ -14,14 +15,17 @@ use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, progress, text};
 
 use super::Msg;
 use super::deck::{
-    BoardRef, BoardView, COLUMNS, Card, ItemCard, Move, StatusName, default_statuses, sort,
+    BoardRef, BoardView, COLUMNS, Card, ItemCard, Patch, StatusName, default_statuses, patch,
+    request, sort,
 };
+use super::inbox::Inbox;
 use super::source::Source;
 
 const TALL: i32 = 4;
 const PITCH: i32 = 5;
 const SLIDE: Duration = Duration::from_millis(180);
 const LANES: usize = 4;
+const QUIET: Duration = Duration::from_millis(250);
 
 struct Lift {
     id: String,
@@ -96,11 +100,17 @@ pub struct Board {
     hits: Vec<(String, Rect)>,
     picking: Option<Picking>,
     sending: usize,
+    reader: Inbox,
+    following: bool,
+    stale: Option<Instant>,
 }
 
 impl Board {
     pub fn new(source: Source, palette: Palette) -> Board {
         Board {
+            reader: Inbox::new(source.clone(), palette.clone()),
+            following: false,
+            stale: None,
             source,
             palette,
             view: None,
@@ -251,7 +261,9 @@ impl Board {
                 self.read(Some(slug), cx);
             }
             Some(Card::Item(item)) => {
-                cx.say(format!("{} opens in phase 2", item.key), Tone::Muted);
+                let key = item.key.clone();
+                let host = self.view.as_ref().and_then(|v| v.board.host.clone());
+                self.reader.open_key(0, host, key, cx);
             }
             None => {}
         }
@@ -263,6 +275,41 @@ impl Board {
         }
         self.path.pop();
         self.read(self.slug(), cx);
+    }
+
+    fn reading_thread(&self) -> bool {
+        self.reader.crumb().is_some()
+    }
+
+    fn heard(&mut self, text: &str) {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(text) else {
+            return;
+        };
+        let lifted = self.lift.as_ref().map(|l| l.id.clone());
+        let kept = self.current().map(Card::id);
+        let Some(view) = self.view.as_mut() else {
+            return;
+        };
+        let outcome = patch(view, &event);
+        if let Some(id) = lifted {
+            let gone = self
+                .view
+                .as_ref()
+                .is_none_or(|v| v.cards.iter().all(|c| c.id() != id));
+            let moved = event["key"].as_str() == Some(id.as_str())
+                || event["board"].as_str().map(|b| format!("board:{b}")) == Some(id.clone());
+            if gone || moved {
+                self.lift = None;
+                self.press = None;
+            }
+        }
+        if let Some(id) = kept.filter(|_| self.lift.is_none()) {
+            self.select(&id);
+        }
+        self.clamp();
+        if outcome == Patch::Reload && self.stale.is_none() {
+            self.stale = Some(self.moment + QUIET);
+        }
     }
 
     fn pick_board(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -326,27 +373,8 @@ impl Board {
             return;
         }
         let lane: Vec<&Card> = lanes[column].iter().map(|&at| &view.cards[at]).collect();
-        let before = lane.get(row).map(|c| c.id());
-        let after = row.checked_sub(1).and_then(|r| lane.get(r)).map(|c| c.id());
-        let position = match (
-            row.checked_sub(1)
-                .and_then(|r| lane.get(r))
-                .map(|c| c.position()),
-            lane.get(row).map(|c| c.position()),
-        ) {
-            (Some(a), Some(b)) => (a + b) / 2.0,
-            (Some(a), None) => a + 1024.0,
-            (None, Some(b)) => b - 1024.0,
-            (None, None) => 1024.0,
-        };
+        let (request, position) = request(&lane, &lift.id, column, row);
         let to = COLUMNS[column].to_owned();
-        let request = Move {
-            target: lift.id.clone(),
-            to: Some(to.clone()),
-            before: before.clone(),
-            after: if before.is_none() { after } else { None },
-            ..Move::default()
-        };
         if let Some(card) = view.cards.iter_mut().find(|c| c.id() == lift.id) {
             card.place(&to, position);
             if let Card::Item(item) = card {
@@ -844,7 +872,7 @@ fn draw_card(
                 if !chips.is_empty() {
                     chips.push((" ".to_owned(), frame));
                 }
-                chips.push((format!(" {} ", label.name), chip(palette, &label.color)));
+                chips.push((format!(" ●{} ", label.name), chip(palette, &label.color)));
             }
             if let Some(word) = item.resolution.as_deref().filter(|r| *r != "fixed") {
                 let word = if word == "abandoned" { "dropped" } else { word };
@@ -935,8 +963,8 @@ fn key_style(palette: &Palette, lit: bool) -> Style {
 
 fn priority(item: &ItemCard, palette: &Palette) -> Option<(&'static str, Style)> {
     match item.priority.as_deref()? {
-        "urgent" => Some(("‼", palette.bad.add_modifier(Modifier::BOLD))),
-        "high" => Some(("↑", palette.warn)),
+        "urgent" => Some(("!!", palette.bad.add_modifier(Modifier::BOLD))),
+        "high" => Some(("!", palette.warn)),
         "low" => Some(("↓", palette.muted)),
         _ => None,
     }
@@ -944,10 +972,8 @@ fn priority(item: &ItemCard, palette: &Palette) -> Option<(&'static str, Style)>
 
 fn chip(palette: &Palette, color: &str) -> Style {
     match rgb(color) {
-        Some(color) if palette.base.bg.is_none() || palette.accent.fg.is_some() => {
-            Style::new().fg(Color::Rgb(0x16, 0x16, 0x1e)).bg(color)
-        }
-        _ => palette.muted.add_modifier(Modifier::REVERSED),
+        Some(color) if palette.accent.fg.is_some() => Style::new().fg(color),
+        _ => palette.ink,
     }
 }
 
@@ -1026,6 +1052,10 @@ impl Screen<Msg> for Board {
                     return;
                 }
                 self.reading = false;
+                if result.is_ok() && !self.following && !self.source.is_demo() {
+                    self.following = true;
+                    self.source.follow(&cx.waker());
+                }
                 match result {
                     Ok(view) => self.shown(slug, view),
                     Err(error) if self.view.is_some() => cx.say(error, Tone::Alert),
@@ -1050,11 +1080,41 @@ impl Screen<Msg> for Board {
                     }
                 }
             }
+            Msg::Heard(text) => self.heard(&text),
+            Msg::Pushed(_, None) => self.stale = Some(self.moment),
+            Msg::Changed(key, result) => {
+                if result.is_ok() {
+                    self.stale = Some(self.moment);
+                }
+                self.reader.event(Msg::Changed(key, result), cx);
+            }
+            event @ (Msg::Thread(..) | Msg::Commented(..) | Msg::Inbox(_) | Msg::Pushed(..)) => {
+                if self.reading_thread() {
+                    self.reader.event(event, cx);
+                }
+            }
             _ => {}
         }
     }
 
+    fn deadline(&self) -> Option<Instant> {
+        self.stale
+    }
+
+    fn tick(&mut self, cx: &mut Cx<'_, Msg>) {
+        if self.stale.is_some_and(|due| due <= self.moment) {
+            self.stale = None;
+            if !self.reading {
+                self.read(self.slug(), cx);
+            }
+        }
+    }
+
     fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        if self.reading_thread() {
+            self.reader.key(key, cx);
+            return;
+        }
         if self.view.is_none() {
             if key.code == KeyCode::Char('r') {
                 cx.reload();
@@ -1113,12 +1173,16 @@ impl Screen<Msg> for Board {
     }
 
     fn mouse(&mut self, mouse: MouseEvent, _area: Rect, cx: &mut Cx<'_, Msg>) {
-        if self.view.is_some() {
+        if self.view.is_some() && !self.reading_thread() {
             self.mouse_key(mouse, cx);
         }
     }
 
     fn picked(&mut self, choice: Option<usize>, cx: &mut Cx<'_, Msg>) {
+        if self.reading_thread() {
+            self.reader.picked(choice, cx);
+            return;
+        }
         let (Some(Picking::Board(rows)), Some(choice)) = (self.picking.take(), choice) else {
             return;
         };
@@ -1143,28 +1207,58 @@ impl Screen<Msg> for Board {
     }
 
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {
+        if self.reading_thread() {
+            self.reader.back(cx);
+            if self.stale.is_some() {
+                self.stale = Some(self.moment);
+            }
+            return;
+        }
         self.up(cx);
     }
 
     fn crumb(&self) -> Option<String> {
-        (self.path.len() > 1).then(|| {
-            self.path[1..]
-                .iter()
-                .map(|(_, name)| name.as_str())
-                .collect::<Vec<_>>()
-                .join(" / ")
-        })
+        let parts: Vec<String> = self
+            .path
+            .iter()
+            .skip(1)
+            .map(|(_, name)| name.clone())
+            .chain(self.reader.crumb())
+            .collect();
+        (!parts.is_empty()).then(|| parts.join(" / "))
     }
 
     fn typing(&self) -> bool {
-        self.lift.is_some()
+        self.lift.is_some() || (self.reading_thread() && self.reader.typing())
+    }
+
+    fn input(&self) -> Option<InputBar<'_>> {
+        if self.reading_thread() {
+            self.reader.input()
+        } else {
+            None
+        }
+    }
+
+    fn paste(&mut self, text: &str, cx: &mut Cx<'_, Msg>) {
+        if self.reading_thread() {
+            self.reader.paste(text, cx);
+        }
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
+        if self.reading_thread() {
+            self.reader.draw(frame, area, palette);
+            return;
+        }
+        super::BOARD_SHOWN.store(true, Ordering::Relaxed);
         self.draw_board(frame, area, palette);
     }
 
     fn hints(&self) -> Vec<Hint<'_>> {
+        if self.reading_thread() {
+            return self.reader.hints();
+        }
         if self.view.is_none() {
             return vec![Hint::new("r", "read again")];
         }

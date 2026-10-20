@@ -295,6 +295,29 @@ impl Inbox {
         self.read_thread(cx);
     }
 
+    pub(super) fn open_key(
+        &mut self,
+        account: usize,
+        host: Option<String>,
+        key: String,
+        cx: &mut Cx<'_, Msg>,
+    ) {
+        self.open = Some(Open {
+            key,
+            account,
+            host,
+            entry: None,
+            thread: None,
+            error: None,
+            scroll: 0,
+            lines: None,
+            typing: None,
+            internal: false,
+            sending: false,
+        });
+        self.read_thread(cx);
+    }
+
     fn read_thread(&self, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &self.open else { return };
         let (source, key, account, host) = (
