@@ -1,16 +1,24 @@
 title = "P99 TUI FRAME TIME"
-unit = "MILLISECONDS PER FRAME, AVERAGE OF 200"
+unit = "MICROSECONDS PER FRAME, 200 FRAMES"
 better = "lower"
-subtitle = "120X34, RELEASE BUILD, AMD RYZEN 9 9950X"
-date = "2026-10-15"
-suffix = " MS"
-notes = ["120 FPS LEAVES 8.33 MS A FRAME. MEASURED WITH P99 TUI --DEMO --BENCH 200."]
-parties = [{ name = "P99 1.1.0" }]
+subtitle = "120X34, V1.8.0 LINUX RELEASE BINARY, AMD RYZEN 9 9950X"
+date = "2026-10-20"
+suffix = " US"
+notes = ["120 FPS LEAVES 8,333 US (8.33 MS) A FRAME. MEASURED WITH P99 TUI --DEMO --BENCH 200 AT A LOAD AVERAGE OF 12 ON 32 THREADS.", "THE BOARD WHILE MOVING: A SLIDE ALWAYS RUNNING."]
+parties = [{ name = "P99 1.8.0" }]
 
 [[groups]]
-name = "SCREENS"
+name = "SCREENS, AVERAGE"
 rows = [
-  { label = "INBOX", values = [0.066] },
-  { label = "CODES", values = [0.050] },
-  { label = "THREAD", values = [0.121] },
+  { label = "INBOX", values = [89] },
+  { label = "BOARD", values = [76] },
+  { label = "CODES", values = [54] },
+  { label = "THREAD", values = [120] },
+]
+
+[[groups]]
+name = "THE BOARD WHILE MOVING A CARD, WORST FRAME"
+rows = [
+  { label = "CARRIED WITH THE KEYS", values = [249] },
+  { label = "DRAGGED WITH THE MOUSE", values = [289] },
 ]
