@@ -23,7 +23,6 @@ announcements follow dnd-kit's @dnd-kit/core 6.3.1
 (https://github.com/clauderic/dnd-kit, packages/core/src/sensors/keyboard and
 packages/core/src/components/Accessibility).
 
-
 The images in docs/images/ are made from this repository's own sources, and
 are licensed with the code. inbox.gif and setup.gif are recorded by prec
 from the shots in render/terminal.toml (p99 tui --demo on sample data, and

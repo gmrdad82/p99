@@ -173,7 +173,7 @@ function homeOf(boards) {
   const host = location.hostname;
   const slug = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const roots = boards.filter((b) => !b.parent);
-  const pick = boards.find((b) => b.slug === slug) || roots.find((b) => b.host === host) || roots[0] || boards[0];
+  const pick = boards.find((b) => b.home && b.host === host) || boards.find((b) => b.slug === slug) || roots.find((b) => b.host === host) || roots[0] || boards[0];
   return pick && pick.slug;
 }
 
