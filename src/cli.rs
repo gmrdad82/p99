@@ -11,8 +11,7 @@ use crate::stream::Heard;
 use crate::trailers;
 use crate::wire::{
     ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
-    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, STATUSES, Summary, Thread, content_type,
-    out,
+    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, Summary, Thread, content_type, out,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -61,8 +60,16 @@ pub enum Command {
     File(FileArgs),
     #[command(about = "comment on an item")]
     Comment(CommentArgs),
-    #[command(about = "change an item's status")]
+    #[command(about = "change an item's status: p99 move <KEY> --to <status>")]
     Status(StatusArgs),
+    #[command(about = "move an item or a board card to a column, a board or beside another card")]
+    Move(crate::boards::MoveArgs),
+    #[command(about = "list the boards with their done/total; add, rename or remove one")]
+    Boards(crate::boards::BoardsArgs),
+    #[command(about = "print a board's columns and cards")]
+    Board(crate::boards::BoardArgs),
+    #[command(about = "list the four statuses with their names; rename one")]
+    Statuses(crate::boards::StatusesArgs),
     #[command(about = "assign an item to someone, or to no one")]
     Assign(AssignArgs),
     #[command(
@@ -283,7 +290,9 @@ pub struct CommentArgs {
 pub struct StatusArgs {
     #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(value_parser = STATUSES, help = "the new status")]
+    #[arg(
+        help = "the new status: inbox, doing, review or done, its name, or abandoned or duplicate"
+    )]
     pub status: String,
     #[arg(
         long,
@@ -378,6 +387,10 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::File(a) => file(&config, global, &a),
         Command::Comment(a) => comment(&config, global, &a),
         Command::Status(a) => status(&config, global, &a),
+        Command::Move(a) => crate::boards::run_move(&config, global, &a),
+        Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
+        Command::Board(a) => crate::boards::run_board(&config, global, &a),
+        Command::Statuses(a) => crate::boards::run_statuses(&config, global, &a),
         Command::Assign(a) => assign(&config, global, &a),
         Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
@@ -437,17 +450,34 @@ fn event_line(text: &str) -> Option<String> {
         by["name"].as_str().unwrap_or("P99"),
         by["agent"].as_bool().unwrap_or(false),
     );
-    let said = match event["type"].as_str() {
-        Some("import") => format!(
-            "{} items, {} comments",
-            event["items"].as_u64().unwrap_or(0),
-            event["comments"].as_u64().unwrap_or(0)
+    let step = || {
+        format!(
+            "{} -> {}",
+            crate::wire::status_word(&field("from")),
+            crate::wire::status_word(&field("to"))
+        )
+    };
+    let board = format!("board:{}", field("board"));
+    let (key, said) = match event["type"].as_str() {
+        Some("import") => (
+            field("key"),
+            format!(
+                "{} items, {} comments",
+                event["items"].as_u64().unwrap_or(0),
+                event["comments"].as_u64().unwrap_or(0)
+            ),
         ),
-        _ => field("title"),
+        Some("move") => (
+            field("key"),
+            format!("{}  {} on {}", field("title"), step(), field("board")),
+        ),
+        Some("board.move") => (board, step()),
+        Some("board") => (board, field("action")),
+        Some("statuses") => ("-".to_owned(), "renamed a status".to_owned()),
+        _ => (field("key"), field("title")),
     };
     Some(format!(
-        "{}  {}  {}  {name}: {said}",
-        field("key"),
+        "{key}  {}  {}  {name}: {said}",
         field("type"),
         field("host")
     ))
@@ -475,7 +505,7 @@ fn account_of(config: &Config, global: &Global, host: Option<&str>) -> Result<St
     config.account(None).map(|(n, _)| n.to_owned())
 }
 
-fn client_for(
+pub(crate) fn client_for(
     config: &Config,
     global: &Global,
     host: Option<&str>,
@@ -485,7 +515,7 @@ fn client_for(
     Ok((client, account))
 }
 
-fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
+pub(crate) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
     let text = serde_json::to_string_pretty(value).map_err(|e| e.to_string())?;
     println!("{text}");
     Ok(())
@@ -954,7 +984,7 @@ fn summary_line(item: &Summary) -> String {
         "{}{:<8} {:<11} {:<11} {}",
         if item.unread { "*" } else { " " },
         item.key,
-        crate::wire::status_word(&item.status),
+        crate::wire::status_text(&item.status, item.resolution.as_deref()),
         item.host.as_deref().unwrap_or("-"),
         item.title
     );
@@ -1081,7 +1111,7 @@ fn print_thread(thread: &Thread) {
         "{}  {}  {}",
         issue.key,
         crate::wire::kind_word(&issue.kind),
-        crate::wire::status_word(&issue.status)
+        crate::wire::status_text(&issue.status, issue.resolution.as_deref())
     );
     out!("{}", issue.title);
     let reporter = &issue.reporter;
@@ -1109,6 +1139,9 @@ fn print_thread(thread: &Thread) {
     }
     if let Some(of) = &issue.duplicate_of {
         out!("duplicate of {of}");
+    }
+    if let Some(board) = &issue.board {
+        out!("on the board {board}");
     }
     for reached in &issue.landing.envs {
         out!(
@@ -1273,9 +1306,19 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     if args.status != "duplicate" && args.duplicate_of.is_some() {
         return Err("--duplicate-of goes with the status duplicate".into());
     }
+    if args.duplicate_of.is_none() {
+        return crate::boards::status_move(
+            config,
+            global,
+            &args.key,
+            &args.status,
+            args.host.as_deref(),
+        );
+    }
     let (client, _) = client_for(config, global, args.host.as_deref())?;
     let change = Change {
-        status: Some(args.status.clone()),
+        status: Some("done".into()),
+        resolution: Some("duplicate".into()),
         duplicate_of: args.duplicate_of.clone(),
         ..Change::default()
     };
@@ -1288,7 +1331,7 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     out!(
         "{} is now {}",
         issue.key,
-        crate::wire::status_word(&issue.status).to_lowercase()
+        crate::wire::status_text(&issue.status, issue.resolution.as_deref()).to_lowercase()
     );
     Ok(())
 }

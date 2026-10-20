@@ -1,5 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
 import { composeMail } from "./mail.js";
+import {
+  BOARD_ROUTES,
+  OPEN_STATUSES,
+  boardView,
+  homeStatement,
+  redeemTicket,
+  statusOf,
+  storeTicket,
+  ticketStream,
+  topOf,
+  postStreamTicket,
+  useKit,
+} from "./boards.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import cssSource from "./web/p99.css";
@@ -10,8 +23,6 @@ import shotSource from "./web/shot.js";
 
 const KEY_IDS = { p99: ["KEY_P99", "KEY_P99_NEXT"], test: ["KEY_TEST"] };
 const KIND_PREFIXES = { bug: "BUG", feature: "FEAT", improvement: "IMP", question: "Q", task: "TASK" };
-const STATUSES = ["new", "confirmed", "in_progress", "waiting", "resolved", "abandoned", "duplicate"];
-const OPEN_STATUSES = new Set(["new", "confirmed", "in_progress", "waiting"]);
 const ENV_KINDS = ["development", "release"];
 const CORNERS = ["bottom-right", "bottom-left", "top-right", "top-left"];
 const ERROR_CODES = {
@@ -108,6 +119,8 @@ const BACKUP_TABLES = [
   { name: "hosts", size: "length(config_json) + 200" },
   { name: "envs", size: "100" },
   { name: "codes", size: "length(hosts_json) + 400" },
+  { name: "boards", size: "length(name) + 200" },
+  { name: "statuses", size: "100" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -635,7 +648,8 @@ function searchText(title, body) {
   return fold(`${title} ${body ?? ""}`);
 }
 
-const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind FROM items i LEFT JOIN items d ON d.id = i.duplicate_of`;
+const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind, b.slug AS board_slug FROM items i
+  LEFT JOIN items d ON d.id = i.duplicate_of LEFT JOIN boards b ON b.id = i.board_id`;
 
 function itemKeyId(raw) {
   const id = parseKey(raw);
@@ -754,6 +768,9 @@ function summaryOf(row, c, lc) {
     key: keyOf(row.kind, row.id),
     kind: row.kind,
     status: row.status,
+    resolution: row.resolution ?? null,
+    board: c.manager ? (row.board_slug ?? null) : null,
+    position: c.manager ? (row.position ?? null) : null,
     title: row.title,
     host: row.host,
     env: row.origin_env,
@@ -928,19 +945,31 @@ export class P99Hub extends DurableObject {
 
   async fetch(request) {
     if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") return new Response(null, { status: 400 });
+    const url = new URL(request.url);
+    let hosts = url.searchParams.has("host") ? [url.searchParams.get("host")] : null;
+    if (url.searchParams.has("ticket")) {
+      const redeemed = await redeemTicket(this.ctx.storage, url);
+      if (!redeemed) return errorResponse(401, "the stream ticket is unknown, used or expired");
+      hosts = redeemed.hosts;
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ host: new URL(request.url).searchParams.get("host") });
+    server.serializeAttachment({ hosts });
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  async ticket(hash, entry) {
+    await storeTicket(this.ctx.storage, hash, entry);
+  }
+
   async publish(events) {
-    const lines = events.map((event) => [event.host, JSON.stringify(event)]);
+    const lines = events.map((event) => [event.host ?? null, event.type === "statuses", JSON.stringify(event)]);
     for (const socket of this.ctx.getWebSockets()) {
-      const wanted = (socket.deserializeAttachment() || {}).host ?? null;
-      for (const [host, line] of lines) {
-        if (wanted !== null && host !== wanted) continue;
+      const seen = socket.deserializeAttachment() || {};
+      const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
+      for (const [host, every, line] of lines) {
+        if (wanted !== null && !every && !wanted.includes(host)) continue;
         try {
           socket.send(line);
         } catch {}
@@ -1354,7 +1383,10 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const counts = await countsFor(c, c.url.searchParams.get("path"));
+  const [counts, statuses] = await Promise.all([
+    countsFor(c, c.url.searchParams.get("path")),
+    c.manager ? c.env.DB.prepare("SELECT key, name, position FROM statuses ORDER BY position").all() : null,
+  ]);
   const config = c.hostRow.config;
   return json(200, {
     name: c.actor.name,
@@ -1366,6 +1398,7 @@ async function getMe(c) {
     counts,
     theme: config.theme || {},
     strings: config.strings || {},
+    ...(statuses ? { statuses: statuses.results } : {}),
   });
 }
 
@@ -1390,10 +1423,21 @@ async function listIssues(c) {
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
   const status = params.get("status") || "any";
+  const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
   else if (status === "closed") where.push("i.open = 0");
-  else if (STATUSES.includes(status)) where.push(`i.status = ${q.bind(status)}`);
-  else if (status !== "any") fail(400, "status must be open, closed, any or a status");
+  else if (asked) {
+    where.push(`i.status = ${q.bind(asked.status)}`);
+    if (asked.resolution) where.push(`i.resolution = ${q.bind(asked.resolution)}`);
+  } else if (status !== "any") fail(400, "status must be open, closed, any or a status");
+  const board = params.get("board");
+  if (board) {
+    requireManager(c);
+    const v = boardView(c);
+    where.push(
+      `i.board_id = (SELECT id FROM boards WHERE slug = ${q.bind(board)} AND (${q.bind(v.all ? 1 : 0)} OR host = ${q.bind(v.host)}))`,
+    );
+  }
   const kind = params.get("kind");
   if (kind) {
     if (!KIND_PREFIXES[kind]) fail(400, "kind is not known");
@@ -1417,11 +1461,11 @@ async function listIssues(c) {
   const limit = limitText === null ? DEFAULT_LIST_LIMIT : Number(limitText);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST_LIMIT) fail(400, `limit must be 1 to ${MAX_LIST_LIMIT}`);
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
-  const sql = `SELECT i.id, i.kind, i.status, i.title, i.host, i.origin_env, i.page_url, i.page_path, i.page_title,
-      i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at, i.comment_count,
-      i.public_comment_count, i.attachment_count, i.public_attachment_count,
+  const sql = `SELECT i.id, i.kind, i.status, i.resolution, i.position, i.title, i.host, i.origin_env, i.page_url, i.page_path,
+      i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at,
+      i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, b.slug AS board_slug,
       ${activity} > COALESCE(r.read_at, '') AS unread
-    FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id
+    FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id LEFT JOIN boards b ON b.id = i.board_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY i.id DESC LIMIT ${q.bind(limit + 1)}`;
   const { results } = await c.env.DB.prepare(sql)
@@ -1482,14 +1526,17 @@ async function createIssue(c) {
   const byUid = "FROM items WHERE client_uid = ?1";
   const reporter = reporterJson(c);
   let results;
+  const home = "(SELECT id FROM boards WHERE host = ?15 AND home = 1)";
   try {
     results = await DB.batch([
+      homeStatement(DB, target.host, c.now),
       DB.prepare(
         `INSERT INTO items (client_uid, kind, status, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
-           created_at, updated_at, host, reporter_agent, search_text)
-         VALUES (?1, ?2, 'new', 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17)
-         RETURNING id`,
+           created_at, updated_at, host, reporter_agent, search_text, board_id, position)
+         VALUES (?1, ?2, 'inbox', 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17,
+           ${home}, ${topOf(home, "'inbox'")})
+         RETURNING id, position, board_id`,
       ).bind(
         body.client_uid,
         body.kind,
@@ -1518,6 +1565,7 @@ async function createIssue(c) {
          ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
       ).bind(body.client_uid, c.actor.email, c.now),
       usageStatement(c, "issues", 1),
+      DB.prepare("SELECT slug FROM boards WHERE host = ?1 AND home = 1").bind(target.host),
     ]);
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -1525,11 +1573,15 @@ async function createIssue(c) {
     if (!raced || raced.reporter_email !== c.actor.email) fail(409, "client_uid is already used");
     return issueResponse(c, raced.id, 200);
   }
-  const id = results[0].results[0].id;
+  const { id, position } = results[1].results[0];
+  const homeSlug = results[results.length - 1].results[0].slug;
   const row = {
     id,
     kind: body.kind,
-    status: "new",
+    status: "inbox",
+    resolution: null,
+    board_slug: homeSlug,
+    position,
     title,
     body: text,
     host: target.host,
@@ -1555,7 +1607,7 @@ async function createIssue(c) {
     unread: 0,
   };
   if (!c.manager) sendMail(c, row, MANAGERS_TOKEN, { template: "created", body: text, ref: "created" });
-  push(c, "item", row);
+  push(c, "item", row, { board: homeSlug, status: "inbox", position });
   return json(201, issueOf(row, c, emptyLandingContext(c.dir)));
 }
 
@@ -1605,6 +1657,7 @@ async function patchIssue(c, rawKey) {
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
   const next = {
     status: row.status,
+    resolution: row.resolution ?? null,
     kind: row.kind,
     assignee: row.assignee,
     duplicate_of: row.duplicate_of,
@@ -1612,12 +1665,12 @@ async function patchIssue(c, rawKey) {
     body: row.body,
   };
   if (has("title")) {
-    if (!c.manager && !(reporter && row.status === "new")) fail(403, "the title can no longer be changed");
+    if (!c.manager && !(reporter && row.status === "inbox")) fail(403, "the title can no longer be changed");
     next.title = validTitle(body.title);
     if (next.title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   }
   if (has("body")) {
-    if (!c.manager && !(reporter && row.status === "new")) fail(403, "only a manager, or the reporter while the item is new, may change the details");
+    if (!c.manager && !(reporter && row.status === "inbox")) fail(403, "only a manager, or the reporter while the item is new, may change the details");
     const text = clean(body.body);
     if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
@@ -1643,27 +1696,40 @@ async function patchIssue(c, rawKey) {
       const exists = await c.env.DB.prepare("SELECT id, host, origin_env FROM items WHERE id = ?1").bind(target).first();
       if (!exists || !inScope(c, exists)) fail(400, "duplicate_of names no item");
       next.duplicate_of = target;
-      if (!has("status")) next.status = "duplicate";
+      if (!has("status")) {
+        next.status = "done";
+        next.resolution = "duplicate";
+      }
     }
   }
-  if (has("status")) {
-    if (!STATUSES.includes(body.status)) fail(400, "status is not known");
+  if (has("status") || has("resolution")) {
+    const asked = statusOf(has("status") ? body.status : row.status, body.resolution);
+    if (!asked) fail(400, "status is not known");
+    if (asked.status !== "done" && asked.resolution !== null) fail(400, "a resolution goes with done");
+    if (asked.status === "done" && asked.resolution === null) {
+      asked.resolution = has("duplicate_of") && next.duplicate_of !== null ? "duplicate" : row.status === "done" ? row.resolution : "fixed";
+    }
+    const same = asked.status === row.status && asked.resolution === (row.resolution ?? null);
     const allowed =
       c.manager ||
-      (reporter && body.status === "abandoned" && OPEN_STATUSES.has(row.status)) ||
-      (reporter && body.status === "new" && row.status === "resolved") ||
-      body.status === row.status;
+      same ||
+      (reporter && asked.status === "done" && asked.resolution === "abandoned" && OPEN_STATUSES.has(row.status)) ||
+      (reporter && asked.status === "inbox" && row.status === "done" && row.resolution === "fixed");
     if (!allowed) fail(403, "this status change is not allowed");
-    next.status = body.status;
+    next.status = asked.status;
+    next.resolution = asked.resolution;
   }
-  if (next.status === "duplicate" && next.duplicate_of === null) fail(400, "a duplicate needs duplicate_of");
-  if (next.status !== "duplicate") next.duplicate_of = null;
+  if (next.resolution === "duplicate" && next.duplicate_of === null) fail(400, "a duplicate needs duplicate_of");
+  if (next.resolution !== "duplicate") next.duplicate_of = null;
 
   const statements = [];
   const actor = c.actor.email;
   let publicChange = false;
-  if (next.status !== row.status || next.duplicate_of !== row.duplicate_of) {
+  const moved = next.status !== row.status;
+  if (moved || next.resolution !== (row.resolution ?? null) || next.duplicate_of !== row.duplicate_of) {
     const detail = { from: row.status, to: next.status };
+    if (next.resolution) detail.resolution = next.resolution;
+    if (row.resolution) detail.from_resolution = row.resolution;
     if (next.duplicate_of !== null) detail.duplicate_of = next.duplicate_of;
     statements.push(eventStatement(c, row.id, actor, "status", detail));
     publicChange = true;
@@ -1682,8 +1748,10 @@ async function patchIssue(c, rawKey) {
     c.env.DB.prepare(
       `UPDATE items SET status = ?2, open = ?3, kind = ?4, assignee = ?5, duplicate_of = ?6, title = ?7, body = ?8,
          closed_at = ?9, updated_at = ?10, activity_at = ?10,
-         public_activity_at = CASE WHEN ?11 THEN ?10 ELSE public_activity_at END, search_text = ?12
-       WHERE id = ?1`,
+         public_activity_at = CASE WHEN ?11 THEN ?10 ELSE public_activity_at END, search_text = ?12, resolution = ?13,
+         position = CASE WHEN ?14 THEN ${topOf("items.board_id", "?2")} ELSE position END
+       WHERE id = ?1
+       RETURNING position`,
     ).bind(
       row.id,
       next.status,
@@ -1697,17 +1765,28 @@ async function patchIssue(c, rawKey) {
       c.now,
       publicChange ? 1 : 0,
       searchText(next.title, next.body),
+      next.resolution,
+      moved ? 1 : 0,
     ),
   );
   statements.push(readStatement(c, row.id));
-  await c.env.DB.batch(statements);
+  const done = await c.env.DB.batch(statements);
   push(c, "change", { ...row, kind: next.kind, title: next.title }, {
-    what: ["status", "kind", "assignee", "title", "body"].filter((f) => next[f] !== row[f]),
+    what: ["status", "resolution", "kind", "assignee", "title", "body"].filter((f) => next[f] !== (row[f] ?? null)),
   });
-  if (c.manager && next.status !== row.status) {
+  if (moved) {
+    push(c, "move", { ...row, kind: next.kind, title: next.title }, {
+      board: row.board_slug ?? null,
+      from: row.status,
+      to: next.status,
+      position: done[0].results[0].position,
+    });
+  }
+  if (c.manager && (moved || next.resolution !== (row.resolution ?? null))) {
     sendMail(c, { ...row, kind: next.kind, title: next.title }, [row.reporter_email], {
       template: "status",
       status: next.status,
+      resolution: next.resolution,
       ref: `status-${c.now}`,
     });
   }
@@ -1735,7 +1814,6 @@ async function postComment(c, rawKey) {
   if (body.internal !== undefined && typeof body.internal !== "boolean") fail(400, "internal must be a boolean");
   if (internal) requireManager(c);
   checkUsage(c, "comments", 1, used);
-  const reopen = row.reporter_email === c.actor.email && !internal;
   let results;
   try {
     results = await DB.batch([
@@ -1757,18 +1835,12 @@ async function postComment(c, rawKey) {
         agentOf(c),
       ),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT ?1, ?2, 'status', '{"from":"waiting","to":"confirmed"}', 0, ?3, ?5 FROM items
-         WHERE id = ?1 AND status = 'waiting' AND ?4`,
-      ).bind(row.id, c.actor.email, c.now, reopen ? 1 : 0, agentOf(c)),
-      DB.prepare(
         `UPDATE items SET comment_count = comment_count + 1,
            public_comment_count = public_comment_count + ?2,
            activity_at = ?3, updated_at = ?3,
-           public_activity_at = CASE WHEN ?2 THEN ?3 ELSE public_activity_at END,
-           status = CASE WHEN ?4 AND status = 'waiting' THEN 'confirmed' ELSE status END
+           public_activity_at = CASE WHEN ?2 THEN ?3 ELSE public_activity_at END
          WHERE id = ?1`,
-      ).bind(row.id, internal ? 0 : 1, c.now, reopen ? 1 : 0),
+      ).bind(row.id, internal ? 0 : 1, c.now),
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
          SELECT ?1, ?2, 'comment', json_object('comment_id', id, 'internal', json(?3)), ?4, ?5, ?7
@@ -2098,13 +2170,15 @@ async function putHost(c, rawHost) {
   const config = validConfig(body.config);
   if (config === null) fail(400, "config is not valid");
   const { DB } = c.env;
-  const row = await DB.prepare(
-    `INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, ?4)
-     ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json
-     RETURNING host, env, config_json, created_at`,
-  )
-    .bind(host, body.env, JSON.stringify(config), c.now)
-    .first();
+  const [put] = await DB.batch([
+    DB.prepare(
+      `INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, ?4)
+       ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json
+       RETURNING host, env, config_json, created_at`,
+    ).bind(host, body.env, JSON.stringify(config), c.now),
+    homeStatement(DB, host, c.now),
+  ]);
+  const row = put.results[0];
   forgetDirectory();
   return json(200, hostOf(row));
 }
@@ -2487,8 +2561,10 @@ function importItem(r, host) {
   if (!match || !Number.isSafeInteger(id) || id < 1) fail(400, "key must be a key such as BUG-3");
   if (!KIND_PREFIXES[r.kind]) fail(400, "kind must be bug, feature, improvement, question or task");
   if (KIND_PREFIXES[r.kind] !== match[1].toUpperCase()) fail(400, `a ${r.kind} is keyed ${KIND_PREFIXES[r.kind]}-<number>`);
-  const status = r.status ?? "new";
-  if (!STATUSES.includes(status)) fail(400, "status is not known");
+  const asked = statusOf(r.status ?? "inbox", r.resolution ?? null);
+  if (!asked) fail(400, "status is not known");
+  const status = asked.status;
+  const resolution = status === "done" ? (asked.resolution ?? (r.duplicate_of ? "duplicate" : "fixed")) : null;
   const title = validTitle(r.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const body = clean(r.body ?? "");
@@ -2510,6 +2586,7 @@ function importItem(r, host) {
     id,
     kind: r.kind,
     status,
+    resolution,
     open,
     title,
     body,
@@ -2641,9 +2718,10 @@ function importItemStatement(DB, r, host) {
   return DB.prepare(
     `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
        reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json,
-       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at)
+       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at, resolution, board_id, position)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24)`,
+       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24, ?25,
+       ${IMPORT_HOME}, ${topOf(IMPORT_HOME, "?4")})`,
   ).bind(
     r.id,
     `import-${r.id}`,
@@ -2669,8 +2747,11 @@ function importItemStatement(DB, r, host) {
     r.updatedAt,
     r.createdAt,
     r.closedAt,
+    r.resolution,
   );
 }
+
+const IMPORT_HOME = "(SELECT id FROM boards WHERE host = ?9 AND home = 1)";
 
 function importCommentStatement(DB, r) {
   return DB.prepare(
@@ -2803,7 +2884,7 @@ async function postImport(c) {
   }
   if (!dry && statements.length > 0) {
     if (touched.length > 0) statements.push(recountStatement(DB, touched));
-    await DB.batch(statements);
+    await DB.batch([homeStatement(DB, host, c.now), ...statements]);
     push(c, "import", null, { host, items: counts.item.new, comments: counts.comment.new });
   }
   return json(200, { dry_run: dry, counts, upload, managers: missing });
@@ -2943,13 +3024,20 @@ const ITEM_ROUTES = [
   ["GET", /^\/files\/(\d{1,15})$/, getFile],
 ];
 
-const BROWSER_ROUTES = [["GET", /^\/me$/, getMe], ["POST", /^\/verify$/, postVerify], ...ITEM_ROUTES];
+const BROWSER_ROUTES = [
+  ["GET", /^\/me$/, getMe],
+  ["POST", /^\/verify$/, postVerify],
+  ...ITEM_ROUTES,
+  ...BOARD_ROUTES,
+  ["POST", /^\/stream-ticket$/, postStreamTicket],
+];
 
 const SIGNED_ROUTES = [
   ["POST", /^\/builds$/, postBuilds, { actor: false }],
   ["GET", /^\/counts$/, getCounts, { listed: true }],
   ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
+  ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ["GET", /^\/hosts$/, listHosts, {}],
   ["PUT", /^\/hosts\/([^/]+)$/, putHost, {}],
   ["DELETE", /^\/hosts\/([^/]+)$/, deleteHost, {}],
@@ -2965,6 +3053,27 @@ const SIGNED_ROUTES = [
   ["POST", /^\/import\/finish$/, finishImport, {}],
   ["PUT", /^\/import\/attachments\/([^/]+)$/, putImportAttachment, {}],
 ];
+
+useKit({
+  MAX_JSON_BYTES,
+  encoder,
+  clean,
+  eventStatement,
+  fail,
+  hex,
+  hubOf,
+  isText,
+  isUniqueViolation,
+  json,
+  keyOf,
+  loadDirectory,
+  parseKey,
+  readJson,
+  requireEmptyBody,
+  requireManager,
+  sendMail,
+  sha256Hex,
+});
 
 function findRoute(routes, method, path) {
   for (const route of routes) {
@@ -3055,6 +3164,7 @@ async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === "GET" && path === "/_p99/health") return health(env);
+  if (path === "/_p99/api/stream") return ticketStream(request, env, url);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);

@@ -7,13 +7,17 @@ const KIND_LABELS = {
 };
 
 const STATUS_LABELS = {
-  new: "new",
-  confirmed: "confirmed",
-  in_progress: "in progress",
-  waiting: "waiting for you",
-  resolved: "resolved",
+  inbox: "received",
+  doing: "in progress",
+  review: "in review",
+  fixed: "fixed",
   abandoned: "dropped",
   duplicate: "duplicate",
+  new: "received",
+  confirmed: "in progress",
+  in_progress: "in progress",
+  waiting: "in review",
+  resolved: "fixed",
 };
 
 const EXCERPT_CHARS = 1000;
@@ -35,7 +39,7 @@ function escapeHtml(text) {
 
 function lines(data) {
   const kind = KIND_LABELS[data.kind] || "Item";
-  const status = STATUS_LABELS[data.status] || data.status;
+  const status = STATUS_LABELS[data.status === "done" ? data.resolution || "fixed" : data.status] || data.status;
   const quoted = `“${data.title}”`;
   switch (data.template) {
     case "created":

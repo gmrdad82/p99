@@ -13,7 +13,7 @@ use pito_tui::ratatui::{
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
-use crate::wire::{self, Change, Issue, Thread, kind_word, status_word};
+use crate::wire::{self, Change, Issue, Thread, kind_word, status_text, status_word};
 
 use super::Msg;
 use super::source::{Entry, Source, hits, merged_hosts, person, unix, words};
@@ -217,7 +217,8 @@ impl Inbox {
                 Cell::new(mark).style(palette.accent),
                 Cell::new(item.key.as_str()).style(palette.strong),
                 Cell::new(kind_word(&item.kind)).faint(),
-                Cell::new(status_word(&item.status)).style(status_style(palette, &item.status)),
+                Cell::new(status_text(&item.status, item.resolution.as_deref()))
+                    .style(status_style(palette, &item.status)),
                 Cell::new(item.title.as_str()),
             ];
             if all_hosts {
@@ -256,6 +257,9 @@ impl Inbox {
         };
         let summary = &mut entry.summary;
         summary.status = issue.status.clone();
+        summary.resolution = issue.resolution.clone();
+        summary.board = issue.board.clone();
+        summary.position = issue.position;
         summary.kind = issue.kind.clone();
         summary.title = issue.title.clone();
         summary.assignee = issue.assignee.clone();
@@ -350,11 +354,13 @@ impl Inbox {
 
     fn pick_status(&mut self, cx: &mut Cx<'_, Msg>) {
         let Some(issue) = self.issue() else { return };
-        let at = wire::STATUSES
+        let at = wire::CHOICES
             .iter()
-            .position(|s| *s == issue.status)
+            .position(|&(s, r)| {
+                s == issue.status && (s != "done" || r == issue.resolution.as_deref())
+            })
             .unwrap_or(0);
-        let options = wire::STATUSES.iter().map(|s| status_word(s));
+        let options = wire::CHOICES.iter().map(|&(s, r)| status_text(s, r));
         self.picking = Some(Picking::Status);
         cx.pick(
             Pick::new("Status", options)
@@ -454,7 +460,8 @@ impl Inbox {
                         let of = value.to_uppercase();
                         self.change(
                             Change {
-                                status: Some("duplicate".into()),
+                                status: Some("done".into()),
+                                resolution: Some("duplicate".into()),
                                 duplicate_of: Some(of),
                                 ..Change::default()
                             },
@@ -551,10 +558,10 @@ fn pick_hints() -> [Hint<'static>; 3] {
 
 fn status_style(palette: &Palette, status: &str) -> Style {
     match status {
-        "new" => palette.accent,
-        "confirmed" => palette.strong,
-        "in_progress" => palette.warn,
-        "resolved" => palette.good,
+        "inbox" => palette.accent,
+        "doing" => palette.strong,
+        "review" => palette.warn,
+        "done" => palette.good,
         _ => palette.muted,
     }
 }
@@ -602,7 +609,7 @@ fn lines(
         Span::styled(kind_word(&issue.kind).to_owned(), palette.ink),
         dot(),
         Span::styled(
-            status_word(&issue.status).to_owned(),
+            status_text(&issue.status, issue.resolution.as_deref()).to_owned(),
             status_style(palette, &issue.status),
         ),
     ];
@@ -874,7 +881,11 @@ impl Screen<Msg> for Inbox {
                     Ok(issue) => {
                         let at = open.entry;
                         cx.say(
-                            format!("{key} is {}", status_word(&issue.status).to_lowercase()),
+                            format!(
+                                "{key} is {}",
+                                status_text(&issue.status, issue.resolution.as_deref())
+                                    .to_lowercase()
+                            ),
                             Tone::Good,
                         );
                         self.summary_from(at, &issue);
@@ -927,13 +938,16 @@ impl Screen<Msg> for Inbox {
                 self.sift();
             }
             Picking::Status => {
-                let Some(status) = wire::STATUSES.get(choice) else {
+                let Some(&(status, resolution)) = wire::CHOICES.get(choice) else {
                     return;
                 };
-                if self.issue().is_some_and(|i| i.status == *status) {
+                if self
+                    .issue()
+                    .is_some_and(|i| i.status == status && i.resolution.as_deref() == resolution)
+                {
                     return;
                 }
-                if *status == "duplicate" {
+                if resolution == Some("duplicate") {
                     if let Some(open) = &mut self.open {
                         open.typing = Some(Typing::Duplicate(Input::new()));
                     }
@@ -941,7 +955,8 @@ impl Screen<Msg> for Inbox {
                 }
                 self.change(
                     Change {
-                        status: Some((*status).to_owned()),
+                        status: Some(status.to_owned()),
+                        resolution: resolution.map(str::to_owned),
                         ..Change::default()
                     },
                     cx,
