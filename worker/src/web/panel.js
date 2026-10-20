@@ -658,7 +658,8 @@ function list(f) {
   results.setAttribute("aria-busy", "true");
   form.classList.add("is-busy");
   if (!shown) mount(view, view.querySelector("#p99-title"));
-  const done = patience(seq, results, ask, () => list(S.list || f));
+  const again = () => { list(S.list || f); form.elements.q.focus(); };
+  const done = patience(seq, results, ask, again);
   const settle = (...kids) => {
     done();
     results.removeAttribute("aria-busy");
@@ -676,7 +677,7 @@ function list(f) {
     if (seq !== S.seq) return;
     settle(h("div", { class: "p99-failed" },
       h("p", { class: "p99-error", role: "alert", text: loadProblem(e) }),
-      h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: () => list(S.list || f) })));
+      h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: again })));
   });
 }
 function listView(f) {
@@ -693,10 +694,11 @@ function more(box, items, f, cursor) {
   b.addEventListener("click", () => {
     b.disabled = true;
     call("GET", listQuery(f, cursor)).then((res) => {
+      const rows = ((res && res.issues) || []).map(row);
       b.remove();
-      ((res && res.issues) || []).forEach((r) => items.append(row(r)));
+      items.append(...rows);
       more(box, items, f, res && res.next_cursor);
-    }, () => { b.disabled = false; });
+    }).catch(() => { b.disabled = false; });
   });
   box.append(b);
 }
@@ -754,7 +756,7 @@ function item(key) {
     if (seq !== S.seq) return;
     done();
     if (!S.open) return;
-    if (!t || !t.issue) throw new Error(say("load_failed"));
+    if (!t || !t.issue) throw new Error();
     const view = thread(t);
     mount(view, view.querySelector("#p99-title"));
     o.refresh && o.refresh();

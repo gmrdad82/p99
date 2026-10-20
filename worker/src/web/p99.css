@@ -259,10 +259,11 @@
   border-radius: 50%;
   opacity: 0;
   pointer-events: none;
+  animation: p99-spin 0.9s var(--p99-ease-in-out) infinite paused;
   transition: opacity var(--p99-motion-base) var(--p99-ease-enter);
 }
-.p99-filters.is-busy .p99-spin { opacity: 1; animation: p99-spin 0.9s var(--p99-ease-in-out) infinite; }
-.p99-filters.is-busy input[type="search"] { padding-right: 36px; }
+.p99-filters.is-busy .p99-spin { opacity: 1; animation-play-state: running; }
+.p99-panel .p99-search > input[type="search"] { padding-right: 36px; }
 
 .p99-panel button,
 .p99-mark-bar button {
@@ -738,9 +739,9 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .p99-panel { --p99-slide: 0px; transition-duration: var(--p99-motion-fast); }
-  .p99-view, .p99-item, .p99-comment, .p99-marks li, .p99-file-list li, .p99-shot img, .p99-region img { --p99-rise: 0px; }
+  .p99-view, .p99-item, .p99-comment, .p99-marks li, .p99-file-list li, .p99-shot img, .p99-region img, .p99-slow { --p99-rise: 0px; }
   .p99-shimmer { animation: none; }
-  .p99-filters.is-busy .p99-spin { animation: none; border-color: var(--p99-accent-ink); border-right-color: transparent; }
+  .p99-spin { animation: none; border-color: var(--p99-accent-ink); border-right-color: transparent; }
   .p99-outline { animation: none; }
   .p99-listbox { animation: none; }
   .p99-danger::before, .p99-danger.is-holding::before { transform: scaleX(0); transition: none; }

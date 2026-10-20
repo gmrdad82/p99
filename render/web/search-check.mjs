@@ -88,22 +88,23 @@ const state = (p) =>
       value: input && input.value,
     };
   });
-const settled = async (p, ms = 8000) => {
+const settled = async (p, ms = 8000, ready = () => true) => {
   const t0 = Date.now();
   let s;
   while (Date.now() - t0 < ms) {
     s = await state(p);
-    if (s && !s.waiting) return s;
+    if (s && !s.waiting && ready(s)) return s;
     await sleep(100);
   }
   return s;
 };
 const tag = (p) => p.evaluate(() => { document.querySelector("p99-root").shadowRoot.querySelector(".p99-filters input[name=q]").dataset.check = "kept"; });
-const search = async (p, q) => {
+const search = async (p, q, enter = true) => {
   await p.locator(S(".p99-filters input[name=q]")).focus();
   await p.keyboard.press("ControlOrMeta+a");
   if (q) await p.keyboard.type(q, { delay: 40 });
   else await p.keyboard.press("Backspace");
+  if (enter) await p.keyboard.press("Enter");
 };
 
 try {
@@ -126,10 +127,11 @@ try {
     env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
     args: [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${PORT}`, `--unsafely-treat-insecure-origin-as-secure=http://${HOST}`, "--hide-scrollbars", "--font-render-hinting=none"],
   });
-  const open = async (opts, scheme = "light") => {
+  const open = async (opts, scheme = "light", clock = false) => {
     const ctx = await browser.newContext({ ...opts, colorScheme: scheme });
     await ctx.addInitScript(openShadow);
     const p = await ctx.newPage();
+    if (clock) await p.clock.install();
     await p.goto(`${PAGE}#p99=${code}`);
     await p.waitForFunction(() => {
       const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w .b:not(.f)");
@@ -144,9 +146,9 @@ try {
   {
     const { ctx, p } = await open(DESK);
     await tag(p);
-    await search(p, "cart");
-    let s = await settled(p);
-    check(`a search ends in its results, the field kept and focused (${JSON.stringify(s)})`, !s.waiting && !s.busy && s.rows.length === 2 && s.rows.every((t) => /cart/i.test(t)) && s.field && s.tagged);
+    await search(p, "cart", false);
+    let s = await settled(p, 8000, (s) => s.rows.length !== 5);
+    check(`a typed search ends in its results, the field kept and focused (${JSON.stringify(s)})`, !s.waiting && !s.busy && s.rows.length === 2 && s.rows.every((t) => /cart/i.test(t)) && s.field && s.tagged);
 
     await search(p, "zebra");
     s = await settled(p);
@@ -157,21 +159,23 @@ try {
     s = await settled(p);
     check(`a 400 ends in the Worker's message and Retry (${s.error})`, !s.waiting && !s.busy && /status must be/.test(s.error || "") && s.retry && s.field);
 
-    await p.route(searchOf("down"), (r) => r.abort("failed"));
+    const down = searchOf("down");
+    await p.route(down, (r) => r.abort("failed"));
     await search(p, "down");
     s = await settled(p);
     check(`a network failure ends in an error line and Retry (${s.error})`, !s.waiting && !s.busy && s.error === "Couldn't load; try again." && s.retry);
-    await p.unroute(searchOf("down"));
+    await p.unroute(down);
     await p.locator(S(".p99-results .p99-failed .p99-retry")).click();
     s = await settled(p);
-    check(`Retry runs the same search again and ends (${s.empty})`, !s.waiting && s.empty === "No issues match “down”.");
+    check(`Retry runs the same search again, ends, and leaves focus in the field (${s.empty})`, !s.waiting && s.empty === "No issues match “down”." && s.field);
 
     await p.route(searchOf("throws"), (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"issues":[null]}' }));
     await search(p, "throws");
     s = await settled(p);
     check(`a reply the panel can't draw ends in an error line, not the skeleton (${s.error})`, !s.waiting && !!s.error && s.retry);
 
-    await p.route(searchOf("cart"), async (r) => {
+    const cart = searchOf("cart");
+    await p.route(cart, async (r) => {
       await sleep(1500);
       try { await r.fallback(); } catch (x) {}
     });
@@ -181,24 +185,47 @@ try {
     await p.waitForTimeout(2500);
     s = await settled(p);
     check(`a newer search wins over an older, slower one (${s.rows.join(" | ")})`, s.rows.length === 1 && /Canada/.test(s.rows[0]) && s.value === "canada");
-    await p.unroute(searchOf("cart"));
+    await p.unroute(cart);
 
-    await p.route(searchOf("slow"), async (r) => {
+    const slow = searchOf("slow");
+    await p.route(slow, async (r) => {
       await sleep(6000);
       try { await r.fallback(); } catch (x) {}
     });
     await search(p, "slow");
-    await p.waitForTimeout(4600);
-    s = await state(p);
+    const t0 = Date.now();
+    do {
+      await sleep(100);
+      s = await state(p);
+    } while (!(s && s.slow) && Date.now() - t0 < 5800);
     check(`past 4 s the wait says it's taking longer and offers Retry (${JSON.stringify(s)})`, s.waiting && s.busy && s.slow);
-    await p.unroute(searchOf("slow"));
+    await p.unroute(slow);
     await p.locator(S(".p99-results .p99-slow .p99-retry")).click();
     s = await settled(p);
-    check(`  and its Retry ends the search (${s.empty})`, !s.waiting && s.empty === "No issues match “slow”.");
+    check(`  and its Retry ends the search, focus in the field (${s.empty})`, !s.waiting && s.empty === "No issues match “slow”." && s.field);
 
     await search(p, "");
     s = await settled(p);
     check(`clearing the search shows every open item again (${s.rows.length})`, !s.waiting && s.rows.length === 5);
+
+    await p.route((url) => /^\/_p99\/api\/issues\/[^/]+$/.test(url.pathname), (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"issue":null}' }));
+    await p.locator(S(".p99-results .p99-item a")).first().click();
+    const gone = await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-failed .p99-retry"), null, { timeout: 8000 }).then(() => true, () => false);
+    const left = await p.evaluate(() => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-skeleton"));
+    check(`an item reply without its issue ends in an error and Retry, not the skeleton`, gone && !left);
+    await ctx.close();
+  }
+
+  {
+    const { ctx, p } = await open(DESK, "light", true);
+    await p.route(searchOf("stall"), () => {});
+    await search(p, "stall");
+    await p.waitForTimeout(600);
+    let s = await state(p);
+    const waited = s && s.waiting;
+    await p.clock.fastForward(20000);
+    s = await settled(p);
+    check(`a request that never answers ends at 20 s in the error line and Retry (${s && s.error})`, waited && !s.waiting && !s.busy && s.error === "Couldn't load; try again." && s.retry);
     await ctx.close();
   }
 
