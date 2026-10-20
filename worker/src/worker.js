@@ -20,6 +20,7 @@ import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGi
 import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatement, labelsByItem, tagsOf } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
+import { peopleRoutes } from "./people.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -3277,6 +3278,7 @@ const BROWSER_ROUTES = [
   ...BOARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
   ...LABEL_ROUTES,
+  ...peopleRoutes({ json, requireEmptyBody, requireManager, managersOf }),
 ];
 
 const HOOK_KIT = {
