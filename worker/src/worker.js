@@ -20,6 +20,7 @@ import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGi
 import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatement, labelsByItem, tagsOf } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
+import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -2487,6 +2488,8 @@ async function postCode(c) {
   if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
   const wantsTotp = body.totp ?? false;
   if (typeof wantsTotp !== "boolean") fail(400, "totp must be a boolean");
+  const wantsMail = body.mail ?? false;
+  if (typeof wantsMail !== "boolean") fail(400, "mail must be a boolean");
   const totp = wantsTotp ? await newTotp(c.env) : null;
   const secret = newSecret();
   const hash = await codeHash(c.env, secret);
@@ -2507,11 +2510,13 @@ async function postCode(c) {
     return raced;
   }
   codeCache.delete(hash);
+  const mail = wantsMail ? await mailLink(c, row, secret, false) : null;
   return json(201, {
     code: codeOf(row),
     secret,
-    links: hosts.map((host) => `https://${host}/#p99=${secret}`),
+    links: hosts.map((host) => accessLink(host, secret)),
     ...(totp ? { totp_key: totp.key } : {}),
+    ...(mail ? { mail } : {}),
   });
 }
 
@@ -3309,6 +3314,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes$/, postCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
+  ["POST", /^\/codes\/(\d{1,15})\/relink$/, relinkCode, {}],
   ["POST", /^\/people\/rename$/, renamePerson, {}],
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
   ["POST", /^\/import$/, postImport, {}],
@@ -3366,6 +3372,22 @@ useGithubKit({
 });
 
 useDeleteKit({ fail, json, keyOf, loadItem, push, requireEmptyBody, requireManager });
+
+useLinkKit({
+  codeHash,
+  codeOf,
+  fail,
+  forgetCodes: () => codeCache.clear(),
+  isEmail,
+  isUid,
+  json,
+  maxJson: MAX_JSON_BYTES,
+  newSecret,
+  newTotp,
+  parseJson,
+  readJson,
+  sealCode,
+});
 
 function findRoute(routes, method, path) {
   for (const route of routes) {

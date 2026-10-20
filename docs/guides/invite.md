@@ -1,6 +1,6 @@
 ---
 title: Invite people
-description: Mint personal codes with p99 invite, send their links, list who holds one and revoke a code.
+description: Mint personal codes with p99 invite, mail their links, renew one with p99 relink, list who holds one and revoke a code.
 sidebar:
   order: 3
 ---
@@ -23,9 +23,50 @@ link:   https://shop.example.com/#p99=<code>
 this is the only time the secret is shown
 ```
 
-In place of `<code>` it prints the 12 characters of the new code. Send the person a link. They open it once: the page keeps the code in the site's `localStorage` and removes it from the address bar and the history entry at once. The loader reads the link as the browser opened it, so a site script that rewrites the hash first doesn't lose the code, and it takes `#P99=` in capitals or a link that an app ended with a full stop. A code the Worker refuses (mistyped, revoked, or not for this host) shows one short line by the button, "This P99 link isn't valid here. Ask for a new one.", in place of the button; its × closes it, and the site forgets the code. The code sits in the link's fragment, which the browser never sends to a server, so it stays out of your server's, Cloudflare's and any analytics' logs and `Referer` headers. Treat the link as the secret it is. P99 keeps only the code's SHA-256, so a lost secret can't be shown again: mint a new code.
+That is the output when mail is off or you invite yourself; with mail on, the person gets the link by mail instead (see [Access links](#access-links)). In place of `<code>` it prints the 12 characters of the new code. Send the person a link. They open it once: the page keeps the code in the site's `localStorage` and removes it from the address bar and the history entry at once. The loader reads the link as the browser opened it, so a site script that rewrites the hash first doesn't lose the code, and it takes `#P99=` in capitals or a link that an app ended with a full stop. A code the Worker refuses (mistyped, revoked, or not for this host) shows one short line by the button, "This P99 link isn't valid here. Ask for a new one.", in place of the button; its × closes it, and the site forgets the code. The code sits in the link's fragment, which the browser never sends to a server, so it stays out of your server's, Cloudflare's and any analytics' logs and `Referer` headers. Treat the link as the secret it is. P99 keeps only the code's SHA-256, so a lost secret can't be shown again: mint a new code.
 
-`--json` prints the code object, the secret and the links, for a script that sends the invitations.
+`--json` prints the code object, the secret, the links and `mail` (`sent`, `off`, `failed` or `skipped`, when mail was asked), for a script that sends the invitations.
+
+## Access links
+
+With mail on for the account (`p99 email set`, in [Set up P99](setup.md)), `p99 invite` mails the person their link through the account's mail provider:
+
+```text
+Grace Hopper <grace@example.com>
+mailed the link for example.com, shop.example.com to grace@example.com
+```
+
+The mail has one "Open P99 on <host>" button for each host the code covers, sized for a phone, and its plain-text part lists each link as `https://<host>/#p99=<code>`. Replies go to the e-mail of whoever sent the invite. The authenticator key of a `--totp` code is never in the mail: the terminal prints it, for you to send apart. Add `--no-mail` to print the links in the terminal instead. When the account has no mail, or the mail doesn't go out, the terminal prints the links once with one line that says so.
+
+Your own links never go by mail: inviting the e-mail in your config's `[me]` prints them in the terminal, one line per host, and `--mail-me` also mails them to you. P99 writes them nowhere, so save them in your password manager if you keep them there.
+
+### Renew a link
+
+```sh
+p99 relink 3
+p99 relink grace@example.com
+p99 relink grace@example.com --host shop.example.com
+p99 relink --self
+```
+
+`p99 relink` mints a new code for the same person, with the same name, e-mail, hosts and role, and revokes the old one in the same request, so there is no moment when both work or neither does. It mails the new link as `p99 invite` does (with `--no-mail` and `--mail-me` the same way), and the old link answers 401 from then on. Name the code by its id from `p99 invites`, or by the person's e-mail when they hold one code; `--host` picks the code that covers that host, and `--self` takes your own e-mail from the config. Items, comments and history follow the e-mail, so nothing is lost. A code with an authenticator keeps it: the new code gets the same secret, still encrypted in the Worker, so the person's app keeps giving the right 6-digit codes; each browser asks for one again, once. `--new-totp` gives the new code a new authenticator and prints its setup.
+
+### Open your own link
+
+```sh
+p99 link
+p99 link shop.example.com
+p99 link shop.example.com --print
+```
+
+`p99 link` opens your link in the default browser, built from the `code` your config keeps for the account: the 12 characters inline (the config file at mode 600), or an `op://vault/item/field` reference that P99 reads through the 1Password CLI at that moment, as it reads a token or a key. P99 only reads it and never writes it there:
+
+```toml
+[accounts.main]
+code = "op://vault/item/field"
+```
+
+With several hosts and none named, it asks which one in a terminal and lists them otherwise. `--print` prints the link instead of opening it; `P99_BROWSER` names another program to open it with.
 
 ## Members and managers
 
@@ -64,7 +105,7 @@ p99 revoke 3
 revoked code 3 of Grace Hopper <grace@example.com>
 ```
 
-The next request with that code answers 401, and the loader forgets it, so the "+" disappears from that browser. The person's items and comments stay. To give someone a new code, mint one; a code can't be changed or shown again.
+The next request with that code answers 401, and the loader forgets it, so the "+" disappears from that browser. The person's items and comments stay. To give someone a new code in place of the old one, use `p99 relink`; a code can't be changed or shown again. With an authenticator on the code, a forwarded link alone opens nothing in another browser, so revoking is for a link you want gone, or a person who should no longer file.
 
 ## Add an authenticator
 

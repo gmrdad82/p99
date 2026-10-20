@@ -122,6 +122,7 @@ const PROVIDERS = {
             subject: m.subject,
             text: m.text,
             html: m.html,
+            ...(m.replyTo ? { reply_to: m.replyTo } : {}),
             ...(m.headers ? { headers: m.headers } : {}),
           })),
         ),

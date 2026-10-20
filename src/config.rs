@@ -58,6 +58,8 @@ pub struct Account {
     pub access_client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_client_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
     #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
     pub me: AccountMe,
 }
@@ -265,6 +267,7 @@ impl Config {
                     Some(&a.key),
                     a.resend_key.as_ref(),
                     a.access_client_secret.as_ref(),
+                    a.code.as_ref(),
                 ]
                 .into_iter()
                 .flatten()

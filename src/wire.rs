@@ -673,6 +673,8 @@ pub struct NewCode {
     pub manager: bool,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub totp: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mail: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -684,6 +686,21 @@ pub struct Minted {
     pub links: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub totp_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub totp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revoked: Option<Code>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Relink {
+    pub client_uid: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub new_totp: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mail: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

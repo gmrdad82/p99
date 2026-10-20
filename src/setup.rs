@@ -1249,6 +1249,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         mail_from: None,
         access_client_id: None,
         access_client_secret: None,
+        code: None,
         me: AccountMe::default(),
     });
     account.me = me;

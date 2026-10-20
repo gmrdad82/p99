@@ -374,7 +374,7 @@ mod tests {
                 "GITHUB_HOOK_A379A6F6EEAFB9A5".to_owned()
             )
         );
-        assert!(valid_repo("gmrdad82/p99"));
-        assert!(!valid_repo("gmrdad82/p99/x") && !valid_repo("p99") && !valid_repo("-a/b"));
+        assert!(valid_repo("acme/shop"));
+        assert!(!valid_repo("acme/shop/x") && !valid_repo("p99") && !valid_repo("-a/b"));
     }
 }
