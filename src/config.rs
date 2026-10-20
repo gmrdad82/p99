@@ -101,6 +101,8 @@ pub struct Host {
     pub off: Vec<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub feed: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +135,9 @@ impl Host {
         }
         if self.feed {
             config.insert("feed".into(), true.into());
+        }
+        if self.link == Some(false) {
+            config.insert("link".into(), false.into());
         }
         serde_json::Value::Object(config)
     }
