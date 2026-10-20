@@ -1,3 +1,4 @@
+mod app;
 mod boards;
 mod bundle;
 mod cli;
@@ -61,6 +62,9 @@ enum Command {
         about = "show, read-only, what this version's data-changing migrations would do on an account"
     )]
     Migrate(migrate::MigrateArgs),
+        about = "print the address of the account's P99 page, which works when a site is down"
+    )]
+    App,
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
     Bundle,
     #[command(
@@ -97,6 +101,7 @@ fn main() -> ExitCode {
         Command::Setup(args) => setup::setup(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
         Command::Migrate(args) => migrate::run(&args, &p99.global),
+        Command::App => app::run(&p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::License(args) => license::run(&args, &p99.global),
         Command::Email(args) => email::run(&args, &p99.global),

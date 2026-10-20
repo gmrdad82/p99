@@ -168,13 +168,20 @@ const phone = matchMedia("(max-width: 599px)");
 const still = matchMedia("(prefers-reduced-motion: reduce)");
 
 export function open(opts) {
+  if (opts.space && opts.root !== root) {
+    S.assets = null;
+    S.list = null;
+    S.open = false;
+    S.view = null;
+    me = null;
+  }
   o = opts;
   o.host = o.root.host;
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
   if (opts.view === 401) return Promise.resolve(gone());
   const ready = ensure();
-  if (opts.view === "list" && S.open && S.view === "list") return close();
+  if (opts.view === "list" && S.open && S.view === "list" && !opts.space) return close();
   return ready.then(() => {
     show();
     const go = () => {
@@ -261,15 +268,21 @@ function person(p, agent) {
   return [nameOf(p), isAgent(p, agent) ? h("span", { class: "p99-ai", title: "AI", text: "*" }) : null];
 }
 
+function api(path) {
+  return "/_p99/api" + path + (o.space ? (path.includes("?") ? "&" : "?") + "host=" + enc(o.space) : "");
+}
+function auth() {
+  return o.space ? { "X-P99-App": "1" } : { "X-P99-Code": o.code };
+}
 function call(method, path, body, type) {
-  const headers = { "X-P99-Code": o.code, Accept: "application/json" };
+  const headers = Object.assign(auth(), { Accept: "application/json" });
   if (body != null) headers["Content-Type"] = type || "application/json";
-  return fetch("/_p99/api" + path, { method, headers, body, credentials: "same-origin" }).then((r) =>
+  return fetch(api(path), { method, headers, body, credentials: "same-origin" }).then((r) =>
     r.text().then((t) => {
       let data = null;
       try { data = t ? JSON.parse(t) : null; } catch (x) {}
       if (r.status === 401) {
-        close();
+        close(true);
         gone();
       }
       if (r.status === 428 && !S.verify) {
@@ -300,7 +313,7 @@ function problem(e) { return navigator.onLine ? (e && e.message) || say("failed"
 
 function blobOf(id) {
   if (!S.files.has(id)) {
-    const p = fetch("/_p99/api/files/" + enc(id), { headers: { "X-P99-Code": o.code } }).then((r) => {
+    const p = fetch(api("/files/" + enc(id)), { headers: auth() }).then((r) => {
       if (!r.ok) throw new Error(say("failed"));
       return r.blob();
     });
@@ -377,7 +390,7 @@ function chrome() {
   const x = h("button", { type: "button", class: "p99-x", "aria-label": say("close"), title: say("close"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
   const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
-  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: say("brand") })), board, x);
+  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: o.space || say("brand") })), board, x);
   const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);
@@ -390,8 +403,9 @@ function boardModule() {
   return S.board;
 }
 function openBoard() {
-  close();
-  boardModule().then((m) => m.open({ root, call, me, h, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  close(true);
+  const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
+  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function keys(e) {
   if (e.key === "Escape") {
@@ -446,6 +460,7 @@ function swipe(grip) {
   grip.addEventListener("pointercancel", end);
 }
 function gone() {
+  if (o.gone) return o.gone();
   try { delete localStorage["p99:code"]; } catch (x) {}
   const bar = o.bar;
   if (!bar || bar.querySelector(".p99-gone")) return;
@@ -464,7 +479,7 @@ function show() {
   panel.classList.add("is-open");
   scrim.classList.add("is-open");
 }
-function close() {
+function close(quiet) {
   if (!S.open) return;
   if (S.marking) S.marking.finish(false);
   S.open = false;
@@ -484,6 +499,7 @@ function close() {
   if (/^#p99=/.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
   const back = (o.from && o.from.isConnected && o.from) || (o.bar && o.bar.querySelector("button"));
   if (back && panel.contains(root.activeElement)) back.focus();
+  if (!quiet && o.closed) o.closed();
 }
 function skeleton() {
   const box = h("div", { class: "p99-skeleton", "aria-busy": "true" }, h("h2", { class: "p99-sr", id: "p99-title", text: say("loading") }));
@@ -596,7 +612,7 @@ function pieces(text) {
 
 function defaultList() {
   const c = (me && me.counts) || {};
-  if (c.page_open > 0) return { scope: "page", status: "open", kind: "", q: "" };
+  if (c.page_open > 0 && !o.space) return { scope: "page", status: "open", kind: "", q: "" };
   if (me && me.manager) return { scope: "all", status: "open", kind: "", q: "" };
   return { scope: "mine", status: "open", kind: "", q: "" };
 }
@@ -616,7 +632,7 @@ function list(f) {
   call("GET", listQuery(f)).then((res) => {
     if (seq !== S.seq || !S.open) return;
     const title = h("h2", { id: "p99-title", text: say("list_title") });
-    const tabs = ["page", "mine"].concat(me && me.manager ? ["all"] : []);
+    const tabs = (o.space ? [] : ["page"]).concat(["mine"], me && me.manager ? ["all"] : []);
     const nav = h("nav", { class: "p99-tabs", "aria-label": say("list_title") }, tabs.map((t) =>
       h("a", { href: "#", "aria-current": t === f.scope ? "page" : null, text: say("tab_" + t), onclick: (e) => { e.preventDefault(); list(Object.assign({}, f, { scope: t })); } })
     ));
@@ -710,10 +726,10 @@ function thread(t) {
   if (i.duplicate_of) meta.push(" · ", h("a", { href: "#p99=" + enc(i.duplicate_of), text: say("duplicate_of", { n: i.duplicate_of }), onclick: (e) => { e.preventDefault(); item(i.duplicate_of); } }));
   const page = i.page || {};
   const dest = pageUrl(page.path);
-  const here = !!dest && dest.pathname === location.pathname;
+  const here = !!dest && !o.space && dest.pathname === location.pathname;
   const marks = Array.isArray(i.marks) ? i.marks : [];
-  const pageLink = dest ? h("p", { class: "p99-page" }, h("a", { href: dest.pathname + "#p99=" + enc(i.key), text: page.title || dest.pathname, onclick: (e) => {
-    if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+  const pageLink = dest ? h("p", { class: "p99-page" }, h("a", { href: (o.space ? dest.origin : "") + dest.pathname + "#p99=" + enc(i.key), target: o.space ? "_blank" : null, rel: o.space ? "noopener noreferrer" : null, text: page.title || dest.pathname, onclick: (e) => {
+    if (o.space || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
     if (here) { if (marks.length) showMarks(marks); return; }
     location.href = dest.pathname + "#p99=" + enc(i.key);
@@ -757,8 +773,9 @@ function fileList(list) {
 function pageUrl(path) {
   if (typeof path !== "string" || !/^\/(?![\/\\])/.test(path) || /[\\\s\u0000-\u001f\u007f]/.test(path)) return null;
   try {
-    const u = new URL(path, location.origin);
-    return u.origin === location.origin ? u : null;
+    const site = o.space ? "https://" + o.space : location.origin;
+    const u = new URL(path, site);
+    return u.origin === site ? u : null;
   } catch (x) { return null; }
 }
 function eventText(ev) {
@@ -1126,8 +1143,9 @@ function put(key, it, form) {
   if (it.comment != null) q += "&comment=" + enc(it.comment);
   const once = () => new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open("PUT", "/_p99/api/issues/" + enc(key) + "/attachments/" + enc(it.uid) + q);
-    x.setRequestHeader("X-P99-Code", o.code);
+    x.open("PUT", api("/issues/" + enc(key) + "/attachments/" + enc(it.uid) + q));
+    const head = auth();
+    for (const k in head) x.setRequestHeader(k, head[k]);
     x.setRequestHeader("Content-Type", fileType(it.blob, it.name) || "application/octet-stream");
     x.upload.onprogress = (e) => { if (e.lengthComputable) status(form, say("uploading", { name: it.name, pct: Math.round((e.loaded / e.total) * 100) })); };
     x.onload = () => {

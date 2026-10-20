@@ -210,6 +210,11 @@ async function answer(req, url, body) {
     }
     return ok({ buckets: list });
   }
+  if (rest === "/workers/subdomain") return ok({ subdomain: "ada-example" });
+  if ((g = /^\/workers\/scripts\/([\w-]+)\/subdomain$/.exec(rest))) {
+    if (!scripts[g[1]]) return fail(404, 10007, "This Worker does not exist on your account.");
+    return ok({ enabled: body?.enabled ?? false, previews_enabled: false });
+  }
   if (rest === "/workers/domains") return ok([]);
   if (rest === "/pages/projects") return ok(state.pages[account]);
   return fail(404, 7003, `No route for that URI`);

@@ -10,6 +10,7 @@ import { deleteChecks } from "./delete.mjs";
 import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
+import { APP_HOST, appChecks } from "./app.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -248,7 +249,7 @@ async function main() {
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
-  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500");
+  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`);
   const stub = await hookStub();
   vars.push(`HOOKS_TEST_ORIGIN:http://127.0.0.1:${stub.address().port}`);
   for (const host of ["127.0.0.1", "localhost"]) {
@@ -969,6 +970,7 @@ async function run() {
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
   await migrateChecks({ check, root, work });
+  await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

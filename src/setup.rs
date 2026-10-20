@@ -96,6 +96,8 @@ struct DeployReport {
     account_id: String,
     worker: String,
     version: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app: Option<String>,
     modules: Vec<ModuleInfo>,
     migrations: Migrated,
     routes: Vec<RouteReport>,
@@ -395,7 +397,7 @@ fn note(what: &str) {
     say!("  --  {what}");
 }
 
-fn is_hostname(host: &str) -> bool {
+pub(crate) fn is_hostname(host: &str) -> bool {
     host.contains('.')
         && host.len() <= 253
         && host.split('.').all(|label| {
@@ -818,13 +820,16 @@ fn hub_migration(tag: Option<&str>) -> Option<Value> {
     Some(step)
 }
 
-fn our_bindings(account: &Account, rate: Option<u64>) -> Vec<Value> {
+fn our_bindings(account: &Account, rate: Option<u64>, app: Option<&str>) -> Vec<Value> {
     let mut ours = vec![
         json!({ "type": "d1", "name": "DB", "database_id": account.database_id }),
         json!({ "type": "r2_bucket", "name": "BUCKET", "bucket_name": account.bucket }),
         json!({ "type": "plain_text", "name": "VERSION", "text": VERSION }),
         json!({ "type": "durable_object_namespace", "name": "HUB", "class_name": HUB_CLASS }),
     ];
+    if let Some(host) = app {
+        ours.push(json!({ "type": "plain_text", "name": "APP_HOST", "text": host }));
+    }
     if let Some(ns) = rate {
         ours.push(json!({
             "type": "ratelimit",
@@ -909,8 +914,9 @@ fn upload(
     account: &Account,
     existing: &[Value],
     rate: Option<u64>,
+    app: Option<&str>,
 ) -> Result<Uploaded, String> {
-    let bindings = merge_bindings(existing, our_bindings(account, rate));
+    let bindings = merge_bindings(existing, our_bindings(account, rate, app));
     let tag = cf.migration_tag(&account.account_id, &account.worker)?;
     let migrations = hub_migration(tag.as_deref());
     cf.upload(
@@ -1007,6 +1013,7 @@ fn route(
     worker: &str,
     zones: &[Named],
     host: &str,
+    pattern: &str,
 ) -> Result<Routed, String> {
     let mut notes = Vec::new();
     let mut created = false;
@@ -1029,7 +1036,6 @@ fn route(
         Err(e) if e.denied() => notes.push("couldn't check Pages projects (the token has no Pages read; nothing needs it)".into()),
         Err(e) => notes.push(format!("couldn't check Pages projects: {e}")),
     }
-    let pattern = route_pattern(host);
     let routes = cf.routes(&zone.id)?;
     for r in routes
         .iter()
@@ -1058,12 +1064,32 @@ fn route(
             ));
         }
         None => {
-            cf.create_route(&zone.id, &pattern, worker)?;
+            cf.create_route(&zone.id, pattern, worker)?;
             created = true;
             notes.push(format!("added the route {pattern} → {worker}"));
         }
     }
     Ok(Routed { notes, created })
+}
+
+pub(crate) fn open_app(
+    cf: &Cloudflare,
+    account: &str,
+    worker: &str,
+    zones: &[Named],
+    address: &crate::app::Address,
+) -> Result<Vec<String>, String> {
+    match address {
+        crate::app::Address::Own(host) => {
+            Ok(route(cf, account, worker, zones, host, &format!("{host}/*"))?.notes)
+        }
+        crate::app::Address::WorkersDev(host) => {
+            cf.enable_subdomain(account, worker)?;
+            Ok(vec![format!(
+                "the Worker answers on its workers.dev address {host}"
+            )])
+        }
+    }
 }
 
 fn covers(pattern: &str, host: &str) -> bool {
@@ -1084,7 +1110,16 @@ pub fn add_route(config: &Config, account: &str, host: &str) -> Result<(), Strin
         .ok_or_else(|| format!("no account is called {account}"))?;
     let cf = Cloudflare::new(&crate::config::token(entry)?);
     let zones = cf.zones(&entry.account_id)?;
-    for line in route(&cf, &entry.account_id, &entry.worker, &zones, host)?.notes {
+    for line in route(
+        &cf,
+        &entry.account_id,
+        &entry.worker,
+        &zones,
+        host,
+        &route_pattern(host),
+    )?
+    .notes
+    {
         eprintln!("{line}");
     }
     Ok(())
@@ -1262,6 +1297,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         bucket: "p99".into(),
         key: String::new(),
         url: None,
+        app: None,
         resend_key: None,
         mail_from: None,
         access_client_id: None,
@@ -1407,7 +1443,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             args.rate_namespace,
         )?),
     };
-    upload(&cf, &account, &bindings, rate)?;
+    upload(&cf, &account, &bindings, rate, None)?;
     let secrets = cf.secrets(&id, &account.worker)?;
     cf.put_secret(&id, &account.worker, "KEY_P99", &vault::read(&account.key)?)?;
     done("secret KEY_P99");
@@ -1493,7 +1529,14 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             failed.push(spec.host.clone());
             continue;
         }
-        match route(&cf, &id, &account.worker, &zones, &spec.host) {
+        match route(
+            &cf,
+            &id,
+            &account.worker,
+            &zones,
+            &spec.host,
+            &route_pattern(&spec.host),
+        ) {
             Ok(routes) => {
                 routes.notes.iter().for_each(|n| done(n));
                 routed.push((spec.host.clone(), routes));
@@ -1649,7 +1692,14 @@ fn deploy_into(
             })?,
         ),
     };
-    upload(&cf, account, &bindings, rate)?;
+    let app = crate::app::address(&cf, account)?;
+    upload(
+        &cf,
+        account,
+        &bindings,
+        rate,
+        app.as_ref().map(|a| a.host()),
+    )?;
     done("secrets kept");
     pepper(&cf, id, &account.worker, &cf.secrets(id, &account.worker)?)?;
     if crate::email::adopt_legacy(&cf, account)? {
@@ -1660,7 +1710,7 @@ fn deploy_into(
     let mut failed = Vec::new();
     for host in &hosts {
         let pattern = route_pattern(host);
-        match route(&cf, id, &account.worker, &zones, host) {
+        match route(&cf, id, &account.worker, &zones, host, &pattern) {
             Ok(routed) => {
                 routed.notes.iter().for_each(|n| done(n));
                 report.routes.push(RouteReport {
@@ -1684,11 +1734,32 @@ fn deploy_into(
             }
         }
     }
+    let app_error = match &app {
+        Some(address) => match open_app(&cf, id, &account.worker, &zones, address) {
+            Ok(notes) => {
+                notes.iter().for_each(|n| done(n));
+                done(&format!("the P99 page answers on {}", address.url()));
+                report.app = Some(address.url());
+                None
+            }
+            Err(why) => {
+                say!("  !!  {why}");
+                Some(why)
+            }
+        },
+        None => {
+            note(crate::app::NO_SUBDOMAIN);
+            None
+        }
+    };
     if !args.no_check && !hosts.is_empty() {
         report.health = health(&hosts);
     }
     if !failed.is_empty() {
         return Err(format!("no route for {}", failed.join(", ")));
+    }
+    if let Some(why) = app_error {
+        return Err(format!("no address for the P99 page: {why}"));
     }
     let unhealthy: Vec<&str> = report
         .health

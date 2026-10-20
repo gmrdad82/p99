@@ -9,6 +9,7 @@ pub const CRON: &str = "*/15 * * * *";
 pub struct Cloudflare {
     agent: Agent,
     token: String,
+    base: String,
 }
 
 #[derive(Debug, Clone)]
@@ -73,6 +74,15 @@ impl Cloudflare {
         Cloudflare {
             agent,
             token: token.trim().to_owned(),
+            base: api(),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn at(token: &str, base: &str) -> Cloudflare {
+        Cloudflare {
+            base: base.trim_end_matches('/').to_owned(),
+            ..Cloudflare::new(token)
         }
     }
 
@@ -83,14 +93,14 @@ impl Cloudflare {
     fn get(&self, path: &str) -> Answer<Value> {
         let response = self
             .agent
-            .get(&format!("{}{path}", api()))
+            .get(&format!("{}{path}", self.base))
             .header("Authorization", &self.auth())
             .call();
         envelope(response, path)
     }
 
     fn send_json(&self, method: &str, path: &str, body: &Value) -> Answer<Value> {
-        let url = format!("{}{path}", api());
+        let url = format!("{}{path}", self.base);
         let request = match method {
             "POST" => self.agent.post(&url),
             "PATCH" => self.agent.patch(&url),
@@ -121,7 +131,7 @@ impl Cloudflare {
     fn get_full(&self, path: &str) -> Answer<Value> {
         let response = self
             .agent
-            .get(&format!("{}{path}", api()))
+            .get(&format!("{}{path}", self.base))
             .header("Authorization", &self.auth())
             .call();
         whole(response, path)
@@ -276,7 +286,7 @@ impl Cloudflare {
         let path = format!("/accounts/{account}/workers/scripts/{script}");
         let response = self
             .agent
-            .put(&format!("{}{path}", api()))
+            .put(&format!("{}{path}", self.base))
             .header("Authorization", &self.auth())
             .header(
                 "Content-Type",
@@ -331,6 +341,26 @@ impl Cloudflare {
             "POST",
             &format!("/zones/{zone}/workers/routes"),
             &json!({ "pattern": pattern, "script": script }),
+        )
+        .map(drop)
+    }
+
+    pub fn subdomain(&self, account: &str) -> Answer<Option<String>> {
+        match self.get(&format!("/accounts/{account}/workers/subdomain")) {
+            Ok(result) => Ok(result["subdomain"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)),
+            Err(error) if error.missing() || error.codes.contains(&10007) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn enable_subdomain(&self, account: &str, script: &str) -> Answer<()> {
+        self.send_json(
+            "POST",
+            &format!("/accounts/{account}/workers/scripts/{script}/subdomain"),
+            &json!({ "enabled": true, "previews_enabled": false }),
         )
         .map(drop)
     }
@@ -522,7 +552,7 @@ pub fn drop_worker_secret(
     );
     let response = cf
         .agent
-        .delete(&format!("{}{path}", api()))
+        .delete(&format!("{}{path}", cf.base))
         .header("Authorization", &cf.auth())
         .call();
     match envelope(response, &path) {

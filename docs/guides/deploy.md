@@ -43,7 +43,8 @@ p99 deploy --account shop
 1. applies the migrations the database hasn't had yet, in order, recording each in `d1_migrations` (the ones that change data wait for an accepted plan: [Upgrading to 1.9](#upgrading-to-19));
 2. uploads the Worker with its bindings, keeping its secrets (`KEY_P99`, `MANAGERS`, the mail key) as they are, and creates its Durable Object, `P99Hub`, the first time (a Worker set up before P99 had live updates gets it on its next deploy, and `p99 watch` asks for one until then);
 3. checks each host's route `<host>/_p99/*` and adds a missing one;
-4. checks that every host answers the new version on `/_p99/health`.
+4. gives the P99 page its address: the route `<app>/*` when the account sets `app` in the config, or else the Worker's `workers.dev` address, which it turns on, and prints it (`p99 app` prints it later);
+5. checks that every host answers the new version on `/_p99/health`.
 
 It fails, naming the hosts, when a route can't be added or a host doesn't answer the new version; `--no-check` skips the health check. `--json` prints a report with the modules, the migrations applied, each route and each host's health, and `"ok"`.
 

@@ -99,6 +99,14 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, crumbs: null, roll: null, live: null, say: null, note: null, slug: null, data: null, boards: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
+  if (B.el && B.root !== ctx.root) {
+    hang();
+    B.el = null;
+    B.open = false;
+    B.boards = null;
+    B.slug = null;
+    B.data = null;
+  }
   B.ctx = ctx;
   if (!B.el) build(ctx.root);
   if (!B.open) show();
@@ -121,6 +129,7 @@ export function close() {
   const back = B.focus && B.focus.isConnected ? B.focus : null;
   B.focus = null;
   if (back) back.focus();
+  if (B.ctx.closed) B.ctx.closed();
 }
 
 function t(key, args) {
@@ -172,7 +181,7 @@ function remembered() {
 }
 
 function homeOf(boards) {
-  const host = location.hostname;
+  const host = B.ctx.host || location.hostname;
   const slug = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const roots = boards.filter((b) => !b.parent);
   const pick = boards.find((b) => b.home && b.host === host) || boards.find((b) => b.slug === slug) || roots.find((b) => b.host === host) || roots[0] || boards[0];
@@ -620,7 +629,7 @@ function listen() {
   B.ctx.call("POST", "/stream-ticket").then((r) => {
     const ticket = r && (r.ticket || r.t);
     if (!B.open || !ticket) throw new Error("no ticket");
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/_p99/api/stream?t=" + encodeURIComponent(ticket));
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/_p99/api/stream?t=" + encodeURIComponent(ticket) + (B.ctx.host ? "&host=" + encodeURIComponent(B.ctx.host) : ""));
     B.ws = ws;
     ws.onopen = () => { B.tries = 0; state("live"); };
     ws.onmessage = (m) => { try { event(JSON.parse(m.data)); } catch (x) {} };
