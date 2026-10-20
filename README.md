@@ -72,7 +72,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 ## In your terminal
 
-**The inbox.** `p99` (or `p99 tui`) shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row, narrowed by priority or label. Open a thread to read it, reply, add an internal note, change the status, set its priority and labels, or assign it.
+**The inbox.** `p99` (or `p99 tui`) shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row, narrowed by priority or label. Open a thread to read it, reply, add an internal note, change the status, set its priority and labels, or assign it. People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
 
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists items from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the status set to resolved, and the view switches to one host."></p>
 

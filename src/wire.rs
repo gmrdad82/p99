@@ -94,7 +94,7 @@ pub struct Summary {
     #[serde(default)]
     pub reporter: Person,
     #[serde(default)]
-    pub assignee: Option<String>,
+    pub assignee: Option<Assignee>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
@@ -201,7 +201,7 @@ pub struct Issue {
     #[serde(default)]
     pub reporter: Value,
     #[serde(default)]
-    pub assignee: Option<String>,
+    pub assignee: Option<Assignee>,
     #[serde(default)]
     pub created_at: String,
     #[serde(default)]
@@ -363,6 +363,8 @@ pub struct Thread {
     pub attachments: Vec<Attachment>,
     #[serde(default)]
     pub events: Vec<Event>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub people: Vec<Member>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -520,6 +522,33 @@ pub struct NewIssue {
     pub context: Value,
     #[serde(default)]
     pub marks: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Assignee {
+    #[serde(default)]
+    pub username: String,
+}
+
+impl Assignee {
+    pub fn new(username: &str) -> Assignee {
+        Assignee {
+            username: username.to_owned(),
+        }
+    }
+}
+
+impl std::fmt::Display for Assignee {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "@{}", self.username)
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Member {
+    pub username: String,
+    #[serde(default)]
+    pub manager: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -795,7 +824,7 @@ pub struct ItemCard {
     #[serde(default)]
     pub position: f64,
     #[serde(default)]
-    pub assignee: Option<String>,
+    pub assignee: Option<Assignee>,
     #[serde(default)]
     pub reporter: CardPerson,
     #[serde(default)]

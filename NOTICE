@@ -31,6 +31,13 @@ active option through aria-activedescendant and wrap, Enter or a click commits
 it, Escape closes the list, keys are ignored while an input method composes,
 and the first match is made active as you type; under its licence below.
 
+Each person's disc, worker/src/web/avatar.js, ports the "marble" variant of
+boring-avatars 2.0.4 (MIT, https://github.com/boringdesigners/boring-avatars,
+commit 89270f1d423a60a2fa2c241127e1744cba38aa38, the npm package's
+dist/index.js): its name hash, its shapes,
+offsets, scales, rotations and blur, drawn as a plain SVG string from the
+username in P99's palette; under its licence below.
+
 The images in docs/images/ are made from this repository's own sources, and
 are licensed with the code. inbox.gif and setup.gif are recorded by prec
 from the shots in render/terminal.toml (p99 tui --demo on sample data, and
@@ -143,6 +150,30 @@ SOFTWARE.
 MIT License
 
 Copyright (c) 2018 GitHub
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+----- boring-avatars 2.0.4, LICENSE
+
+MIT License
+
+Copyright (c) 2021 boringdesigners
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

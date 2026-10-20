@@ -706,7 +706,7 @@ function thread(t) {
   const meta = [say("filed_by", { who: who(i.reporter), when: when(i.created_at) }), " · ", say("updated", { when: when(i.updated_at) })];
   if (manager && i.reporter && i.reporter.email) meta.push(" · ", h("span", { text: i.reporter.email }));
   if (manager && i.env) meta.push(" · ", h("span", { text: i.env }));
-  if (i.assignee) meta.push(" · ", say("assigned_to", { who: i.assignee }));
+  if (i.assignee) meta.push(" · ", h("span", { class: "p99-person" }, disc(i.assignee.username, 16), say("assigned_to", { who: handle(i.assignee) })));
   if (i.duplicate_of) meta.push(" · ", h("a", { href: "#p99=" + enc(i.duplicate_of), text: say("duplicate_of", { n: i.duplicate_of }), onclick: (e) => { e.preventDefault(); item(i.duplicate_of); } }));
   const page = i.page || {};
   const dest = pageUrl(page.path);
@@ -766,7 +766,7 @@ function eventText(ev) {
   const label = (k, v) => (v ? say(k + "_" + v) : "");
   if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
-  if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: obj.to }) : say("event_unassigned");
+  if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
   if (ev.kind === "priority") return obj.to ? say("event_priority", { to: say("priority_" + obj.to) }) : say("event_priority_none");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
@@ -935,23 +935,29 @@ function pickOne(label, name, now, find) {
   });
   return h("div", { class: "p99-picker" }, h("label", { for: c.input.id, text: label }), c.box, keep);
 }
+function disc(username, size) {
+  const img = h("img", { class: "p99-disc", alt: "", width: size, height: size, src: BLANK });
+  if (!S.avatar) {
+    S.avatar = import("/_p99/avatar.js?v=" + V);
+    S.avatar.catch(() => { S.avatar = null; });
+  }
+  S.avatar.then((m) => { img.src = m.avatarSrc(username, size); }, () => {});
+  return img;
+}
+function handle(p) {
+  return p && p.username ? "@" + p.username : "";
+}
 function assigneePick(i) {
   const none = { value: "", text: say("nobody") };
-  const of = (p) => ({ value: p.email, text: p.name || p.email, sub: p.name ? p.email : null });
-  const now = i.assignee ? { value: i.assignee, text: i.assignee } : { ...none };
+  const of = (p) => ({ value: p.username, text: handle(p), el: h("span", { class: "p99-person" }, disc(p.username, 20), handle(p)) });
+  const now = i.assignee && i.assignee.username ? { value: i.assignee.username, text: handle(i.assignee) } : { ...none };
   let people = null;
   const load = () => people || (people = call("GET", "/people").then((r) => {
-    const list = ((r && r.people) || []).map(of);
-    if (i.assignee && !list.some((p) => p.value === i.assignee)) list.push(of({ email: i.assignee }));
+    const list = ((r && r.people) || []).filter((p) => p.username).map(of);
+    if (now.value && !list.some((p) => p.value === now.value)) list.push(of(i.assignee));
     return list;
   }, () => (people = null, [])));
-  const el = pickOne(say("assignee"), "assignee", now, (q) => load().then((list) => (q ? [] : [none]).concat(list.filter((p) => has(q, p.text, p.sub)))));
-  if (i.assignee) load().then((list) => {
-    const p = list.find((x) => x.value === i.assignee);
-    const input = el.querySelector("[role=combobox]");
-    if (p && now.value === i.assignee) { now.text = p.text; if (root.activeElement !== input) input.value = p.text; }
-  });
-  return el;
+  return pickOne(say("assignee"), "assignee", now, (q) => load().then((list) => (q ? [] : [none]).concat(list.filter((p) => has(q.replace(/^@/, ""), p.text)))));
 }
 function duplicatePick(i) {
   const skip = new Set([i.key].concat((i.merged || []).map((m) => m.key)));

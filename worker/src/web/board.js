@@ -1,3 +1,5 @@
+import { avatarSrc } from "/_p99/avatar.js?v=__P99_VERSION__";
+
 const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
 const KEYS = ["inbox", "doing", "review", "done"];
@@ -68,7 +70,7 @@ const CSS = `
 .p99-card-title{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-weight:var(--p99-weight-medium);font-size:var(--p99-text-sm);line-height:1.4}
 .p99-card-foot{display:flex;align-items:center;gap:var(--p99-space-xs);flex-wrap:wrap;min-height:22px}
 .p99-res{padding:0 var(--p99-space-sm);border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);color:var(--p99-muted);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text)}
-.p99-who{display:inline-grid;place-items:center;width:24px;height:24px;margin-left:auto;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) 10px/1 var(--p99-font-text)}
+.p99-who{flex:none;width:24px;height:24px;margin-left:auto;border-radius:50%}
 .p99-tags{display:inline-flex;flex-wrap:wrap;gap:var(--p99-space-xs)}
 .p99-tag{display:inline-flex;align-items:center;gap:5px;padding:0 var(--p99-space-sm);border:1px solid color-mix(in srgb,var(--p99-tag) 55%,var(--p99-raised));border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--p99-tag) 16%,var(--p99-raised));color:var(--p99-ink);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text)}
 .p99-tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-tag)}
@@ -257,12 +259,6 @@ function rollup(r) {
   return [h("span", { text: r.done + "/" + r.total }), bar];
 }
 
-function initials(p) {
-  const n = typeof p === "string" ? p : (p && (p.name || p.email)) || "";
-  const parts = n.replace(/@.*/, "").split(/[\s._-]+/).filter(Boolean);
-  return ((parts[0] || "")[0] || "").toUpperCase() + ((parts[1] || "")[0] || "").toUpperCase();
-}
-
 function card(c) {
   const id = c.type === "board" ? "board:" + c.slug : c.key;
   const e = h("li", { class: "p99-card", "data-type": c.type, "data-id": id, tabindex: "0", "aria-roledescription": t("board_card"), "aria-describedby": "p99-drag-help" });
@@ -282,7 +278,7 @@ function card(c) {
     return chip;
   });
   const res = c.status === "done" && c.resolution && c.resolution !== "fixed" ? h("span", { class: "p99-res", text: t("resolution_" + c.resolution) }) : null;
-  const who = c.assignee ? h("span", { class: "p99-who", title: typeof c.assignee === "string" ? c.assignee : c.assignee.name || c.assignee.email, text: initials(c.assignee) }) : null;
+  const who = c.assignee && c.assignee.username ? h("img", { class: "p99-who", src: avatarSrc(c.assignee.username, 24), alt: "@" + c.assignee.username, title: "@" + c.assignee.username, width: 24, height: 24 }) : null;
   e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key })), h("b", { class: "p99-card-title" }, rank, c.title));
   if (chips.length || res || who) e.append(h("div", { class: "p99-card-foot" }, res, chips.length ? h("span", { class: "p99-tags" }, chips) : null, who));
   e.setAttribute("aria-label", c.key + ", " + (rank ? t("priority_" + c.priority) + ", " : "") + c.title);

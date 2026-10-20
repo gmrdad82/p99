@@ -19,9 +19,9 @@ const ORIGIN = `http://${HOST}`;
 const CODE = "boarddraft01";
 const VIEW = { width: 1440, height: 900 };
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
-const ADA = { name: "Ada Lovelace", email: "ada@example.com" };
-const GRACE = { name: "Grace Hopper", email: "grace@example.com" };
-const LIN = { name: "Lin Okafor", email: "lin@example.com" };
+const ADA = { name: "Ada Lovelace", email: "ada@example.com", username: "ada.lovelace" };
+const GRACE = { name: "Grace Hopper", email: "grace@example.com", username: "grace.hopper" };
+const LIN = { name: "Lin Okafor", email: "lin@example.com", username: "lin.okafor" };
 
 const statuses = [
   { key: "inbox", name: "Inbox", position: 0 },
@@ -76,7 +76,7 @@ function boardView(slug) {
   const b = boards.find((x) => x.slug === slug);
   if (!b) return null;
   const cards = [
-    ...items.filter((i) => i.board === slug).map((i) => ({ type: "item", key: i.key, kind: i.kind, title: i.title, status: i.status, resolution: i.resolution, position: i.position, assignee: i.assignee, reporter: { name: i.reporter.name, agent: false }, priority: i.priority, labels: i.labels })),
+    ...items.filter((i) => i.board === slug).map((i) => ({ type: "item", key: i.key, kind: i.kind, title: i.title, status: i.status, resolution: i.resolution, position: i.position, assignee: i.assignee && { username: i.assignee.username }, reporter: { name: i.reporter.name, agent: false }, priority: i.priority, labels: i.labels })),
     ...boards.filter((x) => x.parent === slug).map((x) => ({ type: "board", slug: x.slug, name: x.name, status: x.status, position: x.position, rollup: rollup(x.slug) })),
   ].sort(order);
   return { statuses, board: summary(b), cards };
@@ -222,12 +222,13 @@ async function worker() {
   const at = `?host=${HOST}`;
   await signed("PUT", "/envs/production", { kind: "release", position: 1, notify: false });
   await signed("PUT", `/hosts/${HOST}`, { env: "production", config: { theme: { accent: "#b5621e" } } });
+  for (const p of [GRACE, LIN]) await signed("POST", "/codes", { name: p.name, email: p.email, hosts: [HOST], manager: false });
   const keys = new Map();
   let uid = 0;
   for (const it of items.slice().reverse()) {
     const made = await signed("POST", `/issues${at}`, { client_uid: `00000000-0000-4000-8000-${String(++uid).padStart(12, "0")}`, kind: it.kind, title: it.title, body: "", page: { url: `https://${HOST}/checkout`, path: "/checkout", title: "Checkout" }, context: {}, marks: [] }, it.reporter);
     keys.set(it.key, made.key);
-    if (it.assignee) await signed("PATCH", `/issues/${made.key}${at}`, { assignee: it.assignee.email });
+    if (it.assignee) await signed("PATCH", `/issues/${made.key}${at}`, { assignee: it.assignee === ADA ? "me" : it.assignee.username });
   }
   const home = (await signed("GET", `/boards${at}`)).boards.find((b) => b.host === HOST && b.home).slug;
   const slugs = new Map([["shop-example-com", home]]);

@@ -60,6 +60,15 @@ const LEGACY_SQL = [
    VALUES (902, 'legacy-comment-902', 'old@example.com', 'Old', 0, 'Still there.', 0, 'production', '2025-01-02T00:00:00.000Z');`,
   `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
    VALUES (905, NULL, 'status', '{"from":"confirmed","to":"resolved"}', 0, '2025-01-03T00:00:00.000Z');`,
+  ...[
+    ["Zoë Ångström", "zoe@example.com"],
+    ["Zoë Ångström", "zoe.a@example.com"],
+    ["Admin", "admin@example.com"],
+  ].map(
+    ([name, email], n) => `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by)
+     VALUES ('legacy-${n}', '0000', '${name}', '${email}', '["legacy.example"]', 0, '2025-01-01T00:00:00.000Z', 'old@example.com');`,
+  ),
+  "UPDATE items SET assignee = 'Old.Hand@example.com' WHERE id = 902;",
 ].join("\n");
 
 const sent = [];
@@ -957,7 +966,7 @@ async function run() {
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
-  await peopleChecks({ call, browse, mint, check, here, there });
+  await peopleChecks({ call, browse, mint, check, issueBody, here, there });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

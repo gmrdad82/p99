@@ -21,10 +21,11 @@ import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatemen
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
 import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
-import { peopleRoutes } from "./people.js";
+import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
+import avatarSource from "./web/avatar.js";
 import cssSource from "./web/p99.css";
 import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
@@ -139,6 +140,7 @@ const BACKUP_TABLES = [
   { name: "item_labels", size: "50" },
   { name: "mail", size: "length(COALESCE(sender, '')) + length(COALESCE(note, '')) + 100" },
   { name: "mail_optouts", size: "length(email) + 100" },
+  { name: "people", size: "length(email) + length(username) + 100" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -156,6 +158,7 @@ const STATIC_FILES = {
   "/_p99/p99.js": { source: loaderSource, type: JS_TYPE, loader: true },
   "/_p99/panel.js": { source: panelSource, type: JS_TYPE },
   "/_p99/board.js": { source: boardSource, type: JS_TYPE },
+  "/_p99/avatar.js": { source: avatarSource, type: JS_TYPE },
   "/_p99/p99.css": { source: cssSource, type: "text/css; charset=utf-8" },
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
   "/_p99/art/concrete.svg": { source: concreteSource, type: "image/svg+xml; charset=utf-8" },
@@ -679,7 +682,7 @@ function searchText(title, body) {
   return fold(`${title} ${body ?? ""}`);
 }
 
-const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind, b.slug AS board_slug FROM items i
+const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind, b.slug AS board_slug, ${assigneeColumn()} FROM items i
   LEFT JOIN items d ON d.id = i.duplicate_of LEFT JOIN boards b ON b.id = i.board_id`;
 
 function itemKeyId(raw) {
@@ -831,7 +834,7 @@ function summaryOf(row, c, lc) {
       name: row.reporter_name,
       agent: Boolean(row.reporter_agent),
     },
-    assignee: c.manager ? row.assignee : null,
+    assignee: c.manager ? assigneeOf(row) : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
     comments: c.manager ? row.comment_count : row.public_comment_count,
@@ -886,13 +889,15 @@ function attachmentOf(row) {
   };
 }
 
-function eventOf(row, c, names) {
+function eventOf(row, c, names, handles) {
   const open = c.manager || row.actor_email === c.actor.email;
   const name = row.actor_email === null ? null : names.get(row.actor_email) || row.actor_name || null;
   const detail = parseJson(row.detail_json, {});
-  if (!c.manager && row.kind === "assignee") {
-    delete detail.from;
-    delete detail.to;
+  if (row.kind === "assignee") {
+    for (const end of ["from", "to"]) {
+      if (!c.manager) delete detail[end];
+      else if (detail[end]) detail[end] = { username: handles.get(String(detail[end]).toLowerCase()) ?? null };
+    }
   }
   return {
     actor: open ? row.actor_email : null,
@@ -1497,14 +1502,16 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const [counts, statuses] = await Promise.all([
+  const [counts, statuses, username] = await Promise.all([
     countsFor(c, c.url.searchParams.get("path")),
     c.manager ? c.env.DB.prepare("SELECT key, name, position FROM statuses ORDER BY position").all() : null,
+    usernameFor(c),
   ]);
   const config = c.hostRow.config;
   return json(200, {
     name: c.actor.name,
     email: c.actor.email,
+    username,
     manager: c.manager,
     host: c.hostRow.host,
     env: c.hostRow.env,
@@ -1579,7 +1586,7 @@ async function listIssues(c) {
   const sql = `SELECT i.id, i.kind, i.status, i.resolution, i.position, i.title, i.host, i.origin_env, i.page_url, i.page_path,
       i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at,
       i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, i.priority, b.slug AS board_slug,
-      ${activity} > COALESCE(r.read_at, '') AS unread
+      ${assigneeColumn()}, ${activity} > COALESCE(r.read_at, '') AS unread
     FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id LEFT JOIN boards b ON b.id = i.board_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
     ORDER BY i.id DESC LIMIT ${q.bind(limit + 1)}`;
@@ -1775,6 +1782,10 @@ async function getIssue(c, rawKey) {
   }
   const names = new Map([[c.actor.email, c.actor.name], [row.reporter_email, row.reporter_name]]);
   for (const cm of comments) names.set(cm.author_email, cm.author_name);
+  const assigned = c.manager ? events.filter((ev) => ev.kind === "assignee").map((ev) => parseJson(ev.detail_json, {})) : [];
+  const orphan = c.manager && row.assignee && !row.assignee_username ? [row.assignee] : [];
+  const handles = await peopleOf(DB, assigned.flatMap((d) => [d.from, d.to]).concat(orphan).filter(Boolean).map((email) => ({ email })), c.now);
+  if (orphan.length > 0) row.assignee_username = handles.get(row.assignee) ?? null;
   const issue = {
     ...issueOf({ ...row, unread: 0 }, c, lc),
     github: c.manager ? githubLinks(results.github) : [],
@@ -1785,7 +1796,7 @@ async function getIssue(c, rawKey) {
     issue,
     comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
-    events: events.map((ev) => eventOf(ev, c, names)),
+    events: events.map((ev) => eventOf(ev, c, names, handles)),
   });
 }
 
@@ -1909,9 +1920,7 @@ async function patchIssue(c, rawKey) {
   }
   if (has("assignee")) {
     requireManager(c);
-    const assignee = body.assignee === null ? null : String(body.assignee).trim().toLowerCase();
-    if (assignee !== null && !isEmail(assignee)) fail(400, "the assignee must be an e-mail address");
-    next.assignee = assignee;
+    next.assignee = await assigneeEmail(c, row, body.assignee);
   }
   if (has("duplicate_of")) {
     requireManager(c);
@@ -2511,6 +2520,7 @@ async function postCode(c) {
     return raced;
   }
   codeCache.delete(hash);
+  await peopleOf(DB, [row], c.now);
   const mail = wantsMail ? await mailLink(c, row, secret, false) : null;
   return json(201, {
     code: codeOf(row),
@@ -2541,6 +2551,8 @@ async function renamePerson(c) {
     run("DELETE FROM reads WHERE actor_email = ?1 AND ?2 = ?2"),
     run("UPDATE OR IGNORE usage SET actor_email = ?2 WHERE actor_email = ?1"),
     run("DELETE FROM usage WHERE actor_email = ?1 AND ?2 = ?2"),
+    run("UPDATE OR IGNORE people SET email = ?2 WHERE email = ?1"),
+    run("DELETE FROM people WHERE email = ?1 AND ?2 = ?2"),
   ]);
   codeCache.clear();
   const n = (i) => (results[i].meta && results[i].meta.changes) || 0;
@@ -3121,6 +3133,7 @@ async function postImport(c) {
   if (!dry && statements.length > 0) {
     if (touched.length > 0) statements.push(recountStatement(DB, touched));
     await DB.batch([homeStatement(DB, host, c.now), ...statements]);
+    await peopleOf(DB, records.filter((r) => r.type === "item" && r.assignee).map((r) => ({ email: r.assignee })), c.now);
     push(c, "import", null, { host, items: counts.item.new, comments: counts.comment.new });
   }
   return json(200, { dry_run: dry, counts, upload, managers: missing });
@@ -3283,7 +3296,7 @@ const BROWSER_ROUTES = [
   ...BOARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
   ...LABEL_ROUTES,
-  ...peopleRoutes({ json, requireEmptyBody, requireManager, managersOf }),
+  ...peopleRoutes(),
 ];
 
 const HOOK_KIT = {
@@ -3318,6 +3331,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
   ["POST", /^\/codes\/(\d{1,15})\/relink$/, relinkCode, {}],
   ["POST", /^\/people\/rename$/, renamePerson, {}],
+  ...signedPeopleRoutes(),
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
   ["POST", /^\/import$/, postImport, {}],
   ["POST", /^\/import\/finish$/, finishImport, {}],
@@ -3372,6 +3386,8 @@ useGithubKit({
   runHandler,
   sha256Hex,
 });
+
+usePeopleKit({ fail, json, managersOf, isUniqueViolation, readJson, requireEmptyBody, requireManager, maxJson: MAX_JSON_BYTES });
 
 useDeleteKit({ fail, json, keyOf, loadItem, push, requireEmptyBody, requireManager });
 

@@ -932,7 +932,6 @@ fn draw_card(
             }
             let mut tail = Vec::new();
             if let Some(who) = &item.assignee {
-                let who = who.split('@').next().unwrap_or(who);
                 tail.push((format!(" {who} "), palette.muted));
             }
             fit_chips(&mut chips, &tail, inner);

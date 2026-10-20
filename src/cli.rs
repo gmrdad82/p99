@@ -365,7 +365,10 @@ pub struct StatusArgs {
 pub struct AssignArgs {
     #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(help = "an e-mail address, or me", required_unless_present = "none")]
+    #[arg(
+        help = "a username such as @ada.lovelace, or me",
+        required_unless_present = "none"
+    )]
     pub who: Option<String>,
     #[arg(long, conflicts_with = "who", help = "leave it unassigned")]
     pub none: bool,
@@ -1483,18 +1486,9 @@ fn edit(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String>
 }
 
 fn assign(config: &Config, global: &Global, args: &AssignArgs) -> Result<(), String> {
-    let (client, account) = client_for(config, global, args.host.as_deref())?;
+    let (client, _) = client_for(config, global, args.host.as_deref())?;
     let assignee = match (&args.who, args.none) {
-        (Some(who), false) if who == "me" => {
-            let me = config.me_for(&account);
-            if me.email.is_empty() {
-                return Err(format!(
-                    "neither [me] nor [accounts.{account}.me] has an email in the config"
-                ));
-            }
-            Some(me.email)
-        }
-        (Some(who), false) => Some(who.clone()),
+        (Some(who), false) => Some(who.trim().trim_start_matches('@').to_owned()),
         _ => None,
     };
     let change = Change {

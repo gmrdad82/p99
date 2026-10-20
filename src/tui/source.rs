@@ -144,20 +144,6 @@ impl Source {
         }
     }
 
-    pub fn me(&self, account: usize) -> (String, String) {
-        match self {
-            Source::Demo(..) => (super::demo::ME.0.to_owned(), super::demo::ME.1.to_owned()),
-            Source::Live(live) => match live.accounts.get(account) {
-                Some(name) => {
-                    let me = live.config.me_for(name);
-                    (me.name, me.email)
-                }
-                None => (live.config.me.name.clone(), live.config.me.email.clone()),
-            },
-            Source::Broken(_) => (String::new(), String::new()),
-        }
-    }
-
     pub fn hosts(&self) -> Vec<String> {
         match self {
             Source::Demo(demo, _) => demo.lock().map(|d| d.hosts()).unwrap_or_default(),
@@ -214,7 +200,16 @@ impl Source {
     pub fn thread(&self, account: usize, host: Option<&str>, key: &str) -> Result<Thread, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.thread(key)),
-            Source::Live(live) => live.client(account, host)?.thread(key),
+            Source::Live(live) => {
+                let client = live.client(account, host)?;
+                let (thread, people) = thread::scope(|s| {
+                    let people = s.spawn(|| client.people());
+                    (client.thread(key), people.join())
+                });
+                let mut thread = thread?;
+                thread.people = people.ok().and_then(Result::ok).unwrap_or_default();
+                Ok(thread)
+            }
             Source::Broken(why) => Err(why.clone()),
         }
     }
