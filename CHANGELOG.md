@@ -2,6 +2,32 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.8.0 — 2026-10-20
+
+### Added
+
+- Boards: every item sits on one board in the column of its status, and a board can sit as a card in another board's column. Moving a board card moves everything on it, nested boards included, and each board card shows how much of it is done.
+- The board in the manager's panel: drag cards with the mouse, a finger or the keyboard, open nested boards, and see moves made anywhere slide in live.
+- The Board tab in `p99 tui`: drag cards with the keys or the mouse, open a board card or an item's thread, and follow moves live.
+- `p99 move BUG-12 --to doing` and `p99 move board:<slug> --to done`, plus `p99 boards`, `p99 board` and `p99 statuses`, all with `--json`.
+- Priority and labels on items, set by managers and used as filters in the inbox, `p99 list` and the panel.
+- `p99 merge BUG-14 --into BUG-12` folds duplicates into one item; their reporters follow it and get its updates.
+- Slack and Discord posts per site for new items, comments, status changes and shipped fixes: `p99 hooks set`.
+- GitHub, kept small: `p99 github open BUG-12` opens a linked issue, and a merged pull request with `Fixes: BUG-12`, or the linked issue closing, marks the item fixed.
+- Reporter mail on a reply, a status change and a shipped fix, in the site's colours with a plain-text part, a link that opens the item straight in the panel, and a one-click stop per item: `p99 email set`.
+- An optional feed of fixed items per site, as Atom or JSON Feed: `p99 feed on <host>`.
+- `p99 license set`, `show` and `remove` keep a Studio or Agency key, checked offline.
+
+### Changed
+
+- Statuses are one shared set, Inbox, Doing, Review and Done, each renameable; dropped and duplicate items are done with that reason, and the old status names still work in commands.
+- P99 is licensed under the AGPL-3.0, with a commercial licence for closed or paid use, and outside contributions need the contributor licence agreement; versions up to 1.7.x stay MIT.
+- Gates and releases run on PITO MD's own machines instead of GitHub's runners.
+
+### Fixed
+
+- A bare `p99 people` prints the short error, exit 2, instead of the whole help.
+
 ## v1.7.0 — 2026-10-19
 
 ### Changed
