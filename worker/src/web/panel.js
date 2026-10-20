@@ -156,6 +156,7 @@ let root, panel, scroller, scrim;
 
 const phone = matchMedia("(max-width: 599px)");
 const still = matchMedia("(prefers-reduced-motion: reduce)");
+const dark = matchMedia("(prefers-color-scheme: dark)");
 
 export function open(opts) {
   if (opts.space && opts.root !== root) {
@@ -181,7 +182,7 @@ export function open(opts) {
     };
     if (S.verify) verify(go);
     else go();
-  }).catch(() => {});
+  }).catch((e) => { if (opts.space) throw e; });
 }
 
 function say(key, args, n) {
@@ -353,6 +354,7 @@ function ensure() {
     try { tint.replaceSync(theme(me && me.theme)); } catch (x) {}
     chrome();
     root.adoptedStyleSheets = root.adoptedStyleSheets.concat([base, tint]);
+    legible();
   });
   S.assets.catch(() => { S.assets = null; });
   return S.assets;
@@ -384,10 +386,10 @@ function chrome() {
   const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);
-  legible();
   swipe(head);
   root.addEventListener("keydown", keys);
   phone.addEventListener("change", () => { if (S.open) scrim.hidden = !phone.matches; });
+  dark.addEventListener("change", legible);
 }
 function boardModule() {
   if (!S.board) S.board = import("/_p99/board.js?v=" + V).catch((e) => { S.board = null; throw e; });
@@ -1201,6 +1203,9 @@ function accent() {
   return (panel && getComputedStyle(panel).getPropertyValue("--p99-accent").trim()) || "#3b7dd8";
 }
 function legible() {
+  o.host.style.removeProperty("--p99-on-accent");
+  const t = me && me.theme;
+  if (t && typeof t === "object" && ("on-accent" in t || (t.dark && typeof t.dark === "object" && "on-accent" in t.dark))) return;
   const probe = h("i", { hidden: true });
   probe.style.color = accent();
   if (!probe.style.color) return;

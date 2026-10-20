@@ -21,7 +21,7 @@ const WORDS = {
   moved: "this card moved; refreshed",
   move_failed: "Couldn't move {card}; it's back where it was.",
   loading: "Loading the board…",
-  no_boards: "No boards here yet.",
+  no_boards: "No boards here yet. p99 boards set <name> --columns \"Inbox,Doing,Done\" makes one.",
   load_failed: "Couldn't load the board.",
   retry: "Retry",
 };

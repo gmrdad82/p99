@@ -242,7 +242,7 @@ function whoAmI(strict) {
 function profile() {
   closeSpace();
   const seq = ++S.seq;
-  if (!S.spaces || !S.me) waiting(say("profile"));
+  if ((!S.spaces || !S.me) && !root.querySelector(".app-wait")) waiting(say("profile"));
   const ready = S.spaces ? Promise.resolve(S.spaces) : loadSpaces();
   ready.then(() => whoAmI(true)).then((m) => {
     if (seq !== S.seq) return;
