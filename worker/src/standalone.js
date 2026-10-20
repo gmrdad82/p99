@@ -1,6 +1,7 @@
 import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
+import { ipKey } from "./tries.js";
 
 let K = null;
 
@@ -68,8 +69,9 @@ async function inlineStyle(env) {
 function secured(response, style) {
   if (response.status === 101) return response;
   const out = new Response(response.body, response);
+  const own = response.headers.has("content-security-policy");
   for (const [name, value] of Object.entries(HEADERS)) out.headers.set(name, value);
-  out.headers.set("content-security-policy", style.csp);
+  if (!own) out.headers.set("content-security-policy", style.csp);
   return out;
 }
 
@@ -262,7 +264,7 @@ async function signIn(request, env, url) {
   const nowMs = Date.now();
   const now = new Date(nowMs).toISOString();
   const slot = Math.floor(nowMs / TRY_SLOT_MS);
-  const ip = request.headers.get("cf-connecting-ip") || "?";
+  const ip = ipKey(request.headers.get("cf-connecting-ip") || "?");
   const [byMail, byIp] = await DB.batch([
     counted(DB, "mail:" + (await K.codeHash(env, "try-mail:" + email)), slot),
     counted(DB, "ip:" + (await K.codeHash(env, "try-ip:" + ip)), slot),

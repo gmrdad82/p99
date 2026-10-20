@@ -1007,6 +1007,52 @@ async function run() {
     assert.equal((await call("DELETE", `/_p99/v1/boards/${park.json.id}?host=${there}`)).status, 204);
   });
 
+  await check("a move finds its column in any case and keeps the card among its neighbours", async () => {
+    const accents = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Accents", columns: ["Inbox", "Évalué", "Done"] } });
+    assert.equal(accents.status, 201, JSON.stringify(accents.json));
+    const fileThere = async (title) => (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title }) })).json.key;
+    const [x, y] = [await fileThere("Accent X"), await fileThere("Accent Y")];
+    const moveThere = (body) => call("POST", `/_p99/v1/move?host=${there}`, { body: { board: accents.json.id, ...body } });
+    assert.equal((await moveThere({ key: x, from: "Inbox", to: "Évalué" })).status, 200);
+    const after = await moveThere({ key: y, from: "Inbox", to: "évalué", after: x });
+    assert.equal(after.status, 200, JSON.stringify(after.json));
+    const lane = (await call("GET", `/_p99/v1/boards/${accents.json.id}?host=${there}`)).json.cards.filter((cd) => cd.label === "Évalué").map((cd) => cd.key);
+    assert.deepEqual(lane, [x, y]);
+    assert.equal((await call("DELETE", `/_p99/v1/boards/${accents.json.id}?host=${there}`)).status, 204);
+  });
+
+  await check("a one-host manager sees and hears only the labels of their host and the defaults; labels on no board and no item go and don't count", async () => {
+    const far = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Far", columns: ["Inbox", "Far only", "Done"] } });
+    assert.equal(far.status, 201, JSON.stringify(far.json));
+    const all = (await call("GET", "/_p99/v1/labels")).json.labels;
+    const farOnly = all.find((l) => l.name === "Far only");
+    assert.ok(farOnly && all.some((l) => l.name === "Parked"));
+    const seen = (await browse("GET", "/labels", boss.secret)).json.labels.map((l) => l.name);
+    assert.equal(seen.includes("Far only") || seen.includes("Parked"), false, JSON.stringify(seen));
+    assert.deepEqual(seen.slice(0, 4), all.slice(0, 4).map((l) => l.name));
+    assert.ok(seen.includes("Ready for QA"));
+    const heard = [];
+    const socket = await ticketSocket((await browse("POST", "/stream-ticket", boss.secret)).json.ticket, heard);
+    assert.equal((await call("PATCH", `/_p99/v1/labels/${farOnly.id}`, { body: { name: "Far away only" } })).status, 200);
+    const qa = all.find((l) => l.name === "Ready for QA");
+    assert.equal((await call("PATCH", `/_p99/v1/labels/${qa.id}`, { body: { name: "QA ready" } })).status, 200);
+    await until("the rename here", () => heard.some((e) => e.type === "labels" && e.names[1] === "QA ready"));
+    socket.close();
+    assert.equal(heard.some((e) => e.type === "labels" && e.names[1] === "Far away only"), false, JSON.stringify(heard));
+    assert.equal(heard.some((e) => "hosts" in e), false);
+    wranglerSync([
+      "d1", "execute", "DB", "--local", "--persist-to", state, "--command",
+      "INSERT INTO labels (name, color, created_at) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 250) SELECT 'Orphan ' || i, '#539bf5', '2026-10-20T00:00:00Z' FROM n",
+    ]);
+    const changed = await call("PUT", `/_p99/v1/boards/${far.json.id}?host=${there}`, { body: { columns: ["Inbox", "Fresh one", "Done"] } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.json));
+    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name LIKE 'Orphan %' OR name = 'Far away only'"), 0);
+    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE role IS NOT NULL"), 4);
+    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name IN ('Fresh one', 'Parked')"), 2);
+    assert.equal((await call("DELETE", `/_p99/v1/boards/${far.json.id}?host=${there}`)).status, 204);
+    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name = 'Fresh one'"), 0);
+  });
+
   await check("a stream ticket opens one socket, once, and expires; a move is heard as a label change and an order", async () => {
     const first = await browse("POST", "/stream-ticket", boss.secret);
     assert.equal(first.status, 201, JSON.stringify(first.json));
