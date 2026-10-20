@@ -2,7 +2,7 @@ use serde_json::{Value, json};
 
 use crate::wire::{
     self, Assignee, Author, Change, Code, Comment, Event, Issue, Landing, Member, PageRef, Person,
-    Reached, Summary, Tag, Thread,
+    Reached, Summary, Thread,
 };
 
 use super::source::{Entry, iso};
@@ -12,23 +12,6 @@ mod boards;
 pub const NOW: i64 = 1_791_979_200;
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
-
-const LABELS: [(&str, &str); 4] = [
-    ("checkout", "#e0823d"),
-    ("mobile", "#539bf5"),
-    ("design", "#986ee2"),
-    ("copy", "#57ab5a"),
-];
-
-const TAGS: [(usize, &[usize]); 7] = [
-    (1, &[1, 2]),
-    (3, &[0, 2]),
-    (4, &[2]),
-    (5, &[3]),
-    (8, &[1]),
-    (9, &[2]),
-    (11, &[0]),
-];
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 3600;
@@ -405,10 +388,8 @@ impl Demo {
         land(&mut threads[4], &[("dev", 18 * HOUR)]);
         threads[7].issue.landing.branch = true;
         threads[11].issue.duplicate_of = Some("BUG-11".into());
-        for &(item, labels) in &TAGS {
-            if let Some(thread) = threads.get_mut(item - 1) {
-                thread.issue.labels = labels.iter().map(|&at| tag(LABELS[at].0)).collect();
-            }
+        for thread in &mut threads {
+            thread.issue.label = Some(boards::label_of(&thread.issue));
         }
         let folded = &threads[11].issue;
         let merged = wire::Merged {
@@ -424,10 +405,10 @@ impl Demo {
             thread.events.sort_by(|a, b| a.at.cmp(&b.at));
         }
         Demo {
+            shelf: boards::Shelf::new(&threads),
             threads,
             codes: codes(),
             next_comment,
-            shelf: boards::Shelf::new(),
         }
     }
 
@@ -548,6 +529,7 @@ impl Demo {
             });
             issue.closed_at = (!wire::open(status)).then(|| iso(NOW));
             issue.status = status.clone();
+            issue.label = Some(boards::status_label(status).to_owned());
             if resolution.as_deref() != Some("duplicate") && change.duplicate_of.is_none() {
                 issue.duplicate_of = None;
             }
@@ -569,17 +551,23 @@ impl Demo {
         if let Some(of) = &change.duplicate_of {
             issue.duplicate_of = Some(of.clone());
         }
-        if let Some(edit) = &change.labels {
-            let same = |a: &str, b: &str| a.to_lowercase() == b.to_lowercase();
-            issue
-                .labels
-                .retain(|t| !edit.remove.iter().any(|r| same(r, &t.name)));
-            for name in &edit.add {
-                if !issue.labels.iter().any(|t| same(&t.name, name)) {
-                    issue.labels.push(tag(name));
-                }
-            }
-            issue.labels.sort_by_key(|t| t.name.to_lowercase());
+        let closing = match (&change.status, &change.resolution, &change.duplicate_of) {
+            (None, Some(resolution), _) => Some(resolution.clone()),
+            (None, None, Some(_)) => Some("duplicate".to_owned()),
+            _ => None,
+        };
+        if let Some(resolution) = closing {
+            thread.events.push(Event {
+                actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
+                kind: "label".into(),
+                detail: json!({"from": issue.label, "to": "Done"}),
+                at: iso(NOW),
+            });
+            issue.label = Some("Done".into());
+            issue.status = "done".into();
+            issue.resolution = Some(resolution);
+            issue.closed_at = Some(iso(NOW));
         }
         issue.updated_at = iso(NOW);
         Ok(issue.clone())
@@ -692,17 +680,6 @@ pub fn summary(issue: &Issue) -> Summary {
         unread: issue.unread,
         landing: issue.landing.clone(),
         labels: issue.labels.clone(),
-    }
-}
-
-fn tag(name: &str) -> Tag {
-    let color = LABELS
-        .iter()
-        .find(|(n, _)| n.eq_ignore_ascii_case(name))
-        .map_or("#39a5a0", |(_, c)| c);
-    Tag {
-        name: name.to_owned(),
-        color: color.to_owned(),
     }
 }
 

@@ -36,7 +36,6 @@ impl Entry {
 
     pub fn refold(&mut self) {
         let item = &self.summary;
-        let labels: Vec<&str> = item.labels.iter().map(|t| t.name.as_str()).collect();
         self.haystack = fold(&format!(
             "{} {} {} {} {} {} {} {} {} {} {}",
             item.key,
@@ -49,7 +48,7 @@ impl Entry {
             item.page.path,
             item.reporter.name,
             item.reporter.email,
-            labels.join(" ")
+            item.label.as_deref().unwrap_or_default()
         ));
     }
 }
@@ -359,17 +358,6 @@ impl Live {
         }
         Ok(entries)
     }
-}
-
-pub fn merged_tags(entries: &[Entry]) -> Vec<String> {
-    let mut tags: Vec<String> = Vec::new();
-    for tag in entries.iter().flat_map(|e| &e.summary.labels) {
-        if !tags.iter().any(|t| t.eq_ignore_ascii_case(&tag.name)) {
-            tags.push(tag.name.clone());
-        }
-    }
-    tags.sort_by_key(|t| t.to_lowercase());
-    tags
 }
 
 pub fn merged_hosts(known: Vec<String>, entries: &[Entry]) -> Vec<String> {

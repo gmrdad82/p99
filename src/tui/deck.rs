@@ -1,66 +1,32 @@
 use serde_json::Value;
 
-pub use crate::wire::{Board, BoardView, Boards, Card, Move, Moved, StatusEntry};
-
-pub use crate::wire::STATUSES as COLUMNS;
-
-use crate::wire;
+pub use crate::wire::{
+    Lane as Column, LaneBoard as Board, LaneBoards as Boards, LaneCard as Card,
+    LanePage as BoardView, MoveTo as Move, MovedCard as Moved, Owner as Person,
+};
 
 use super::source::Source;
 
-impl Card {
-    pub fn id(&self) -> String {
-        match self {
-            Card::Item(item) => item.key.clone(),
-            Card::Board(board) => format!("board:{}", board.slug),
-        }
+pub const MOVED: &str = "this card moved; refreshed";
+
+impl Board {
+    pub fn lane(&self, label: &str) -> Option<usize> {
+        self.columns.iter().position(|c| c.label == label)
     }
 
-    pub fn position(&self) -> f64 {
-        match self {
-            Card::Item(item) => item.position,
-            Card::Board(board) => board.position,
-        }
+    pub fn closes(&self, label: &str) -> bool {
+        self.columns.iter().any(|c| c.label == label && c.closes)
     }
 
-    pub fn place(&mut self, status: &str, position: f64) {
-        match self {
-            Card::Item(item) => {
-                item.status = status.to_owned();
-                item.position = position;
-            }
-            Card::Board(board) => {
-                board.status = status.to_owned();
-                board.position = position;
-            }
-        }
+    pub fn whose(&self) -> String {
+        self.owner.clone().unwrap_or_default().handle()
     }
 }
 
-pub fn default_statuses() -> Vec<StatusEntry> {
-    COLUMNS
-        .iter()
-        .enumerate()
-        .map(|(at, key)| StatusEntry {
-            key: (*key).to_owned(),
-            name: wire::status_word(key).to_owned(),
-            position: at as i64,
-        })
-        .collect()
-}
-
-pub fn sort(cards: &mut [Card]) {
-    let rank = |card: &Card| {
-        COLUMNS
-            .iter()
-            .position(|c| *c == card.status())
-            .unwrap_or(4)
-    };
-    cards.sort_by(|a, b| {
-        rank(a)
-            .cmp(&rank(b))
-            .then(a.position().total_cmp(&b.position()))
-    });
+pub fn sort(view: &mut BoardView) {
+    let BoardView { board, cards } = view;
+    let rank = |card: &Card| board.lane(&card.label).unwrap_or(usize::MAX);
+    cards.sort_by(|a, b| rank(a).cmp(&rank(b)).then_with(|| a.order.cmp(&b.order)));
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,72 +36,72 @@ pub enum Patch {
 }
 
 pub fn patch(view: &mut BoardView, event: &Value) -> Patch {
-    let here = view.board.slug.as_str();
-    let to = event["to"].as_str().unwrap_or_default();
-    let position = event["position"].as_f64();
-    let (id, home) = match event["type"].as_str() {
-        Some("move") => match event["key"].as_str() {
-            Some(key) => (key.to_owned(), event["board"].as_str()),
-            None => return Patch::Reload,
-        },
-        Some("board.move") => match event["board"].as_str() {
-            Some(slug) => (format!("board:{slug}"), event["parent"].as_str()),
-            None => return Patch::Reload,
-        },
-        Some("delete") => {
-            let key = event["key"].as_str().unwrap_or_default();
-            view.cards.retain(|card| card.id() != key);
-            return Patch::Patched;
-        }
-        _ => return Patch::Reload,
+    let Some(key) = event["key"].as_str() else {
+        return Patch::Reload;
     };
-    let at = view.cards.iter().position(|card| card.id() == id);
-    match (home == Some(here), at) {
-        (true, Some(at)) if COLUMNS.contains(&to) => {
-            let card = &mut view.cards[at];
-            card.place(to, position.unwrap_or_else(|| card.position()));
-            if let Card::Item(item) = card {
-                item.resolution = match (to, item.resolution.take()) {
-                    ("done", None) => Some("fixed".to_owned()),
-                    ("done", kept) => kept,
-                    _ => None,
-                };
+    let at = view.cards.iter().position(|card| card.key == key);
+    match event["type"].as_str() {
+        Some("label") => {
+            let to = event["to"].as_str().unwrap_or_default();
+            match (at, view.board.lane(to).is_some()) {
+                (Some(at), true) => {
+                    view.cards[at].label = to.to_owned();
+                    sort(view);
+                    Patch::Patched
+                }
+                (Some(at), false) => {
+                    view.cards.remove(at);
+                    Patch::Patched
+                }
+                (None, true) => Patch::Reload,
+                (None, false) => Patch::Patched,
             }
-            sort(&mut view.cards);
-            Patch::Patched
         }
-        (false, Some(at)) => {
-            view.cards.remove(at);
-            Patch::Reload
+        Some("order") => {
+            let board = &event["board"];
+            let here = view.board.id;
+            if board.as_i64() != Some(here) && board.as_str() != Some(here.to_string().as_str()) {
+                return Patch::Patched;
+            }
+            match (at, event["order"].as_str()) {
+                (Some(at), Some(order)) => {
+                    view.cards[at].order = Some(order.to_owned());
+                    sort(view);
+                    Patch::Patched
+                }
+                _ => Patch::Reload,
+            }
+        }
+        Some("delete") => {
+            view.cards.retain(|card| card.key != key);
+            Patch::Patched
         }
         _ => Patch::Reload,
     }
 }
 
-pub fn request(lane: &[&Card], target: &str, column: usize, row: usize) -> (Move, f64) {
-    let before = lane.get(row).map(|c| c.id());
-    let after = row.checked_sub(1).and_then(|r| lane.get(r));
-    let position = match (
-        after.map(|c| c.position()),
-        lane.get(row).map(|c| c.position()),
-    ) {
-        (Some(a), Some(b)) => (a + b) / 2.0,
-        (Some(a), None) => a + 1024.0,
-        (None, Some(b)) => b - 1024.0,
-        (None, None) => 1024.0,
-    };
-    let request = Move {
-        target: target.to_owned(),
-        to: Some(COLUMNS[column.min(COLUMNS.len() - 1)].to_owned()),
-        after: if before.is_none() {
-            after.map(|c| c.id())
-        } else {
-            None
-        },
+pub fn request(board: &Board, lane: &[&Card], card: &Card, column: usize, row: usize) -> Move {
+    let before = lane.get(row).map(|c| c.key.clone());
+    let after = row
+        .checked_sub(1)
+        .and_then(|r| lane.get(r))
+        .map(|c| c.key.clone());
+    Move {
+        key: card.key.clone(),
+        from: card.label.clone(),
+        to: board
+            .columns
+            .get(column)
+            .map(|c| c.label.clone())
+            .unwrap_or_default(),
+        board: Some(board.id),
+        after: if before.is_none() { after } else { None },
         before,
-        ..Move::default()
-    };
-    (request, position)
+    }
+}
+
+pub fn stale(error: &str) -> bool {
+    error.ends_with("(409)")
 }
 
 impl Source {
@@ -147,7 +113,7 @@ impl Source {
                 for (account, name) in self.accounts().iter().enumerate() {
                     let boards = self
                         .client(account, None)?
-                        .boards()
+                        .lanes()
                         .map_err(|why| format!("{name}: {why}"))?;
                     all.push((account, boards));
                 }
@@ -157,42 +123,58 @@ impl Source {
         }
     }
 
-    pub fn board(&self, at: Option<(usize, String)>) -> Result<(usize, BoardView), String> {
+    pub fn board(&self, at: Option<(usize, i64)>) -> Result<(usize, BoardView), String> {
         match (self, at) {
             (Source::Demo(..), at) => {
-                self.sample(|demo| Ok((0, demo.board(at.as_ref().map(|(_, s)| s.as_str()))?)))
+                self.sample(|demo| Ok((0, demo.board(at.map(|(_, id)| id))?)))
             }
-            (Source::Live(_), Some((account, slug))) => {
-                Ok((account, self.client(account, None)?.board(&slug)?))
+            (Source::Live(_), Some((account, id))) => {
+                Ok((account, self.client(account, None)?.lane(id)?))
             }
             (Source::Live(_), None) => {
                 let all = self.boards()?;
-                let home = all
+                let first = all
                     .iter()
                     .find_map(|(account, boards)| {
-                        boards.boards.iter().find(|b| b.home).map(|b| (*account, b))
+                        boards.boards.iter().find(|b| b.mine).map(|b| (*account, b))
                     })
                     .or_else(|| {
                         all.iter().find_map(|(account, boards)| {
-                            boards
-                                .boards
-                                .iter()
-                                .find(|b| b.parent.is_none())
-                                .map(|b| (*account, b))
+                            boards.boards.first().map(|b| (*account, b))
                         })
                     })
-                    .map(|(account, b)| (account, b.slug.clone()))
-                    .ok_or_else(|| "no board yet; p99 boards add makes one".to_owned())?;
-                self.board(Some(home))
+                    .map(|(account, b)| (account, b.id))
+                    .ok_or_else(|| "no board yet; p99 board makes your first one".to_owned())?;
+                self.board(Some(first))
             }
             (Source::Broken(why), _) => Err(why.clone()),
         }
     }
 
+    pub fn labels(&self, account: usize) -> Result<Vec<String>, String> {
+        let boards = match self {
+            Source::Demo(..) => return self.sample(|demo| Ok(demo.labels())),
+            Source::Live(_) => self.client(account, None)?.lanes()?,
+            Source::Broken(why) => return Err(why.clone()),
+        };
+        let mut labels: Vec<String> = Vec::new();
+        for column in boards
+            .boards
+            .iter()
+            .filter(|b| b.mine)
+            .flat_map(|b| &b.columns)
+        {
+            if !labels.contains(&column.label) {
+                labels.push(column.label.clone());
+            }
+        }
+        Ok(labels)
+    }
+
     pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.shift(request)),
-            Source::Live(_) => self.client(account, None)?.move_card(request),
+            Source::Live(_) => self.client(account, None)?.move_to(request),
             Source::Broken(why) => Err(why.clone()),
         }
     }
@@ -206,19 +188,15 @@ mod tests {
 
     fn view() -> BoardView {
         serde_json::from_value(json!({
-            "statuses": [{"key": "inbox", "name": "Inbox", "position": 0}],
-            "board": {"slug": "home", "name": "example.com", "host": "example.com", "parent": null,
-                      "status": "inbox", "rollup": {"done": 1, "total": 3}},
+            "board": {"id": 7, "name": "Shop", "owner": {"username": "ada.lovelace"}, "mine": true,
+                      "columns": [{"label": "Inbox", "closes": false}, {"label": "QA ready", "closes": false},
+                                  {"label": "Done", "closes": true}]},
             "cards": [
-                {"type": "item", "key": "BUG-1", "kind": "bug", "title": "One", "status": "inbox",
-                 "resolution": null, "position": 1024, "assignee": null,
-                 "reporter": {"name": "Grace", "agent": false}, "labels": []},
-                {"type": "board", "slug": "v2", "name": "Site v2", "status": "inbox", "position": 2048,
-                 "rollup": {"done": 1, "total": 2}},
-                {"type": "item", "key": "BUG-2", "kind": "bug", "title": "Two", "status": "doing",
-                 "resolution": null, "position": 1024, "assignee": {"username": "ada.lovelace"},
-                 "reporter": {"name": "Ada", "agent": true},
-                 "labels": [{"name": "cart", "color": "#f7768e"}]}
+                {"key": "BUG-4", "kind": "bug", "title": "Four", "label": "Inbox", "assignee": null, "order": null},
+                {"key": "BUG-1", "kind": "bug", "title": "One", "label": "Inbox", "assignee": null, "order": "a0"},
+                {"key": "BUG-3", "kind": "bug", "title": "Three", "label": "Inbox", "assignee": null, "order": "a1"},
+                {"key": "BUG-2", "kind": "bug", "title": "Two", "label": "QA ready",
+                 "assignee": {"username": "grace.hopper"}, "order": "Zy"}
             ]
         }))
         .unwrap()
@@ -227,50 +205,48 @@ mod tests {
     #[test]
     fn a_drop_asks_the_move_endpoint_in_the_contract_shape() {
         let view = view();
-        let lane: Vec<&Card> = view
-            .cards
-            .iter()
-            .filter(|c| c.status() == "inbox")
-            .collect();
-        let (between, position) = request(&lane, "BUG-2", 0, 1);
+        let lane: Vec<&Card> = view.cards.iter().filter(|c| c.label == "Inbox").collect();
+        let card = view.cards.iter().find(|c| c.key == "BUG-2").unwrap();
+        let between = request(&view.board, &lane, card, 0, 2);
         assert_eq!(
             serde_json::to_value(&between).unwrap(),
-            json!({"target": "BUG-2", "to": "inbox", "before": "board:v2"})
+            json!({"key": "BUG-2", "from": "QA ready", "to": "Inbox", "board": 7, "before": "BUG-3"})
         );
-        assert_eq!(position, 1536.0);
-        let (last, position) = request(&lane, "BUG-2", 3, 2);
+        let last = request(&view.board, &[], card, 2, 0);
         assert_eq!(
             serde_json::to_value(&last).unwrap(),
-            json!({"target": "BUG-2", "to": "done", "after": "board:v2"})
+            json!({"key": "BUG-2", "from": "QA ready", "to": "Done", "board": 7})
         );
-        assert_eq!(position, 3072.0);
         let moved: Moved = serde_json::from_value(json!({
-            "moved": {"type": "board", "slug": "v2", "name": "Site v2", "status": "done",
-                      "position": 1, "rollup": {"done": 2, "total": 2}},
-            "changed": ["BUG-7", "BUG-8"]
+            "card": {"key": "BUG-2", "kind": "bug", "title": "Two", "label": "Done", "assignee": null, "order": "a0V"}
         }))
         .unwrap();
-        assert_eq!(moved.moved.id(), "board:v2");
-        assert_eq!(moved.changed, ["BUG-7", "BUG-8"]);
+        assert_eq!(moved.card.order.as_deref(), Some("a0V"));
+        assert!(stale("this card moved; refreshed (409)"));
     }
 
     #[test]
-    fn live_moves_patch_the_board_in_place() {
+    fn live_label_and_order_events_patch_the_board_in_place() {
         let mut view = view();
-        let event = json!({"type": "move", "key": "BUG-2", "board": "home", "from": "doing", "to": "inbox", "position": 1500.0});
-        assert_eq!(patch(&mut view, &event), Patch::Patched);
-        let order: Vec<String> = view.cards.iter().map(Card::id).collect();
-        assert_eq!(order, ["BUG-1", "BUG-2", "board:v2"]);
-        let event = json!({"type": "board.move", "board": "v2", "parent": "home", "from": "inbox", "to": "done", "position": 1.0});
-        assert_eq!(patch(&mut view, &event), Patch::Patched);
-        assert_eq!(view.cards.last().map(Card::status), Some("done"));
-        let event = json!({"type": "move", "key": "BUG-1", "board": "elsewhere", "from": "inbox", "to": "doing", "position": 1.0});
-        assert_eq!(patch(&mut view, &event), Patch::Reload);
-        assert!(view.cards.iter().all(|c| c.id() != "BUG-1"));
-        let event = json!({"type": "move", "key": "BUG-9", "board": "home", "from": "inbox", "to": "doing", "position": 1.0});
-        assert_eq!(patch(&mut view, &event), Patch::Reload);
+        let keys = |view: &BoardView| view.cards.iter().map(|c| c.key.clone()).collect::<Vec<_>>();
+        let order = json!({"type": "order", "board": 7, "key": "BUG-3", "order": "Zz", "host": "example.com"});
+        assert_eq!(patch(&mut view, &order), Patch::Patched);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1", "BUG-2"]);
+        let elsewhere = json!({"type": "order", "board": "9", "key": "BUG-1", "order": "a", "host": "example.com"});
+        assert_eq!(patch(&mut view, &elsewhere), Patch::Patched);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1", "BUG-2"]);
+        let label = json!({"type": "label", "key": "BUG-1", "from": "Inbox", "to": "QA ready", "host": "example.com"});
+        assert_eq!(patch(&mut view, &label), Patch::Patched);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-2", "BUG-1"]);
+        let gone = json!({"type": "label", "key": "BUG-2", "from": "QA ready", "to": "Testing", "host": "example.com"});
+        assert_eq!(patch(&mut view, &gone), Patch::Patched);
+        assert_eq!(keys(&view), ["BUG-4", "BUG-3", "BUG-1"]);
+        let arrives = json!({"type": "label", "key": "BUG-9", "from": "Testing", "to": "Done", "host": "example.com"});
+        assert_eq!(patch(&mut view, &arrives), Patch::Reload);
+        let passes = json!({"type": "label", "key": "BUG-8", "from": "Testing", "to": "Shipped", "host": "example.com"});
+        assert_eq!(patch(&mut view, &passes), Patch::Patched);
         assert_eq!(
-            patch(&mut view, &json!({"type": "statuses"})),
+            patch(&mut view, &json!({"type": "comment", "key": "BUG-3"})),
             Patch::Reload
         );
     }

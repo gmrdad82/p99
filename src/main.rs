@@ -10,7 +10,6 @@ mod email;
 mod github;
 mod hooks;
 mod import;
-mod labels;
 mod license;
 mod links;
 mod migrate;

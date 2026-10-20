@@ -40,16 +40,15 @@ p99
 
 `p99` alone, in a terminal, opens the TUI, as `p99 tui` does; its flags (`--account`, `--agent`) go with `p99 tui`. Piped or in a script, a bare `p99` prints clap's short error and exits 2 instead of waiting on a screen.
 
-The Inbox screen lists the open items of every host, newest activity first, with a dot on the unread ones; the header counts the items shown and the unread. `tab`, or `1` and `2`, switch between the Inbox and the Codes screens.
+The Inbox screen lists the open items of every host, newest activity first, with a dot on the unread ones and each item's label; the header counts the items shown and the unread. `tab`, or `1`, `2` and `3`, switch between the Inbox, Board and Codes screens.
 
 | Key | In the list |
 | --- | --- |
 | `↑` `↓` | move |
 | `enter` | open the item |
 | `/` | filter by text as you type; `esc` clears it |
-| `s` | show open, closed or any status, in turn |
+| `s` | show open, closed, or open and closed items, in turn |
 | `h` | show every host, or pick one |
-| `l` | show any label, or only items with one |
 | `r` | read the list again |
 | `?` | every key of the screen |
 | `ctrl+c` twice | quit |
@@ -58,16 +57,27 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | --- | --- |
 | `r` | write a reply; `enter` sends it, `esc` drops it |
 | `i` | make the next reply internal (managers only see it), or not |
-| `s` | change the status; `duplicate` then asks for the item it duplicates |
+| `m` | move it to a label of your boards; `Drop` closes it without fixing, `Duplicate of…` asks for the item it duplicates |
 | `a` | assign it to someone, or to no one |
-| `l` | put a label on it or take one off; `+ New label…` makes one |
 | `o` | open the item's page in the browser |
 | `d` | delete it for good, with its comments and files: type its key back, then `enter` |
 | `↑` `↓`, `space`, `g`, `G` | scroll |
 | `ctrl+r` | read the item again |
 | `esc` | back to the list |
 
-An item shows its kind, status, host and environment, the page it was filed on, who reported it, its text, its comments with their files, where its fix has landed, and its events.
+An item shows its kind, label, host and environment, the page it was filed on, who reported it, its text, its comments with their files, where its fix has landed, and its events.
+
+The Board screen opens your first board: its columns are its labels, and its cards are the items carrying them, in your order. `b` picks another board, yours first, then everyone else's by @username; on someone else's board you watch, the footer says whose, and nothing moves. A move made elsewhere slides into place as it happens. When a card moved before your drop landed, the board says "this card moved; refreshed" and reads it again.
+
+| Key | On the board |
+| --- | --- |
+| `←` `→` `↑` `↓` | move between cards |
+| `space` | pick up a card on your board; the arrows carry it, `enter` drops it, `esc` puts it back |
+| `enter` | open the item |
+| `b` | pick a board |
+| `r` | read the board again |
+
+The mouse drags cards too, on your own boards.
 
 ## The CLI
 

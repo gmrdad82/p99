@@ -242,12 +242,13 @@ pub enum Msg {
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
     Board(
-        Option<(usize, String)>,
+        Option<(usize, i64)>,
         Result<(usize, deck::BoardView), String>,
     ),
     Shifted(String, Result<deck::Moved, String>),
     Heard(usize, String),
     Boards(Result<Vec<(usize, deck::Boards)>, String>),
+    Labels(Result<Vec<String>, String>),
 }
 
 fn report(
@@ -346,14 +347,14 @@ fn walk() -> Walk {
     let script = |name: &str, keys: &str| Script::new(name, dump::keys(keys).unwrap_or_default());
     Walk::new()
         .script(script("filter", "/ cart"))
-        .script(script("any status", "s s"))
+        .script(script("open and closed", "s s"))
         .script(script("host pick", "h"))
         .script(script("one host", "h down enter"))
         .script(script("thread", "enter"))
         .script(script("reply", "enter r T h a n k s"))
         .script(script("replied", "enter r T h a n k s enter"))
-        .script(script("status pick", "enter s"))
-        .script(script("status changed", "enter s down down enter"))
+        .script(script("move pick", "enter m"))
+        .script(script("moved", "enter m down down enter"))
         .script(script("assign pick", "enter a"))
         .script(script("codes", "tab / g r a c e"))
         .script(script("quit guard", "ctrl+c"))
