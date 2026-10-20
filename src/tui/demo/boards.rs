@@ -1,17 +1,16 @@
 use serde_json::json;
 
-use crate::wire::{self, Event, Issue, Person};
+use crate::wire::{self, BoardCard, CardPerson, Event, Issue, ItemCard, Rollup};
 
 use super::super::deck::{
-    BoardCard, BoardRef, BoardView, Boards, COLUMNS, Card, ItemCard, Label, Move, Moved, Rollup,
-    column_of, default_statuses, sort,
+    Board, BoardView, Boards, COLUMNS, Card, Move, Moved, default_statuses, sort,
 };
 use super::{DAY, Demo, HOUR, ME, MINUTE, NOW, iso};
 
 pub(super) const ITEMS: [super::Item; 10] = [
     extra(
         "feature",
-        "new",
+        "inbox",
         "Gift wrapping at checkout",
         "/checkout",
         true,
@@ -21,7 +20,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "bug",
-        "waiting",
+        "review",
         "Lamp photos crop the shade",
         "/products/lamp",
         true,
@@ -31,7 +30,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "bug",
-        "new",
+        "inbox",
         "Apple Pay button missing on iPad",
         "/checkout",
         false,
@@ -41,7 +40,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "task",
-        "in_progress",
+        "doing",
         "One-page checkout form",
         "/checkout",
         false,
@@ -51,7 +50,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "improvement",
-        "waiting",
+        "review",
         "Remember the last shipping address",
         "/checkout",
         true,
@@ -61,7 +60,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "task",
-        "resolved",
+        "done",
         "Move the basket into a drawer",
         "/cart",
         false,
@@ -71,7 +70,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "feature",
-        "new",
+        "inbox",
         "Pay in three instalments",
         "/checkout",
         true,
@@ -81,7 +80,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "task",
-        "in_progress",
+        "doing",
         "Switch to the new card form",
         "/checkout",
         false,
@@ -91,7 +90,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "task",
-        "resolved",
+        "done",
         "Add 3-D Secure to card payments",
         "/checkout",
         false,
@@ -101,7 +100,7 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
     extra(
         "task",
-        "new",
+        "inbox",
         "Delete the old image bucket",
         "/",
         false,
@@ -125,6 +124,11 @@ const fn extra(
     super::Item {
         kind,
         status,
+        resolution: if matches!(status.as_bytes(), b"done") {
+            Some("fixed")
+        } else {
+            None
+        },
         title,
         host: "shop.example.com",
         path,
@@ -244,7 +248,7 @@ const MARKS: [Marks; 9] = [
 ];
 
 pub(super) struct Shelf {
-    boards: Vec<BoardRef>,
+    boards: Vec<Board>,
     places: Vec<(i64, String, f64)>,
 }
 
@@ -253,13 +257,14 @@ impl Shelf {
         Shelf {
             boards: SHELF
                 .iter()
-                .map(|&(slug, name, host, parent, status, position)| BoardRef {
+                .map(|&(slug, name, host, parent, status, position)| Board {
                     slug: slug.into(),
                     name: name.into(),
                     host: host.map(Into::into),
                     parent: parent.map(Into::into),
                     status: status.into(),
                     position,
+                    home: parent.is_none() && host.is_some(),
                     rollup: Rollup::default(),
                 })
                 .collect(),
@@ -271,19 +276,6 @@ impl Shelf {
     }
 }
 
-fn status_for(column: &str) -> String {
-    if wire::STATUSES.contains(&column) {
-        return column.to_owned();
-    }
-    match column {
-        "inbox" => "new",
-        "doing" => "in_progress",
-        "review" => "waiting",
-        _ => "resolved",
-    }
-    .to_owned()
-}
-
 fn card(issue: &Issue, position: f64) -> ItemCard {
     let marks = MARKS.iter().find(|(id, ..)| *id == issue.id);
     let reporter = &issue.reporter;
@@ -291,18 +283,12 @@ fn card(issue: &Issue, position: f64) -> ItemCard {
         key: issue.key.clone(),
         kind: issue.kind.clone(),
         title: issue.title.clone(),
-        status: column_of(&issue.status).to_owned(),
-        resolution: match issue.status.as_str() {
-            "resolved" => Some("fixed".into()),
-            "abandoned" => Some("abandoned".into()),
-            "duplicate" => Some("duplicate".into()),
-            _ => None,
-        },
+        status: issue.status.clone(),
+        resolution: issue.resolution.clone(),
         position,
         assignee: issue.assignee.clone(),
-        reporter: Person {
-            email: reporter["email"].as_str().unwrap_or_default().into(),
-            name: reporter["name"].as_str().unwrap_or_default().into(),
+        reporter: CardPerson {
+            name: reporter["name"].as_str().map(Into::into),
             agent: reporter["agent"].as_bool().unwrap_or(false),
         },
         priority: marks.map(|(_, priority, _)| (*priority).to_owned()),
@@ -310,13 +296,11 @@ fn card(issue: &Issue, position: f64) -> ItemCard {
             .map(|(_, _, labels)| {
                 labels
                     .iter()
-                    .map(|(name, color)| Label {
-                        name: (*name).into(),
-                        color: (*color).into(),
-                    })
+                    .map(|(name, color)| json!({"name": name, "color": color}))
                     .collect()
             })
             .unwrap_or_default(),
+        board: None,
     }
 }
 
@@ -353,13 +337,13 @@ impl Demo {
             .filter(|(_, board, _)| slugs.contains(board))
             .filter_map(|(id, ..)| self.issue(*id))
             .fold(Rollup::default(), |sum, issue| Rollup {
-                done: sum.done + i64::from(column_of(&issue.status) == "done"),
+                done: sum.done + i64::from(issue.status == "done"),
                 total: sum.total + 1,
             })
     }
 
-    fn rolled(&self, board: &BoardRef) -> BoardRef {
-        BoardRef {
+    fn rolled(&self, board: &Board) -> Board {
+        Board {
             rollup: self.rollup(&board.slug),
             ..board.clone()
         }
@@ -402,6 +386,7 @@ impl Demo {
                         status: b.status.clone(),
                         position: b.position,
                         rollup: self.rollup(&b.slug),
+                        parent: None,
                     })
                 }),
         );
@@ -528,25 +513,30 @@ impl Demo {
             .find(|(at, ..)| *at == id)
             .map(|(_, slug, _)| slug.clone())
             .ok_or_else(|| format!("{target} is on no board"))?;
-        Ok((home, column_of(&issue.status).to_owned()))
+        Ok((home, issue.status.clone()))
     }
 
     fn restatus(&mut self, id: i64, column: &str) -> Option<String> {
         let thread = self.threads.iter_mut().find(|t| t.issue.id == id)?;
         let issue = &mut thread.issue;
-        if column_of(&issue.status) == column {
+        if issue.status == column {
             return None;
         }
-        let status = status_for(column);
+        let resolution = (column == "done").then(|| "fixed".to_owned());
+        let mut detail = json!({"from": issue.status, "to": column});
+        if let Some(resolution) = &resolution {
+            detail["resolution"] = json!(resolution);
+        }
         thread.events.push(Event {
             actor: Some(ME.1.into()),
             actor_name: Some(ME.0.into()),
             kind: "status".into(),
-            detail: json!({"from": issue.status, "to": status}),
+            detail,
             at: iso(NOW),
         });
-        issue.closed_at = (column == "done").then(|| iso(NOW));
-        issue.status = status;
+        issue.closed_at = resolution.as_ref().map(|_| iso(NOW));
+        issue.status = column.to_owned();
+        issue.resolution = resolution;
         issue.updated_at = iso(NOW);
         Some(issue.key.clone())
     }

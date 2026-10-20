@@ -1,100 +1,18 @@
-use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::wire::Person;
+pub use crate::wire::{Board, BoardView, Boards, Card, Move, Moved, StatusEntry};
+
+pub use crate::wire::STATUSES as COLUMNS;
+
+use crate::wire;
 
 use super::source::Source;
-
-pub const COLUMNS: [&str; 4] = ["inbox", "doing", "review", "done"];
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StatusName {
-    pub key: String,
-    pub name: String,
-    #[serde(default)]
-    pub position: i64,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Rollup {
-    pub done: i64,
-    pub total: i64,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Label {
-    pub name: String,
-    #[serde(default)]
-    pub color: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BoardRef {
-    pub slug: String,
-    pub name: String,
-    #[serde(default)]
-    pub host: Option<String>,
-    #[serde(default)]
-    pub parent: Option<String>,
-    #[serde(default)]
-    pub status: String,
-    #[serde(default)]
-    pub position: f64,
-    #[serde(default)]
-    pub rollup: Rollup,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ItemCard {
-    pub key: String,
-    #[serde(default)]
-    pub kind: String,
-    pub title: String,
-    pub status: String,
-    #[serde(default)]
-    pub resolution: Option<String>,
-    #[serde(default)]
-    pub position: f64,
-    #[serde(default)]
-    pub assignee: Option<String>,
-    #[serde(default)]
-    pub reporter: Person,
-    #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
-    pub labels: Vec<Label>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BoardCard {
-    pub slug: String,
-    pub name: String,
-    pub status: String,
-    #[serde(default)]
-    pub position: f64,
-    #[serde(default)]
-    pub rollup: Rollup,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Card {
-    Item(ItemCard),
-    Board(BoardCard),
-}
 
 impl Card {
     pub fn id(&self) -> String {
         match self {
             Card::Item(item) => item.key.clone(),
             Card::Board(board) => format!("board:{}", board.slug),
-        }
-    }
-
-    pub fn status(&self) -> &str {
-        match self {
-            Card::Item(item) => &item.status,
-            Card::Board(board) => &board.status,
         }
     }
 
@@ -119,62 +37,24 @@ impl Card {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BoardView {
-    #[serde(default)]
-    pub statuses: Vec<StatusName>,
-    pub board: BoardRef,
-    #[serde(default)]
-    pub cards: Vec<Card>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Boards {
-    #[serde(default)]
-    pub statuses: Vec<StatusName>,
-    #[serde(default)]
-    pub boards: Vec<BoardRef>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Move {
-    pub target: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub board: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub before: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub after: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolution: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Moved {
-    pub moved: Card,
-    #[serde(default)]
-    pub changed: Vec<String>,
-}
-
-pub fn column_of(status: &str) -> &'static str {
-    match status {
-        "new" | "inbox" => "inbox",
-        "confirmed" | "in_progress" | "doing" => "doing",
-        "waiting" | "review" => "review",
-        _ => "done",
+pub fn label(value: &Value) -> Option<(&str, &str)> {
+    match value {
+        Value::String(name) => Some((name.as_str(), "")),
+        Value::Object(_) => Some((
+            value["name"].as_str()?,
+            value["color"].as_str().unwrap_or_default(),
+        )),
+        _ => None,
     }
 }
 
-pub fn default_statuses() -> Vec<StatusName> {
-    ["Inbox", "Doing", "Review", "Done"]
+pub fn default_statuses() -> Vec<StatusEntry> {
+    COLUMNS
         .iter()
-        .zip(COLUMNS)
         .enumerate()
-        .map(|(at, (name, key))| StatusName {
-            key: key.to_owned(),
-            name: (*name).to_owned(),
+        .map(|(at, key)| StatusEntry {
+            key: (*key).to_owned(),
+            name: wire::status_word(key).to_owned(),
             position: at as i64,
         })
         .collect()
@@ -265,32 +145,64 @@ pub fn request(lane: &[&Card], target: &str, column: usize, row: usize) -> (Move
 }
 
 impl Source {
-    pub fn boards(&self) -> Result<Boards, String> {
+    pub fn boards(&self) -> Result<Vec<(usize, Boards)>, String> {
         match self {
-            Source::Demo(..) => self.sample(|demo| Ok(demo.boards())),
-            Source::Live(_) => Err(NOT_YET.into()),
+            Source::Demo(..) => self.sample(|demo| Ok(vec![(0, demo.boards())])),
+            Source::Live(_) => {
+                let mut all = Vec::new();
+                for (account, name) in self.accounts().iter().enumerate() {
+                    let boards = self
+                        .client(account, None)?
+                        .boards()
+                        .map_err(|why| format!("{name}: {why}"))?;
+                    all.push((account, boards));
+                }
+                Ok(all)
+            }
             Source::Broken(why) => Err(why.clone()),
         }
     }
 
-    pub fn board(&self, slug: Option<&str>) -> Result<BoardView, String> {
-        match self {
-            Source::Demo(..) => self.sample(|demo| demo.board(slug)),
-            Source::Live(_) => Err(NOT_YET.into()),
-            Source::Broken(why) => Err(why.clone()),
+    pub fn board(&self, at: Option<(usize, String)>) -> Result<(usize, BoardView), String> {
+        match (self, at) {
+            (Source::Demo(..), at) => {
+                self.sample(|demo| Ok((0, demo.board(at.as_ref().map(|(_, s)| s.as_str()))?)))
+            }
+            (Source::Live(_), Some((account, slug))) => {
+                Ok((account, self.client(account, None)?.board(&slug)?))
+            }
+            (Source::Live(_), None) => {
+                let all = self.boards()?;
+                let home = all
+                    .iter()
+                    .find_map(|(account, boards)| {
+                        boards.boards.iter().find(|b| b.home).map(|b| (*account, b))
+                    })
+                    .or_else(|| {
+                        all.iter().find_map(|(account, boards)| {
+                            boards
+                                .boards
+                                .iter()
+                                .find(|b| b.parent.is_none())
+                                .map(|b| (*account, b))
+                        })
+                    })
+                    .map(|(account, b)| (account, b.slug.clone()))
+                    .ok_or_else(|| "no board yet; p99 boards add makes one".to_owned())?;
+                self.board(Some(home))
+            }
+            (Source::Broken(why), _) => Err(why.clone()),
         }
     }
 
-    pub fn shift(&self, request: &Move) -> Result<Moved, String> {
+    pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.shift(request)),
-            Source::Live(_) => Err(NOT_YET.into()),
+            Source::Live(_) => self.client(account, None)?.move_card(request),
             Source::Broken(why) => Err(why.clone()),
         }
     }
 }
-
-const NOT_YET: &str = "this Worker has no boards yet; run p99 deploy";
 
 #[cfg(test)]
 mod tests {

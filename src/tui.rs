@@ -240,9 +240,13 @@ pub enum Msg {
     Changed(String, Result<Issue, String>),
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
-    Board(Option<String>, Result<deck::BoardView, String>),
+    Board(
+        Option<(usize, String)>,
+        Result<(usize, deck::BoardView), String>,
+    ),
     Shifted(String, Result<deck::Moved, String>),
-    Heard(String),
+    Heard(usize, String),
+    Boards(Result<Vec<(usize, deck::Boards)>, String>),
 }
 
 fn report(

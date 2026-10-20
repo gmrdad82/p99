@@ -15,11 +15,12 @@ use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, progress, text};
 
 use super::Msg;
 use super::deck::{
-    BoardRef, BoardView, COLUMNS, Card, ItemCard, Patch, StatusName, default_statuses, patch,
-    request, sort,
+    Board as Shelf, BoardView, Boards, COLUMNS, Card, Patch, StatusEntry, default_statuses, label,
+    patch, request, sort,
 };
 use super::inbox::Inbox;
 use super::source::Source;
+use crate::wire::ItemCard;
 
 const TALL: i32 = 4;
 const PITCH: i32 = 5;
@@ -74,15 +75,18 @@ fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
+type Trail = Vec<(String, String)>;
+
 enum Picking {
-    Board(Vec<(String, String)>),
+    Board(Vec<(usize, Trail)>),
 }
 
 pub struct Board {
     source: Source,
     palette: Palette,
     view: Option<BoardView>,
-    statuses: Vec<StatusName>,
+    statuses: Vec<StatusEntry>,
+    account: usize,
     path: Vec<(String, String)>,
     error: Option<String>,
     stopped: bool,
@@ -115,6 +119,7 @@ impl Board {
             palette,
             view: None,
             statuses: default_statuses(),
+            account: 0,
             path: Vec::new(),
             error: None,
             stopped: false,
@@ -135,8 +140,10 @@ impl Board {
         }
     }
 
-    fn slug(&self) -> Option<String> {
-        self.path.last().map(|(slug, _)| slug.clone())
+    fn slug(&self) -> Option<(usize, String)> {
+        self.path
+            .last()
+            .map(|(slug, _)| (self.account, slug.clone()))
     }
 
     fn lane_ids(&self) -> [Vec<usize>; LANES] {
@@ -203,20 +210,22 @@ impl Board {
         }
     }
 
-    fn read(&mut self, slug: Option<String>, cx: &mut Cx<'_, Msg>) {
+    fn read(&mut self, slug: Option<(usize, String)>, cx: &mut Cx<'_, Msg>) {
         self.reading = true;
         let source = self.source.clone();
         cx.detach(move || {
-            let result = source.board(slug.as_deref());
+            let result = source.board(slug.clone());
             Msg::Board(slug, result)
         });
     }
 
-    fn shown(&mut self, slug: Option<String>, view: BoardView) {
-        let same = self
-            .view
-            .as_ref()
-            .is_some_and(|old| old.board.slug == view.board.slug);
+    fn shown(&mut self, slug: Option<(usize, String)>, account: usize, view: BoardView) {
+        let same = self.account == account
+            && self
+                .view
+                .as_ref()
+                .is_some_and(|old| old.board.slug == view.board.slug);
+        self.account = account;
         let kept = if same {
             self.current().map(Card::id)
         } else {
@@ -258,12 +267,12 @@ impl Board {
             Some(Card::Board(board)) => {
                 let (slug, name) = (board.slug.clone(), board.name.clone());
                 self.path.push((slug.clone(), name));
-                self.read(Some(slug), cx);
+                self.read(Some((self.account, slug)), cx);
             }
             Some(Card::Item(item)) => {
                 let key = item.key.clone();
                 let host = self.view.as_ref().and_then(|v| v.board.host.clone());
-                self.reader.open_key(0, host, key, cx);
+                self.reader.open_key(self.account, host, key, cx);
             }
             None => {}
         }
@@ -313,18 +322,47 @@ impl Board {
     }
 
     fn pick_board(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Ok(boards) = self.source.boards() else {
-            cx.say("Couldn't read the boards.", Tone::Alert);
-            return;
-        };
-        let mut rows: Vec<(String, String)> = Vec::new();
-        tree(&boards.boards, None, 0, &mut rows);
-        let at = self
-            .slug()
-            .and_then(|slug| rows.iter().position(|(s, _)| *s == slug))
+        let source = self.source.clone();
+        cx.detach(move || Msg::Boards(source.boards()));
+    }
+
+    fn offer(&mut self, all: Vec<(usize, Boards)>, cx: &mut Cx<'_, Msg>) {
+        let names = self.source.accounts();
+        let many = all.len() > 1;
+        let mut rows: Vec<(usize, Trail, String)> = Vec::new();
+        for (account, boards) in &all {
+            let lead = if many {
+                names
+                    .get(*account)
+                    .map(|n| format!("{n} · "))
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            tree(
+                *account,
+                &boards.boards,
+                None,
+                &lead,
+                &mut Vec::new(),
+                &mut rows,
+            );
+        }
+        let here = self.slug();
+        let at = rows
+            .iter()
+            .position(|(account, trail, _)| {
+                here.as_ref().is_some_and(|(a, slug)| {
+                    a == account && trail.last().is_some_and(|(s, _)| s == slug)
+                })
+            })
             .unwrap_or(0);
-        let labels: Vec<String> = rows.iter().map(|(_, label)| label.clone()).collect();
-        self.picking = Some(Picking::Board(rows));
+        let labels: Vec<String> = rows.iter().map(|(_, _, label)| label.clone()).collect();
+        self.picking = Some(Picking::Board(
+            rows.into_iter()
+                .map(|(account, trail, _)| (account, trail))
+                .collect(),
+        ));
         cx.pick(Pick::new("Board", labels).selected(at).hints([
             Hint::new("↑↓", "move"),
             Hint::new("enter", "open"),
@@ -385,9 +423,10 @@ impl Board {
         self.select(&lift.id);
         self.sending += 1;
         let source = self.source.clone();
+        let account = self.account;
         let id = lift.id;
         cx.detach(move || {
-            let result = source.shift(&request);
+            let result = source.shift(account, &request);
             Msg::Shifted(id, result)
         });
     }
@@ -654,16 +693,10 @@ impl Board {
             room,
             style.add_modifier(Modifier::BOLD),
         );
-        buf.set_stringn(x + 1, lane.y, count.to_string(), room, palette.muted);
+        let (x, _) = buf.set_stringn(x + 1, lane.y, count.to_string(), room, palette.muted);
         if !more.is_empty() {
-            let w = text::cells(&more) as u16;
-            buf.set_stringn(
-                lane.right().saturating_sub(w),
-                lane.y,
-                &more,
-                room,
-                palette.muted,
-            );
+            let room = usize::from(lane.right().saturating_sub(x + 2));
+            buf.set_stringn(x + 2, lane.y, &more, room, palette.muted);
         }
         let rule = if target {
             "━".repeat(room)
@@ -679,8 +712,15 @@ impl Board {
     }
 }
 
-fn tree(boards: &[BoardRef], parent: Option<&str>, depth: usize, rows: &mut Vec<(String, String)>) {
-    let mut children: Vec<&BoardRef> = boards
+fn tree(
+    account: usize,
+    boards: &[Shelf],
+    parent: Option<&str>,
+    lead: &str,
+    trail: &mut Trail,
+    rows: &mut Vec<(usize, Trail, String)>,
+) {
+    let mut children: Vec<&Shelf> = boards
         .iter()
         .filter(|b| b.parent.as_deref() == parent)
         .collect();
@@ -691,15 +731,18 @@ fn tree(boards: &[BoardRef], parent: Option<&str>, depth: usize, rows: &mut Vec<
             .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     for child in children {
+        let lead = if trail.is_empty() { lead } else { "" };
         let label = format!(
-            "{}{}  {}/{}",
-            "  ".repeat(depth),
+            "{lead}{}{}  {}/{}",
+            "  ".repeat(trail.len()),
             child.name,
             child.rollup.done,
             child.rollup.total
         );
-        rows.push((child.slug.clone(), label));
-        tree(boards, Some(&child.slug), depth + 1, rows);
+        trail.push((child.slug.clone(), child.name.clone()));
+        rows.push((account, trail.clone(), label));
+        tree(account, boards, Some(&child.slug), "", trail, rows);
+        trail.pop();
     }
 }
 
@@ -870,11 +913,11 @@ fn draw_card(
                 title,
             );
             let mut chips = Vec::new();
-            for label in &item.labels {
+            for (name, color) in item.labels.iter().filter_map(label) {
                 if !chips.is_empty() {
                     chips.push((" ".to_owned(), frame));
                 }
-                chips.push((format!(" ●{} ", label.name), chip(palette, &label.color)));
+                chips.push((format!(" ●{name} "), chip(palette, color)));
             }
             if let Some(word) = item.resolution.as_deref().filter(|r| *r != "fixed") {
                 let word = if word == "abandoned" { "dropped" } else { word };
@@ -1025,7 +1068,7 @@ impl Screen<Msg> for Board {
         let source = self.source.clone();
         let slug = self.slug();
         Some(Box::new(move || {
-            let result = source.board(slug.as_deref());
+            let result = source.board(slug.clone());
             Msg::Board(slug, result)
         }))
     }
@@ -1059,7 +1102,7 @@ impl Screen<Msg> for Board {
                     self.source.follow(&cx.waker());
                 }
                 match result {
-                    Ok(view) => self.shown(slug, view),
+                    Ok((account, view)) => self.shown(slug, account, view),
                     Err(error) if self.view.is_some() => cx.say(error, Tone::Alert),
                     Err(error) => self.error = Some(error),
                 }
@@ -1082,7 +1125,9 @@ impl Screen<Msg> for Board {
                     }
                 }
             }
-            Msg::Heard(text) => self.heard(&text),
+            Msg::Heard(account, text) if account == self.account => self.heard(&text),
+            Msg::Boards(Ok(all)) => self.offer(all, cx),
+            Msg::Boards(Err(error)) => cx.say(error, Tone::Alert),
             Msg::Pushed(_, None) => self.stale = Some(self.moment),
             Msg::Changed(key, result) => {
                 if result.is_ok() {
@@ -1188,24 +1233,14 @@ impl Screen<Msg> for Board {
         let (Some(Picking::Board(rows)), Some(choice)) = (self.picking.take(), choice) else {
             return;
         };
-        let Some((slug, _)) = rows.get(choice).cloned() else {
+        let Some((account, trail)) = rows.into_iter().nth(choice) else {
             return;
         };
-        let Ok(boards) = self.source.boards() else {
+        let Some((slug, _)) = trail.last().cloned() else {
             return;
         };
-        let mut path = Vec::new();
-        let mut at = Some(slug.clone());
-        while let Some(slug) = at {
-            let Some(board) = boards.boards.iter().find(|b| b.slug == slug) else {
-                break;
-            };
-            path.push((board.slug.clone(), board.name.clone()));
-            at = board.parent.clone();
-        }
-        path.reverse();
-        self.path = path;
-        self.read(Some(slug), cx);
+        self.path = trail;
+        self.read(Some((account, slug)), cx);
     }
 
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {

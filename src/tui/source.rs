@@ -112,6 +112,22 @@ impl Source {
         }))
     }
 
+    pub fn accounts(&self) -> Vec<String> {
+        match self {
+            Source::Demo(..) => vec!["sample".to_owned()],
+            Source::Live(live) => live.accounts.clone(),
+            Source::Broken(_) => Vec::new(),
+        }
+    }
+
+    pub(super) fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
+        match self {
+            Source::Live(live) => live.client(account, host),
+            Source::Demo(..) => Err("not the live data".into()),
+            Source::Broken(why) => Err(why.clone()),
+        }
+    }
+
     pub fn is_demo(&self) -> bool {
         matches!(self, Source::Demo(..))
     }
@@ -257,7 +273,7 @@ impl Source {
                             .and_then(|event| event["key"].as_str().map(str::to_owned));
                         tell(&|w| {
                             w.send(Msg::Pushed(account, key.clone()))
-                                & w.send(Msg::Heard(text.to_owned()))
+                                & w.send(Msg::Heard(account, text.to_owned()))
                         })
                     }
                 });
@@ -295,7 +311,7 @@ impl Live {
             .map_err(Clone::clone)
     }
 
-    pub(super) fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
+    fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
         self.clients()?
             .get(account)
             .map(|client| client.clone().with_host(host))
