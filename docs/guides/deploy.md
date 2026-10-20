@@ -54,6 +54,8 @@ Run it once for each account in the config. The loader is cached for five minute
 
 1.9 changes data, not only the schema: each item gets one label from its 1.8 status, nested boards become separate boards with an owner, priority becomes each column's card order, and every person gets a username. So `p99 deploy` (and `p99 setup`, when it applies migrations) doesn't apply migrations 0011 to 0013 to an account that holds 1.8 data until that account's plan is accepted.
 
+It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.9, with no 1.8 deploy in between. Its plan covers 0004 to 0013 together, and 0004 waits for the accepted plan too, since it changes data as well: each 1.7 status becomes a 1.9 label and the stage reporters see (new: Inbox, received; confirmed and in progress: Doing, in progress; waiting: Review, in progress; resolved: Done, fixed; abandoned: Done, dropped; duplicate: Done, duplicate), and each host gets one home board, owned by the account's first manager, with each column's cards newest first. The other migrations in between (0005 to 0010) add tables, columns and indexes only.
+
 1. Read the plan. It only reads the database, through the same Cloudflare API calls `p99 setup` uses, and changes nothing:
 
    ```sh
@@ -61,7 +63,7 @@ Run it once for each account in the config. The loader is cached for five minute
    p99 migrate --plan --account shop --json
    ```
 
-   It shows, for that account: how each 1.8 status maps to a label and how many open items each holds; every board, nested ones included, and who would own it (1.8 kept no board creator, so the account's first manager); how many cards change place in each column as priority becomes order; the tags beyond each item's label, which 0011 keeps untouched and unused; the members whose 1.8 status changes only managers make from 1.9 on; label names that would collide; the usernames that get a number or fall back, and how many people rows are created; the people who act through agents and the @username* they show under; the kinds with their key counts; and the hosts' settings, which carry over. It ends with the decisions needed, one line each, and the plan hash, the SHA-256 of the plan's JSON with its keys sorted.
+   It shows, for that account: how each 1.8 status maps to a label (on 1.7, each 1.7 status with its label and stage) and how many open items each holds; every board, nested ones included, and who would own it (1.8 kept no board creator, so the account's first manager; on 1.7, each host's home board); how many cards change place in each column as priority becomes order; the tags beyond each item's label, which 0011 keeps untouched and unused; the members whose 1.8 status changes only managers make from 1.9 on; label names that would collide; the usernames that get a number or fall back, and how many people rows are created; the people who act through agents and the @username* they show under; the kinds with their key counts; and the hosts' settings, which carry over. It ends with the decisions needed, one line each, and the plan hash, the SHA-256 of the plan's JSON with its keys sorted.
 
 2. Answer the decisions (mint a manager code, rename a tag, remove a board) and read the plan again: any change to the data gives a new hash.
 
@@ -71,7 +73,7 @@ Run it once for each account in the config. The loader is cached for five minute
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses, changing nothing, when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`.
+   Deploy works out the plan again first and refuses, changing nothing, when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
 ## Change the setup
 

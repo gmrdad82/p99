@@ -28,9 +28,24 @@ const KINDS: [(&str, &str); 5] = [
     ("task", "TASK"),
 ];
 
+const LEGACY: [(&str, &str, &str); 7] = [
+    ("new", "Inbox", "received"),
+    ("confirmed", "Doing", "in_progress"),
+    ("in_progress", "Doing", "in_progress"),
+    ("waiting", "Review", "in_progress"),
+    ("resolved", "Done", "fixed"),
+    ("abandoned", "Done", "dropped"),
+    ("duplicate", "Done", "duplicate"),
+];
+
+const Q_STATUSES: &str =
+    "SELECT status, count(*) AS items, COALESCE(sum(open), 0) AS open FROM items GROUP BY status";
+
+const Q_HOMES: &str = "SELECT h.host, (SELECT count(*) FROM items i WHERE i.host = h.host) AS items FROM (SELECT host FROM hosts UNION SELECT host FROM items) h ORDER BY h.host";
+
 const Q_LABELS: &str = "SELECT s.key AS status, s.name AS label, count(i.id) AS items, COALESCE(sum(i.open), 0) AS open FROM statuses s LEFT JOIN items i ON i.status = s.key GROUP BY s.key ORDER BY s.position, s.key";
 
-const Q_MANAGERS: &str = "SELECT lower(trim(email)) AS email, name, hosts_json, revoked_at IS NULL AS live FROM codes WHERE manager = 1 ORDER BY revoked_at IS NOT NULL, id";
+const Q_MANAGERS: &str = "SELECT lower(trim(email)) AS email, name, hosts_json FROM codes WHERE manager = 1 AND revoked_at IS NULL ORDER BY id";
 
 const Q_BOARDS: &str = "SELECT b.slug, b.name, b.host, p.slug AS parent, (SELECT count(*) FROM items i WHERE i.board_id = b.id) AS items FROM boards b LEFT JOIN boards p ON p.id = b.parent_id ORDER BY b.id";
 
@@ -200,23 +215,20 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
         plan["decisions"] = json!([]);
         return Ok(plan);
     }
-    let first_gated = GATED.first().copied().unwrap_or_default();
-    let behind: Vec<&str> = bundle::MIGRATIONS
-        .iter()
-        .map(|(name, _)| *name)
-        .filter(|name| *name < first_gated && !applied.iter().any(|a| a == name))
-        .collect();
-    if !behind.is_empty() {
-        return Err(format!(
-            "this account's schema is older than P99 1.8 ({} not applied): deploy P99 1.8 first, then plan",
-            behind.join(", ")
-        ));
+    let legacy = pending.iter().any(|p| p.starts_with("0004"));
+    if !legacy && !applied.iter().any(|a| numbered(a, "0005")) {
+        return Err(
+            "this account's schema stops partway through P99 1.8 (0005 not applied): deploy that 1.8 release again, then plan"
+                .into(),
+        );
     }
     let lanes = pending.iter().any(|p| p.starts_with("0011"));
     let people = pending.iter().any(|p| p.starts_with("0012"));
     let mut decisions: Vec<String> = Vec::new();
 
-    if lanes {
+    if legacy {
+        legacy_plan(cf, account, &mut plan, &mut decisions)?;
+    } else if lanes {
         lanes_plan(cf, account, &mut plan, &mut decisions)?;
     }
 
@@ -305,6 +317,128 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     Ok(plan)
 }
 
+type Owner = Option<(String, String)>;
+
+fn owner(
+    cf: &Cloudflare,
+    account: &Account,
+    plan: &mut Value,
+) -> Result<(Owner, BTreeSet<String>), String> {
+    let managers = select(cf, account, Q_MANAGERS)?;
+    let owner = managers
+        .first()
+        .map(|r| (text(r, "email"), text(r, "name")));
+    let mut reach: BTreeSet<String> = BTreeSet::new();
+    if let Some((email, _)) = &owner {
+        for row in managers.iter().filter(|r| text(r, "email") == *email) {
+            let hosts: Vec<String> =
+                serde_json::from_str(&text(row, "hosts_json")).unwrap_or_default();
+            reach.extend(hosts);
+        }
+    }
+    plan["owner"] = match &owner {
+        Some((email, name)) => json!({ "email": email, "name": name }),
+        None => Value::Null,
+    };
+    Ok((owner, reach))
+}
+
+fn owner_decisions(
+    owner: &Owner,
+    reach: &BTreeSet<String>,
+    hosts: &[Option<String>],
+    why: &str,
+    decisions: &mut Vec<String>,
+) {
+    let unreached: BTreeSet<&str> = hosts
+        .iter()
+        .flatten()
+        .filter(|host| !reach.contains("*") && !reach.contains(host.as_str()))
+        .map(String::as_str)
+        .collect();
+    match owner {
+        None if !hosts.is_empty() => decisions.push(
+            "no live manager code exists to own the boards: mint a manager code before deploying"
+                .into(),
+        ),
+        Some((email, name)) if hosts.len() > BOARDS_PER_PERSON => decisions.push(format!(
+            "{} would own all {} boards ({why}), over the {BOARDS_PER_PERSON} a person may have: say who owns which, or which boards to remove first",
+            person(name, email),
+            hosts.len()
+        )),
+        _ => {}
+    }
+    if let Some((email, name)) = owner
+        && !unreached.is_empty()
+    {
+        decisions.push(format!(
+            "{} would own boards of {}, which their code doesn't cover: widen their code or name another owner",
+            person(name, email),
+            unreached.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+}
+
+fn members(
+    cf: &Cloudflare,
+    account: &Account,
+    decisions: &mut Vec<String>,
+) -> Result<Value, String> {
+    let members: Vec<Value> = select(cf, account, Q_MEMBERS)?
+        .iter()
+        .map(|r| {
+            json!({
+                "email": text(r, "email"),
+                "name": text(r, "name"),
+                "changes": count(r, "changes"),
+            })
+        })
+        .collect();
+    if !members.is_empty() {
+        decisions.push(format!(
+            "{} changed states that only managers set from 1.9 on: give them manager codes, or leave them reporters",
+            many(members.len() as i64, "member")
+        ));
+    }
+    Ok(Value::Array(members))
+}
+
+fn legacy_plan(
+    cf: &Cloudflare,
+    account: &Account,
+    plan: &mut Value,
+    decisions: &mut Vec<String>,
+) -> Result<(), String> {
+    let rows = select(cf, account, Q_STATUSES)?;
+    let statuses: Vec<Value> = LEGACY
+        .iter()
+        .map(|(status, label, stage)| {
+            let row = rows.iter().find(|r| text(r, "status") == *status);
+            json!({
+                "status": status,
+                "label": label,
+                "stage": stage,
+                "items": row.map_or(0, |r| count(r, "items")),
+                "open": row.map_or(0, |r| count(r, "open")),
+            })
+        })
+        .collect();
+    plan["statuses"] = Value::Array(statuses);
+
+    let (owner, reach) = owner(cf, account, plan)?;
+    let homes = select(cf, account, Q_HOMES)?;
+    let hosts: Vec<Option<String>> = homes.iter().map(|r| Some(text(r, "host"))).collect();
+    owner_decisions(&owner, &reach, &hosts, "one home board per host", decisions);
+    plan["boards"] = Value::Array(
+        homes
+            .iter()
+            .map(|r| json!({ "name": text(r, "host"), "host": text(r, "host"), "items": count(r, "items") }))
+            .collect(),
+    );
+    plan["members"] = members(cf, account, decisions)?;
+    Ok(())
+}
+
 fn lanes_plan(
     cf: &Cloudflare,
     account: &Account,
@@ -324,40 +458,16 @@ fn lanes_plan(
         .collect();
     plan["labels"] = Value::Array(labels);
 
-    let managers = select(cf, account, Q_MANAGERS)?;
-    let owner = managers
-        .first()
-        .map(|r| (text(r, "email"), text(r, "name")));
-    let mut reach: BTreeSet<String> = BTreeSet::new();
-    if let Some((email, _)) = &owner {
-        for row in managers
-            .iter()
-            .filter(|r| text(r, "email") == *email && count(r, "live") == 1)
-        {
-            let hosts: Vec<String> =
-                serde_json::from_str(&text(row, "hosts_json")).unwrap_or_default();
-            reach.extend(hosts);
-        }
-    }
-    plan["owner"] = match &owner {
-        Some((email, name)) => json!({ "email": email, "name": name }),
-        None => Value::Null,
-    };
-
+    let (owner, reach) = owner(cf, account, plan)?;
     let mut boards = Vec::new();
+    let mut hosts = Vec::new();
     let mut nested = 0;
-    let mut unreached = BTreeSet::new();
     for row in select(cf, account, Q_BOARDS)? {
         let host = row["host"].as_str().map(str::to_owned);
         if row["parent"].is_string() {
             nested += 1;
         }
-        if let (Some(host), Some(_)) = (&host, &owner)
-            && !reach.contains("*")
-            && !reach.contains(host)
-        {
-            unreached.insert(host.clone());
-        }
+        hosts.push(host.clone());
         boards.push(json!({
             "slug": text(&row, "slug"),
             "name": text(&row, "name"),
@@ -366,26 +476,13 @@ fn lanes_plan(
             "items": count(&row, "items"),
         }));
     }
-    match &owner {
-        None if !boards.is_empty() => decisions.push(
-            "no manager code exists to own the boards: mint a manager code before deploying".into(),
-        ),
-        Some((email, name)) if boards.len() > BOARDS_PER_PERSON => decisions.push(format!(
-            "{} would own all {} boards (1.8 kept no board creator), over the {BOARDS_PER_PERSON} a person may have: say who owns which, or which boards to remove first",
-            person(name, email),
-            boards.len()
-        )),
-        _ => {}
-    }
-    if let Some((email, name)) = &owner
-        && !unreached.is_empty()
-    {
-        decisions.push(format!(
-            "{} would own boards of {}, which their code doesn't cover: widen their code or name another owner",
-            person(name, email),
-            unreached.into_iter().collect::<Vec<_>>().join(", ")
-        ));
-    }
+    owner_decisions(
+        &owner,
+        &reach,
+        &hosts,
+        "1.8 kept no board creator",
+        decisions,
+    );
     plan["boards"] = Value::Array(boards);
     plan["nested"] = json!(nested);
 
@@ -427,23 +524,7 @@ fn lanes_plan(
     plan["tags"] = Value::Array(tags);
     plan["tagged"] = json!(tagged);
 
-    let members: Vec<Value> = select(cf, account, Q_MEMBERS)?
-        .iter()
-        .map(|r| {
-            json!({
-                "email": text(r, "email"),
-                "name": text(r, "name"),
-                "changes": count(r, "changes"),
-            })
-        })
-        .collect();
-    if !members.is_empty() {
-        decisions.push(format!(
-            "{} changed states that only managers set from 1.9 on: give them manager codes, or leave them reporters",
-            many(members.len() as i64, "member")
-        ));
-    }
-    plan["members"] = Value::Array(members);
+    plan["members"] = members(cf, account, decisions)?;
 
     let mut collisions = Vec::new();
     for row in select(cf, account, Q_COLLIDE)? {
@@ -589,7 +670,54 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     }
     out.push_str(&format!("  pending: {}\n", pending.join(", ")));
 
-    if plan.get("labels").is_some() {
+    if plan.get("statuses").is_some() {
+        let between: Vec<&str> = bundle::MIGRATIONS
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(|name| {
+                pending.first().is_some_and(|f| *name > f.as_str())
+                    && pending.last().is_some_and(|l| *name < l.as_str())
+                    && !pending.iter().any(|p| p == name)
+            })
+            .collect();
+        if !between.is_empty() {
+            out.push_str(&format!(
+                "  with them, {} add tables, columns and indexes only\n",
+                between.join(", ")
+            ));
+        }
+        out.push_str(
+            "\n1.7 states become labels (0004, then 0011): one label per item, its column, and the stage reporters see\n",
+        );
+        for row in list(&plan["statuses"]) {
+            out.push_str(&format!(
+                "  {:<12} -> {:<7} {:<12} {} open, {} in all\n",
+                text(&row, "status"),
+                text(&row, "label"),
+                text(&row, "stage"),
+                count(&row, "open"),
+                count(&row, "items")
+            ));
+        }
+        let owner = match plan["owner"].as_object() {
+            Some(o) => person(
+                o["name"].as_str().unwrap_or_default(),
+                o["email"].as_str().unwrap_or_default(),
+            ),
+            None => "nobody (no live manager code)".into(),
+        };
+        out.push_str(&format!(
+            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first manager owns them; each column holds its cards newest first)\n"
+        ));
+        for row in list(&plan["boards"]) {
+            out.push_str(&format!(
+                "  {}: {}\n",
+                text(&row, "name"),
+                many(count(&row, "items"), "item")
+            ));
+        }
+        render_members(&mut out, plan);
+    } else if plan.get("labels").is_some() {
         out.push_str("\nStates become labels (0011): one label per item, its column\n");
         for row in list(&plan["labels"]) {
             out.push_str(&format!(
@@ -605,7 +733,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
                 o["name"].as_str().unwrap_or_default(),
                 o["email"].as_str().unwrap_or_default(),
             ),
-            None => "nobody (no manager code)".into(),
+            None => "nobody (no live manager code)".into(),
         };
         out.push_str(&format!(
             "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first manager owns them)\n"
@@ -650,18 +778,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
                 many(count(&row, "items"), "item")
             ));
         }
-        let members = list(&plan["members"]);
-        out.push_str("\nMembers who changed states that only managers set from 1.9 on\n");
-        if members.is_empty() {
-            out.push_str("  none\n");
-        }
-        for row in members {
-            out.push_str(&format!(
-                "  {}: {}\n",
-                person(&text(&row, "name"), &text(&row, "email")),
-                many(count(&row, "changes"), "change")
-            ));
-        }
+        render_members(&mut out, plan);
         let collisions = list(&plan["collisions"]);
         out.push_str("\nLabel names\n");
         if collisions.is_empty() {
@@ -764,6 +881,21 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     out
 }
 
+fn render_members(out: &mut String, plan: &Value) {
+    let members = plan["members"].as_array().cloned().unwrap_or_default();
+    out.push_str("\nMembers who changed states that only managers set from 1.9 on\n");
+    if members.is_empty() {
+        out.push_str("  none\n");
+    }
+    for row in members {
+        out.push_str(&format!(
+            "  {}: {}\n",
+            person(&text(&row, "name"), &text(&row, "email")),
+            many(count(&row, "changes"), "change")
+        ));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -791,6 +923,14 @@ mod tests {
         let past: Vec<String> = GATED.iter().map(|g| format!("{g}_x.sql")).collect();
         assert!(gated_pending(&past).is_empty());
         assert_eq!(gated_pending(&[]).len(), GATED.len());
+        let v17: Vec<String> = bundle::MIGRATIONS[..3]
+            .iter()
+            .map(|(n, _)| (*n).to_owned())
+            .collect();
+        assert_eq!(
+            gated_pending(&v17).first().map(String::as_str),
+            Some("0004_boards.sql")
+        );
     }
 
     #[test]
