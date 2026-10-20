@@ -4,7 +4,7 @@ version = "1.7.0"
 authors = ["Gamer Dad"]
 edition = "2024"
 rust-version = "1.97"
-license = "MIT"
+license = "AGPL-3.0-only"
 description = "Issue and feedback reporting for any website, on Cloudflare: a lazy vanilla loader, a Worker, and a CLI and TUI inbox"
 repository = "https://github.com/gmrdad82/p99"
 homepage = "https://pitomd.com"
@@ -14,6 +14,7 @@ publish = false
 base64 = "0.22"
 clap = { version = "4.5", features = ["derive"] }
 hmac = "0.12"
+ring = { version = "0.17", default-features = false }
 pito-tui = { git = "https://github.com/gmrdad82/pito-tui", tag = "v1.0.3" }
 rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "ring"] }
 serde = { version = "1", features = ["derive"] }

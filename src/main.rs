@@ -5,6 +5,7 @@ mod cloudflare;
 mod config;
 mod docs;
 mod import;
+mod license;
 mod setup;
 mod sign;
 mod stream;
@@ -49,6 +50,12 @@ enum Command {
     Deploy(setup::DeployArgs),
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
     Bundle,
+    #[command(
+        about = "store, show or remove this installation's P99 licence key, checked offline",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
+    License(license::Args),
     #[command(flatten)]
     Work(cli::Command),
     #[command(name = "docs-cli", hide = true)]
@@ -72,6 +79,7 @@ fn main() -> ExitCode {
         Command::Setup(args) => setup::setup(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
         Command::Bundle => bundle::run(&p99.global),
+        Command::License(args) => license::run(&args, &p99.global),
         Command::Work(command) => cli::run(command, &p99.global),
         Command::DocsCli => docs::run(),
     };

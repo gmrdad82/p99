@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_account: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
     #[serde(default)]
     pub me: Me,
     #[serde(default)]
@@ -251,17 +253,18 @@ impl Config {
     }
 
     fn has_inline_secret(&self) -> bool {
-        self.accounts.values().any(|a| {
-            [
-                Some(&a.token),
-                Some(&a.key),
-                a.resend_key.as_ref(),
-                a.access_client_secret.as_ref(),
-            ]
-            .into_iter()
-            .flatten()
-            .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
-        })
+        self.license.as_ref().is_some_and(|key| !key.is_empty())
+            || self.accounts.values().any(|a| {
+                [
+                    Some(&a.token),
+                    Some(&a.key),
+                    a.resend_key.as_ref(),
+                    a.access_client_secret.as_ref(),
+                ]
+                .into_iter()
+                .flatten()
+                .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
+            })
     }
 }
 

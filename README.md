@@ -157,10 +157,14 @@ cd worker && npm ci && npm test   # the Worker's tests on a local wrangler dev
 
 ## Contributing
 
-Issues and pull requests are welcome on GitHub. Keep changes small, keep the loader under its budget, and run the gate before you push. By contributing you agree that your contribution is licensed under the MIT licence. Please follow the [code of conduct](CODE_OF_CONDUCT.md); report security issues privately as [SECURITY.md](SECURITY.md) says.
+Issues and pull requests are welcome on GitHub. A pull request is merged only once its author has signed the [Contributor Licence Agreement](CLA.md); [CONTRIBUTING.md](CONTRIBUTING.md) says how, and what a change needs. Keep changes small, keep the loader under its budget, and run the gate before you push. Please follow the [code of conduct](CODE_OF_CONDUCT.md); report security issues privately as [SECURITY.md](SECURITY.md) says.
 
 ## Licence
 
 <img src="assets/marks/lockup.svg#gh-light-mode-only" width="320" alt="P99, issue and feedback reporter"><img src="assets/marks/lockup-dark.svg#gh-dark-mode-only" width="320" alt="P99, issue and feedback reporter">
 
-MIT, © Catalin Ilinca; see [LICENSE](LICENSE). The MIT licence covers the code only: the P99 and PITO MD names and logos are © Catalin Ilinca, all rights reserved ([TRADEMARKS.md](TRADEMARKS.md)). Third-party code and its licence are listed in [NOTICE](NOTICE).
+© 2026 Catalin Ilinca. AGPL-3.0, with a commercial licence for closed or paid use.
+
+P99 is free software under the GNU Affero General Public License, version 3 only ([LICENSE](LICENSE)): use it, study it, change it and share it as that licence allows. Closed or paid use takes a commercial licence instead; `p99 license set` stores its key, which is checked offline ([docs/config.md](docs/config.md#licence-key)). Versions up to 1.7.x were released under the MIT licence and stay under it as published.
+
+The licences cover the code only: the P99 and PITO MD names and logos are © Catalin Ilinca, all rights reserved ([TRADEMARKS.md](TRADEMARKS.md)). Third-party code and its licence are listed in [NOTICE](NOTICE).
