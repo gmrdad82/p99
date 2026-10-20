@@ -18,7 +18,7 @@ src/hooks.rs:50 the --url-ref help names the reference schemes it reads
 src/hooks.rs:132 the --url-ref error names the reference schemes it reads
 src/github.rs:33 the --token-ref help names the reference schemes it reads
 src/vault.rs:86 the reference error names the schemes P99 reads
-worker/test/run.mjs:564 a refused webhook URL with a user part, in the test that guards the allowed hosts
+worker/test/run.mjs:598 a refused webhook URL with a user part, in the test that guards the allowed hosts
 commit/480167dd6fc2:README.md:102 the README line that names password managers taking the authenticator setup, as waived at README.md:104
 commit/a35e973b3e04:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:104
 commit/b02cda9529f5:README.md:102 the README line that names password managers taking the authenticator setup, as waived at README.md:104
@@ -33,3 +33,10 @@ commit/b02cda9529f5:docs/guides/github.md:17 the GitHub guide tells users to kee
 commit/b02cda9529f5:docs/guides/github.md:22 the GitHub guide's example reference, made generic in a later commit
 commit/e19efae18324:docs/hosts.md:61 the hooks docs' example reference, made generic in a later commit
 commit/e19efae18324:docs/hosts.md:68 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
+commit/246369e38b9c:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as waived at docs/guides/github.md:17
+commit/246369e38b9c:docs/guides/github.md:22 the GitHub guide's example reference, made generic in a later commit
+commit/246369e38b9c:docs/hosts.md:61 the hooks docs' example reference, made generic in a later commit
+commit/246369e38b9c:docs/hosts.md:68 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
+docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
+docs/guides/setup.md:87 the setup guide explains secret references for the mail key
+src/email.rs:41 the --key-ref help names the reference schemes it reads

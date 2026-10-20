@@ -81,7 +81,7 @@ p99 setup --yes --name "Ada Lovelace" --email ada@example.com \
 `p99 email set` turns mail on for an account, or changes it, without running setup again:
 
 ```sh
-p99 email set --provider resend --key-ref op://Private/Resend/credential --from "P99 <p99@example.com>"
+p99 email set --provider resend --key-ref op://vault/item/field --from "P99 <p99@example.com>"
 ```
 
 `--key-ref` names where the key lives: `op://vault/item/field` reads it through the 1Password CLI, `env:NAME` from the environment. P99 reads the key, checks with Resend that the sender's domain is verified, puts the key in the Worker as its secret `RESEND_API_KEY` and the sender in the database; the key never touches a file. A key made for sending only can't list domains: P99 then says it couldn't check, saves it anyway, and `p99 email show` keeps that note. `p99 email show` prints the provider, the sender and whether the Worker holds a key (`--json` too), and `p99 email off` turns mail off and removes the key from the Worker. Each takes `--account`.
