@@ -242,12 +242,13 @@ pub enum Msg {
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
     Board(
-        Option<(usize, String)>,
+        Option<(usize, i64)>,
         Result<(usize, deck::BoardView), String>,
     ),
     Shifted(String, Result<deck::Moved, String>),
     Heard(usize, String),
     Boards(Result<Vec<(usize, deck::Boards)>, String>),
+    Labels(Result<Vec<String>, String>),
 }
 
 fn report(

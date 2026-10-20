@@ -1,11 +1,11 @@
-use serde_json::json;
+use std::collections::HashMap;
 
-use crate::wire::{self, BoardCard, CardPerson, Event, Issue, ItemCard, Rollup};
+use crate::wire::{self, Issue, Thread};
 
 use super::super::deck::{
-    Board, BoardView, Boards, COLUMNS, Card, Move, Moved, default_statuses, sort,
+    Board, BoardView, Boards, Card, Column, MOVED, Move, Moved, Person, sort,
 };
-use super::{DAY, Demo, HOUR, ME, MINUTE, NOW, iso};
+use super::{DAY, Demo, HOUR, MINUTE, NOW, iso};
 
 pub(super) const ITEMS: [super::Item; 10] = [
     extra(
@@ -142,404 +142,259 @@ const fn extra(
     }
 }
 
-const SHOP: &str = "shop-example-com";
-const CHECKOUT: &str = "checkout-v2";
-const PAYMENTS: &str = "payments";
-const IMAGES: &str = "image-move";
-
-type Shelved = (
-    &'static str,
-    &'static str,
-    Option<&'static str>,
-    Option<&'static str>,
-    &'static str,
-    f64,
-);
-
-const SHELF: [Shelved; 7] = [
-    (
-        SHOP,
-        "shop.example.com",
-        Some("shop.example.com"),
-        None,
-        "inbox",
-        0.0,
-    ),
-    (
-        "example-com",
-        "example.com",
-        Some("example.com"),
-        None,
-        "inbox",
-        0.0,
-    ),
-    (
-        "dev-example-com",
-        "dev.example.com",
-        Some("dev.example.com"),
-        None,
-        "inbox",
-        0.0,
-    ),
-    (
-        CHECKOUT,
-        "Checkout v2",
-        Some("shop.example.com"),
-        Some(SHOP),
-        "doing",
-        3072.0,
-    ),
-    (
-        PAYMENTS,
-        "Payments",
-        Some("shop.example.com"),
-        Some(CHECKOUT),
-        "doing",
-        2048.0,
-    ),
-    (
-        IMAGES,
-        "Image move",
-        Some("shop.example.com"),
-        Some(SHOP),
-        "review",
-        512.0,
-    ),
-    ("launch", "Spring launch", None, None, "inbox", 0.0),
+const SHOP: [(&str, bool); 4] = [
+    ("Inbox", false),
+    ("Doing", false),
+    ("QA ready", false),
+    ("Done", true),
 ];
 
-const PLACES: [(i64, &str, f64); 22] = [
-    (11, SHOP, 1024.0),
-    (13, SHOP, 2048.0),
-    (5, SHOP, 1024.0),
-    (7, SHOP, 2048.0),
-    (14, SHOP, 1024.0),
-    (3, SHOP, 1024.0),
-    (12, SHOP, 2048.0),
-    (15, CHECKOUT, 1024.0),
-    (16, CHECKOUT, 1024.0),
-    (17, CHECKOUT, 1024.0),
-    (18, CHECKOUT, 1024.0),
-    (19, PAYMENTS, 1024.0),
-    (20, PAYMENTS, 1024.0),
-    (21, PAYMENTS, 1024.0),
-    (6, IMAGES, 1024.0),
-    (22, IMAGES, 1024.0),
-    (1, "example-com", 1024.0),
-    (2, "example-com", 2048.0),
-    (4, "example-com", 3072.0),
-    (10, "example-com", 4096.0),
-    (8, "dev-example-com", 1024.0),
-    (9, "dev-example-com", 2048.0),
-];
+const QA: [(&str, bool); 3] = [("QA ready", false), ("Testing", false), ("Verified", true)];
 
-type Marks = (i64, &'static [(&'static str, &'static str)]);
+const LABELED: [(i64, &str); 2] = [(14, "Testing"), (21, "Verified")];
 
-const MARKS: [Marks; 9] = [
-    (11, &[("cart", "#f7768e")]),
-    (13, &[]),
-    (5, &[("product", "#7dcfff")]),
-    (7, &[("orders", "#e0af68")]),
-    (14, &[("photos", "#bb9af7")]),
-    (15, &[("ipad", "#7aa2f7")]),
-    (16, &[]),
-    (20, &[("cards", "#9ece6a")]),
-    (6, &[("photos", "#bb9af7")]),
-];
+const DIGITS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 pub(super) struct Shelf {
     boards: Vec<Board>,
-    places: Vec<(i64, String, f64)>,
+    orders: HashMap<(i64, String), String>,
+}
+
+fn board(id: i64, name: &str, owner: &str, mine: bool, columns: &[(&str, bool)]) -> Board {
+    Board {
+        id,
+        name: name.into(),
+        owner: Some(Person {
+            username: Some(owner.into()),
+        }),
+        mine,
+        columns: columns
+            .iter()
+            .map(|&(label, closes)| Column {
+                label: label.into(),
+                closes,
+            })
+            .collect(),
+    }
+}
+
+pub(super) fn label_of(issue: &Issue) -> String {
+    LABELED
+        .iter()
+        .find(|(id, _)| *id == issue.id)
+        .map_or_else(|| status_label(&issue.status), |&(_, label)| label)
+        .to_owned()
+}
+
+pub(super) fn status_label(status: &str) -> &'static str {
+    match status {
+        "doing" => "Doing",
+        "review" => "QA ready",
+        "done" => "Done",
+        _ => "Inbox",
+    }
 }
 
 impl Shelf {
-    pub(super) fn new() -> Shelf {
-        Shelf {
-            boards: SHELF
+    pub(super) fn new(threads: &[Thread]) -> Shelf {
+        let mut shelf = Shelf {
+            boards: vec![
+                board(1, "Shop", "ada.lovelace", true, &SHOP),
+                board(2, "QA", "grace.hopper", false, &QA),
+            ],
+            orders: HashMap::new(),
+        };
+        for thread in threads {
+            let issue = &thread.issue;
+            shelf.append(&issue.key, issue.label.as_deref().unwrap_or_default());
+        }
+        shelf
+    }
+
+    fn append(&mut self, key: &str, label: &str) {
+        for board in &self.boards {
+            if board.lane(label).is_none()
+                || self.orders.contains_key(&(board.id, key.to_owned()))
+            {
+                continue;
+            }
+            let last = self
+                .orders
                 .iter()
-                .map(|&(slug, name, host, parent, status, position)| Board {
-                    slug: slug.into(),
-                    name: name.into(),
-                    host: host.map(Into::into),
-                    parent: parent.map(Into::into),
-                    status: status.into(),
-                    position,
-                    home: parent.is_none() && host.is_some(),
-                    rollup: Rollup::default(),
-                })
-                .collect(),
-            places: PLACES
-                .iter()
-                .map(|&(id, slug, position)| (id, slug.to_owned(), position))
-                .collect(),
+                .filter(|((id, _), _)| *id == board.id)
+                .map(|(_, order)| order.as_str())
+                .max()
+                .unwrap_or_default();
+            let order = between(last, None);
+            self.orders.insert((board.id, key.to_owned()), order);
         }
     }
 }
 
-fn card(issue: &Issue, position: f64) -> ItemCard {
-    let marks = MARKS.iter().find(|(id, ..)| *id == issue.id);
-    let reporter = &issue.reporter;
-    ItemCard {
-        key: issue.key.clone(),
-        kind: issue.kind.clone(),
-        title: issue.title.clone(),
-        status: issue.status.clone(),
-        resolution: issue.resolution.clone(),
-        position,
-        assignee: issue.assignee.clone(),
-        reporter: CardPerson {
-            name: reporter["name"].as_str().map(Into::into),
-            agent: reporter["agent"].as_bool().unwrap_or(false),
-        },
-        labels: marks
-            .map(|(_, labels)| {
-                labels
-                    .iter()
-                    .map(|(name, color)| wire::Tag {
-                        name: (*name).to_owned(),
-                        color: (*color).to_owned(),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        board: None,
+fn between(a: &str, b: Option<&str>) -> String {
+    let mut out = Vec::new();
+    midpoint(a.as_bytes(), b.map(str::as_bytes), &mut out);
+    String::from_utf8(out).unwrap_or_default()
+}
+
+fn midpoint(a: &[u8], b: Option<&[u8]>, out: &mut Vec<u8>) {
+    let zero = DIGITS[0];
+    if let Some(b) = b {
+        let mut n = 0;
+        while n < b.len() && a.get(n).copied().unwrap_or(zero) == b[n] {
+            n += 1;
+        }
+        if n > 0 {
+            out.extend_from_slice(&b[..n]);
+            return midpoint(a.get(n..).unwrap_or_default(), Some(&b[n..]), out);
+        }
+    }
+    let digit = |c: u8| DIGITS.iter().position(|&d| d == c).unwrap_or(0);
+    let low = a.first().map_or(0, |&c| digit(c));
+    let high = b.map_or(DIGITS.len(), |b| b.first().map_or(0, |&c| digit(c)));
+    if high - low > 1 {
+        out.push(DIGITS[(low + high).div_ceil(2)]);
+    } else if let Some(b) = b.filter(|b| b.len() > 1) {
+        out.push(b[0]);
+    } else {
+        out.push(DIGITS[low]);
+        midpoint(a.get(1..).unwrap_or_default(), None, out);
     }
 }
 
 impl Demo {
-    fn issue(&self, id: i64) -> Option<&Issue> {
-        self.threads
-            .iter()
-            .map(|t| &t.issue)
-            .find(|issue| issue.id == id)
-    }
-
-    fn subtree(&self, slug: &str) -> Vec<String> {
-        let mut out = vec![slug.to_owned()];
-        let mut at = 0;
-        while at < out.len() {
-            let parent = out[at].clone();
-            out.extend(
-                self.shelf
-                    .boards
-                    .iter()
-                    .filter(|b| b.parent.as_deref() == Some(parent.as_str()))
-                    .map(|b| b.slug.clone()),
-            );
-            at += 1;
-        }
-        out
-    }
-
-    fn rollup(&self, slug: &str) -> Rollup {
-        let slugs = self.subtree(slug);
+    fn find_board(&self, id: i64) -> Result<&Board, String> {
         self.shelf
-            .places
+            .boards
             .iter()
-            .filter(|(_, board, _)| slugs.contains(board))
-            .filter_map(|(id, ..)| self.issue(*id))
-            .fold(Rollup::default(), |sum, issue| Rollup {
-                done: sum.done + i64::from(issue.status == "done"),
-                total: sum.total + 1,
-            })
-    }
-
-    fn rolled(&self, board: &Board) -> Board {
-        Board {
-            rollup: self.rollup(&board.slug),
-            ..board.clone()
-        }
+            .find(|b| b.id == id)
+            .ok_or_else(|| format!("no board is called {id} (404)"))
     }
 
     pub fn boards(&self) -> Boards {
         Boards {
-            statuses: default_statuses(),
-            boards: self.shelf.boards.iter().map(|b| self.rolled(b)).collect(),
+            boards: self.shelf.boards.clone(),
         }
     }
 
-    pub fn board(&self, slug: Option<&str>) -> Result<BoardView, String> {
-        let slug = slug.unwrap_or(SHOP);
-        let board = self
-            .shelf
-            .boards
+    pub fn board(&self, id: Option<i64>) -> Result<BoardView, String> {
+        let board = self.find_board(id.unwrap_or(1))?.clone();
+        let cards = self
+            .threads
             .iter()
-            .find(|b| b.slug == slug)
-            .ok_or_else(|| format!("no board is called {slug}"))?;
-        let mut cards: Vec<Card> = self
-            .shelf
-            .places
-            .iter()
-            .filter(|(_, at, _)| at == slug)
-            .filter_map(|(id, _, position)| {
-                self.issue(*id)
-                    .map(|issue| Card::Item(card(issue, *position)))
+            .map(|t| &t.issue)
+            .filter_map(|issue| {
+                let label = issue.label.clone().unwrap_or_default();
+                board.lane(&label)?;
+                Some(Card {
+                    key: issue.key.clone(),
+                    kind: issue.kind.clone(),
+                    title: issue.title.clone(),
+                    label,
+                    assignee: issue.assignee.as_ref().map(|a| Person {
+                        username: Some(a.username.clone()),
+                    }),
+                    order: self
+                        .shelf
+                        .orders
+                        .get(&(board.id, issue.key.clone()))
+                        .cloned(),
+                })
             })
             .collect();
-        cards.extend(
-            self.shelf
-                .boards
-                .iter()
-                .filter(|b| b.parent.as_deref() == Some(slug))
-                .map(|b| {
-                    Card::Board(BoardCard {
-                        slug: b.slug.clone(),
-                        name: b.name.clone(),
-                        status: b.status.clone(),
-                        position: b.position,
-                        rollup: self.rollup(&b.slug),
-                        parent: None,
-                    })
-                }),
-        );
-        sort(&mut cards);
-        Ok(BoardView {
-            statuses: default_statuses(),
-            board: self.rolled(board),
-            cards,
-        })
+        let mut view = BoardView { board, cards };
+        sort(&mut view);
+        Ok(view)
     }
 
     pub fn shift(&mut self, request: &Move) -> Result<Moved, String> {
-        let to = match &request.to {
-            Some(to) => Some(
-                COLUMNS
-                    .iter()
-                    .find(|key| key.eq_ignore_ascii_case(to))
-                    .ok_or_else(|| format!("{to} is not a status"))?
-                    .to_string(),
-            ),
-            None => None,
-        };
-        let (home, current) = self.whereabouts(&request.target)?;
-        let home = request.board.clone().unwrap_or(home);
-        let column = to.unwrap_or(current);
-        let view = self.board(Some(&home))?;
-        let neighbours: Vec<&Card> = view
-            .cards
+        let mine: Vec<&Board> = self.shelf.boards.iter().filter(|b| b.mine).collect();
+        let closes = mine
             .iter()
-            .filter(|c| c.status() == column && c.id() != request.target)
-            .collect();
-        let find = |id: &Option<String>| {
-            id.as_ref()
-                .and_then(|id| neighbours.iter().position(|c| c.id() == *id))
-        };
-        let gap = |at: usize| {
-            let before = at
-                .checked_sub(1)
-                .and_then(|i| neighbours.get(i))
-                .map(|c| c.position());
-            let after = neighbours.get(at).map(|c| c.position());
-            match (before, after) {
-                (Some(a), Some(b)) => (a + b) / 2.0,
-                (Some(a), None) => a + 1024.0,
-                (None, Some(b)) => b - 1024.0,
-                (None, None) => 1024.0,
-            }
-        };
-        let position = match (find(&request.before), find(&request.after)) {
-            (Some(at), _) => gap(at),
-            (None, Some(at)) => gap(at + 1),
-            _ => gap(0),
-        };
-        let mut changed = Vec::new();
-        if let Some(slug) = request.target.strip_prefix("board:") {
-            let slugs = self.subtree(slug);
-            if slugs.contains(&home) {
-                return Err("a board can't move into itself".into());
-            }
-            if let Some(board) = self.shelf.boards.iter_mut().find(|b| b.slug == slug) {
-                board.status = column.clone();
-                board.position = position;
-                board.parent = Some(home.clone());
-            }
-            let ids: Vec<i64> = self
-                .shelf
-                .places
-                .iter()
-                .filter(|(_, at, _)| slugs.contains(at))
-                .map(|(id, ..)| *id)
-                .collect();
-            for id in ids {
-                if let Some(key) = self.restatus(id, &column) {
-                    changed.push(key);
-                }
-            }
-        } else {
-            let id = wire::item_number(&request.target)
-                .ok_or_else(|| format!("{} is not an item key", request.target))?;
-            if let Some(place) = self.shelf.places.iter_mut().find(|(at, ..)| *at == id) {
-                if place.1 != home {
-                    changed.push(request.target.clone());
-                }
-                place.1 = home.clone();
-                place.2 = position;
-            }
-            if let Some(key) = self.restatus(id, &column)
-                && !changed.contains(&key)
-            {
-                changed.push(key);
+            .flat_map(|b| &b.columns)
+            .find(|c| c.label == request.to)
+            .map(|c| c.closes)
+            .ok_or_else(|| format!("{} is not a label on your boards", request.to))?;
+        if let Some(id) = request.board {
+            let board = self.find_board(id)?;
+            if !board.mine {
+                return Err(format!(
+                    "this board is {}'s; only its owner moves its cards (403)",
+                    board.whose()
+                ));
             }
         }
-        let view = self.board(Some(&home))?;
-        let moved = view
+        let number = wire::item_number(&request.key)
+            .ok_or_else(|| format!("{} is not an item key", request.key))?;
+        let thread = self
+            .threads
+            .iter_mut()
+            .find(|t| t.issue.id == number)
+            .ok_or_else(|| format!("no item is called {}", request.key))?;
+        let issue = &mut thread.issue;
+        if issue.label.as_deref() != Some(request.from.as_str()) {
+            return Err(format!("{MOVED} (409)"));
+        }
+        relabel(issue, &request.to, closes);
+        let key = issue.key.clone();
+        if let Some(id) = request.board {
+            let view = self.board(Some(id))?;
+            let lane: Vec<&Card> = view
+                .cards
+                .iter()
+                .filter(|c| c.label == request.to && c.key != key)
+                .collect();
+            let at = |other: &Option<String>| {
+                other
+                    .as_ref()
+                    .and_then(|o| lane.iter().position(|c| c.key == *o))
+            };
+            let slot = at(&request.before)
+                .or_else(|| at(&request.after).map(|i| i + 1))
+                .unwrap_or(0);
+            let low = slot
+                .checked_sub(1)
+                .and_then(|i| lane.get(i))
+                .and_then(|c| c.order.as_deref())
+                .unwrap_or_default();
+            let order = between(low, lane.get(slot).and_then(|c| c.order.as_deref()));
+            self.shelf.orders.insert((id, key.clone()), order);
+        }
+        self.shelf.append(&key, &request.to);
+        let card = self
+            .board(Some(request.board.unwrap_or(1)))?
             .cards
             .into_iter()
-            .find(|c| c.id() == request.target)
-            .ok_or_else(|| format!("no card is called {}", request.target))?;
-        Ok(Moved { moved, changed })
+            .find(|c| c.key == key)
+            .ok_or_else(|| format!("no card is called {key}"))?;
+        Ok(Moved { card })
     }
 
-    fn whereabouts(&self, target: &str) -> Result<(String, String), String> {
-        if let Some(slug) = target.strip_prefix("board:") {
-            let board = self
-                .shelf
-                .boards
-                .iter()
-                .find(|b| b.slug == slug)
-                .ok_or_else(|| format!("no board is called {slug}"))?;
-            let parent = board
-                .parent
-                .clone()
-                .ok_or_else(|| format!("{slug} is a top board and sits in no column"))?;
-            return Ok((parent, board.status.clone()));
+    pub fn labels(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for column in self.shelf.boards.iter().filter(|b| b.mine).flat_map(|b| &b.columns) {
+            if !out.contains(&column.label) {
+                out.push(column.label.clone());
+            }
         }
-        let id = wire::item_number(target).ok_or_else(|| format!("{target} is not an item key"))?;
-        let issue = self
-            .issue(id)
-            .ok_or_else(|| format!("no item is called {target}"))?;
-        let home = self
-            .shelf
-            .places
-            .iter()
-            .find(|(at, ..)| *at == id)
-            .map(|(_, slug, _)| slug.clone())
-            .ok_or_else(|| format!("{target} is on no board"))?;
-        Ok((home, issue.status.clone()))
+        out
     }
+}
 
-    fn restatus(&mut self, id: i64, column: &str) -> Option<String> {
-        let thread = self.threads.iter_mut().find(|t| t.issue.id == id)?;
-        let issue = &mut thread.issue;
-        if issue.status == column {
-            return None;
-        }
-        let resolution = (column == "done").then(|| "fixed".to_owned());
-        let mut detail = json!({"from": issue.status, "to": column});
-        if let Some(resolution) = &resolution {
-            detail["resolution"] = json!(resolution);
-        }
-        thread.events.push(Event {
-            actor: Some(ME.1.into()),
-            actor_name: Some(ME.0.into()),
-            kind: "status".into(),
-            detail,
-            at: iso(NOW),
-        });
-        issue.closed_at = resolution.as_ref().map(|_| iso(NOW));
-        issue.status = column.to_owned();
-        issue.resolution = resolution;
-        issue.updated_at = iso(NOW);
-        Some(issue.key.clone())
+fn relabel(issue: &mut Issue, label: &str, closes: bool) {
+    issue.label = Some(label.to_owned());
+    issue.status = match (closes, label) {
+        (true, _) => "done",
+        (false, "Inbox") => "inbox",
+        _ => "doing",
     }
+    .to_owned();
+    if closes {
+        issue.resolution.get_or_insert_with(|| "fixed".to_owned());
+        issue.closed_at = Some(iso(NOW));
+    } else {
+        issue.resolution = None;
+        issue.closed_at = None;
+    }
+    issue.updated_at = iso(NOW);
 }

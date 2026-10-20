@@ -8,23 +8,20 @@ use pito_tui::ratatui::{
     Frame,
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::Line,
 };
-use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, progress, text};
+use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, text};
 
 use super::Msg;
-use super::deck::{
-    Board as Shelf, BoardView, Boards, COLUMNS, Card, Patch, StatusEntry, default_statuses, patch,
-    request, sort,
-};
+use super::deck::{BoardView, Boards, Card, MOVED, Patch, patch, request, sort, stale};
 use super::inbox::Inbox;
 use super::source::Source;
 
 const TALL: i32 = 4;
 const PITCH: i32 = 5;
 const SLIDE: Duration = Duration::from_millis(180);
-const LANES: usize = 4;
+const LANES: usize = 5;
 const QUIET: Duration = Duration::from_millis(250);
 
 struct Lift {
@@ -74,19 +71,14 @@ fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
-type Trail = Vec<(String, String)>;
-
-enum Picking {
-    Board(Vec<(usize, Trail)>),
-}
 
 pub struct Board {
     source: Source,
     palette: Palette,
     view: Option<BoardView>,
-    statuses: Vec<StatusEntry>,
     account: usize,
-    path: Vec<(String, String)>,
+    at: Option<i64>,
+    watching: String,
     error: Option<String>,
     stopped: bool,
     reading: bool,
@@ -101,7 +93,7 @@ pub struct Board {
     area: Rect,
     lanes: [Rect; LANES],
     hits: Vec<(String, Rect)>,
-    picking: Option<Picking>,
+    picking: Option<Vec<(usize, i64)>>,
     sending: usize,
     reader: Inbox,
     following: bool,
@@ -117,9 +109,9 @@ impl Board {
             source,
             palette,
             view: None,
-            statuses: default_statuses(),
             account: 0,
-            path: Vec::new(),
+            at: None,
+            watching: String::new(),
             error: None,
             stopped: false,
             reading: false,
@@ -139,10 +131,18 @@ impl Board {
         }
     }
 
-    fn slug(&self) -> Option<(usize, String)> {
-        self.path
-            .last()
-            .map(|(slug, _)| (self.account, slug.clone()))
+    fn slug(&self) -> Option<(usize, i64)> {
+        self.at.map(|id| (self.account, id))
+    }
+
+    fn lanes(&self) -> usize {
+        self.view
+            .as_ref()
+            .map_or(1, |v| v.board.columns.len().clamp(1, LANES))
+    }
+
+    fn mine(&self) -> bool {
+        self.view.as_ref().is_some_and(|v| v.board.mine)
     }
 
     fn lane_ids(&self) -> [Vec<usize>; LANES] {
@@ -152,10 +152,10 @@ impl Board {
         };
         let lifted = self.lift.as_ref().map(|lift| lift.id.as_str());
         for (at, card) in view.cards.iter().enumerate() {
-            if Some(card.id().as_str()) == lifted {
+            if Some(card.key.as_str()) == lifted {
                 continue;
             }
-            if let Some(lane) = COLUMNS.iter().position(|c| *c == card.status()) {
+            if let Some(lane) = view.board.lane(&card.label).filter(|&l| l < LANES) {
                 lanes[lane].push(at);
             }
         }
@@ -176,7 +176,7 @@ impl Board {
         let lanes = self.lane_ids();
         let Some(view) = &self.view else { return };
         for (column, lane) in lanes.iter().enumerate() {
-            if let Some(row) = lane.iter().position(|&at| view.cards[at].id() == id) {
+            if let Some(row) = lane.iter().position(|&at| view.cards[at].key == id) {
                 self.column = column;
                 self.rows[column] = row;
                 self.scroll(column);
@@ -209,7 +209,7 @@ impl Board {
         }
     }
 
-    fn read(&mut self, slug: Option<(usize, String)>, cx: &mut Cx<'_, Msg>) {
+    fn read(&mut self, slug: Option<(usize, i64)>, cx: &mut Cx<'_, Msg>) {
         self.reading = true;
         let source = self.source.clone();
         cx.detach(move || {
@@ -218,15 +218,15 @@ impl Board {
         });
     }
 
-    fn shown(&mut self, slug: Option<(usize, String)>, account: usize, view: BoardView) {
+    fn shown(&mut self, account: usize, mut view: BoardView) {
         let same = self.account == account
             && self
                 .view
                 .as_ref()
-                .is_some_and(|old| old.board.slug == view.board.slug);
+                .is_some_and(|old| old.board.id == view.board.id);
         self.account = account;
         let kept = if same {
-            self.current().map(Card::id)
+            self.current().map(|c| c.key.clone())
         } else {
             None
         };
@@ -235,18 +235,17 @@ impl Board {
             self.rows = [0; LANES];
             self.tops = [0; LANES];
             self.column = 0;
-            if slug.is_none() || self.path.is_empty() {
-                self.path = vec![(view.board.slug.clone(), view.board.name.clone())];
-            }
+            self.lift = None;
+            self.press = None;
         }
-        if !view.statuses.is_empty() {
-            self.statuses = view.statuses.clone();
-        }
+        self.at = Some(view.board.id);
+        self.watching = format!("watching {}", view.board.whose());
+        sort(&mut view);
         self.view = Some(view);
         if let Some(id) = kept {
             self.select(&id);
         } else if !same {
-            self.column = (0..LANES)
+            self.column = (0..self.lanes())
                 .find(|&c| self.card_at(c, 0).is_some())
                 .unwrap_or(0);
         }
@@ -254,35 +253,17 @@ impl Board {
     }
 
     fn name(&self, column: usize) -> String {
-        let key = COLUMNS[column];
-        self.statuses
-            .iter()
-            .find(|s| s.key == key)
-            .map_or_else(|| key.to_owned(), |s| s.name.clone())
+        self.view
+            .as_ref()
+            .and_then(|v| v.board.columns.get(column))
+            .map(|c| c.label.clone())
+            .unwrap_or_default()
     }
 
     fn enter(&mut self, cx: &mut Cx<'_, Msg>) {
-        match self.current() {
-            Some(Card::Board(board)) => {
-                let (slug, name) = (board.slug.clone(), board.name.clone());
-                self.path.push((slug.clone(), name));
-                self.read(Some((self.account, slug)), cx);
-            }
-            Some(Card::Item(item)) => {
-                let key = item.key.clone();
-                let host = self.view.as_ref().and_then(|v| v.board.host.clone());
-                self.reader.open_key(self.account, host, key, cx);
-            }
-            None => {}
+        if let Some(key) = self.current().map(|c| c.key.clone()) {
+            self.reader.open_key(self.account, None, key, cx);
         }
-    }
-
-    fn up(&mut self, cx: &mut Cx<'_, Msg>) {
-        if self.path.len() < 2 {
-            return;
-        }
-        self.path.pop();
-        self.read(self.slug(), cx);
     }
 
     fn reading_thread(&self) -> bool {
@@ -294,7 +275,7 @@ impl Board {
             return;
         };
         let lifted = self.lift.as_ref().map(|l| l.id.clone());
-        let kept = self.current().map(Card::id);
+        let kept = self.current().map(|c| c.key.clone());
         let Some(view) = self.view.as_mut() else {
             return;
         };
@@ -303,10 +284,8 @@ impl Board {
             let gone = self
                 .view
                 .as_ref()
-                .is_none_or(|v| v.cards.iter().all(|c| c.id() != id));
-            let moved = event["key"].as_str() == Some(id.as_str())
-                || event["board"].as_str().map(|b| format!("board:{b}")) == Some(id.clone());
-            if gone || moved {
+                .is_none_or(|v| v.cards.iter().all(|c| c.key != id));
+            if gone || event["key"].as_str() == Some(id.as_str()) {
                 self.lift = None;
                 self.press = None;
             }
@@ -328,7 +307,7 @@ impl Board {
     fn offer(&mut self, all: Vec<(usize, Boards)>, cx: &mut Cx<'_, Msg>) {
         let names = self.source.accounts();
         let many = all.len() > 1;
-        let mut rows: Vec<(usize, Trail, String)> = Vec::new();
+        let mut rows: Vec<(usize, i64, String)> = Vec::new();
         for (account, boards) in &all {
             let lead = if many {
                 names
@@ -338,30 +317,31 @@ impl Board {
             } else {
                 String::new()
             };
-            tree(
-                *account,
-                &boards.boards,
-                None,
-                &lead,
-                &mut Vec::new(),
-                &mut rows,
-            );
+            let mut shelf: Vec<_> = boards.boards.iter().collect();
+            shelf.sort_by_key(|b| (!b.mine, (!b.mine).then(|| b.whose().to_lowercase())));
+            for board in shelf {
+                let label = if board.mine {
+                    format!("{lead}{}", board.name)
+                } else {
+                    format!("{lead}{} · {}", board.whose(), board.name)
+                };
+                rows.push((*account, board.id, label));
+            }
+        }
+        if rows.is_empty() {
+            cx.say("No board yet.", Tone::Muted);
+            return;
         }
         let here = self.slug();
         let at = rows
             .iter()
-            .position(|(account, trail, _)| {
-                here.as_ref().is_some_and(|(a, slug)| {
-                    a == account && trail.last().is_some_and(|(s, _)| s == slug)
-                })
+            .position(|(account, id, _)| {
+                here.as_ref()
+                    .is_some_and(|(a, here)| a == account && here == id)
             })
             .unwrap_or(0);
         let labels: Vec<String> = rows.iter().map(|(_, _, label)| label.clone()).collect();
-        self.picking = Some(Picking::Board(
-            rows.into_iter()
-                .map(|(account, trail, _)| (account, trail))
-                .collect(),
-        ));
+        self.picking = Some(rows.into_iter().map(|(account, id, _)| (account, id)).collect());
         cx.pick(Pick::new("Board", labels).selected(at).hints([
             Hint::new("↑↓", "move"),
             Hint::new("enter", "open"),
@@ -370,7 +350,10 @@ impl Board {
     }
 
     fn lift(&mut self, mouse: Option<Grip>) {
-        let Some(id) = self.current().map(Card::id) else {
+        if !self.mine() {
+            return;
+        }
+        let Some(id) = self.current().map(|c| c.key.clone()) else {
             return;
         };
         let at = (self.column, self.rows[self.column]);
@@ -384,8 +367,9 @@ impl Board {
 
     fn carry(&mut self, column: usize, row: usize) {
         let lanes = self.lane_ids();
+        let last = self.lanes() - 1;
         let Some(lift) = &mut self.lift else { return };
-        let column = column.min(LANES - 1);
+        let column = column.min(last);
         let row = row.min(lanes[column].len());
         lift.to = (column, row);
         self.column = column;
@@ -409,16 +393,27 @@ impl Board {
             self.select(&lift.id);
             return;
         }
+        let Some(at) = view.cards.iter().position(|c| c.key == lift.id) else {
+            return;
+        };
         let lane: Vec<&Card> = lanes[column].iter().map(|&at| &view.cards[at]).collect();
-        let (request, position) = request(&lane, &lift.id, column, row);
-        let to = COLUMNS[column].to_owned();
-        if let Some(card) = view.cards.iter_mut().find(|c| c.id() == lift.id) {
-            card.place(&to, position);
-            if let Card::Item(item) = card {
-                item.resolution = (to == "done").then(|| "fixed".to_owned());
-            }
-        }
-        sort(&mut view.cards);
+        let request = request(&view.board, &lane, &view.cards[at], column, row);
+        let mut card = view.cards.remove(at);
+        card.label = request.to.clone();
+        let find = |key: &Option<String>| {
+            key.as_ref()
+                .and_then(|key| view.cards.iter().position(|c| c.key == *key))
+        };
+        let board = &view.board;
+        let spot = find(&request.before)
+            .or_else(|| find(&request.after).map(|at| at + 1))
+            .unwrap_or_else(|| {
+                view.cards
+                    .iter()
+                    .position(|c| board.lane(&c.label).is_none_or(|l| l > column))
+                    .unwrap_or(view.cards.len())
+            });
+        view.cards.insert(spot, card);
         self.select(&lift.id);
         self.sending += 1;
         let source = self.source.clone();
@@ -433,8 +428,9 @@ impl Board {
     fn lane_of(&self, x: u16) -> usize {
         self.lanes
             .iter()
+            .take(self.lanes())
             .position(|lane| x < lane.x + lane.width + 1)
-            .unwrap_or(LANES - 1)
+            .unwrap_or(self.lanes() - 1)
     }
 
     fn row_in(&self, column: usize, y: i32) -> usize {
@@ -543,8 +539,9 @@ impl Board {
             self.area = area;
         }
         let gap = 1u16;
-        let width = area.width.saturating_sub(gap * (LANES as u16 - 1)) / LANES as u16;
-        for (at, lane) in self.lanes.iter_mut().enumerate() {
+        let count = self.lanes();
+        let width = area.width.saturating_sub(gap * (count as u16 - 1)) / count as u16;
+        for (at, lane) in self.lanes.iter_mut().enumerate().take(count) {
             *lane = Rect::new(
                 area.x + at as u16 * (width + gap),
                 area.y,
@@ -558,7 +555,7 @@ impl Board {
         let lifted = self.lift.as_ref().map(|l| (l.id.clone(), l.to, l.mouse));
         self.hits.clear();
         let mut floating = None;
-        for column in 0..LANES {
+        for column in 0..count {
             self.scroll(column);
             let lane = self.lanes[column];
             let region = Rect::new(lane.x, lane.y + 2, lane.width, region_height);
@@ -613,7 +610,8 @@ impl Board {
                 let Some(card) = self.view.as_ref().map(|v| v.cards[index].clone()) else {
                     continue;
                 };
-                let id = card.id();
+                let done = self.view.as_ref().is_some_and(|v| v.board.closes(&card.label));
+                let id = card.key.clone();
                 let (x, y) = self.place(&id, spot);
                 let (x, y) = (x.round() as i32, y.round() as i32);
                 let selected =
@@ -625,8 +623,7 @@ impl Board {
                     y,
                     region.width,
                     &card,
-                    selected,
-                    false,
+                    (selected, false, done),
                     palette,
                 );
                 if y >= i32::from(region.y) && y + TALL <= i32::from(region.bottom()) {
@@ -639,9 +636,10 @@ impl Board {
             && let Some(card) = self
                 .view
                 .as_ref()
-                .and_then(|v| v.cards.iter().find(|c| c.id() == id))
+                .and_then(|v| v.cards.iter().find(|c| c.key == id))
                 .cloned()
         {
+            let done = self.view.as_ref().is_some_and(|v| v.board.closes(&card.label));
             draw_card(
                 frame.buffer_mut(),
                 area,
@@ -649,8 +647,7 @@ impl Board {
                 y.round() as i32,
                 width,
                 &card,
-                true,
-                true,
+                (true, true, done),
                 palette,
             );
         }
@@ -711,40 +708,6 @@ impl Board {
     }
 }
 
-fn tree(
-    account: usize,
-    boards: &[Shelf],
-    parent: Option<&str>,
-    lead: &str,
-    trail: &mut Trail,
-    rows: &mut Vec<(usize, Trail, String)>,
-) {
-    let mut children: Vec<&Shelf> = boards
-        .iter()
-        .filter(|b| b.parent.as_deref() == parent)
-        .collect();
-    children.sort_by(|a, b| {
-        a.position
-            .total_cmp(&b.position)
-            .then(a.host.is_none().cmp(&b.host.is_none()))
-            .then(a.name.to_lowercase().cmp(&b.name.to_lowercase()))
-    });
-    for child in children {
-        let lead = if trail.is_empty() { lead } else { "" };
-        let label = format!(
-            "{lead}{}{}  {}/{}",
-            "  ".repeat(trail.len()),
-            child.name,
-            child.rollup.done,
-            child.rollup.total
-        );
-        trail.push((child.slug.clone(), child.name.clone()));
-        rows.push((account, trail.clone(), label));
-        tree(account, boards, Some(&child.slug), "", trail, rows);
-        trail.pop();
-    }
-}
-
 fn put(buf: &mut Buffer, clip: Rect, x: i32, y: i32, text: &str, room: usize, style: Style) -> i32 {
     if y < i32::from(clip.y) || y >= i32::from(clip.bottom()) || x < i32::from(clip.x) {
         return x + text::cells(text).min(room) as i32;
@@ -781,12 +744,6 @@ const ROUND: Edges = Edges {
     top: ["╭", "─", "╮"],
     side: "│",
     bottom: ["╰", "─", "╯"],
-};
-
-const HEAVY: Edges = Edges {
-    top: ["┏", "━", "┓"],
-    side: "┃",
-    bottom: ["┗", "━", "┛"],
 };
 
 const HELD: Edges = Edges {
@@ -834,7 +791,6 @@ fn edge(
     put(buf, clip, x + width as i32 - 1, y, ends[2], 1, style);
 }
 
-#[allow(clippy::too_many_arguments)]
 fn draw_card(
     buf: &mut Buffer,
     clip: Rect,
@@ -842,8 +798,7 @@ fn draw_card(
     y: i32,
     width: u16,
     card: &Card,
-    selected: bool,
-    held: bool,
+    (selected, held, done): (bool, bool, bool),
     palette: &Palette,
 ) {
     let w = usize::from(width);
@@ -851,12 +806,10 @@ fn draw_card(
         return;
     }
     let inner = w - 4;
-    let (edges, frame) = match (card, held, selected) {
-        (_, true, _) => (&HELD, palette.accent.add_modifier(Modifier::BOLD)),
-        (Card::Board(_), false, true) => (&HEAVY, palette.accent),
-        (Card::Board(_), false, false) => (&HEAVY, palette.strong),
-        (Card::Item(_), false, true) => (&ROUND, palette.accent),
-        (Card::Item(_), false, false) => (&ROUND, palette.rule),
+    let (edges, frame) = match (held, selected) {
+        (true, _) => (&HELD, palette.accent.add_modifier(Modifier::BOLD)),
+        (false, true) => (&ROUND, palette.accent),
+        (false, false) => (&ROUND, palette.rule),
     };
     let area = clip.intersection(Rect::new(
         x.max(0) as u16,
@@ -880,121 +833,47 @@ fn draw_card(
         );
         put(buf, clip, x + w as i32 - 1, y + row, edges.side, 1, frame);
     }
-    match card {
-        Card::Item(item) => {
-            let done = item.status == "done";
-            let head = vec![(
-                format!(" {} ", item.key),
-                key_style(palette, selected || held),
-            )];
-            edge(buf, clip, x, y, w, edges.top, &head, &[], frame);
-            let title = if done && item.resolution.as_deref() != Some("fixed") {
-                palette.muted
-            } else if selected || held {
-                palette.selected
-            } else {
-                palette.ink
-            };
-            let lines = text::wrap(&item.title, inner);
-            let first = lines.first().cloned().unwrap_or_default();
-            let rest = lines.get(1..).map(|r| r.join(" ")).unwrap_or_default();
-            put(buf, clip, x + 2, y + 1, &first, inner, title);
-            put(
-                buf,
-                clip,
-                x + 2,
-                y + 2,
-                &text::clip(&rest, inner),
-                inner,
-                title,
-            );
-            let mut chips = Vec::new();
-            for (name, color) in item
-                .labels
-                .iter()
-                .map(|t| (t.name.as_str(), t.color.as_str()))
-            {
-                if !chips.is_empty() {
-                    chips.push((" ".to_owned(), frame));
-                }
-                chips.push((format!(" ●{name} "), chip(palette, color)));
-            }
-            if let Some(word) = item.resolution.as_deref().filter(|r| *r != "fixed") {
-                let word = if word == "abandoned" { "dropped" } else { word };
-                if !chips.is_empty() {
-                    chips.push((" ".to_owned(), frame));
-                }
-                chips.push((format!(" {word} "), palette.muted));
-            }
-            let mut tail = Vec::new();
-            if let Some(who) = &item.assignee {
-                tail.push((format!(" {who} "), palette.muted));
-            }
-            fit_chips(&mut chips, &tail, inner);
-            edge(
-                buf,
-                clip,
-                x,
-                y + TALL - 1,
-                w,
-                edges.bottom,
-                &chips,
-                &tail,
-                frame,
-            );
-        }
-        Card::Board(board) => {
-            let name = text::clip(&board.name, inner.saturating_sub(4));
-            let head = vec![
-                (" ◫ ".to_owned(), frame),
-                (
-                    format!("{name} "),
-                    palette.strong.add_modifier(Modifier::BOLD),
-                ),
-            ];
-            edge(buf, clip, x, y, w, edges.top, &head, &[], frame);
-            let rollup = board.rollup;
-            let count = format!("{}/{}", rollup.done, rollup.total);
-            let fraction = if rollup.total > 0 {
-                rollup.done as f64 / rollup.total as f64
-            } else {
-                0.0
-            };
-            let cells = inner.saturating_sub(text::cells(&count) + 1);
-            let at = put(
-                buf,
-                clip,
-                x + 2,
-                y + 1,
-                &progress::bar(fraction, cells),
-                cells,
-                palette.good,
-            );
-            put(buf, clip, at + 1, y + 1, &count, inner, palette.strong);
-            let open = rollup.total - rollup.done;
-            let note = match (rollup.total, open) {
-                (0, _) => "board · empty".to_owned(),
-                (_, 0) => "board · all done".to_owned(),
-                (_, open) => format!("board · {open} open"),
-            };
-            put(buf, clip, x + 2, y + 2, &note, inner, palette.muted);
-            edge(buf, clip, x, y + TALL - 1, w, edges.bottom, &[], &[], frame);
-        }
+    let head = vec![(
+        format!(" {} ", card.key),
+        key_style(palette, selected || held),
+    )];
+    edge(buf, clip, x, y, w, edges.top, &head, &[], frame);
+    let title = if done && !(selected || held) {
+        palette.muted
+    } else if selected || held {
+        palette.selected
+    } else {
+        palette.ink
+    };
+    let lines = text::wrap(&card.title, inner);
+    let first = lines.first().cloned().unwrap_or_default();
+    let rest = lines.get(1..).map(|r| r.join(" ")).unwrap_or_default();
+    put(buf, clip, x + 2, y + 1, &first, inner, title);
+    put(
+        buf,
+        clip,
+        x + 2,
+        y + 2,
+        &text::clip(&rest, inner),
+        inner,
+        title,
+    );
+    let mut tail = Vec::new();
+    if let Some(who) = card.assignee.as_ref().filter(|p| p.username.is_some()) {
+        let who = text::clip(&who.handle(), inner.saturating_sub(2));
+        tail.push((format!(" {who} "), palette.muted));
     }
-}
-
-fn fit_chips(chips: &mut Vec<(String, Style)>, tail: &[(String, Style)], inner: usize) {
-    let room = inner.saturating_sub(tail.iter().map(|(t, _)| text::cells(t)).sum::<usize>() + 1);
-    let mut used = 0;
-    let mut keep = 0;
-    for (at, (part, _)) in chips.iter().enumerate() {
-        used += text::cells(part);
-        if used > room {
-            break;
-        }
-        keep = at + 1;
-    }
-    chips.truncate(keep);
+    edge(
+        buf,
+        clip,
+        x,
+        y + TALL - 1,
+        w,
+        edges.bottom,
+        &[],
+        &tail,
+        frame,
+    );
 }
 
 fn key_style(palette: &Palette, lit: bool) -> Style {
@@ -1003,26 +882,6 @@ fn key_style(palette: &Palette, lit: bool) -> Style {
     } else {
         palette.strong
     }
-}
-
-fn chip(palette: &Palette, color: &str) -> Style {
-    match rgb(color) {
-        Some(color) if palette.accent.fg.is_some() => Style::new().fg(color),
-        _ => palette.ink,
-    }
-}
-
-fn rgb(color: &str) -> Option<Color> {
-    let hex = color.strip_prefix('#')?;
-    if hex.len() != 6 {
-        return None;
-    }
-    let value = u32::from_str_radix(hex, 16).ok()?;
-    Some(Color::Rgb(
-        (value >> 16) as u8,
-        (value >> 8) as u8,
-        value as u8,
-    ))
 }
 
 impl Screen<Msg> for Board {
@@ -1087,7 +946,7 @@ impl Screen<Msg> for Board {
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Board(slug, result) => {
-                if slug.is_some() && slug != self.slug() {
+                if slug.is_some() && self.at.is_some() && slug != self.slug() {
                     return;
                 }
                 self.reading = false;
@@ -1096,7 +955,7 @@ impl Screen<Msg> for Board {
                     self.source.follow(&cx.waker());
                 }
                 match result {
-                    Ok((account, view)) => self.shown(slug, account, view),
+                    Ok((account, view)) => self.shown(account, view),
                     Err(error) if self.view.is_some() => cx.say(error, Tone::Alert),
                     Err(error) => self.error = Some(error),
                 }
@@ -1105,13 +964,25 @@ impl Screen<Msg> for Board {
                 self.sending = self.sending.saturating_sub(1);
                 match result {
                     Ok(moved) => {
+                        let kept = self.current().map(|c| c.key.clone());
                         if let Some(view) = &mut self.view
-                            && let Some(card) = view.cards.iter_mut().find(|c| c.id() == id)
+                            && let Some(at) = view.cards.iter().position(|c| c.key == id)
                         {
-                            *card = moved.moved;
-                            sort(&mut view.cards);
+                            if view.board.lane(&moved.card.label).is_some() {
+                                view.cards[at] = moved.card;
+                            } else {
+                                view.cards.remove(at);
+                            }
+                            sort(view);
+                        }
+                        if let Some(key) = kept.filter(|_| self.lift.is_none()) {
+                            self.select(&key);
                         }
                         self.clamp();
+                    }
+                    Err(error) if stale(&error) => {
+                        cx.say(MOVED, Tone::Alert);
+                        self.read(self.slug(), cx);
                     }
                     Err(error) => {
                         cx.say(error, Tone::Alert);
@@ -1129,7 +1000,7 @@ impl Screen<Msg> for Board {
                 if result.is_ok()
                     && let Some(view) = &mut self.view
                 {
-                    view.cards.retain(|c| c.id() != key);
+                    view.cards.retain(|c| c.key != key);
                     self.clamp();
                 }
                 self.reader.event(Msg::Deleted(key, result), cx);
@@ -1143,7 +1014,11 @@ impl Screen<Msg> for Board {
                 }
                 self.reader.event(Msg::Changed(key, result), cx);
             }
-            event @ (Msg::Thread(..) | Msg::Commented(..) | Msg::Inbox(_) | Msg::Pushed(..))
+            event @ (Msg::Thread(..)
+            | Msg::Commented(..)
+            | Msg::Inbox(_)
+            | Msg::Pushed(..)
+            | Msg::Labels(_))
                 if self.reading_thread() =>
             {
                 self.reader.event(event, cx);
@@ -1199,7 +1074,7 @@ impl Screen<Msg> for Board {
                 self.clamp();
             }
             KeyCode::Right | KeyCode::Char('l') => {
-                self.column = (column + 1).min(LANES - 1);
+                self.column = (column + 1).min(self.lanes() - 1);
                 self.clamp();
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -1220,7 +1095,6 @@ impl Screen<Msg> for Board {
             }
             KeyCode::Char(' ') => self.lift(None),
             KeyCode::Enter => self.enter(cx),
-            KeyCode::Backspace => self.up(cx),
             KeyCode::Char('b') => self.pick_board(cx),
             KeyCode::Char('r') => self.read(self.slug(), cx),
             _ => {}
@@ -1238,17 +1112,15 @@ impl Screen<Msg> for Board {
             self.reader.picked(choice, cx);
             return;
         }
-        let (Some(Picking::Board(rows)), Some(choice)) = (self.picking.take(), choice) else {
+        let (Some(rows), Some(choice)) = (self.picking.take(), choice) else {
             return;
         };
-        let Some((account, trail)) = rows.into_iter().nth(choice) else {
+        let Some((account, id)) = rows.into_iter().nth(choice) else {
             return;
         };
-        let Some((slug, _)) = trail.last().cloned() else {
-            return;
-        };
-        self.path = trail;
-        self.read(Some((account, slug)), cx);
+        self.account = account;
+        self.at = Some(id);
+        self.read(Some((account, id)), cx);
     }
 
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -1257,20 +1129,11 @@ impl Screen<Msg> for Board {
             if self.stale.is_some() {
                 self.stale = Some(self.moment);
             }
-            return;
         }
-        self.up(cx);
     }
 
     fn crumb(&self) -> Option<String> {
-        let parts: Vec<String> = self
-            .path
-            .iter()
-            .skip(1)
-            .map(|(_, name)| name.clone())
-            .chain(self.reader.crumb())
-            .collect();
-        (!parts.is_empty()).then(|| parts.join(" / "))
+        self.reader.crumb()
     }
 
     fn typing(&self) -> bool {
@@ -1314,52 +1177,42 @@ impl Screen<Msg> for Board {
                 Hint::new("esc", "put back"),
             ];
         }
-        let open = match self.current() {
-            Some(Card::Board(_)) => "open board",
-            _ => "open",
-        };
-        let mut hints = vec![
-            Hint::new("←→↑↓", "move"),
-            Hint::new("space", "pick up").rank(1),
-            Hint::new("enter", open).rank(1),
-            Hint::new("b", "boards").rank(2),
-        ];
-        if self.path.len() > 1 {
-            hints.push(Hint::new("⌫", "up").rank(1));
+        let mut hints = vec![Hint::new("←→↑↓", "move")];
+        if self.mine() {
+            hints.push(Hint::new("space", "pick up").rank(1));
+        } else {
+            hints.push(Hint::new(&self.watching, ""));
         }
+        hints.push(Hint::new("enter", "open").rank(1));
+        hints.push(Hint::new("b", "boards").rank(2));
         hints.push(Hint::new("r", "read again").rank(3));
         hints
     }
 
     fn status(&self) -> Option<(String, Style)> {
-        let home = self.path.first().map(|(_, name)| name.clone())?;
-        Some((home, self.palette.accent))
+        let view = self.view.as_ref()?;
+        Some((view.board.name.clone(), self.palette.accent))
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
         let Some(view) = &self.view else {
             return Vec::new();
         };
-        let items = view
+        let items = view.cards.len();
+        let done = view
             .cards
             .iter()
-            .filter(|c| matches!(c, Card::Item(_)))
+            .filter(|c| view.board.closes(&c.label))
             .count();
-        let boards = view.cards.len() - items;
-        let rollup = view.board.rollup;
         let mut facts = vec![(view.board.name.clone(), self.palette.strong)];
+        if !view.board.mine {
+            facts.push((view.board.whose(), self.palette.accent));
+        }
         facts.push((
-            format!(
-                "{items} {} · {boards} {}",
-                if items == 1 { "item" } else { "items" },
-                if boards == 1 { "board" } else { "boards" }
-            ),
+            format!("{items} {}", if items == 1 { "item" } else { "items" }),
             Style::new(),
         ));
-        facts.push((
-            format!("{}/{} done", rollup.done, rollup.total),
-            self.palette.good,
-        ));
+        facts.push((format!("{done}/{items} done"), self.palette.good));
         if self.sending > 0 {
             facts.push(("saving…".to_owned(), self.palette.muted));
         } else if self.reading {

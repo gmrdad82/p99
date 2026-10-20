@@ -4,27 +4,26 @@ use std::time::Duration;
 use pito_tui::clock::{self, Units};
 use pito_tui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use pito_tui::footer::{Edit, Hint, Input, InputBar, Tone};
-use pito_tui::list::{Cell, Column, Part, Row};
+use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span},
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
-use crate::wire::{
-    self, Change, Issue, LabelEdit, Tag, Thread, kind_word, status_text, status_word,
-};
+use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, status_text, status_word};
 
 use super::Msg;
-use super::source::{Entry, Source, hits, merged_hosts, merged_tags, person, unix, words};
+use super::deck::Move;
+use super::source::{Entry, Source, hits, merged_hosts, person, unix, words};
 
 const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
     Column::new("Key", 6, 8).pinned(),
     Column::new("Kind", 4, 11).priority(2),
-    Column::new("Status", 6, 11).pinned(),
+    Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Host", 10, 17).priority(1),
     Column::new("Reporter", 10, 22).priority(2),
@@ -35,7 +34,7 @@ const COLUMNS_ONE: [Column; 7] = [
     Column::new("", 1, 1).pinned(),
     Column::new("Key", 6, 8).pinned(),
     Column::new("Kind", 4, 11).priority(2),
-    Column::new("Status", 6, 11).pinned(),
+    Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Reporter", 10, 22).priority(1),
     Column::new("Updated", 4, 7).right().pinned(),
@@ -67,14 +66,14 @@ impl Shown {
         match self {
             Shown::Open => "open",
             Shown::Closed => "closed",
-            Shown::Any => "any status",
+            Shown::Any => "open or closed",
         }
     }
 
-    fn keeps(self, status: &str) -> bool {
+    fn keeps(self, closed: bool) -> bool {
         match self {
-            Shown::Open => wire::open(status),
-            Shown::Closed => !wire::open(status),
+            Shown::Open => !closed,
+            Shown::Closed => closed,
             Shown::Any => true,
         }
     }
@@ -84,21 +83,19 @@ enum Picking {
     Host,
     Status,
     Assign(Vec<Option<String>>),
-    Tagged,
-    Label(Vec<String>),
+    Move(Vec<String>),
 }
 
 enum Typing {
     Reply(Input),
     Duplicate(Input),
-    Label(Input),
     Delete(Input, String),
 }
 
 #[derive(Clone, Copy)]
 enum Asked {
     Status,
-    Labels,
+    Label,
 }
 
 struct Open {
@@ -127,8 +124,6 @@ pub struct Inbox {
     hosts: Vec<String>,
     host: Option<String>,
     shown: Shown,
-    tagged: Option<String>,
-    tags: Vec<String>,
     counts: (usize, usize),
     now: i64,
     picking: Option<Picking>,
@@ -154,8 +149,6 @@ impl Inbox {
                 .hint("enter keeps the filter · esc clears it"),
             host: None,
             shown: Shown::Open,
-            tagged: None,
-            tags: Vec::new(),
             counts: (0, 0),
             picking: None,
             open: None,
@@ -218,14 +211,12 @@ impl Inbox {
         let mut filter = std::mem::replace(&mut self.filter, Filter::new(""));
         let host = self.host.clone();
         let shown = self.shown;
-        let tagged = self.tagged.as_deref();
         let palette = &self.palette;
         let this = &*self;
         let keeps = |entry: &Entry, _: &str| {
             let item = &entry.summary;
-            shown.keeps(&item.status)
+            shown.keeps(closed(item.resolution.as_deref(), &item.status))
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
-                && tagged.is_none_or(|t| item.labels.iter().any(|l| l.name.eq_ignore_ascii_case(t)))
                 && hits(&entry.haystack, &words)
         };
         let all_hosts = self.host.is_none();
@@ -236,9 +227,8 @@ impl Inbox {
                 Cell::new(mark).style(palette.accent),
                 Cell::new(item.key.as_str()).style(palette.strong),
                 Cell::new(kind_word(&item.kind)).faint(),
-                Cell::new(status_text(&item.status, item.resolution.as_deref()))
-                    .style(status_style(palette, &item.status)),
-                titled(palette, &item.title, &item.labels),
+                Cell::new(label_text(item)).style(label_style(palette, item)),
+                Cell::new(item.title.as_str()),
             ];
             if all_hosts {
                 let tone = if production(&item.env) {
@@ -286,7 +276,7 @@ impl Inbox {
         summary.comments = issue.comments;
         summary.unread = false;
         summary.landing = issue.landing.clone();
-        summary.labels = issue.labels.clone();
+        summary.label = issue.label.clone();
         entry.refold();
     }
 
@@ -357,11 +347,7 @@ impl Inbox {
     fn change(&mut self, change: Change, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
-        open.asked = if change.labels.is_some() {
-            Asked::Labels
-        } else {
-            Asked::Status
-        };
+        open.asked = Asked::Status;
         let (source, key, account, host) = (
             self.source.clone(),
             open.key.clone(),
@@ -370,6 +356,32 @@ impl Inbox {
         );
         cx.detach(move || {
             let result = source.change(account, host.as_deref(), &key, &change);
+            Msg::Changed(key, result)
+        });
+    }
+
+    fn relabel(&mut self, to: String, cx: &mut Cx<'_, Msg>) {
+        let Some(issue) = self.issue() else { return };
+        let request = Move {
+            key: issue.key.clone(),
+            from: issue_label(issue),
+            to,
+            ..Move::default()
+        };
+        let Some(open) = &mut self.open else { return };
+        open.sending = true;
+        open.asked = Asked::Label;
+        let (source, key, account, host) = (
+            self.source.clone(),
+            open.key.clone(),
+            open.account,
+            open.host.clone(),
+        );
+        cx.detach(move || {
+            let result = source
+                .shift(account, &request)
+                .and_then(|_| source.thread(account, host.as_deref(), &key))
+                .map(|thread| thread.issue);
             Msg::Changed(key, result)
         });
     }
@@ -512,45 +524,26 @@ impl Inbox {
         );
     }
 
-    fn pick_tagged(&mut self, cx: &mut Cx<'_, Msg>) {
-        if self.tags.is_empty() {
-            cx.say("No item has a label yet.", Tone::Muted);
+    fn pick_label(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
-        }
-        let mut options = vec!["Any label".to_owned()];
-        options.extend(self.tags.iter().cloned());
-        let at = self
-            .tagged
-            .as_ref()
-            .and_then(|t| self.tags.iter().position(|x| x == t))
-            .map_or(0, |at| at + 1);
-        self.picking = Some(Picking::Tagged);
-        cx.pick(Pick::new("Label", options).selected(at).hints(pick_hints()));
+        };
+        let source = self.source.clone();
+        cx.detach(move || Msg::Labels(source.labels(account)));
     }
 
-    fn pick_label(&mut self, cx: &mut Cx<'_, Msg>) {
+    fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {
         let Some(issue) = self.issue() else { return };
-        let mut names: Vec<String> = issue.labels.iter().map(|t| t.name.clone()).collect();
-        for tag in &self.tags {
-            if !names.iter().any(|n| n.eq_ignore_ascii_case(tag)) {
-                names.push(tag.clone());
-            }
+        if labels.is_empty() {
+            cx.say("No board of yours has a label yet.", Tone::Muted);
+            return;
         }
-        names.sort_by_key(|n| n.to_lowercase());
-        let mut options: Vec<String> = names
+        let at = labels
             .iter()
-            .map(|n| {
-                let on = issue.labels.iter().any(|t| t.name.eq_ignore_ascii_case(n));
-                format!("{} {n}", if on { "✓" } else { " " })
-            })
-            .collect();
-        options.push("+ New label…".to_owned());
-        self.picking = Some(Picking::Label(names));
-        cx.pick(Pick::new("Labels", options).hints([
-            Hint::new("↑↓", "move"),
-            Hint::new("enter", "add or take off"),
-            Hint::new("esc", "cancel"),
-        ]));
+            .position(|l| *l == issue_label(issue))
+            .unwrap_or(0);
+        self.picking = Some(Picking::Move(labels.clone()));
+        cx.pick(Pick::new("Move to", labels).selected(at).hints(pick_hints()));
     }
 
     fn issue(&self) -> Option<&Issue> {
@@ -585,16 +578,12 @@ impl Inbox {
         let Some(open) = &mut self.open else { return };
         if let Some(typing) = &mut open.typing {
             let input = match typing {
-                Typing::Reply(input)
-                | Typing::Duplicate(input)
-                | Typing::Label(input)
-                | Typing::Delete(input, _) => input,
+                Typing::Reply(input) | Typing::Duplicate(input) | Typing::Delete(input, _) => input,
             };
             match input.key(key.into()) {
                 Edit::Submit(value) => {
                     let value = value.trim().to_owned();
                     let reply = matches!(typing, Typing::Reply(_));
-                    let label = matches!(typing, Typing::Label(_));
                     let delete = matches!(typing, Typing::Delete(..));
                     open.typing = None;
                     if value.is_empty() {
@@ -611,17 +600,6 @@ impl Inbox {
                         }
                     } else if reply {
                         self.reply(value, cx);
-                    } else if label {
-                        self.change(
-                            Change {
-                                labels: Some(LabelEdit {
-                                    add: vec![value],
-                                    remove: Vec::new(),
-                                }),
-                                ..Change::default()
-                            },
-                            cx,
-                        );
                     } else {
                         let of = value.to_uppercase();
                         self.change(
@@ -656,7 +634,7 @@ impl Inbox {
             KeyCode::Char('r') if ready => open.typing = Some(Typing::Reply(Input::new())),
             KeyCode::Char('s') if ready => self.pick_status(cx),
             KeyCode::Char('a') if ready => self.pick_assignee(cx),
-            KeyCode::Char('l') if ready => self.pick_label(cx),
+            KeyCode::Char('m') if ready => self.pick_label(cx),
             KeyCode::Char('o') => self.browse(cx),
             KeyCode::Char('d') if ready => {
                 let prompt = format!("type {} to delete it", open.key);
@@ -727,23 +705,31 @@ fn pick_hints() -> [Hint<'static>; 3] {
     ]
 }
 
-fn tag_style(palette: &Palette, color: &str) -> Style {
-    match wire::rgb(color) {
-        Some((r, g, b)) if !palette.mono => Style::new().fg(Color::Rgb(r, g, b)),
-        _ => palette.ink,
-    }
+fn closed(resolution: Option<&str>, status: &str) -> bool {
+    resolution.is_some() || (!status.is_empty() && !wire::open(status))
 }
 
-fn titled(palette: &Palette, title: &str, labels: &[Tag]) -> Cell {
-    if labels.is_empty() {
-        return Cell::new(title);
+fn label_text(item: &Summary) -> &str {
+    item.label
+        .as_deref()
+        .unwrap_or_else(|| status_text(&item.status, item.resolution.as_deref()))
+}
+
+fn issue_label(issue: &Issue) -> String {
+    issue
+        .label
+        .clone()
+        .unwrap_or_else(|| status_word(&issue.status).to_owned())
+}
+
+fn label_style(palette: &Palette, item: &Summary) -> Style {
+    if closed(item.resolution.as_deref(), &item.status) {
+        palette.good
+    } else if label_text(item) == "Inbox" {
+        palette.accent
+    } else {
+        palette.strong
     }
-    let mut parts = Vec::with_capacity(labels.len() + 1);
-    parts.push(Part::new(title));
-    for tag in labels {
-        parts.push(Part::new(format!("  ●{}", tag.name)).style(tag_style(palette, &tag.color)));
-    }
-    Cell::parts(parts)
 }
 
 fn status_style(palette: &Palette, status: &str) -> Style {
@@ -799,10 +785,21 @@ fn lines(
         Span::styled(kind_word(&issue.kind).to_owned(), palette.ink),
         dot(),
         Span::styled(
-            status_text(&issue.status, issue.resolution.as_deref()).to_owned(),
+            match &issue.label {
+                Some(label) => label.clone(),
+                None => status_text(&issue.status, issue.resolution.as_deref()).to_owned(),
+            },
             status_style(palette, &issue.status),
         ),
     ];
+    if let (Some(_), Some(resolution)) = (&issue.label, issue.resolution.as_deref())
+        && resolution != "fixed"
+    {
+        facts.push(Span::styled(
+            format!(" ({})", wire::resolution_word(resolution).to_lowercase()),
+            palette.muted,
+        ));
+    }
     if let Some(of) = &issue.duplicate_of {
         facts.push(Span::styled(format!(", merged into {of}"), palette.muted));
     }
@@ -821,16 +818,6 @@ fn lines(
         }
     }
     out.push(Line::from(facts));
-    if !issue.labels.is_empty() {
-        let mut chips = vec![Span::styled("Labels ", palette.muted)];
-        for tag in &issue.labels {
-            chips.push(Span::styled(
-                format!(" ●{}", tag.name),
-                tag_style(palette, &tag.color),
-            ));
-        }
-        out.push(Line::from(chips));
-    }
     out.push(Line::from(vec![
         Span::styled(issue.page.path.clone(), palette.ink),
         dot(),
@@ -1058,7 +1045,6 @@ impl Screen<Msg> for Inbox {
                             .and_then(|at| self.entries.as_ref()?.get(at))
                             .map(|e| (e.account, e.summary.key.clone()));
                         self.hosts = merged_hosts(self.source.hosts(), &entries);
-                        self.tags = merged_tags(&entries);
                         self.now = self.source.now();
                         if let Some(open) = &mut self.open {
                             open.entry = entries.iter().position(|e| {
@@ -1081,6 +1067,8 @@ impl Screen<Msg> for Inbox {
                 }
             }
             Msg::Pushed(account, key) => self.pushed(account, key, cx),
+            Msg::Labels(Ok(labels)) => self.offer_labels(labels, cx),
+            Msg::Labels(Err(error)) => cx.say(error, Tone::Alert),
             Msg::Heard(account, text) => self.heard(account, &text, cx),
             Msg::Deleted(key, result) => {
                 let Some(open) = self.open.as_mut().filter(|o| o.key == key) else {
@@ -1161,22 +1149,9 @@ impl Screen<Msg> for Inbox {
                                         .to_lowercase()
                                 )
                             }
-                            Asked::Labels if issue.labels.is_empty() => {
-                                format!("{key} has no labels")
-                            }
-                            Asked::Labels => {
-                                format!("{key} labels: {}", crate::labels::tags(&issue.labels))
-                            }
+                            Asked::Label => format!("{key} moved to {}", issue_label(&issue)),
                         };
                         cx.say(said, Tone::Good);
-                        if let Some(tag) = issue
-                            .labels
-                            .iter()
-                            .find(|t| !self.tags.iter().any(|n| n.eq_ignore_ascii_case(&t.name)))
-                        {
-                            self.tags.push(tag.name.clone());
-                            self.tags.sort_by_key(|n| n.to_lowercase());
-                        }
                         self.summary_from(at, &issue);
                         self.sift();
                         self.read_thread(cx);
@@ -1209,7 +1184,6 @@ impl Screen<Msg> for Inbox {
                     self.sift();
                 }
                 KeyCode::Char('h') => self.pick_host(cx),
-                KeyCode::Char('l') => self.pick_tagged(cx),
                 _ => {}
             },
             _ => {}
@@ -1252,40 +1226,14 @@ impl Screen<Msg> for Inbox {
                     cx,
                 );
             }
-            Picking::Tagged => {
-                self.tagged = choice
-                    .checked_sub(1)
-                    .and_then(|at| self.tags.get(at).cloned());
-                self.sift();
-            }
-            Picking::Label(names) => {
-                let Some(name) = names.get(choice).cloned() else {
-                    if let Some(open) = &mut self.open {
-                        open.typing = Some(Typing::Label(Input::new()));
-                    }
+            Picking::Move(labels) => {
+                let Some(to) = labels.get(choice).cloned() else {
                     return;
                 };
-                let on = self
-                    .issue()
-                    .is_some_and(|i| i.labels.iter().any(|t| t.name.eq_ignore_ascii_case(&name)));
-                let edit = if on {
-                    LabelEdit {
-                        add: Vec::new(),
-                        remove: vec![name],
-                    }
-                } else {
-                    LabelEdit {
-                        add: vec![name],
-                        remove: Vec::new(),
-                    }
-                };
-                self.change(
-                    Change {
-                        labels: Some(edit),
-                        ..Change::default()
-                    },
-                    cx,
-                );
+                if self.issue().is_some_and(|i| issue_label(i) == to) {
+                    return;
+                }
+                self.relabel(to, cx);
             }
             Picking::Assign(people) => {
                 let Some(to) = people.get(choice).cloned() else {
@@ -1323,10 +1271,7 @@ impl Screen<Msg> for Inbox {
     fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
         if let Some(open) = &mut self.open {
             if let Some(
-                Typing::Reply(input)
-                | Typing::Duplicate(input)
-                | Typing::Label(input)
-                | Typing::Delete(input, _),
+                Typing::Reply(input) | Typing::Duplicate(input) | Typing::Delete(input, _),
             ) = &mut open.typing
             {
                 input.paste(text);
@@ -1349,7 +1294,7 @@ impl Screen<Msg> for Inbox {
             &COLUMNS_ONE
         };
         let view = self.filter.view(columns, palette).header(true).empty(Some(
-            "Nothing here. s shows other statuses, h other hosts, l other labels.",
+            "Nothing here. s shows open or closed items, h other hosts.",
         ));
         frame.render_widget(view, area);
     }
@@ -1385,12 +1330,6 @@ impl Screen<Msg> for Inbox {
                     .hint("enter marks it · esc cancels")
                     .tone(Tone::Accent),
             ),
-            Typing::Label(input) => Some(
-                InputBar::new("New label", input)
-                    .placeholder("a name, such as checkout")
-                    .hint("enter puts it on · esc cancels")
-                    .tone(Tone::Accent),
-            ),
             Typing::Delete(input, prompt) => Some(
                 InputBar::new("Delete for good", input)
                     .placeholder(prompt)
@@ -1414,7 +1353,7 @@ impl Screen<Msg> for Inbox {
                 Hint::new("r", "reply"),
                 Hint::new("s", "status").rank(1),
                 Hint::new("a", "assign").rank(1),
-                Hint::new("l", "labels").rank(2),
+                Hint::new("m", "move to").rank(1),
                 Hint::new("i", internal).rank(2),
                 Hint::new("o", "open page").rank(3),
                 Hint::new("d", "delete").rank(3),
@@ -1431,7 +1370,6 @@ impl Screen<Msg> for Inbox {
             Hint::new("/", "filter").rank(1),
             Hint::new("s", "status").rank(2),
             Hint::new("h", "host").rank(2),
-            Hint::new("l", "label").rank(3),
             Hint::new("r", "read again").rank(3),
         ];
         if self.filter.active() {
@@ -1452,9 +1390,6 @@ impl Screen<Msg> for Inbox {
         let (in_scope, unread) = self.counts;
         let shown = self.filter.shown().len();
         let mut facts = vec![(self.shown.word().to_owned(), self.palette.strong)];
-        if let Some(tag) = &self.tagged {
-            facts.push((format!("label {tag}"), self.palette.strong));
-        }
         facts.push((format!("{shown} of {in_scope} items"), Style::new()));
         if unread > 0 {
             facts.push((format!("{unread} unread"), self.palette.accent));

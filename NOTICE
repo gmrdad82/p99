@@ -45,6 +45,8 @@ generateNKeysBetween from rocicorp's fractional-indexing 3.2.0
 its integer and fraction parts and its midpoint rule. That code is dedicated to
 the public domain under CC0 1.0 Universal and asks for no notice; it is credited
 here all the same.
+The TUI's sample boards (p99 tui --demo, src/tui/demo/boards.rs) port its
+midpoint rule alone, from the same file and commit, to order their cards.
 
 The images in docs/images/ are made from this repository's own sources, and
 are licensed with the code. inbox.gif and setup.gif are recorded by prec
