@@ -202,6 +202,9 @@
   overscroll-behavior: contain;
   padding: var(--p99-space-lg) var(--p99-space-xl) calc(var(--p99-space-xl) + env(safe-area-inset-bottom));
 }
+.p99-foot { flex: none; margin: 0; padding: var(--p99-space-sm) var(--p99-space-xl) calc(var(--p99-space-sm) + env(safe-area-inset-bottom)); border-top: 1px solid color-mix(in srgb, var(--p99-rule) 60%, transparent); font-size: var(--p99-text-xs); color: var(--p99-muted); }
+.p99-foot a { text-underline-offset: 2px; transition: color var(--p99-motion-hover-out) var(--p99-ease-in-out); }
+.p99-foot a:hover { color: var(--p99-ink); transition-duration: var(--p99-motion-hover-in); transition-timing-function: var(--p99-ease-enter); }
 .p99-view { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--p99-space-lg); animation: p99-in var(--p99-motion-base) var(--p99-ease-enter) both; }
 .p99-view h2 {
   margin: 0;

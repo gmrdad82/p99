@@ -90,6 +90,10 @@ impl Codes {
 }
 
 impl Screen<Msg> for Codes {
+    fn legend(&self) -> Option<&str> {
+        Some(crate::ASK)
+    }
+
     fn phase(&self) -> Phase<'_> {
         if self.codes.is_some() {
             return Phase::Ready;
