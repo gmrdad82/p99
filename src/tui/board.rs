@@ -15,8 +15,8 @@ use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, progress, text};
 
 use super::Msg;
 use super::deck::{
-    Board as Shelf, BoardView, Boards, COLUMNS, Card, Patch, StatusEntry, default_statuses, label,
-    patch, request, sort,
+    Board as Shelf, BoardView, Boards, COLUMNS, Card, Patch, StatusEntry, default_statuses, patch,
+    request, sort,
 };
 use super::inbox::Inbox;
 use super::source::Source;
@@ -913,7 +913,11 @@ fn draw_card(
                 title,
             );
             let mut chips = Vec::new();
-            for (name, color) in item.labels.iter().filter_map(label) {
+            for (name, color) in item
+                .labels
+                .iter()
+                .map(|t| (t.name.as_str(), t.color.as_str()))
+            {
                 if !chips.is_empty() {
                     chips.push((" ".to_owned(), frame));
                 }

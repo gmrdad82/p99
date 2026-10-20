@@ -296,7 +296,10 @@ fn card(issue: &Issue, position: f64) -> ItemCard {
             .map(|(_, _, labels)| {
                 labels
                     .iter()
-                    .map(|(name, color)| json!({"name": name, "color": color}))
+                    .map(|(name, color)| wire::Tag {
+                        name: (*name).to_owned(),
+                        color: (*color).to_owned(),
+                    })
                     .collect()
             })
             .unwrap_or_default(),

@@ -363,6 +363,7 @@ impl Inbox {
             typing: None,
             internal: false,
             sending: false,
+            asked: Asked::Status,
         });
         self.read_thread(cx);
     }

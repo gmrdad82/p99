@@ -37,17 +37,6 @@ impl Card {
     }
 }
 
-pub fn label(value: &Value) -> Option<(&str, &str)> {
-    match value {
-        Value::String(name) => Some((name.as_str(), "")),
-        Value::Object(_) => Some((
-            value["name"].as_str()?,
-            value["color"].as_str().unwrap_or_default(),
-        )),
-        _ => None,
-    }
-}
-
 pub fn default_statuses() -> Vec<StatusEntry> {
     COLUMNS
         .iter()
