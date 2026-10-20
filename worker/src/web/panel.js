@@ -124,10 +124,9 @@ const WORDS = {
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_labels: "changed the labels: {list}",
-  labels: "Labels",
-  label_new: "Add a label",
-  label_make: "Create “{name}”",
-  label_remove: "Remove {name}",
+  move_to: "Move to",
+  moved: "this card moved; refreshed",
+  event_label: "moved it: {from} → {to}",
   capturing: "Capturing the screen…",
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
@@ -552,7 +551,7 @@ function status(form, text, retry) {
 }
 function pill(cls, data, value, label) { return h("span", { class: cls, [data]: value, text: label }); }
 function choiceOf(s, r) {
-  const c = LEGACY[s] || s;
+  const c = LEGACY[s] || s || "";
   return c === "done" ? "done:" + (r || "fixed") : c;
 }
 function statusWord(s, r) {
@@ -562,14 +561,11 @@ function statusWord(s, r) {
   return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
 }
 function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
-function statusPill(s, r) { return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), statusWord(s, r)); }
-function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
-function tagChip(t) {
-  const e = h("span", { class: "p99-tag", text: t.name });
-  if (/^#[0-9a-f]{6}$/i.test(t.color || "")) e.style.setProperty("--p99-tag", t.color);
-  return e;
+function statusPill(s, r, l) {
+  const named = l && me && me.manager ? l + (r && r !== "fixed" ? " · " + say("status_" + r) : "") : null;
+  return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), named || statusWord(s, r));
 }
-function tagChips(list) { return Array.isArray(list) && list.length ? h("span", { class: "p99-tags" }, list.map(tagChip)) : null; }
+function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
 function landing(l) {
   if (!l) return null;
   const envs = Array.isArray(l.envs) ? l.envs : [];
@@ -673,9 +669,8 @@ function row(r) {
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
-      statusPill(r.status, r.resolution),
+      statusPill(r.status, r.resolution, r.label),
       kindPill(r.kind),
-      tagChips(r.labels),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
 }
@@ -726,7 +721,7 @@ function thread(t) {
   const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution), " ", tagChips(i.labels)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution, i.label)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -769,6 +764,7 @@ function eventText(ev) {
   const obj = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
   const label = (k, v) => (v ? say(k + "_" + v) : "");
   if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
+  if (ev.kind === "label") return say("event_label", { from: obj.from || "", to: obj.to || "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
@@ -975,11 +971,10 @@ function duplicatePick(i) {
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))),
+    i.label == null ? h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))) : moveTo(i),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     assigneePick(i),
     duplicatePick(i),
-    tagPicker(i),
     statusLine(),
     h("button", { type: "submit", text: say("save") }));
   form.addEventListener("submit", (e) => {
@@ -992,12 +987,36 @@ function manageForm(i) {
       if (res) data.resolution = res;
     }
     if ("assignee" in data && !data.assignee) data.assignee = null;
-    const picked = form.querySelector(".p99-tag-pick").p99Picked.map((t) => t.name);
-    const key = (list) => Array.from(new Set(list.map((n) => n.toLowerCase()))).sort().join("\n");
-    if (key(picked) !== key((i.labels || []).map((t) => t.name))) data.labels = picked;
-    patch(i.key, data, form);
+    const to = form.querySelector(".p99-move-to select");
+    if (!to || to.value === i.label) return patch(i.key, data, form);
+    if (form.p99Busy) return;
+    form.p99Busy = true;
+    status(form, say("sending"));
+    call("POST", "/move", JSON.stringify({ key: i.key, from: i.label, to: to.value })).then(() => {
+      form.p99Busy = false;
+      return Object.keys(data).length ? patch(i.key, data, form) : item(i.key);
+    }, (e) => {
+      form.p99Busy = false;
+      if (e.status !== 409) return status(form, problem(e));
+      item(i.key).then(() => status(scroller.querySelector(".p99-manage"), e.message || say("moved")));
+    });
   });
   return form;
+}
+function moveTo(i) {
+  const now = h("option", { value: i.label, selected: true, text: i.label });
+  const sel = h("select", null, now);
+  call("GET", "/boards").then((r) => {
+    const seen = new Set([i.label.toLowerCase()]);
+    const more = [];
+    for (const b of (r && r.boards) || []) if (b.mine) for (const c of b.columns || []) {
+      if (seen.has(c.label.toLowerCase())) continue;
+      seen.add(c.label.toLowerCase());
+      more.push(h("option", { value: c.label, text: c.label }));
+    }
+    sel.append(...more);
+  }, () => {});
+  return h("label", { class: "p99-move-to" }, h("span", { text: say("move_to") }), sel);
 }
 function deleteBox(i) {
   const id = "p99-d" + ++seqId;
@@ -1046,39 +1065,6 @@ function deleteBox(i) {
   ["pointerup", "pointerleave", "pointercancel"].forEach((n) => btn.addEventListener(n, stop));
   btn.addEventListener("contextmenu", (e) => e.preventDefault());
   btn.addEventListener("click", (e) => { if (!e.detail) go(); });
-  return box;
-}
-function tagPicker(i) {
-  const chips = h("span", { class: "p99-tags" });
-  const picked = (i.labels || []).slice();
-  let all = null;
-  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
-  const load = () => all || (all = call("GET", "/labels").then((r) => (r && r.labels) || [], () => (all = null, [])));
-  const c = combo({
-    label: say("labels"),
-    hint: say("label_new"),
-    max: "32",
-    keep: true,
-    find: (q) => load().then((list) => {
-      const out = list.filter((t) => !picked.some((p) => same(p.name, t.name)) && has(q, t.name))
-        .map((t) => ({ value: t.name, text: t.name, tag: t, el: tagChip(t) }));
-      if (q && !list.concat(picked).some((t) => same(t.name, q))) out.push({ value: q, text: say("label_make", { name: q }), make: true, tag: { name: q } });
-      return out;
-    }),
-    pick: (x, input) => { picked.push(x.tag); input.value = ""; draw(); },
-    back: () => { if (picked.length) { picked.pop(); draw(); } },
-  });
-  const draw = () => {
-    clear(chips);
-    picked.forEach((t, k) => {
-      const chip = tagChip(t);
-      chip.append(h("button", { type: "button", class: "p99-x", "aria-label": say("label_remove", { name: t.name }), text: "×", onclick: () => { picked.splice(k, 1); draw(); c.input.focus(); } }));
-      chips.append(chip);
-    });
-  };
-  draw();
-  const box = h("div", { class: "p99-tag-pick p99-picker" }, h("label", { for: c.input.id, text: say("labels") }), chips, c.box);
-  box.p99Picked = picked;
   return box;
 }
 function editForm(i) {
