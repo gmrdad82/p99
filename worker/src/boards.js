@@ -1,11 +1,13 @@
 import { noteHook } from "./hooks.js";
-import { boardLabelsStatement, labelRowsStatement, labelsByItem } from "./labels.js";
-import { assigneeColumn, assigneeOf } from "./people.js";
+import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
 
-export const STATUSES = ["inbox", "doing", "review", "done"];
-export const OPEN_STATUSES = new Set(["inbox", "doing", "review"]);
 export const RESOLUTIONS = ["fixed", "abandoned", "duplicate"];
+export const DEFAULT_ROLES = ["inbox", "doing", "review", "done"];
 export const LEGACY_STATUSES = {
+  inbox: ["inbox", null],
+  doing: ["doing", null],
+  review: ["review", null],
+  done: ["done", "fixed"],
   new: ["inbox", null],
   confirmed: ["doing", null],
   in_progress: ["doing", null],
@@ -14,51 +16,25 @@ export const LEGACY_STATUSES = {
   abandoned: ["done", "abandoned"],
   duplicate: ["done", "duplicate"],
 };
+export const START_LABEL = "(SELECT id FROM labels WHERE role = 'inbox')";
+export const LABEL_COLUMNS = "lb.name AS label_name, lb.role AS label_role, lb.closes AS label_closes";
+export const LABEL_JOIN = "JOIN labels lb ON lb.id = i.label_id";
 
-const GAP = 1024;
-const MIN_GAP = 1e-9;
+const MIN_COLUMNS = 3;
+const MAX_COLUMNS = 5;
+const MAX_BOARDS = 3;
+const MAX_LABELS = 200;
 const MAX_NAME_CHARS = 100;
-const MAX_STATUS_NAME_CHARS = 40;
-const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
+const LABEL_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:+-]{0,31}$/u;
+const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5", "#986ee2", "#d260a8"];
+const MOVED = "this card moved; refreshed";
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
-const ITEM_COLUMNS = `i.id, i.kind, i.title, i.host, i.status, i.resolution, i.open, i.board_id, i.position, i.duplicate_of,
-  i.assignee, i.reporter_email, i.reporter_name, i.reporter_agent, i.origin_env, i.page_path, i.closed_at,
-  ${assigneeColumn()}`;
 
 let K = null;
 
 export function useKit(kit) {
   K = kit;
-}
-
-export function statusOf(raw, resolution) {
-  if (typeof raw !== "string") return null;
-  if (resolution !== undefined && resolution !== null && !RESOLUTIONS.includes(resolution)) return null;
-  if (STATUSES.includes(raw)) return { status: raw, resolution: resolution ?? null };
-  const legacy = LEGACY_STATUSES[raw];
-  if (!legacy) return null;
-  return { status: legacy[0], resolution: resolution ?? legacy[1] };
-}
-
-export function topOf(board, status) {
-  return `(SELECT COALESCE(min(p), ${GAP}) - ${GAP} FROM (
-    SELECT min(x.position) AS p FROM items x WHERE x.board_id = ${board} AND x.status = ${status}
-    UNION ALL SELECT min(y.position) FROM boards y WHERE y.parent_id = ${board} AND y.status = ${status}))`;
-}
-
-export function homeSlug(host) {
-  return host.replace(/\./g, "-");
-}
-
-export function homeStatement(DB, host, now) {
-  return DB.prepare(
-    `INSERT INTO boards (slug, name, host, home, created_at, updated_at)
-     SELECT CASE WHEN EXISTS (SELECT 1 FROM boards WHERE slug = ?2) THEN ?2 || '-' || lower(hex(randomblob(3))) ELSE ?2 END,
-       ?1, ?1, 1, ?3, ?3
-     WHERE NOT EXISTS (SELECT 1 FROM boards WHERE host = ?1 AND home = 1)
-     ON CONFLICT DO NOTHING`,
-  ).bind(host, homeSlug(host), now);
 }
 
 export function boardView(c) {
@@ -69,147 +45,32 @@ export function boardView(c) {
 }
 
 function sees(v, host) {
-  return v.all || host === v.host;
+  return v.all || (host !== null && host === v.host);
 }
 
-function statusesOf(rows) {
-  return rows.map((r) => ({ key: r.key, name: r.name, position: r.position }));
+function space(v) {
+  return v.all ? null : v.host;
 }
 
-async function loadStatuses(DB) {
-  return statusesOf((await DB.prepare("SELECT key, name, position FROM statuses ORDER BY position").all()).results);
+export function stageOf(row) {
+  if (!row.open) return row.resolution === "abandoned" ? "dropped" : row.resolution === "duplicate" ? "duplicate" : "fixed";
+  return row.label_role === "inbox" ? "received" : "in_progress";
 }
 
-function resolveStatus(statuses, raw) {
-  if (typeof raw !== "string") K.fail(400, "a status is its key or its name");
-  const text = raw.trim();
-  if (STATUSES.includes(text)) return text;
-  const legacy = LEGACY_STATUSES[text];
-  if (legacy) return legacy[0];
-  const lower = text.toLowerCase();
-  const found = statuses.find((s) => s.key === lower || s.name.toLowerCase() === lower);
-  if (!found) K.fail(400, `no status is called ${text}; the statuses are ${statuses.map((s) => s.name).join(", ")}`);
-  return found.key;
+export function statusOf(raw, resolution) {
+  if (typeof raw !== "string") return null;
+  if (resolution !== undefined && resolution !== null && !RESOLUTIONS.includes(resolution)) return null;
+  const legacy = LEGACY_STATUSES[raw];
+  if (!legacy) return null;
+  return { role: legacy[0], resolution: legacy[0] === "done" ? (resolution ?? legacy[1]) : null };
 }
 
-async function loadTree(c, v, extra = []) {
-  const { DB } = c.env;
-  const binds = v.all ? [] : [v.host];
-  const results = await DB.batch([
-    DB.prepare(`SELECT * FROM boards ${v.all ? "" : "WHERE host = ?1"} ORDER BY id`).bind(...binds),
-    DB.prepare(
-      `SELECT board_id, count(*) AS total, sum(status = 'done') AS done FROM items
-       ${v.all ? "" : "WHERE board_id IN (SELECT id FROM boards WHERE host = ?1)"} GROUP BY board_id`,
-    ).bind(...binds),
-    DB.prepare("SELECT key, name, position FROM statuses ORDER BY position"),
-    ...extra,
-  ]);
-  const boards = results[0].results;
-  const byId = new Map(boards.map((b) => [b.id, b]));
-  const bySlug = new Map(boards.map((b) => [b.slug, b]));
-  const kids = new Map();
-  for (const b of boards) {
-    if (b.parent_id === null || !byId.has(b.parent_id)) continue;
-    if (!kids.has(b.parent_id)) kids.set(b.parent_id, []);
-    kids.get(b.parent_id).push(b.id);
-  }
-  const own = new Map(results[1].results.map((r) => [r.board_id, { done: r.done || 0, total: r.total || 0 }]));
-  const sums = new Map();
-  const subtree = (id) => {
-    const out = [];
-    const seen = new Set();
-    const walk = (at) => {
-      if (seen.has(at)) return;
-      seen.add(at);
-      out.push(at);
-      for (const kid of kids.get(at) || []) walk(kid);
-    };
-    walk(id);
-    return out;
-  };
-  const rollup = (id) => {
-    if (!sums.has(id)) {
-      const total = { done: 0, total: 0 };
-      for (const at of subtree(id)) {
-        const n = own.get(at);
-        if (n) {
-          total.done += n.done;
-          total.total += n.total;
-        }
-      }
-      sums.set(id, total);
-    }
-    return sums.get(id);
-  };
-  return { boards, byId, bySlug, kids, rollup, subtree, statuses: statusesOf(results[2].results), extra: results.slice(3) };
+function person(email, username) {
+  return email ? { username: username ?? null } : null;
 }
 
-function boardOf(tree, b) {
-  const parent = b.parent_id === null ? null : tree.byId.get(b.parent_id);
-  return {
-    slug: b.slug,
-    name: b.name,
-    host: b.host,
-    parent: parent ? parent.slug : null,
-    status: b.status,
-    position: b.position,
-    home: Boolean(b.home),
-    rollup: tree.rollup(b.id),
-  };
-}
-
-function boardCard(tree, b) {
-  return { type: "board", slug: b.slug, name: b.name, status: b.status, position: b.position, rollup: tree.rollup(b.id) };
-}
-
-function itemCard(row) {
-  return {
-    type: "item",
-    key: K.keyOf(row.kind, row.id),
-    kind: row.kind,
-    title: row.title,
-    status: row.status,
-    resolution: row.resolution ?? null,
-    position: row.position,
-    assignee: assigneeOf(row),
-    reporter: { name: row.reporter_name ?? null, agent: Boolean(row.reporter_agent) },
-    labels: Array.isArray(row.labels) ? row.labels : [],
-  };
-}
-
-function slugParam(raw) {
-  let slug;
-  try {
-    slug = decodeURIComponent(String(raw));
-  } catch {
-    K.fail(404, "no such board");
-  }
-  if (!SLUG.test(slug)) K.fail(404, "no such board");
-  return slug;
-}
-
-function boardIn(tree, slug) {
-  const b = tree.bySlug.get(slug);
-  if (!b) K.fail(404, `no board is called ${slug}`);
-  return b;
-}
-
-function validName(value, max) {
-  const name = typeof value === "string" ? K.clean(value).replace(/\s+/g, " ").trim() : "";
-  if (name.length < 1 || name.length > max) K.fail(400, `name must be 1 to ${max} characters`);
-  return name;
-}
-
-function slugify(name) {
-  const base = name
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-+$/, "");
-  return base || "board";
+function nameSql(column) {
+  return `(SELECT username FROM people WHERE email = ${column})`;
 }
 
 function pushOf(c, event) {
@@ -218,449 +79,524 @@ function pushOf(c, event) {
   if (c.env.HUB) c.pushes.push(full);
 }
 
-export async function getStatuses(c) {
-  K.requireEmptyBody(c);
-  K.requireManager(c);
-  return K.json(200, { statuses: await loadStatuses(c.env.DB) });
+function colorFor(name) {
+  let hash = 0;
+  for (const ch of name.toLowerCase()) hash = (hash * 31 + ch.codePointAt(0)) >>> 0;
+  return COLORS[hash % COLORS.length];
 }
 
-export async function putStatus(c, rawKey) {
+function labelName(raw) {
+  const name = typeof raw === "string" ? K.clean(raw).trim().replace(/\s+/g, " ") : "";
+  if (!LABEL_NAME.test(name)) K.fail(400, "a label is 1 to 32 letters, digits, spaces or . _ : + -, starting with a letter or digit");
+  return name;
+}
+
+function boardName(raw) {
+  const name = typeof raw === "string" ? K.clean(raw).replace(/\s+/g, " ").trim() : "";
+  if (name.length < 1 || name.length > MAX_NAME_CHARS) K.fail(400, `name must be 1 to ${MAX_NAME_CHARS} characters`);
+  return name;
+}
+
+function boardId(raw) {
+  const text = String(raw);
+  if (!/^\d{1,15}$/.test(text)) K.fail(404, "no such board");
+  return Number(text);
+}
+
+function same(a, b) {
+  return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+}
+
+function boardsSql(where) {
+  return `SELECT b.id, b.name, b.host, b.owner, ${nameSql("b.owner")} AS owner_username,
+    (SELECT json_group_array(json_object('id', l.id, 'label', l.name, 'closes', l.closes)) FROM
+      (SELECT l.id, l.name, l.closes FROM board_columns bc JOIN labels l ON l.id = bc.label_id WHERE bc.board_id = b.id ORDER BY bc.position) l
+    ) AS columns
+    FROM boards b WHERE ${where}`;
+}
+
+function boardOf(c, row) {
+  const columns = JSON.parse(row.columns || "[]");
+  return {
+    id: row.id,
+    name: row.name,
+    owner: person(row.owner, row.owner_username),
+    mine: row.owner !== null && row.owner === c.actor.email,
+    columns: columns.map((col) => ({ label: col.label, closes: Boolean(col.closes) })),
+  };
+}
+
+function cardOf(row) {
+  return {
+    key: K.keyOf(row.kind, row.id),
+    kind: row.kind,
+    title: row.title,
+    label: row.label,
+    assignee: person(row.assignee, row.assignee_username),
+    order: row.ord ?? null,
+  };
+}
+
+function scopeBinds(v) {
+  return [v.all ? 1 : 0, v.host];
+}
+
+export async function listLabels(c) {
+  K.requireEmptyBody(c);
+  K.requireManager(c);
+  const v = boardView(c);
+  const { results } = await c.env.DB.prepare(
+    `SELECT l.id, l.name, l.closes, l.role,
+       (SELECT json_group_array(json_object('id', b.id, 'name', b.name, 'owner_username', ${nameSql("b.owner")}))
+        FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE bc.label_id = l.id AND (?1 OR b.host = ?2)) AS boards
+     FROM labels l
+     WHERE l.role IS NOT NULL OR EXISTS (SELECT 1 FROM board_columns bc WHERE bc.label_id = l.id) OR EXISTS (SELECT 1 FROM items i WHERE i.label_id = l.id)
+     ORDER BY l.role IS NULL, CASE l.role WHEN 'inbox' THEN 0 WHEN 'doing' THEN 1 WHEN 'review' THEN 2 WHEN 'done' THEN 3 END, l.name COLLATE NOCASE`,
+  )
+    .bind(...scopeBinds(v))
+    .all();
+  return K.json(200, {
+    labels: results.map((l) => ({
+      id: l.id,
+      name: l.name,
+      closes: Boolean(l.closes),
+      boards: JSON.parse(l.boards || "[]").map((b) => ({ id: b.id, name: b.name, owner_username: b.owner_username ?? null })),
+    })),
+  });
+}
+
+async function guardLabel(c, v, labelId) {
+  if (v.all) return;
+  const elsewhere = await c.env.DB.prepare(
+    `SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE bc.label_id = ?1 AND (b.host IS NULL OR b.host <> ?2) LIMIT 1`,
+  )
+    .bind(labelId, v.host)
+    .first();
+  if (elsewhere) K.fail(403, "that label is on boards of other hosts; change it from the CLI, without --host");
+}
+
+export async function patchLabel(c, rawId) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
-  const key = String(rawKey);
-  if (!STATUSES.includes(key)) K.fail(404, `no such status; the keys are ${STATUSES.join(", ")}`);
-  const name = validName(body.name, MAX_STATUS_NAME_CHARS);
-  const statuses = await loadStatuses(c.env.DB);
-  const lower = name.toLowerCase();
-  if (statuses.some((s) => s.key !== key && (s.name.toLowerCase() === lower || s.key === lower))) {
-    K.fail(409, `another status is already called ${name}`);
+  const v = boardView(c);
+  const { DB } = c.env;
+  const label = await DB.prepare("SELECT id, name, closes FROM labels WHERE id = ?1").bind(boardId(rawId)).first();
+  if (!label) K.fail(404, "no such label");
+  const name = labelName(body.name);
+  if (name === label.name) return K.json(200, { id: label.id, name, closes: Boolean(label.closes) });
+  await guardLabel(c, v, label.id);
+  try {
+    await DB.prepare("UPDATE labels SET name = ?2 WHERE id = ?1").bind(label.id, name).run();
+  } catch (error) {
+    if (K.isUniqueViolation(error)) K.fail(409, `a label called ${name} exists`);
+    throw error;
   }
-  await c.env.DB.prepare("UPDATE statuses SET name = ?2 WHERE key = ?1").bind(key, name).run();
-  pushOf(c, { type: "statuses", host: null });
-  return K.json(200, { statuses: statuses.map((s) => (s.key === key ? { ...s, name } : s)) });
+  pushOf(c, { type: "labels", host: null, action: "renamed", names: [label.name, name] });
+  return K.json(200, { id: label.id, name, closes: Boolean(label.closes) });
+}
+
+async function ensureBoard(c, v) {
+  const { DB } = c.env;
+  const me = c.actor.email;
+  const at = space(v);
+  const results = await DB.batch([
+    DB.prepare("UPDATE boards SET owner = ?1, updated_at = ?2 WHERE owner IS NULL AND (?3 OR host = ?4)").bind(me, c.now, ...scopeBinds(v)),
+    DB.prepare(
+      `INSERT INTO boards (name, host, owner, created_at, updated_at)
+       SELECT ?4, ?2, ?1, ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE owner = ?1 AND host IS ?2)
+       RETURNING id`,
+    ).bind(me, at, c.now, c.actor.name ? `${c.actor.name}'s board` : "My board"),
+  ]);
+  const made = results[1].results[0];
+  if (made) {
+    await DB.prepare(
+      `INSERT INTO board_columns (board_id, label_id, position)
+       SELECT ?1, id, CASE role WHEN 'inbox' THEN 0 WHEN 'doing' THEN 1 WHEN 'review' THEN 2 ELSE 3 END FROM labels WHERE role IS NOT NULL`,
+    )
+      .bind(made.id)
+      .run();
+  }
 }
 
 export async function getBoards(c) {
   K.requireEmptyBody(c);
   K.requireManager(c);
-  const tree = await loadTree(c, boardView(c));
-  return K.json(200, { statuses: tree.statuses, boards: tree.boards.map((b) => boardOf(tree, b)) });
+  const v = boardView(c);
+  await ensureBoard(c, v);
+  const { results } = await c.env.DB.prepare(`${boardsSql("(?1 OR b.host = ?2)")} ORDER BY b.owner IS NOT ?3, owner_username, b.owner, b.id`)
+    .bind(...scopeBinds(v), c.actor.email)
+    .all();
+  return K.json(200, { boards: results.map((r) => boardOf(c, r)) });
 }
 
-function cardOrder(statuses) {
-  const rank = new Map(statuses.map((s) => [s.key, s.position]));
-  return (a, b) => (rank.get(a.status) ?? 99) - (rank.get(b.status) ?? 99) || a.position - b.position;
-}
-
-export async function getBoard(c, rawSlug) {
+export async function getBoard(c, rawId) {
   K.requireEmptyBody(c);
   K.requireManager(c);
   const v = boardView(c);
-  const slug = slugParam(rawSlug);
-  const { DB } = c.env;
-  const tree = await loadTree(c, v, [
-    DB.prepare(
-      `SELECT ${ITEM_COLUMNS} FROM items i WHERE i.board_id = (SELECT id FROM boards WHERE slug = ?1) AND (?2 OR i.host = ?3)`,
-    ).bind(slug, v.all ? 1 : 0, v.host),
-    boardLabelsStatement(DB, slug),
-  ]);
-  const board = boardIn(tree, slug);
-  const labels = labelsByItem(tree.extra[1]);
-  const cards = [
-    ...tree.extra[0].results.map((row) => itemCard({ ...row, labels: labels.get(row.id) })),
-    ...(tree.kids.get(board.id) || []).map((id) => boardCard(tree, tree.byId.get(id))),
-  ].sort(cardOrder(tree.statuses));
-  return K.json(200, { statuses: tree.statuses, board: boardOf(tree, board), cards });
+  const id = boardId(rawId);
+  const row = await c.env.DB.prepare(
+    `${boardsSql("b.id = ?3 AND (?1 OR b.host = ?2)")
+      .replace(
+        "AS columns",
+        `AS columns,
+    (SELECT json_group_array(json_object('id', x.id, 'kind', x.kind, 'title', x.title, 'label', x.label, 'assignee', x.assignee,
+        'assignee_username', x.assignee_username, 'ord', x.ord)) FROM
+      (SELECT i.id, i.kind, i.title, l.name AS label, i.assignee, CASE WHEN i.assignee IS NULL THEN NULL ELSE ${nameSql("i.assignee")} END AS assignee_username,
+         bp.key AS ord, bc.position AS col
+       FROM board_columns bc JOIN labels l ON l.id = bc.label_id
+       JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?1 OR i.host = ?2)
+       LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
+       WHERE bc.board_id = b.id
+       ORDER BY bc.position, bp.key IS NOT NULL, bp.key, i.id DESC) x
+    ) AS cards`,
+      )}`,
+  )
+    .bind(...scopeBinds(v), id)
+    .first();
+  if (!row) K.fail(404, "no such board");
+  return K.json(200, { board: boardOf(c, row), cards: JSON.parse(row.cards || "[]").map(cardOf) });
 }
 
-async function freeSlug(DB, base) {
-  const { results } = await DB.prepare("SELECT slug FROM boards WHERE slug = ?1 OR slug LIKE ?2")
-    .bind(base, `${base}-%`)
-    .all();
-  const taken = new Set(results.map((r) => r.slug));
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) {
-    const slug = `${base.slice(0, 60)}-${n}`;
-    if (!taken.has(slug)) return slug;
+async function columnsOf(c, v, raw) {
+  if (!Array.isArray(raw) || raw.length < MIN_COLUMNS || raw.length > MAX_COLUMNS) {
+    K.fail(400, `a board has ${MIN_COLUMNS} to ${MAX_COLUMNS} columns`);
   }
+  const wanted = raw.map((col) => {
+    if (!K.isObject(col) && typeof col !== "string") K.fail(400, "a column is {label, closes}");
+    const label = labelName(typeof col === "string" ? col : col.label);
+    const closes = typeof col === "string" || col.closes === undefined || col.closes === null ? null : col.closes;
+    if (closes !== null && typeof closes !== "boolean") K.fail(400, "closes must be true or false");
+    return { label, closes };
+  });
+  if (new Set(wanted.map((w) => w.label.toLowerCase())).size !== wanted.length) K.fail(400, "a board's columns are different labels");
+  const { DB } = c.env;
+  const [known, count] = await DB.batch([
+    DB.prepare("SELECT id, name, closes FROM labels WHERE name IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(wanted.map((w) => w.label))),
+    DB.prepare("SELECT count(*) AS n FROM labels"),
+  ]);
+  const byName = new Map(known.results.map((l) => [l.name.toLowerCase(), l]));
+  const fresh = wanted.filter((w) => !byName.has(w.label.toLowerCase()));
+  if (count.results[0].n + fresh.length > MAX_LABELS) K.fail(400, `an account holds up to ${MAX_LABELS} labels`);
+  for (const w of wanted) {
+    const l = byName.get(w.label.toLowerCase());
+    if (l && w.closes !== null && Boolean(l.closes) !== w.closes) await guardLabel(c, v, l.id);
+  }
+  return { wanted, byName };
 }
 
-function topStatement(DB, parentId, status) {
-  if (parentId === null) return DB.prepare(`SELECT COALESCE(min(position), ${GAP}) - ${GAP} AS p FROM boards WHERE parent_id IS NULL`);
-  return DB.prepare(`SELECT ${topOf("?1", "?2")} AS p`).bind(parentId, status);
+async function writeColumns(c, board, plan) {
+  const { DB } = c.env;
+  const { wanted, byName } = plan;
+  const statements = [];
+  for (const w of wanted.filter((x) => !byName.has(x.label.toLowerCase()))) {
+    statements.push(
+      DB.prepare("INSERT OR IGNORE INTO labels (name, color, created_at, closes) VALUES (?1, ?2, ?3, ?4)").bind(w.label, colorFor(w.label), c.now, w.closes ? 1 : 0),
+    );
+  }
+  const flips = wanted.filter((w) => byName.has(w.label.toLowerCase()) && w.closes !== null && Boolean(byName.get(w.label.toLowerCase()).closes) !== w.closes);
+  for (const w of flips) {
+    statements.push(
+      DB.prepare("UPDATE labels SET closes = ?2 WHERE name = ?1").bind(w.label, w.closes ? 1 : 0),
+      w.closes
+        ? DB.prepare(
+            `UPDATE items SET open = 0, resolution = 'fixed', closed_at = ?2, updated_at = ?2
+             WHERE open = 1 AND label_id = (SELECT id FROM labels WHERE name = ?1)`,
+          ).bind(w.label, c.now)
+        : DB.prepare(
+            `UPDATE items SET open = 1, resolution = NULL, duplicate_of = NULL, closed_at = NULL, updated_at = ?2
+             WHERE open = 0 AND label_id = (SELECT id FROM labels WHERE name = ?1)`,
+          ).bind(w.label, c.now),
+    );
+  }
+  statements.push(
+    DB.prepare("DELETE FROM board_columns WHERE board_id = ?1").bind(board),
+    DB.prepare(
+      `INSERT INTO board_columns (board_id, label_id, position)
+       SELECT ?1, l.id, j.key FROM json_each(?2) j JOIN labels l ON l.name = j.value`,
+    ).bind(board, JSON.stringify(wanted.map((w) => w.label))),
+  );
+  await DB.batch(statements);
+}
+
+async function ownBoard(c, v, rawId) {
+  const b = await c.env.DB.prepare("SELECT id, name, host, owner FROM boards WHERE id = ?1").bind(boardId(rawId)).first();
+  if (!b || !sees(v, b.host)) K.fail(404, "no such board");
+  if (b.owner !== c.actor.email) K.fail(403, "only its owner changes a board; others watch it");
+  return b;
+}
+
+async function boardResponse(c, v, id, status) {
+  const row = await c.env.DB.prepare(boardsSql("b.id = ?1")).bind(id).first();
+  return K.json(status, boardOf(c, row));
 }
 
 export async function postBoard(c) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
   const v = boardView(c);
-  const tree = await loadTree(c, v);
-  const name = validName(body.name, MAX_NAME_CHARS);
-  const parent = body.parent === undefined || body.parent === null ? null : boardIn(tree, String(body.parent));
-  let host;
-  if (body.host !== undefined && body.host !== null) {
-    host = String(body.host).toLowerCase();
-    if (!c.dir.hosts.has(host)) K.fail(400, `${host} is not a listed host`);
-    if (!sees(v, host)) K.fail(403, `this key or code does not reach ${host}`);
-  } else {
-    host = parent ? parent.host : v.all ? null : v.host;
-  }
-  if (parent && parent.host !== null && parent.host !== host) K.fail(400, `a board inside ${parent.slug} belongs to ${parent.host}`);
-  const status = body.status === undefined || body.status === null ? "inbox" : resolveStatus(tree.statuses, body.status);
-  let slug;
-  if (body.slug !== undefined && body.slug !== null) {
-    slug = String(body.slug);
-    if (!SLUG.test(slug)) K.fail(400, "slug must be 1 to 64 lowercase letters, digits or dashes, starting and ending with a letter or digit");
-  }
+  const name = boardName(body.name);
+  const plan = await columnsOf(c, v, body.columns);
   const { DB } = c.env;
-  const top = (await topStatement(DB, parent ? parent.id : null, status).first()).p;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const chosen = slug ?? (await freeSlug(DB, slugify(name)));
-    try {
-      const row = await DB.prepare(
-        `INSERT INTO boards (slug, name, host, parent_id, status, position, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7) RETURNING *`,
-      )
-        .bind(chosen, name, host, parent ? parent.id : null, status, top, c.now)
-        .first();
-      tree.byId.set(row.id, row);
-      pushOf(c, { type: "board", action: "created", board: row.slug, host: row.host });
-      return K.json(201, boardOf(tree, row));
-    } catch (error) {
-      if (!K.isUniqueViolation(error)) throw error;
-      if (slug !== undefined) K.fail(409, `a board is already called ${slug}`);
-    }
-  }
-  K.fail(409, "the board's slug was taken meanwhile; try again");
+  const made = await DB.prepare(
+    `INSERT INTO boards (name, host, owner, created_at, updated_at)
+     SELECT ?1, ?2, ?3, ?4, ?4 WHERE (SELECT count(*) FROM boards WHERE owner = ?3 AND host IS ?2) < ?5
+     RETURNING id`,
+  )
+    .bind(name, space(v), c.actor.email, c.now, MAX_BOARDS)
+    .first();
+  if (!made) K.fail(409, `a person has up to ${MAX_BOARDS} boards here`);
+  await writeColumns(c, made.id, plan);
+  pushOf(c, { type: "board", action: "created", board: made.id, host: space(v) });
+  return boardResponse(c, v, made.id, 201);
 }
 
-export async function patchBoard(c, rawSlug) {
+export async function putBoard(c, rawId) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
-  const tree = await loadTree(c, boardView(c));
-  const board = boardIn(tree, slugParam(rawSlug));
-  if (body.name === undefined) return K.json(200, boardOf(tree, board));
-  const name = validName(body.name, MAX_NAME_CHARS);
-  if (name !== board.name) {
-    await c.env.DB.prepare("UPDATE boards SET name = ?2, updated_at = ?3 WHERE id = ?1").bind(board.id, name, c.now).run();
-    board.name = name;
-    pushOf(c, { type: "board", action: "renamed", board: board.slug, host: board.host });
-  }
-  return K.json(200, boardOf(tree, board));
+  const v = boardView(c);
+  const b = await ownBoard(c, v, rawId);
+  const name = body.name === undefined ? b.name : boardName(body.name);
+  const plan = body.columns === undefined ? null : await columnsOf(c, v, body.columns);
+  if (name !== b.name) await c.env.DB.prepare("UPDATE boards SET name = ?2, updated_at = ?3 WHERE id = ?1").bind(b.id, name, c.now).run();
+  if (plan) await writeColumns(c, b.id, plan);
+  pushOf(c, { type: "board", action: "changed", board: b.id, host: b.host });
+  return boardResponse(c, v, b.id, 200);
 }
 
-export async function deleteBoard(c, rawSlug) {
+export async function deleteBoard(c, rawId) {
   K.requireEmptyBody(c);
   K.requireManager(c);
-  const tree = await loadTree(c, boardView(c));
-  const board = boardIn(tree, slugParam(rawSlug));
-  if (board.home) K.fail(409, `${board.slug} is the home board of ${board.host}, where its new items land; it stays`);
-  const { meta } = await c.env.DB.prepare(
-    `DELETE FROM boards WHERE id = ?1 AND NOT EXISTS (SELECT 1 FROM items WHERE board_id = ?1)
-       AND NOT EXISTS (SELECT 1 FROM boards WHERE parent_id = ?1)`,
-  )
-    .bind(board.id)
-    .run();
-  if (!meta.changes) K.fail(409, `${board.slug} still holds items or boards; move them out first`);
-  pushOf(c, { type: "board", action: "deleted", board: board.slug, host: board.host });
+  const v = boardView(c);
+  const b = await ownBoard(c, v, rawId);
+  const { DB } = c.env;
+  const left = await DB.prepare("SELECT count(*) AS n FROM boards WHERE owner = ?1 AND host IS ?2").bind(b.owner, b.host).first();
+  if (left.n <= 1) K.fail(409, "that is your last board here; it stays");
+  await DB.batch([
+    DB.prepare("DELETE FROM board_columns WHERE board_id = ?1").bind(b.id),
+    DB.prepare("DELETE FROM board_positions WHERE board_id = ?1").bind(b.id),
+    DB.prepare("DELETE FROM boards WHERE id = ?1").bind(b.id),
+  ]);
+  pushOf(c, { type: "board", action: "deleted", board: b.id, host: b.host });
   return new Response(null, { status: 204 });
 }
 
-function columnStatement(DB, parentId, status) {
-  if (parentId === null) {
-    return DB.prepare("SELECT 'board' AS type, id, position FROM boards WHERE parent_id IS NULL ORDER BY position, id");
-  }
-  return DB.prepare(
-    `SELECT 'item' AS type, id, position FROM items WHERE board_id = ?1 AND status = ?2
-     UNION ALL SELECT 'board' AS type, id, position FROM boards WHERE parent_id = ?1 AND status = ?2
-     ORDER BY position, id`,
-  ).bind(parentId, status);
-}
-
-async function placement(c, parentId, status, self, anchor, side) {
-  const { DB } = c.env;
-  if (!anchor) return { position: (await topStatement(DB, parentId, status).first()).p, renumber: [] };
-  const column = (await columnStatement(DB, parentId, status).all()).results.filter(
-    (r) => !(r.type === self.type && r.id === self.id),
-  );
-  const at = column.findIndex((r) => r.type === anchor.type && r.id === anchor.id);
-  if (at < 0) K.fail(400, "the card to place against is not in that column");
-  const neighbour = side === "before" ? column[at - 1] : column[at + 1];
-  const edge = column[at].position;
-  if (!neighbour) return { position: side === "before" ? edge - GAP : edge + GAP, renumber: [] };
-  if (Math.abs(neighbour.position - edge) >= MIN_GAP * 2) return { position: (neighbour.position + edge) / 2, renumber: [] };
-  const slot = side === "before" ? at : at + 1;
-  const ordered = [...column.slice(0, slot), self, ...column.slice(slot)];
-  const spread = ordered.map((r, i) => ({ ...r, position: (i + 1) * GAP }));
-  const moved = spread[slot].position;
-  const list = (type) => JSON.stringify(spread.filter((r) => r.type === type && !(r === spread[slot])).map((r) => [r.id, r.position]));
-  const renumber = [
-    DB.prepare(
-      `UPDATE items SET position = json_extract(j.value, '$[1]') FROM json_each(?1) j WHERE items.id = json_extract(j.value, '$[0]')`,
-    ).bind(list("item")),
-    DB.prepare(
-      `UPDATE boards SET position = json_extract(j.value, '$[1]') FROM json_each(?1) j WHERE boards.id = json_extract(j.value, '$[0]')`,
-    ).bind(list("board")),
-  ];
-  return { position: moved, renumber };
-}
-
-async function findCard(c, v, raw, what = "target") {
-  if (typeof raw !== "string" || raw.length === 0 || raw.length > 80) K.fail(400, `${what} must be an item key or board:<slug>`);
-  const { DB } = c.env;
-  if (raw.startsWith("board:")) {
-    const slug = raw.slice("board:".length);
-    if (!SLUG.test(slug)) K.fail(404, `no board is called ${slug}`);
-    const b = await DB.prepare("SELECT * FROM boards WHERE slug = ?1").bind(slug).first();
-    if (!b || !sees(v, b.host)) K.fail(404, `no board is called ${slug}`);
-    return { type: "board", id: b.id, row: b };
-  }
-  const id = K.parseKey(raw);
-  if (id === null) K.fail(400, `${what} must be an item key or board:<slug>`);
-  const row = await DB.prepare(`SELECT ${ITEM_COLUMNS} FROM items i WHERE i.id = ?1`).bind(id).first();
-  if (!row || !sees(v, row.host)) K.fail(404, `no item ${raw}`);
-  return { type: "item", id: row.id, row };
-}
-
-function anchorOf(opts) {
-  const before = opts.before ?? null;
-  const after = opts.after ?? null;
-  if (before !== null && after !== null) K.fail(400, "give before or after, not both");
-  if (before !== null) return { side: "before", raw: before };
-  if (after !== null) return { side: "after", raw: after };
-  return null;
-}
-
-function anchorStatus(anchor) {
-  return anchor.row.status;
-}
-
-function itemMail(c, row, status, resolution) {
-  if (!c.actor || !row.reporter_email) return;
+function itemMail(c, row, closed, resolution, mergedInto) {
+  if (!c.actor || !c.manager || !row.reporter_email) return;
   K.sendMail(c, row, K.REPORTERS_TOKEN, {
     template: "status",
-    status,
+    status: closed ? "done" : "inbox",
     resolution,
-    ...(row.merged_into && resolution === "duplicate" ? { merged_into: row.merged_into } : {}),
+    ...(mergedInto && resolution === "duplicate" ? { merged_into: mergedInto } : {}),
     ref: `status-${c.now}`,
   });
 }
 
-export async function moveItem(c, row, opts = {}) {
-  const v = boardView(c);
+function labelStatements(c, row, to, opts = {}) {
   const { DB } = c.env;
-  const current = await DB.prepare("SELECT * FROM boards WHERE id = ?1").bind(row.board_id).first();
-  let board = current;
-  if (opts.board !== undefined && opts.board !== null) {
-    const slug = String(opts.board);
-    board = SLUG.test(slug) ? await DB.prepare("SELECT * FROM boards WHERE slug = ?1").bind(slug).first() : null;
-    if (!board || !sees(v, board.host)) K.fail(404, `no board is called ${slug}`);
-    if (board.host !== null && board.host !== row.host) K.fail(400, `${K.keyOf(row.kind, row.id)} belongs to ${row.host}; ${board.slug} holds ${board.host}'s items`);
-  }
-  const anchor = anchorOf(opts);
-  let target = null;
-  if (anchor) {
-    target = await findCard(c, v, String(anchor.raw), anchor.side);
-    const inBoard = target.type === "item" ? target.row.board_id === board.id : target.row.parent_id === board.id;
-    if (!inBoard) K.fail(400, `${anchor.raw} is not on ${board.slug}`);
-  }
-  let to = row.status;
-  if (opts.to !== undefined && opts.to !== null) {
-    to = STATUSES.includes(opts.to) ? opts.to : resolveStatus(await loadStatuses(DB), opts.to);
-    if (target && anchorStatus(target) !== to) K.fail(400, `${anchor.raw} is not in that column`);
-  } else if (target) {
-    to = anchorStatus(target);
-  }
-  let resolution = null;
-  if (opts.resolution !== undefined && opts.resolution !== null) {
-    if (!RESOLUTIONS.includes(opts.resolution)) K.fail(400, `resolution must be ${RESOLUTIONS.join(", ")}`);
-    if (to !== "done") K.fail(400, "a resolution goes with done");
-    resolution = opts.resolution;
-  } else if (to === "done") {
-    resolution = row.status === "done" ? row.resolution : "fixed";
-  }
-  if (resolution === "duplicate" && row.duplicate_of === null) K.fail(400, "a duplicate needs duplicate_of; set it with p99 status <KEY> duplicate --duplicate-of <KEY>");
-  const key = K.keyOf(row.kind, row.id);
-  const statusChanged = to !== row.status || resolution !== (row.resolution ?? null);
-  const boardChanged = board.id !== row.board_id;
-  if (!statusChanged && !boardChanged && !target) {
-    const labels = labelsByItem(await labelRowsStatement(DB, [row.id]).all()).get(row.id);
-    return { moved: itemCard({ ...row, status: to, resolution, labels }), changed: [] };
-  }
-  const place =
-    !target && !boardChanged && to === row.status
-      ? { position: row.position, renumber: [] }
-      : await placement(c, board.id, to, { type: "item", id: row.id }, target, anchor && anchor.side);
-  const open = OPEN_STATUSES.has(to);
-  const touched = statusChanged || boardChanged;
+  const closes = Boolean(to.closes);
+  const wasOpen = Boolean(row.open);
+  const resolution = closes ? (opts.resolution ?? (wasOpen ? "fixed" : row.resolution)) : null;
+  const next = { ...row, label_id: to.id, label_name: to.name, label_role: to.role ?? null, label_closes: to.closes, open: closes ? 0 : 1, resolution };
+  const statusChanged = stageOf(row) !== stageOf(next);
+  const openChanged = wasOpen === closes;
   const statements = [
-    ...place.renumber,
     DB.prepare(
-      `UPDATE items SET status = ?2, resolution = ?3, open = ?4, board_id = ?5, position = ?6,
-         duplicate_of = CASE WHEN ?3 = 'duplicate' THEN duplicate_of END,
-         closed_at = CASE WHEN ?4 THEN NULL WHEN open = 1 THEN ?7 ELSE closed_at END,
-         updated_at = CASE WHEN ?8 THEN ?7 ELSE updated_at END,
-         activity_at = CASE WHEN ?8 THEN ?7 ELSE activity_at END,
-         public_activity_at = CASE WHEN ?9 THEN ?7 ELSE public_activity_at END
-       WHERE id = ?1`,
-    ).bind(row.id, to, resolution, open ? 1 : 0, board.id, place.position, c.now, touched ? 1 : 0, statusChanged ? 1 : 0),
+      `UPDATE items SET label_id = ?3, open = ?4, resolution = ?5,
+         duplicate_of = CASE WHEN ?5 = 'duplicate' THEN COALESCE(?8, duplicate_of) END,
+         closed_at = CASE WHEN ?4 THEN NULL WHEN open = 1 THEN ?6 ELSE closed_at END,
+         updated_at = ?6, activity_at = ?6,
+         public_activity_at = CASE WHEN ?7 THEN ?6 ELSE public_activity_at END
+       WHERE id = ?1 AND label_id = ?2`,
+    ).bind(row.id, row.label_id, to.id, closes ? 0 : 1, resolution, c.now, statusChanged ? 1 : 0, opts.duplicateOf ?? null),
   ];
+  const events = [];
   const actor = c.actor ? c.actor.email ?? null : null;
+  const agent = c.actor && c.actor.agent ? 1 : 0;
+  if (row.label_id !== to.id) events.push({ kind: "label", detail: { from: row.label_name, to: to.name }, internal: 1 });
   if (statusChanged) {
-    const detail = { from: row.status, to };
+    const detail = { from: stageOf(row), to: stageOf(next) };
     if (resolution) detail.resolution = resolution;
-    if (row.resolution) detail.from_resolution = row.resolution;
-    statements.push(K.eventStatement(c, row.id, actor, "status", detail));
+    events.push({ kind: "status", detail, internal: 0 });
   }
-  if (boardChanged) statements.push(K.eventStatement(c, row.id, actor, "board", { from: current.slug, to: board.slug }, true));
-  const done = await DB.batch([...statements, labelRowsStatement(DB, [row.id])]);
-  const labels = labelsByItem(done[done.length - 1]).get(row.id);
-  const moved = { ...row, status: to, resolution, open: open ? 1 : 0, board_id: board.id, position: place.position, labels };
-  pushOf(c, {
-    type: "move",
-    key,
-    host: row.host,
-    title: row.title,
-    board: board.slug,
-    from: row.status,
-    to,
-    position: place.position,
-    ...(boardChanged ? { from_board: current.slug } : {}),
-  });
-  if (statusChanged) itemMail(c, row, to, resolution);
-  return { moved: { ...itemCard(moved), board: board.slug }, changed: touched ? [key] : [] };
+  if (events.length > 0) {
+    statements.push(
+      DB.prepare(
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4
+         FROM json_each(?5) WHERE (SELECT label_id FROM items WHERE id = ?1) = ?6`,
+      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id),
+    );
+  }
+  const after = () => {
+    const key = K.keyOf(row.kind, row.id);
+    if (row.label_id !== to.id || openChanged) {
+      pushOf(c, {
+        type: "label",
+        key,
+        host: row.host,
+        title: row.title,
+        from: row.label_name,
+        to: to.name,
+        ...(openChanged ? { done: closes ? "closed" : "reopened", resolution } : {}),
+      });
+    }
+    if (openChanged) itemMail(c, row, closes, resolution, opts.mergedInto);
+  };
+  return { statements, next, after };
 }
 
-async function moveBoard(c, v, b, opts) {
-  const { DB } = c.env;
-  const tree = await loadTree(c, v);
-  const self = tree.byId.get(b.id);
-  let parentId = self.parent_id;
-  if (Object.prototype.hasOwnProperty.call(opts, "board")) {
-    if (opts.board === null) parentId = null;
-    else {
-      const parent = boardIn(tree, String(opts.board));
-      if (tree.subtree(self.id).includes(parent.id)) K.fail(400, `${self.slug} cannot go inside itself or one of its own boards`);
-      if (parent.host !== null && parent.host !== self.host) K.fail(400, `${parent.slug} holds ${parent.host}'s boards; ${self.slug} is ${self.host ? `${self.host}'s` : "account-wide"}`);
-      parentId = parent.id;
-    }
+async function closingLabel(c, row) {
+  const people = [c.manager && c.actor ? c.actor.email : null, row.assignee].filter(Boolean);
+  const { results } = await c.env.DB.prepare(
+    `SELECT b.owner, l.id, l.name, l.role, l.closes FROM boards b
+     JOIN board_columns mine ON mine.board_id = b.id AND mine.label_id = ?2
+     JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id AND l.closes = 1
+     WHERE b.owner IN (SELECT value FROM json_each(?1)) AND (b.host IS NULL OR b.host = ?3)
+     ORDER BY b.id, bc.position DESC`,
+  )
+    .bind(JSON.stringify(people), row.label_id, row.host)
+    .all();
+  for (const who of people) {
+    const found = results.find((r) => r.owner === who);
+    if (found) return found;
   }
-  const anchor = anchorOf(opts);
-  let target = null;
+  return await c.env.DB.prepare(
+    "SELECT id, name, role, closes FROM labels WHERE closes = 1 ORDER BY role = 'done' DESC, id LIMIT 1",
+  ).first();
+}
+
+export async function closeItem(c, row, resolution, opts = {}) {
+  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : await closingLabel(c, row);
+  if (!to) K.fail(409, "no label closes items; mark one with p99 boards set --closes");
+  return applyLabel(c, row, to, { ...opts, resolution });
+}
+
+export async function reopenItem(c, row) {
+  const to = await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = 'inbox'").first();
+  return applyLabel(c, row, to, {});
+}
+
+async function applyLabel(c, row, to, opts) {
+  const plan = labelStatements(c, row, to, opts);
+  const results = await c.env.DB.batch(plan.statements);
+  if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
+  plan.after();
+  return plan.next;
+}
+
+export function labelChangeStatements(c, row, to, opts = {}) {
+  return labelStatements(c, row, to, opts);
+}
+
+function findItem(raw) {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 40) K.fail(400, "key must be an item key");
+  const id = K.parseKey(raw);
+  if (id === null) K.fail(404, `no item ${raw}`);
+  return id;
+}
+
+function anchorOf(body) {
+  const before = body.before ?? null;
+  const after = body.after ?? null;
+  if (before !== null && after !== null) K.fail(400, "give before or after, not both");
+  if (before !== null) return { side: "before", raw: String(before) };
+  if (after !== null) return { side: "after", raw: String(after) };
+  return null;
+}
+
+function placeIn(column, selfId, anchor, anchorId) {
+  const list = column.filter((r) => r.id !== selfId);
+  let slot = 0;
   if (anchor) {
-    target = await findCard(c, v, String(anchor.raw), anchor.side);
-    const inParent = target.type === "item" ? parentId !== null && target.row.board_id === parentId : target.row.parent_id === parentId;
-    if (!inParent) K.fail(400, `${anchor.raw} does not sit beside ${self.slug}`);
+    const at = list.findIndex((r) => r.id === anchorId);
+    if (at < 0) K.fail(400, `${anchor.raw} is not in that column of the board`);
+    slot = anchor.side === "before" ? at : at + 1;
   }
-  let to = self.status;
-  if (opts.to !== undefined && opts.to !== null) {
-    to = resolveStatus(tree.statuses, opts.to);
-    if (target && parentId !== null && anchorStatus(target) !== to) K.fail(400, `${anchor.raw} is not in that column`);
-  } else if (target && parentId !== null) {
-    to = anchorStatus(target);
+  const unkeyed = list.filter((r) => r.key === null).length;
+  if (unkeyed === 0 || slot > unkeyed) {
+    const prev = slot > 0 ? list[slot - 1].key : null;
+    const next = slot < list.length ? list[slot].key : null;
+    const key = generateKeyBetween(prev, next);
+    if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
   }
-  if (opts.resolution !== undefined && opts.resolution !== null) {
-    if (!RESOLUTIONS.includes(opts.resolution)) K.fail(400, `resolution must be ${RESOLUTIONS.join(", ")}`);
-    if (to !== "done") K.fail(400, "a resolution goes with done");
-  }
-  const resolution = to === "done" ? (opts.resolution ?? "fixed") : null;
-  const columnChanged = to !== self.status;
-  const parentChanged = parentId !== self.parent_id;
-  const place =
-    !target && !parentChanged && !columnChanged
-      ? { position: self.position, renumber: [] }
-      : await placement(c, parentId, to, { type: "board", id: self.id }, target, anchor && anchor.side);
-  const statements = [
-    ...place.renumber,
-    DB.prepare("UPDATE boards SET status = ?2, parent_id = ?3, position = ?4, updated_at = ?5 WHERE id = ?1").bind(
-      self.id,
-      to,
-      parentId,
-      place.position,
-      c.now,
-    ),
-  ];
-  let items = [];
-  if (columnChanged) {
-    const ids = tree.subtree(self.id);
-    const below = JSON.stringify(ids.filter((id) => id !== self.id));
-    items = (
-      await DB.prepare(
-        `SELECT ${ITEM_COLUMNS}, b.slug AS board_slug FROM items i JOIN boards b ON b.id = i.board_id
-         WHERE i.board_id IN (SELECT value FROM json_each(?1)) AND i.status <> ?2 AND (?3 OR i.host = ?4)
-         ORDER BY i.board_id, i.position`,
-      )
-        .bind(JSON.stringify(ids), to, v.all ? 1 : 0, v.host)
-        .all()
-    ).results;
-    const list = JSON.stringify(items.map((r) => r.id));
-    const done = to === "done";
-    statements.push(
-      DB.prepare("UPDATE boards SET status = ?2, updated_at = ?3 WHERE id IN (SELECT value FROM json_each(?1))").bind(below, to, c.now),
-      DB.prepare(
-        `UPDATE items SET status = ?2, resolution = ?3, open = ?4, duplicate_of = NULL,
-           closed_at = CASE WHEN ?4 THEN NULL ELSE ?5 END, updated_at = ?5, activity_at = ?5, public_activity_at = ?5
-         WHERE id IN (SELECT value FROM json_each(?1))`,
-      ).bind(list, to, done ? resolution : null, done ? 0 : 1, c.now),
-    );
-    if (items.length > 0) {
-      const events = items.map((r) => ({
-        id: r.id,
-        detail: JSON.stringify({ from: r.status, to, ...(done ? { resolution } : {}), ...(r.resolution ? { from_resolution: r.resolution } : {}), board: self.slug }),
-      }));
-      statements.push(
-        c.env.DB.prepare(
-          `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-           SELECT json_extract(value, '$.id'), ?2, 'status', json_extract(value, '$.detail'), 0, ?3, ?4 FROM json_each(?1)`,
-        ).bind(JSON.stringify(events), c.actor ? c.actor.email ?? null : null, c.now, c.actor && c.actor.agent ? 1 : 0),
-      );
-    }
-  }
-  await DB.batch(statements);
-  const parent = parentId === null ? null : tree.byId.get(parentId);
-  pushOf(c, {
-    type: "board.move",
-    host: self.host,
-    board: self.slug,
-    parent: parent ? parent.slug : null,
-    from: self.status,
-    to,
-    position: place.position,
-  });
-  for (const r of items) {
-    pushOf(c, {
-      type: "move",
-      key: K.keyOf(r.kind, r.id),
-      host: r.host,
-      title: r.title,
-      board: r.board_slug,
-      from: r.status,
-      to,
-      position: r.position,
-    });
-    itemMail(c, r, to, to === "done" ? resolution : null);
-  }
-  const after = await loadTree(c, v);
-  const moved = after.byId.get(self.id) || { ...self, status: to, parent_id: parentId, position: place.position };
-  return { moved: { ...boardCard(after, moved), parent: parent ? parent.slug : null }, changed: items.map((r) => K.keyOf(r.kind, r.id)) };
+  const ordered = [...list.slice(0, slot), { id: selfId }, ...list.slice(slot)];
+  const keys = generateNKeysBetween(null, null, ordered.length);
+  const rows = ordered.map((r, i) => ({ id: r.id, key: keys[i] }));
+  return { key: keys[slot], rows };
 }
 
 export async function postMove(c) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
-  const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
-  if (!["to", "board", "before", "after"].some((f) => has(f) && (body[f] !== null || f === "board"))) {
-    K.fail(400, "a move needs to, board, before or after");
-  }
-  for (const f of ["to", "before", "after", "resolution"]) {
-    if (has(f) && body[f] !== null && typeof body[f] !== "string") K.fail(400, `${f} must be a string`);
-  }
-  if (has("board") && body.board !== null && typeof body.board !== "string") K.fail(400, "board must be a slug");
+  for (const f of ["key", "from", "to"]) if (typeof body[f] !== "string" || body[f].length === 0) K.fail(400, `${f} is required`);
+  for (const f of ["before", "after"]) if (body[f] !== undefined && body[f] !== null && typeof body[f] !== "string") K.fail(400, `${f} must be an item key`);
   const v = boardView(c);
-  const target = await findCard(c, v, body.target);
-  if (target.type === "board") return K.json(200, await moveBoard(c, v, target.row, body));
-  if (has("board") && body.board === null) K.fail(400, "an item always sits on a board");
-  return K.json(200, await moveItem(c, target.row, body));
+  const { DB } = c.env;
+  const id = findItem(body.key);
+  const hasBoard = body.board !== undefined && body.board !== null;
+  const board = hasBoard ? boardId(body.board) : null;
+  const anchor = anchorOf(body);
+  if (anchor && !hasBoard) K.fail(400, "before and after place a card on a board; give board too");
+  const anchorId = anchor ? K.parseKey(anchor.raw) : null;
+  if (anchor && anchorId === null) K.fail(400, `${anchor.raw} is not an item key`);
+  const reads = await DB.batch([
+    DB.prepare(`SELECT i.*, ${LABEL_COLUMNS} FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`).bind(id, ...scopeBinds(v)),
+    DB.prepare(
+      `SELECT b.id, b.host, b.owner, l.id AS label_id, l.name, l.role, l.closes FROM boards b
+       JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
+       WHERE (b.owner = ?1 OR b.id = ?2) AND (?3 OR b.host = ?4)`,
+    ).bind(c.actor.email, board, ...scopeBinds(v)),
+    hasBoard
+      ? DB.prepare(
+          `SELECT i.id, bp.key FROM boards b JOIN labels l ON l.name = ?2
+           JOIN items i ON i.label_id = l.id AND (b.host IS NULL OR i.host = b.host) AND (?3 OR i.host = ?4)
+           LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
+           WHERE b.id = ?1 ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`,
+        ).bind(board, body.to, ...scopeBinds(v))
+      : DB.prepare("SELECT 1"),
+  ]);
+  const row = reads[0].results[0];
+  if (!row) K.fail(404, `no item ${body.key}`);
+  const columns = reads[1].results;
+  if (hasBoard) {
+    const on = columns.filter((r) => r.id === board);
+    if (on.length === 0) K.fail(404, "no such board");
+    if (on[0].owner !== c.actor.email) K.fail(403, "only its owner moves cards on a board; others watch it");
+    if (on[0].host !== null && on[0].host !== row.host) K.fail(404, "no such board");
+  }
+  const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board));
+  const target = mine.find((r) => same(r.name, body.to));
+  if (!target) K.fail(400, hasBoard ? `${body.to} is not a column of that board` : `${body.to} is not a label on your boards`);
+  if (!same(row.label_name, body.from)) K.fail(409, MOVED, "moved");
+  const to = { id: target.label_id, name: target.name, role: target.role, closes: target.closes };
+  const resolution = body.resolution ?? null;
+  if (resolution !== null && (!RESOLUTIONS.includes(resolution) || !to.closes)) K.fail(400, "a resolution goes with a label that closes");
+  if (resolution === "duplicate" && row.duplicate_of === null) K.fail(400, "a duplicate needs duplicate_of; set it with p99 merge");
+  const plan = labelStatements(c, row, to, { resolution: resolution ?? undefined });
+  const place = hasBoard ? placeIn(reads[2].results, row.id, anchor, anchorId) : null;
+  const statements = [...plan.statements];
+  if (place) {
+    statements.push(
+      DB.prepare(
+        `INSERT INTO board_positions (board_id, item_id, label_id, key)
+         SELECT ?1, json_extract(j.value, '$.id'), ?2, json_extract(j.value, '$.key') FROM json_each(?3) j
+         WHERE (SELECT label_id FROM items WHERE id = ?4) = ?2
+         ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key`,
+      ).bind(board, to.id, JSON.stringify(place.rows), row.id),
+    );
+  }
+  const results = await DB.batch(statements);
+  if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
+  plan.after();
+  const key = K.keyOf(row.kind, row.id);
+  if (place) pushOf(c, { type: "order", board, key, order: place.key, host: row.host, ...(place.rows.length > 1 ? { rebalanced: true } : {}) });
+  const card = cardOf({
+    ...row,
+    label: to.name,
+    assignee_username: row.assignee_username ?? null,
+    ord: place ? place.key : null,
+  });
+  return K.json(200, { card });
 }
 
 export async function postStreamTicket(c) {
@@ -710,12 +646,12 @@ export async function storeTicket(storage, hash, entry) {
 }
 
 export const BOARD_ROUTES = [
-  ["GET", /^\/statuses$/, getStatuses],
-  ["PUT", /^\/statuses\/([a-z]+)$/, putStatus],
+  ["GET", /^\/labels$/, listLabels],
+  ["PATCH", /^\/labels\/(\d{1,15})$/, patchLabel],
   ["GET", /^\/boards$/, getBoards],
   ["POST", /^\/boards$/, postBoard],
   ["GET", /^\/boards\/([^/]+)$/, getBoard],
-  ["PATCH", /^\/boards\/([^/]+)$/, patchBoard],
+  ["PUT", /^\/boards\/([^/]+)$/, putBoard],
   ["DELETE", /^\/boards\/([^/]+)$/, deleteBoard],
   ["POST", /^\/move$/, postMove],
 ];
