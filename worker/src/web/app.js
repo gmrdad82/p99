@@ -26,6 +26,7 @@ const WORDS = {
   bad_name: "Use 3 to 30 lowercase letters, digits, dots, dashes or underscores, starting and ending with a letter or digit.",
   sign_out: "Sign out",
 };
+const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
 const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 :host(.app-full) .p99-panel{top:0;left:0;right:0;bottom:0;width:auto;max-height:none;border-radius:0;box-shadow:none;--p99-slide:0px;transform:translateY(12px)}
 :host(.app-full) .p99-panel.is-open{transform:none}
@@ -37,7 +38,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0 };
+const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0, badged: false };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -194,10 +195,18 @@ function signedOut(e) {
   return false;
 }
 
+function badge() {
+  if (!S.spaces) return null;
+  const state = Object.hasOwn(BADGES, S.spaces.license) ? S.spaces.license : "free";
+  const pill = h("small", { class: S.badged ? "app-badge" : "app-badge app-badge-in", "data-state": state, text: BADGES[state] });
+  S.badged = true;
+  return pill;
+}
+
 function bar(title) {
   const who = S.spaces ? S.spaces.name : "";
   return h("header", { class: "app-bar" },
-    h("a", { class: "app-brand", href: "#" }, h("b", { class: "app-logo", text: "P99" }), h("span", { text: title })),
+    h("a", { class: "app-brand", href: "#" }, h("b", { class: "app-logo", text: "P99" }), badge(), h("span", { text: title })),
     h("a", { class: "app-me", href: "#profile", title: say("profile"), "aria-label": say("profile") }, S.me ? disc(S.me.username, 36) : h("span", { class: "app-disc app-disc-letter", "aria-hidden": "true", text: who.slice(0, 1).toUpperCase() })));
 }
 

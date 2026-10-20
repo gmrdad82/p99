@@ -10,7 +10,7 @@ import { deleteChecks } from "./delete.mjs";
 import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
-import { APP_HOST, appChecks } from "./app.mjs";
+import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -292,7 +292,7 @@ async function main() {
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
-  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`);
+  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`, `LICENSE_STATE:${LICENSE_STATE}`);
   const stub = await hookStub();
   vars.push(`HOOKS_TEST_ORIGIN:http://127.0.0.1:${stub.address().port}`);
   for (const host of ["127.0.0.1", "localhost"]) {
