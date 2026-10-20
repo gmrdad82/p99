@@ -15,17 +15,28 @@ Works on Linux and macOS (Windows through WSL). The widget runs in any modern br
 | | |
 | --- | --- |
 | What every page downloads | **2,044 bytes** gzipped: the loader as served, nothing else |
-| Loader start to the "+" painted | **9.8 ms** cold, **2.5 ms** warm |
-| Page navigation to the "+" painted | **27.1 ms** cold, **10.1 ms** warm |
-| Click to the panel's form on screen | **30.8 ms** cold: panel and styles load only then (23.0 KB gzipped), and the capture code right after the form shows |
-| TUI frame time at 120×34 | **0.05 to 0.12 ms** average: 120 fps leaves 8.33 ms |
+| Loader start to the "+" painted | **11.8 ms** cold, **4.5 ms** warm |
+| Page navigation to the "+" painted | **44.5 ms** cold, **16.9 ms** warm |
+| Click to the panel's form on screen | **55.8 ms** cold: panel and styles load only then (24.8 KB gzipped), and the capture code right after the form shows |
+| A manager's click on "Board" to the board with its cards | **193 ms** cold: the board's code loads only then (9.9 KB gzipped), with the board from the Worker |
+| Worker, p50 and p99 per request | **11.6 / 19.9 ms** the loader, **17.8 / 29.6 ms** an item with its thread, **19.5 / 33.0 ms** a board, **25.6 / 42.1 ms** a list of 50, **37.6 / 82.3 ms** a new item, **53.4 / 95.4 ms** a move, on a local `wrangler dev`, not Cloudflare's edge |
+| CLI start-up | **0.7 ms** `p99 --version`, **0.9 ms** `p99 --demo list` |
+| TUI start to its first frame at 120×34 | **1.6 ms** |
+| TUI frame time at 120×34 | **0.05 to 0.12 ms** average; the board's worst frame while a card is dragged and slides **0.29 ms**: 120 fps leaves 8.33 ms |
 | Backend | **0** servers: one Cloudflare Worker, D1 and R2 per account |
 | Worker runtime dependencies | **0** (wrangler only to run its tests) |
-| p99 binary | **5.5 MB**, 10 direct crates, the Worker and widget embedded |
+| p99 binary | **6.9 MB** (3.1 MB as the Linux release download), 14 direct crates, the Worker and widget embedded |
 
-Measured on 2026-10-16 for 1.6.0: sizes with `gzip -9`, the loader as a host with no placement settings gets it; browser times in headless Chromium 152 on localhost, an AMD Ryzen 9 9950X, each the median of 5 runs of 10 page loads, alternated run by run with 1.5.3 at a load average of 5 to 8 on 32 threads, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames); TUI times with `p99 tui --demo --bench 200` on a release build.
+Measured on 2026-10-20 for 1.8.0 on an AMD Ryzen 9 9950X (32 threads), with the load average of the machine's other work noted for each:
 
-<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 17.3 and its styles 5.6 on the first click, then the capture code with its library 17.4."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 9.8 cold and 2.5 warm, page navigation to the button painted 27.1 cold and 10.1 warm, click to the panel's form 30.8 cold."></p>
+- Sizes with `gzip -9`: the loader as a host with no placement settings gets it (`bin/budget`), the panel, styles, capture and board code as the Worker serves them.
+- Browser times in headless Chromium 154 on localhost against a local Worker, each the median of 5 runs of 10 page loads, at a load average of 26 to 30, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames). Cold is a fresh browser context, warm a reload in it. Alternated run by run with 1.7.0 at a load average of 50 to 92, the two were the same within the noise (loader start to the button 9.3 and 9.0 ms cold, click to the form 132 and 144 ms). The board time is from the pointer going down on "Board" to the board on screen with its cards, in a fresh context each time, against the Worker on a local `wrangler dev` with 3 boards and 22 items, the median of 5 runs of 10 at a load average of 11 to 13.
+- Worker times on `wrangler dev` (workerd and local D1 on this machine, not Cloudflare's edge), one request at a time over a kept-alive connection, 400 of each after 30 to warm up, signed as the CLI signs them, on 360 items with 120 comments on 2 hosts and 5 boards, at a load average of 12 to 17.
+- CLI and TUI start-up: the whole process, the median of 300 runs after 20 to warm up (`p99 tui --demo --dump 120x34` for the first frame); TUI frame times with `p99 tui --demo --bench 200`; both on the v1.8.0 Linux release binary, at a load average of 12. A first set at a load average of 49 to 52 ran slower (up to 1.2 ms a frame on average, the worst 10.5 ms), from the machine's other work.
+
+<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 18.9 and its styles 5.9 on the first click, then the capture code with its library 17.4; for managers, the board 9.9 when they open it."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 11.8 cold and 4.5 warm, page navigation to the button painted 44.5 cold and 16.9 warm, click to the panel's form 55.8 cold, a manager's click on Board to the board with its cards 193 cold."></p>
+
+<p align="center"><img src="docs/images/tui-frames-bars.png" width="49%" alt="Bar chart of the TUI's frame time at 120 by 34 in microseconds: the average of 200 frames is 89 on the inbox, 76 on the board, 54 on the codes and 120 on a thread; the worst of 200 frames on the board is 249 while a card is carried with the keys and 289 while one is dragged with the mouse, a slide always running; 120 fps leaves 8,333."></p>
 
 ## On your site
 

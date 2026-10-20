@@ -1,21 +1,25 @@
 title = "HOW FAST THE WIDGET SHOWS"
 unit = "MILLISECONDS, MEDIAN OF 5 RUNS OF 10"
 better = "lower"
-subtitle = "HEADLESS CHROMIUM 152 ON LOCALHOST, AMD RYZEN 9 9950X"
-date = "2026-10-16"
+subtitle = "HEADLESS CHROMIUM 154 ON LOCALHOST, AMD RYZEN 9 9950X"
+date = "2026-10-20"
 suffix = " MS"
-notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT."]
-parties = [{ name = "P99 1.6.0" }]
+notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT.", "LOAD AVERAGE 26 TO 30 ON 32 THREADS; THE BOARD 11 TO 13."]
+parties = [{ name = "P99 1.8.0" }]
 
 [[groups]]
 name = "THE BUTTON"
 rows = [
-  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [9.8] },
-  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [2.5] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [27.1] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [10.1] },
+  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [11.8] },
+  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [4.5] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [44.5] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [16.9] },
 ]
 
 [[groups]]
 name = "THE PANEL"
-rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [30.8] }]
+rows = [{ label = "CLICK TO THE FORM ON SCREEN, COLD", values = [55.8] }]
+
+[[groups]]
+name = "THE BOARD"
+rows = [{ label = "CLICK ON BOARD TO THE BOARD WITH ITS CARDS, COLD", values = [193.0] }]
