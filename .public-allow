@@ -29,3 +29,7 @@ commit/e19efae18324:worker/test/run.mjs:564 a refused webhook URL with a user pa
 commit/9548060d420c:3 the hooks commit message names the --url-ref reference schemes
 commit/9548060d420c:docs/hosts.md:60 the hooks docs' example reference, made generic in a later commit
 commit/9548060d420c:docs/hosts.md:67 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
+commit/b02cda9529f5:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as waived at docs/guides/github.md:17
+commit/b02cda9529f5:docs/guides/github.md:22 the GitHub guide's example reference, made generic in a later commit
+commit/e19efae18324:docs/hosts.md:61 the hooks docs' example reference, made generic in a later commit
+commit/e19efae18324:docs/hosts.md:68 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
