@@ -2,6 +2,16 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.8.3 — 2026-10-20
+
+### Added
+
+- Managers can delete an item: `p99 delete <KEY>`, `d` in a TUI thread, or "Delete this item" at the bottom of Manage in the panel, each behind typing the key back (or holding the button in the panel). Its comments, notes, events, labels, board place and every file go with it, and open boards and inboxes drop it live.
+
+### Fixed
+
+- A GitHub issue closed as a duplicate no longer marks its item fixed; only an issue closed as completed does.
+
 ## v1.8.2 — 2026-10-20
 
 ### Fixed
