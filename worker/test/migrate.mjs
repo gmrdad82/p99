@@ -107,7 +107,18 @@ function cloudflare(state) {
         state.sql.push(sql);
         try {
           const single = /^\s*SELECT\b/i.test(sql) && !sql.trim().replace(/;$/, "").includes(";");
-          const results = params.length > 0 || single ? state.db.prepare(sql).all(...params) : (state.db.exec(sql), []);
+          const batch = () => {
+            state.db.exec("BEGIN");
+            try {
+              state.db.exec(sql);
+              state.db.exec("COMMIT");
+            } catch (error) {
+              state.db.exec("ROLLBACK");
+              throw error;
+            }
+            return [];
+          };
+          const results = params.length > 0 || single ? state.db.prepare(sql).all(...params) : batch();
           return reply(response, 200, { success: true, result: [{ results, success: true, meta: {} }] });
         } catch (error) {
           return reply(response, 400, { success: false, errors: [{ code: 7500, message: `${error.message}: SQLITE_ERROR` }] });

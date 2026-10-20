@@ -1541,9 +1541,14 @@ async function listIssues(c) {
   if (hostScope) where.push(hostScope);
   labelFilters(c, params, q, where);
   const status = params.get("status") || "any";
+  const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
   else if (status === "closed") where.push("i.open = 0");
-  else if (status !== "any") fail(400, "status must be open, closed or any; label= keeps one label");
+  else if (asked && asked.role === "done") {
+    where.push("i.open = 0");
+    if (asked.resolution && status !== "done") where.push(`i.resolution = ${q.bind(asked.resolution)}`);
+  } else if (asked) where.push(`i.open = 1 AND i.label_id = (SELECT id FROM labels WHERE role = ${q.bind(asked.role)})`);
+  else if (status !== "any") fail(400, "status must be open, closed, any or a status key; label= keeps one label");
   if (params.has("board")) fail(400, "items sit on no board; a board shows the items whose label is one of its columns");
   const kind = params.get("kind");
   if (kind) {
@@ -1906,13 +1911,23 @@ async function patchIssue(c, rawKey) {
     }
   }
   let wanted;
-  if (has("resolution")) wanted = body.resolution;
+  let role = null;
+  if (has("status")) {
+    const legacy = statusOf(body.status, body.resolution ?? undefined);
+    if (!legacy) fail(400, "status is not known; set the label with POST /move");
+    if (legacy.role === "done") wanted = legacy.resolution;
+    else {
+      role = legacy.role;
+      if (!row.open) wanted = null;
+    }
+  } else if (has("resolution")) wanted = body.resolution;
   else if (has("duplicate_of") && duplicateOf !== null) wanted = "duplicate";
+  if (wanted === "fixed" && has("duplicate_of") && duplicateOf !== null && !has("resolution")) wanted = "duplicate";
   if (wanted !== undefined && wanted !== null && !RESOLUTIONS.includes(wanted)) fail(400, "resolution must be fixed, abandoned, duplicate or null");
   if (wanted === "duplicate" && duplicateOf === null) fail(400, "a duplicate needs duplicate_of");
   const reopening = wanted === null && !row.open;
   const closing = wanted !== undefined && wanted !== null && (row.open || wanted !== row.resolution || duplicateOf !== row.duplicate_of);
-  if (reopening && !c.manager && !(reporter && row.resolution === "fixed")) fail(403, "this change is not allowed");
+  if (reopening && !c.manager && !(reporter && row.resolution === "fixed" && (role ?? "inbox") === "inbox")) fail(403, "this change is not allowed");
   if (closing && !c.manager && !(reporter && wanted === "abandoned" && row.open)) fail(403, "this change is not allowed");
 
   const statements = [];
@@ -1938,7 +1953,11 @@ async function patchIssue(c, rawKey) {
   }
   const current = { ...row, ...next };
   if (closing) await closeItem(c, current, wanted, { duplicateOf });
-  else if (reopening) await reopenItem(c, current);
+  else if (reopening) await reopenItem(c, current, role ?? "inbox");
+  else if (role !== null && role !== row.label_role) {
+    requireManager(c);
+    await reopenItem(c, current, role);
+  }
   return issueResponse(c, row.id, 200);
 }
 

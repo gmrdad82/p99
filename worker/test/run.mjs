@@ -493,14 +493,14 @@ async function run() {
 
   await check("priority, tags and status are refused as fields, a list keeps one label, and no answer carries them", async () => {
     const set = (k, body) => call("PATCH", `/_p99/v1/issues/${k}?host=${here}`, { body });
-    for (const body of [{ priority: "urgent" }, { priority: null }, { labels: ["ui"] }, { labels: { add: ["ui"] } }, { status: "doing" }]) {
+    for (const body of [{ priority: "urgent" }, { priority: null }, { labels: ["ui"] }, { labels: { add: ["ui"] } }, { status: "shelved" }]) {
       assert.equal((await set(key, body)).status, 400, JSON.stringify(body));
     }
     assert.match((await set(key, { priority: "high" })).json.message, /place in its lane/);
     assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { priority: "high" })).status, 400);
     assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { labels: ["ui"] })).status, 400);
     assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&priority=urgent`)).status, 400);
-    assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&status=doing`)).status, 400);
+    assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&status=shelved`)).status, 400);
     assert.equal((await browse("GET", "/issues?scope=mine&label=Inbox", adaHere.secret)).status, 403);
     const inbox = await call("GET", `/_p99/v1/issues?scope=all&host=${here}&label=Inbox`);
     assert.ok(inbox.json.issues.some((i) => i.key === key));
@@ -848,7 +848,7 @@ async function run() {
     assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
   });
 
-  const kate = await mint("Katherine Johnson", "katherine@example.com", [here], true);
+  const kate = await mint("Margaret Hamilton", "margaret@example.com", [here], true);
   const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
   const fileOn = async (title) => (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title }) })).json.key;
   const mineHere = (await call("GET", `/_p99/v1/boards?host=${here}`)).json.boards.find((b) => b.mine);
@@ -957,6 +957,25 @@ async function run() {
     const dropped = await browse("PATCH", `/issues/${filed}`, adaHere.secret, { resolution: "abandoned" });
     assert.deepEqual([dropped.json.stage, dropped.json.resolution], ["dropped", "abandoned"]);
     assert.equal((await call("GET", `/_p99/v1/issues/${filed}?host=${here}`)).json.issue.label, "Done");
+  });
+
+  await check("1.8's status payloads still work: a reporter drops and reopens their own, a list filters by a status key", async () => {
+    const filed = (await browse("POST", "/issues", adaHere.secret, issueBody({ title: "Old words" }))).json.key;
+    const mine = (body) => browse("PATCH", `/issues/${filed}`, adaHere.secret, body);
+    const dropped = await mine({ status: "done", resolution: "abandoned" });
+    assert.equal(dropped.status, 200, JSON.stringify(dropped.json));
+    assert.deepEqual([dropped.json.stage, dropped.json.resolution], ["dropped", "abandoned"]);
+    assert.equal((await mine({ status: "inbox" })).status, 403);
+    assert.equal((await call("PATCH", `/_p99/v1/issues/${filed}?host=${here}`, { body: { status: "done" } })).json.stage, "fixed");
+    const reopened = await mine({ status: "inbox" });
+    assert.deepEqual([reopened.status, reopened.json.stage], [200, "received"]);
+    assert.equal((await mine({ status: "doing" })).status, 403);
+    const doing = await call("PATCH", `/_p99/v1/issues/${filed}?host=${here}`, { body: { status: "doing" } });
+    assert.deepEqual([doing.json.label, doing.json.stage], ["Building", "in_progress"]);
+    const keys = async (status) => (await call("GET", `/_p99/v1/issues?scope=all&host=${here}&status=${status}`)).json.issues.map((i) => i.key);
+    assert.ok((await keys("doing")).includes(filed));
+    assert.equal((await keys("inbox")).includes(filed), false);
+    assert.ok((await browse("GET", "/issues?scope=mine&status=doing", adaHere.secret)).json.issues.some((i) => i.key === filed));
   });
 
   await check("a label rename changes the name on every board, and a one-host manager can't rename a label other hosts use", async () => {

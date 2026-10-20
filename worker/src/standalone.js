@@ -62,7 +62,7 @@ export async function appRequest(request, env, ctx, url) {
     response = await route(request, env, ctx, url);
   } catch (error) {
     if (!(error instanceof K.Failure)) throw error;
-    response = K.errorResponse(error.status, error.message);
+    response = K.errorResponse(error.status, error.message, error.code);
   }
   return secured(response);
 }

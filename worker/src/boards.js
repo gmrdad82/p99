@@ -471,8 +471,8 @@ export async function closeItem(c, row, resolution, opts = {}) {
   return applyLabel(c, row, to, { ...opts, resolution });
 }
 
-export async function reopenItem(c, row) {
-  const to = await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = 'inbox'").first();
+export async function reopenItem(c, row, role = "inbox") {
+  const to = await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = ?1").bind(role).first();
   return applyLabel(c, row, to, {});
 }
 

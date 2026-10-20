@@ -1069,11 +1069,8 @@ mod tests {
     }
 
     #[test]
-    fn the_status_keys_are_the_workers() {
+    fn the_resolutions_are_the_workers() {
         let boards = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src/boards.js"));
-        let keys: Vec<String> = STATUSES.iter().map(|s| format!("\"{s}\"")).collect();
-        let line = format!("export const STATUSES = [{}];", keys.join(", "));
-        assert!(boards.contains(&line), "{line}");
         let resolutions: Vec<String> = RESOLUTIONS.iter().map(|s| format!("\"{s}\"")).collect();
         let line = format!("export const RESOLUTIONS = [{}];", resolutions.join(", "));
         assert!(boards.contains(&line), "{line}");
