@@ -16,9 +16,3 @@ worker/test/run.mjs:598 a refused webhook URL with a user part, in the test that
 docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
 docs/guides/setup.md:87 the setup guide explains secret references for the mail key
 src/email.rs:41 the --key-ref help names the reference schemes it reads
-LICENSE:0 P99 is AGPL-3.0-only with a commercial licence from 1.8.0 (Gamer Dad's word, 2026-10-20); LICENSE holds the AGPL text alone
-LICENSE:1 the AGPL-3.0 text starts with its own title, not MIT's
-LICENSE:4 the AGPL-3.0 text carries no copyright line; the README and NOTICE name Catalin Ilinca
-README.md:0 the README's licence section says AGPL-3.0 with a commercial licence and that the names and logos are reserved, as P99 left MIT
-TRADEMARKS.md:0 TRADEMARKS.md says P99's licences cover the code only and the names and logos are all rights reserved, as P99 left MIT
-Cargo.toml:7 P99 is AGPL-3.0-only from 1.8.0 (Gamer Dad's word, 2026-10-20)

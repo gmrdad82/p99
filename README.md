@@ -175,8 +175,8 @@ Issues and pull requests are welcome on GitHub. A pull request is merged only on
 
 <img src="assets/marks/lockup.svg#gh-light-mode-only" width="320" alt="P99, issue and feedback reporter"><img src="assets/marks/lockup-dark.svg#gh-dark-mode-only" width="320" alt="P99, issue and feedback reporter">
 
-© 2026 Catalin Ilinca. AGPL-3.0, with a commercial licence for closed or paid use.
+© 2026 Catalin Ilinca. AGPL-3.0, with a [commercial licence](https://pitomd.com/p99/license/) for closed or paid use.
 
 P99 is free software under the GNU Affero General Public License, version 3 only ([LICENSE](LICENSE)): use it, study it, change it and share it as that licence allows. Closed or paid use takes a commercial licence instead; `p99 license set` stores its key, which is checked offline ([docs/config.md](docs/config.md#licence-key)). Versions up to 1.7.x were released under the MIT licence and stay under it as published.
 
-The licences cover the code only: the P99 and PITO MD names and logos are © Catalin Ilinca, all rights reserved ([TRADEMARKS.md](TRADEMARKS.md)). Third-party code and its licence are listed in [NOTICE](NOTICE).
+The AGPL-3.0 and the commercial licence cover the code only: the P99 and PITO MD names and logos are © Catalin Ilinca, all rights reserved ([TRADEMARKS.md](TRADEMARKS.md)). Third-party code and its licence are listed in [NOTICE](NOTICE).
