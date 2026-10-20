@@ -1022,6 +1022,10 @@ fn plain(kind: &str, value: &serde_json::Value) -> String {
 }
 
 impl Screen<Msg> for Inbox {
+    fn legend(&self) -> Option<&str> {
+        Some(crate::ASK)
+    }
+
     fn phase(&self) -> Phase<'_> {
         if self.open.is_some() || self.entries.is_some() {
             return Phase::Ready;

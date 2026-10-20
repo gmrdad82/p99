@@ -2,6 +2,8 @@
 
 Issues and pull requests are welcome at [github.com/gmrdad82/p99](https://github.com/gmrdad82/p99). Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). Report a vulnerability privately, as [SECURITY.md](SECURITY.md) says, never in a public issue.
 
+P99: got questions or doubts? [Ping me on Discord](https://discord.gg/XsNcn3kYzn).
+
 ## The Contributor Licence Agreement
 
 P99 is offered under the AGPL-3.0 and under a commercial licence ([README](README.md#licence)). So that both stay possible, a pull request is merged only once its author has signed the [P99 Individual Contributor Licence Agreement](CLA.md). You keep the copyright in your work; the agreement lets Cătălin Ilinca license it as part of P99 under any licence, and always under the licence P99 uses on the day you submit it. It is adapted from the Harmony Individual Contributor License Agreement 1.0; read it before you sign.

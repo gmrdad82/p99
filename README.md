@@ -10,6 +10,8 @@ Cloudflare is the whole infrastructure: one Worker, one D1 database and one R2 b
 
 Works on Linux and macOS (Windows through WSL). The widget runs in any modern browser.
 
+P99: got questions or doubts? [Ping me on Discord](https://discord.gg/XsNcn3kYzn).
+
 ## The numbers
 
 | | |

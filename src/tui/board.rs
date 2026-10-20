@@ -1040,6 +1040,10 @@ fn rgb(color: &str) -> Option<Color> {
 }
 
 impl Screen<Msg> for Board {
+    fn legend(&self) -> Option<&str> {
+        Some(crate::ASK)
+    }
+
     fn phase(&self) -> Phase<'_> {
         if self.view.is_some() {
             return Phase::Ready;

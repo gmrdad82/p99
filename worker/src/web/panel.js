@@ -2,6 +2,7 @@ const V = "__P99_VERSION__";
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_FILES = 30;
 const MAX_MARKS = 10;
+const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
@@ -365,7 +366,8 @@ function chrome() {
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
   const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
   const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: say("brand") })), board, x);
-  panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller);
+  const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
+  panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);
   swipe(head);
   root.addEventListener("keydown", keys);
