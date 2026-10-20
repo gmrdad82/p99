@@ -1,5 +1,5 @@
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pito_tui::clock::{self, Units};
 use pito_tui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -16,6 +16,7 @@ use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, tex
 use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, stage_word, status_word};
 
 use super::Msg;
+use super::badge::Badge;
 use super::deck::Move;
 use super::source::{Entry, Source, hits, merged_hosts, person, unix, words};
 
@@ -134,6 +135,7 @@ pub struct Inbox {
     refreshing: bool,
     again: bool,
     told: bool,
+    badge: Badge,
 }
 
 impl Inbox {
@@ -159,7 +161,13 @@ impl Inbox {
             refreshing: false,
             again: false,
             told: false,
+            badge: Badge::off(),
         }
+    }
+
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badge = badge;
+        self
     }
 
     fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -1406,6 +1414,18 @@ impl Screen<Msg> for Inbox {
     fn status(&self) -> Option<(String, Style)> {
         let host = self.host.as_deref().unwrap_or("All hosts");
         Some((host.to_owned(), self.palette.accent))
+    }
+
+    fn moment(&mut self, now: Instant) {
+        self.badge.moment(now);
+    }
+
+    fn animating(&self) -> bool {
+        self.badge.easing()
+    }
+
+    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
+        self.badge.status(self.status())
     }
 
     fn facts(&self) -> Vec<(String, Style)> {

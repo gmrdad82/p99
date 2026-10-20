@@ -14,6 +14,7 @@ use pito_tui::ratatui::{
 use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, text};
 
 use super::Msg;
+use super::badge::Badge;
 use super::deck::{BoardView, Boards, Card, MOVED, NONE, Patch, patch, request, sort, stale};
 use super::inbox::Inbox;
 use super::source::Source;
@@ -114,6 +115,7 @@ pub struct Board {
     reader: Inbox,
     following: bool,
     stale: Option<Instant>,
+    badge: Badge,
 }
 
 impl Board {
@@ -145,7 +147,13 @@ impl Board {
             picking: None,
             wanted: None,
             sending: 0,
+            badge: Badge::off(),
         }
+    }
+
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badge = badge;
+        self
     }
 
     fn slug(&self) -> Option<(usize, i64)> {
@@ -1000,11 +1008,12 @@ impl Screen<Msg> for Board {
 
     fn moment(&mut self, now: Instant) {
         self.moment = now;
+        self.badge.moment(now);
     }
 
     fn animating(&self) -> bool {
         let now = self.moment;
-        self.spots.values().any(|spot| spot.moving(now))
+        self.badge.easing() || self.spots.values().any(|spot| spot.moving(now))
     }
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
@@ -1265,6 +1274,10 @@ impl Screen<Msg> for Board {
     fn status(&self) -> Option<(String, Style)> {
         let view = self.view.as_ref()?;
         Some((view.board.name.clone(), self.palette.accent))
+    }
+
+    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
+        self.badge.status(self.status())
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
