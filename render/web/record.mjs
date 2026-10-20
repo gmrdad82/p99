@@ -56,7 +56,7 @@ async function seed() {
   const say = (actor, body) => api("POST", `/issues/${cart.key}/comments?host=${HOST}`, { client_uid: uid(), body, internal: false }, actor);
   await say(ADA, "Thanks, Grace. I can see it when the last bag of a kind is removed: the total keeps the old line.");
   await say(GRACE, "Same on my phone, in Safari.");
-  await api("PATCH", `/issues/${cart.key}?host=${HOST}`, { status: "in_progress" }, ADA);
+  await api("PATCH", `/issues/${cart.key}?host=${HOST}`, { status: "doing" }, ADA);
   await say({ ...ADA, agent: true }, "Found it: the total was summed before the line was removed. The fix is on main with a test for the last bag, and goes out with the next release.");
   const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false }, ADA);
   writeFileSync(join(work, "code"), minted.secret, { mode: 0o600 });

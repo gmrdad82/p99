@@ -4,8 +4,9 @@ const MAX_FILES = 30;
 const MAX_MARKS = 10;
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
-const STATUSES = ["new", "confirmed", "in_progress", "waiting", "resolved", "abandoned", "duplicate"];
-const OPEN = ["new", "confirmed", "in_progress", "waiting"];
+const STATUSES = ["inbox", "doing", "review", "done"];
+const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
+const LEGACY = { new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
 const TYPES = {
@@ -34,12 +35,10 @@ const WORDS = {
   kind_improvement: "Improvement",
   kind_question: "Question",
   kind_task: "Task",
-  status_new: "New",
-  status_confirmed: "Confirmed",
-  status_in_progress: "In progress",
-  status_waiting: "Waiting for you",
-  status_waiting_manager: "Waiting on the reporter",
-  status_resolved: "Resolved",
+  status_inbox: "Received",
+  status_doing: "In progress",
+  status_review: "In review",
+  status_fixed: "Fixed",
   status_abandoned: "Dropped",
   status_duplicate: "Duplicate",
   only_branch: "The fix is written but isn't in a build yet.",
@@ -496,8 +495,18 @@ function status(form, text, retry) {
   if (retry) line.append(" ", h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry }));
 }
 function pill(cls, data, value, label) { return h("span", { class: cls, [data]: value, text: label }); }
-function statusWord(s) { return say(me && me.manager && s === "waiting" ? "status_waiting_manager" : "status_" + s); }
-function statusPill(s) { return pill("p99-status", "data-status", s, statusWord(s)); }
+function choiceOf(s, r) {
+  const c = LEGACY[s] || s;
+  return c === "done" ? "done:" + (r || "fixed") : c;
+}
+function statusWord(s, r) {
+  const [key, res] = choiceOf(s, r).split(":");
+  const named = me && me.manager && Array.isArray(me.statuses) ? me.statuses.find((x) => x.key === key) : null;
+  if (!named) return say("status_" + (res || key));
+  return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
+}
+function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
+function statusPill(s, r) { return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), statusWord(s, r)); }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
 function landing(l) {
   if (!l) return null;
@@ -578,7 +587,7 @@ function more(view, items, f, cursor) {
 }
 function filters(f) {
   const status = h("select", { name: "status" },
-    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.map((s) => [s, statusWord(s)]))
+    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.filter((s) => s !== "done").map((s) => [s, statusWord(s)]))
       .map(([v, l]) => h("option", { value: v, selected: (f.status || "open") === v, text: l })));
   const kind = h("select", { name: "kind" }, [["", say("filter_every_kind")]].concat(KINDS.map((k) => [k, say("kind_" + k)])).map(([v, l]) => h("option", { value: v, selected: f.kind === v, text: l })));
   const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off" });
@@ -602,7 +611,7 @@ function row(r) {
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
-      statusPill(r.status),
+      statusPill(r.status, r.resolution),
       kindPill(r.kind),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
@@ -654,7 +663,7 @@ function thread(t) {
   const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -672,10 +681,10 @@ function thread(t) {
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
-    if (OPEN.includes(i.status)) acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "abandoned" }, wrap, e.currentTarget) }));
-    if (i.status === "resolved") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "new" }, wrap, e.currentTarget) }));
+    if (i.status !== "done") acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "done", resolution: "abandoned" }, wrap, e.currentTarget) }));
+    if (i.status === "done" && i.resolution === "fixed") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "inbox" }, wrap, e.currentTarget) }));
     if (acts.firstChild) view.append(wrap);
-    if (i.status === "new") view.append(editForm(i));
+    if (i.status === "inbox") view.append(editForm(i));
   }
   return view;
 }
@@ -694,7 +703,7 @@ function pageUrl(path) {
 function eventText(ev) {
   const obj = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
   const label = (k, v) => (v ? say(k + "_" + v) : "");
-  if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from) : "", to: obj.to ? statusWord(obj.to) : "" });
+  if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: obj.to }) : say("event_unassigned");
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
@@ -793,7 +802,7 @@ function options(list, word, current) {
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(STATUSES, statusWord, i.status))),
+    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     h("label", null, h("span", { text: say("assignee") }), h("input", { type: "email", name: "assignee", value: i.assignee || "", autocomplete: "off" })),
     h("label", null, h("span", { text: say("duplicate_label") }), h("input", { name: "duplicate_of", value: i.duplicate_of || "", placeholder: say("duplicate_hint"), autocomplete: "off" })),
@@ -803,6 +812,11 @@ function manageForm(i) {
     e.preventDefault();
     const data = changed(form);
     if (data.duplicate_of === "") delete data.duplicate_of;
+    if (data.status) {
+      const [key, res] = data.status.split(":");
+      data.status = key;
+      if (res) data.resolution = res;
+    }
     if ("assignee" in data && !data.assignee) data.assignee = null;
     patch(i.key, data, form);
   });

@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
-import { mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
@@ -28,6 +28,33 @@ const VECTOR = {
 const SEED_SQL = `
 INSERT INTO usage (actor_email, day, issues, comments, bytes) VALUES ('grace@example.com', date('now'), 30, 200, 0);
 `;
+
+const LEGACY_ROWS = [
+  [901, "new"],
+  [902, "confirmed"],
+  [903, "in_progress"],
+  [904, "waiting"],
+  [905, "resolved"],
+  [906, "abandoned"],
+  [907, "duplicate"],
+];
+
+const LEGACY_SQL = [
+  ...LEGACY_ROWS.map(([id, status]) => {
+    const open = ["new", "confirmed", "in_progress", "waiting"].includes(status);
+    const at = "'2025-01-01T00:00:00.000Z'";
+    return `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
+      reporter_email, reporter_name, reporter_json, duplicate_of, context_json, marks_json, search_text, activity_at,
+      public_activity_at, created_at, updated_at, closed_at)
+      VALUES (${id}, 'legacy-${id}', 'bug', '${status}', ${open ? 1 : 0}, 'Legacy ${status}', '', 'production', 'legacy.example',
+      'https://legacy.example/', '/', '', 'old@example.com', 'Old', '{}', ${status === "duplicate" ? 905 : "NULL"}, '{}', '[]',
+      'legacy ${status}', ${at}, ${at}, ${at}, ${at}, ${open ? "NULL" : at});`;
+  }),
+  `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env, created_at)
+   VALUES (902, 'legacy-comment-902', 'old@example.com', 'Old', 0, 'Still there.', 0, 'production', '2025-01-02T00:00:00.000Z');`,
+  `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at)
+   VALUES (905, NULL, 'status', '{"from":"confirmed","to":"resolved"}', 0, '2025-01-03T00:00:00.000Z');`,
+].join("\n");
 
 const PLACEMENT = { corner: "top-left", offset: { x: 24, y: 40 }, theme: { accent: "#3b7dd8" } };
 
@@ -66,6 +93,15 @@ function listen(path, heard) {
   return new Promise((resolve, reject) => {
     socket.addEventListener("open", () => resolve(socket));
     socket.addEventListener("error", () => reject(new Error("the stream did not open")));
+  });
+}
+
+function ticketSocket(ticket, heard = []) {
+  const socket = new WebSocket(`${base.replace(/^http/, "ws")}/_p99/api/stream?t=${ticket}`);
+  socket.addEventListener("message", (message) => heard.push(JSON.parse(message.data)));
+  return new Promise((resolve) => {
+    socket.addEventListener("open", () => resolve(socket));
+    socket.addEventListener("error", () => resolve(null));
   });
 }
 
@@ -131,13 +167,28 @@ async function waitForHealth(child) {
 async function main() {
   rmSync(state, { recursive: true, force: true });
   mkdirSync(state, { recursive: true });
+  const migrations = join(root, "migrations");
+  const before = readdirSync(migrations)
+    .filter((f) => f.endsWith(".sql") && f < "0004")
+    .sort();
+  const legacy = join(work, "test-legacy.sql");
+  writeFileSync(
+    legacy,
+    [
+      ...before.map((f) => readFileSync(join(migrations, f), "utf8")),
+      "CREATE TABLE IF NOT EXISTS d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);",
+      ...before.map((f) => `INSERT INTO d1_migrations (name) VALUES ('${f}');`),
+      LEGACY_SQL,
+    ].join("\n"),
+  );
+  wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", legacy]);
   wranglerSync(["d1", "migrations", "apply", "DB", "--local", "--persist-to", state]);
   const seed = join(work, "test-seed.sql");
   writeFileSync(seed, SEED_SQL);
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
-  vars.push("CODE_PEPPER:test-pepper");
+  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500");
   const child = spawn(
     wrangler,
     [
@@ -479,6 +530,115 @@ async function run() {
     assert.equal(trusted.status, 200, JSON.stringify(trusted.json));
     const stranger = await browse("GET", "/me", `${minted.secret}.${"0".repeat(32)}`);
     assert.equal(stranger.status, 428);
+  });
+
+  await check("0004 maps every old status to its column and resolution, and keeps the item's thread", async () => {
+    const want = {
+      901: ["inbox", null, true],
+      902: ["doing", null, true],
+      903: ["doing", null, true],
+      904: ["review", null, true],
+      905: ["done", "fixed", false],
+      906: ["done", "abandoned", false],
+      907: ["done", "duplicate", false],
+    };
+    for (const [id, [status, resolution, open]] of Object.entries(want)) {
+      const got = await call("GET", `/_p99/v1/issues/BUG-${id}?host=*`);
+      assert.equal(got.status, 200, JSON.stringify(got.json));
+      const issue = got.json.issue;
+      assert.deepEqual([issue.status, issue.resolution, issue.closed_at === null], [status, resolution, open], `BUG-${id}`);
+      assert.equal(issue.board, "legacy-example");
+    }
+    assert.equal((await call("GET", "/_p99/v1/issues/BUG-907?host=*")).json.issue.duplicate_of, "BUG-905");
+    const thread = await call("GET", "/_p99/v1/issues/BUG-902?host=*");
+    assert.equal(thread.json.comments.length, 1);
+    const old = await call("GET", "/_p99/v1/issues/BUG-905?host=*");
+    assert.ok(old.json.events.some((e) => e.kind === "status" && e.detail.to === "resolved"));
+    const board = await call("GET", "/_p99/v1/boards/legacy-example");
+    assert.equal(board.status, 200, JSON.stringify(board.json));
+    assert.deepEqual(board.json.board.rollup, { done: 3, total: 7 });
+    const doing = board.json.cards.filter((c) => c.status === "doing").map((c) => c.key);
+    assert.deepEqual(doing, ["BUG-903", "BUG-902"]);
+  });
+
+  const boards = await call("GET", `/_p99/v1/boards?host=${here}`);
+  const home = boards.json.boards.find((b) => b.home && b.host === here);
+
+  await check("a board card moved to done moves every item in its subtree, and its rollup follows", async () => {
+    assert.ok(home, JSON.stringify(boards.json));
+    const site = await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "Site v2", parent: home.slug } });
+    assert.equal(site.status, 201, JSON.stringify(site.json));
+    assert.equal(site.json.slug, "site-v2");
+    const checkout = await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "Checkout", parent: "site-v2", status: "Doing" } });
+    assert.equal(checkout.status, 201, JSON.stringify(checkout.json));
+    const one = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Cascade one" }) })).json;
+    const two = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Cascade two" }) })).json;
+    assert.equal(one.board, home.slug);
+    assert.equal(one.status, "inbox");
+    const moved = await call("POST", `/_p99/v1/move?host=${here}`, { body: { target: one.key, board: "site-v2", to: "doing" } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    assert.deepEqual(moved.json.changed, [one.key]);
+    assert.equal((await call("POST", "/_p99/v1/move", { body: { target: two.key, board: "checkout" } })).status, 200);
+    const done = await call("POST", `/_p99/v1/move?host=${here}`, { body: { target: "board:site-v2", to: "done" } });
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    assert.deepEqual([...done.json.changed].sort(), [one.key, two.key].sort());
+    assert.deepEqual(done.json.moved.rollup, { done: 2, total: 2 });
+    for (const key of [one.key, two.key]) {
+      const issue = (await call("GET", `/_p99/v1/issues/${key}?host=${here}`)).json.issue;
+      assert.deepEqual([issue.status, issue.resolution], ["done", "fixed"], key);
+    }
+    const inside = await call("GET", "/_p99/v1/boards/site-v2");
+    assert.equal(inside.json.cards.find((c) => c.type === "board").status, "done");
+    const cycle = await call("POST", "/_p99/v1/move", { body: { target: "board:site-v2", board: "checkout" } });
+    assert.equal(cycle.status, 400);
+  });
+
+  await check("reporters neither see nor move boards", async () => {
+    assert.equal((await browse("GET", "/boards", adaHere.secret)).status, 403);
+    assert.equal((await browse("GET", `/boards/${home.slug}`, adaHere.secret)).status, 403);
+    assert.equal((await browse("POST", "/move", adaHere.secret, { target: key, to: "doing" })).status, 403);
+    assert.equal((await browse("GET", `/issues?scope=mine&board=${home.slug}`, adaHere.secret)).status, 403);
+    assert.equal((await browse("PATCH", `/issues/${key}`, adaHere.secret, { status: "doing" })).status, 403);
+    assert.equal((await browse("POST", "/stream-ticket", adaHere.secret)).status, 403);
+    const listed = await browse("GET", "/issues?scope=mine", adaHere.secret);
+    assert.ok(listed.json.issues.length > 0);
+    assert.ok(listed.json.issues.every((i) => i.board === null && i.position === null));
+  });
+
+  const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
+
+  await check("a manager scoped to one host can't reach another host's board", async () => {
+    const away = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Over there" } });
+    assert.equal(away.status, 201, JSON.stringify(away.json));
+    assert.equal(away.json.host, there);
+    assert.equal((await browse("GET", "/boards", boss.secret)).json.boards.some((b) => b.host !== here), false);
+    assert.equal((await browse("GET", `/boards/${away.json.slug}`, boss.secret)).status, 404);
+    assert.equal((await browse("POST", "/move", boss.secret, { target: `board:${away.json.slug}`, to: "done" })).status, 404);
+    assert.equal((await browse("POST", "/move", boss.secret, { target: key, board: away.json.slug })).status, 404);
+    assert.equal((await browse("DELETE", `/boards/${away.json.slug}`, boss.secret)).status, 404);
+    assert.equal((await call("POST", `/_p99/v1/move?host=${here}`, { body: { target: `board:${away.json.slug}`, to: "done" } })).status, 404);
+    assert.equal((await browse("GET", `/boards/${home.slug}`, boss.secret)).status, 200);
+  });
+
+  await check("a stream ticket opens one socket, once, and expires", async () => {
+    const first = await browse("POST", "/stream-ticket", boss.secret);
+    assert.equal(first.status, 201, JSON.stringify(first.json));
+    assert.ok(!JSON.stringify(first.json).includes(boss.secret));
+    const heard = [];
+    const socket = await ticketSocket(first.json.ticket, heard);
+    assert.ok(socket, "the first use opens");
+    assert.equal(await ticketSocket(first.json.ticket), null, "the second use is refused");
+    const filed = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Heard on the ticket" }) })).json;
+    await call("POST", `/_p99/v1/move?host=${here}`, { body: { target: filed.key, to: "review" } });
+    for (let i = 0; i < 50 && !heard.some((e) => e.type === "move" && e.key === filed.key); i++) await new Promise((r) => setTimeout(r, 100));
+    socket.close();
+    const move = heard.find((e) => e.type === "move" && e.key === filed.key);
+    assert.ok(move, JSON.stringify(heard));
+    assert.deepEqual([move.from, move.to, move.board], ["inbox", "review", home.slug]);
+    const late = await browse("POST", "/stream-ticket", boss.secret);
+    await new Promise((r) => setTimeout(r, 1700));
+    assert.equal(await ticketSocket(late.json.ticket), null, "an expired ticket is refused");
+    assert.equal(await ticketSocket("0".repeat(48)), null);
   });
 
   await check("capture.js is an ES module that exports the panel's capture, marking and context calls", async () => {

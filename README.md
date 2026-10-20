@@ -69,7 +69,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 p99 list --all --status open
 p99 show BUG-12
 p99 comment BUG-12 "Fixed on dev, can you check?"
-p99 status BUG-12 resolved
+p99 move BUG-12 --to done
 ```
 
 <p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first item's JSON: key, kind, status, title, host, env, page, reporter, counts and landing."></p>

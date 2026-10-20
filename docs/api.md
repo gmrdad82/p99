@@ -30,15 +30,18 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 
 | Route | Who | Does |
 | --- | --- | --- |
-| `GET /_p99/api/me?path=` | any code | `{"name","email","manager","host","env","version","counts":{"page_open","mine_open","mine_unread","all_open"},"theme":{},"strings":{}}`; `all_open` is null for non-managers; `theme` and `strings` are the host's config |
+| `GET /_p99/api/me?path=` | any code | `{"name","email","manager","host","env","version","counts":{"page_open","mine_open","mine_unread","all_open"},"theme":{},"strings":{}}`; `all_open` is null for non-managers; `theme` and `strings` are the host's config; a manager's answer adds `"statuses":[{"key","name","position"}]`, the account's status names |
 | `POST /_p99/api/verify` | a code with an authenticator | `{"totp":"<6 digits>"}`; 201 `{"device":"<32 hex>"}`; the panel stores `<code>.<device>` where the loader keeps the code |
-| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any\|<status>&kind=&q=&cursor=&limit=` | any code; `all` managers only | `{"issues":[summary],"next_cursor"}`, newest first, this host's items only, `limit` at most 100 (default 50) |
+| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any\|<status>&board=&kind=&q=&cursor=&limit=` | any code; `all` and `board` managers only | `{"issues":[summary],"next_cursor"}`, newest first, this host's items only, `limit` at most 100 (default 50); `board` is a board's slug and keeps the items on that board |
 | `POST /_p99/api/issues` | any code (`task` managers only) | `{"client_uid","kind","title","body","page","context","marks"}`; 201 issue |
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
 | `PATCH /_p99/api/issues/{key}` | as the signed API | 200 issue |
 | `POST /_p99/api/issues/{key}/comments` | its reporter or a manager (`internal` managers only) | `{"client_uid","body","internal"}`; 201 comment |
 | `PUT /_p99/api/issues/{key}/attachments/{client_uid}?name=&role=&mark=&comment=` | its reporter or a manager | raw body, `Content-Length` required, `X-Content-SHA256` optional (the Worker hashes the body when it is absent); 201 attachment |
 | `GET /_p99/api/files/{id}` | its reporter or a manager | the file, `Content-Disposition: attachment` |
+| `GET /_p99/api/statuses`, `PUT …/statuses/{key}`, `GET /_p99/api/boards`, `POST`, `GET /_p99/api/boards/{slug}`, `PATCH`, `DELETE`, `POST /_p99/api/move` | managers | as the signed API, over this host's boards; a code that holds every listed host reaches every board, as the key does |
+| `POST /_p99/api/stream-ticket` | managers | 201 `{"ticket":"<48 hex>","expires_in":60}`: a ticket for one WebSocket, used once, within 60 seconds |
+| `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket answers 401 |
 
 ## The signed API
 
@@ -76,6 +79,14 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/people/rename` | the key | `{"from","to"}`; 200 `{"from","to","items","assigned","comments","events","attachments","codes"}`: moves everything filed, said, assigned or held under one e-mail to another on the whole account, in one transaction |
 | `POST /_p99/v1/codes/{id}/revoke` | the key | 200 code |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
+| `GET /_p99/v1/statuses` | actor | `{"statuses":[{"key","name","position"}]}` |
+| `PUT /_p99/v1/statuses/{key}` | actor | `{"name"}`; renames a status (its key stays); 200 `{"statuses"}`; a name another status has answers 409 |
+| `GET /_p99/v1/boards` | actor | `{"statuses","boards":[board]}`; with `host=<host>`, that host's boards only |
+| `POST /_p99/v1/boards` | actor | `{"name","slug"?,"host"?,"parent"?,"status"?}`; 201 board, as [Boards](#boards) describes |
+| `GET /_p99/v1/boards/{slug}` | actor | `{"statuses","board","cards":[card]}`, the cards in column order, then by position |
+| `PATCH /_p99/v1/boards/{slug}` | actor | `{"name"}`; 200 board; the slug stays |
+| `DELETE /_p99/v1/boards/{slug}` | actor | 204, only when the board holds no items and no boards, and is no host's home board (409 otherwise) |
+| `POST /_p99/v1/move` | actor | `{"target":"BUG-12"\|"board:<slug>","to"?,"board"?,"before"?,"after"?,"resolution"?}`; 200 `{"moved":card,"changed":["<key>"]}`, as [Boards](#boards) describes |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
 
 A code object is `{"id","name","email","hosts","manager","hint","created_at","created_by","revoked_at","last_used_at"}`, `hint` the secret's last four characters.
@@ -95,20 +106,38 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 | `change` | status, kind, assignee, title or body change | `what`, the fields that changed |
 | `attachment` | a file is stored | `internal` |
 | `import` | an import writes records | `items` and `comments`, the counts of new ones; `key` and `title` are null |
+| `move` | an item changes column, board or place | `board` (its board's slug), `from` and `to` (status keys), `position`; a move to another board adds `from_board` |
+| `board.move` | a board card changes column, parent or place | `board`, `parent`, `from`, `to`, `position`; `key` is absent; one `move` follows for each item that changed column with it, in the same message batch |
+| `board` | a board is created, renamed or deleted | `action` (`created`, `renamed`, `deleted`) and `board` |
+| `statuses` | a status is renamed | nothing; every socket hears it |
+
+A board's events carry its host, `null` for an account-wide board, which only a socket for every host hears. A reader patches its board in place on `move` and `board.move` and reads it again on anything else. A status change through `PATCH` sends both `change` and `move`.
 
 `title` is the item's title after the change and `by` the actor, `null` for a write without one. Internal comments and files are included, since only the signed API listens. A socket opened with `host=<host>` hears only that host's events; an unlisted host answers 404. The socket answers the text `ping` with `pong`, which keeps it open through idle proxies; the CLI and the TUI send one every 30 seconds and reconnect when it drops. A Worker without the `HUB` binding (one not deployed since live updates came) answers 404 `this Worker has no push yet; run p99 deploy`, and its writes skip the event. The event is sent after the response, so a write never waits on it, and a socket that is not open misses it: a client that reconnects reads the list again.
 
 ## Items
 
 - Keys are `<PREFIX>-<id>` over one sequence per account, the prefix from the kind: `bug` BUG, `feature` FEAT, `improvement` IMP, `question` Q, `task` TASK; any prefix with the right number, or the bare number, names the same item.
-- Statuses: `new`, `confirmed`, `in_progress`, `waiting` (on the reporter), `resolved`, `abandoned`, `duplicate` (with `duplicate_of`); the first four are open.
-- Managers change `status`, `kind`, `assignee`, `duplicate_of`, `title` and `body`; the reporter changes `title` and `body` while `new`, sets `abandoned` on an open item, and `new` to reopen a resolved one. Every change is one event; a `title` or `body` event keeps the old and new text as `{"from","to"}`, and neither mails anyone.
+- Statuses: four fixed keys, `inbox`, `doing`, `review` and `done`, in that order; the first three are open. Managers rename them per account (`PUT /statuses/{key}`, default names Inbox, Doing, Review, Done); the keys never change. A done item has a `resolution`: `fixed` (the default when a manager moves it to done), `abandoned` or `duplicate` (with `duplicate_of`); an open item's is null.
+- The keys of P99 1.x are still taken wherever a status is: `new` is `inbox`, `confirmed` and `in_progress` are `doing`, `waiting` is `review`, `resolved` is done and `fixed`, `abandoned` and `duplicate` are done with that resolution. Status events written before keep their old keys in `detail`; readers map them the same way.
+- Managers change `status` (with `resolution`), `kind`, `assignee`, `duplicate_of`, `title` and `body`; setting `duplicate_of` alone makes the item done and `duplicate`. The reporter changes `title` and `body` while the item is in `inbox`, sets `done` with `abandoned` on an open item, and `inbox` to reopen a `fixed` one. Every change is one event; a status event's `detail` is `{"from","to","resolution"?,"from_resolution"?}`; a `title` or `body` event keeps the old and new text as `{"from","to"}`, and neither mails anyone. A status change puts the item at the top of its new column.
+- Reporters see their items' statuses in plain words: inbox "Received", doing "In progress", review "In review", and done "Fixed", "Dropped" or "Duplicate" by resolution; managers see the account's names.
 - Everyone but a manager sees only what they reported; internal comments and their files are for managers only.
 - Attachments: 20 MB (20 MiB) each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension). A name ending in an executable or web page extension (`.html`, `.svg`, `.xml`, `.js`, `.exe`, `.bat`, `.sh` and the like) is refused, whatever the type.
 - Limits per person and day: 30 items, 200 comments, 100 MB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
+A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
+
+## Boards
+
+Every item sits on one board, and its column there is its status. Every host has a home board, its slug the host with dots as dashes (`pitomd-com`) and its name the host; a host's new items land on it, at the top of `inbox`. A board belongs to one host, or to none (`host` null), when it spans every host and only the key, or a code that holds every listed host, reaches it; an item sits only on a board of its own host or on an account-wide one.
+
+A board may sit as a card in another board's column, beside items: its `parent` is that board, its `status` that column. A board inside a host's board belongs to that host. A board is `{"slug","name","host","parent","status","position","home","rollup":{"done","total"}}`, the rollup counting the items of its whole subtree. A card is `{"type":"item","key","kind","title","status","resolution","position","assignee","reporter":{"name","agent"},"priority","labels"}` or `{"type":"board","slug","name","status","position","rollup"}`. `POST /boards` makes the slug from the name when none is given (`Site v2` is `site-v2`, then `site-v2-2`), and takes `status` as a key or a name.
+
+`POST /move` moves a card, named by its key or `board:<slug>`, and needs at least one of `to` (a status's key or its name, any case), `board` (the board it moves to; for a board card, its new parent, or null for the top), `before` or `after` (a card in the same board and column, to sit next to). Without `before` or `after`, a card that changes column or board goes to the top. Order inside a column is `position`, ascending and fractional: a card placed between two takes their midpoint, and the column is renumbered 1024 apart when a gap falls under 1e-9. An item moved to done without `resolution` is `fixed`; one moved out of done loses its resolution and `duplicate_of`. A board card moved to another column takes every board and item in its subtree to that column too, keeping their order; moved to done, their open items become `fixed`. A board can't move into itself or a board inside it. `changed` lists every item whose column or board changed; the reporter of each is mailed the change when mail is on.
+
+`0004_boards.sql` brought the statuses and boards in: every existing item went to its host's home board in the column its old status maps to, the newest at the top.
 
 ## Environments and landings
 
