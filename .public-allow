@@ -2,14 +2,8 @@
 src/vault.rs:4 the reference scheme P99 reads secrets through
 src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:64 the config docs explain secret references to users
-commit/6b0d48dc38c1:CHANGELOG.md:9 a generated changelog line naming the secret references feature, replaced by hand
-commit/6b0d48dc38c1:CHANGELOG.md:17 a generated changelog line naming the secret references feature, replaced by hand
 README.md:112 the README names password managers that take the authenticator setup
 docs/guides/invite.md:83 the invite guide tells users which password managers take the authenticator setup
-commit/b8530bd8c85c:CHANGELOG.md:9 a release commit whose changelog line named a password manager, reworded in the next commit
-commit/1527045ba93a:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
-commit/28652d879738:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
-commit/7711136ee797:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:100
 docs/hosts.md:61 the hooks docs show the secret-reference form a webhook URL is read through
 docs/hosts.md:68 the hooks docs explain secret references to users
 docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager
@@ -19,26 +13,12 @@ src/hooks.rs:132 the --url-ref error names the reference schemes it reads
 src/github.rs:33 the --token-ref help names the reference schemes it reads
 src/vault.rs:86 the reference error names the schemes P99 reads
 worker/test/run.mjs:598 a refused webhook URL with a user part, in the test that guards the allowed hosts
-commit/480167dd6fc2:README.md:102 the README line that names password managers taking the authenticator setup, as waived at README.md:104
-commit/a35e973b3e04:README.md:100 the README line that names password managers taking the authenticator setup, as waived at README.md:104
-commit/b02cda9529f5:README.md:102 the README line that names password managers taking the authenticator setup, as waived at README.md:104
-commit/480167dd6fc2:worker/test/run.mjs:563 a refused webhook URL with a user part, as waived at worker/test/run.mjs:564
-commit/9548060d420c:worker/test/run.mjs:507 a refused webhook URL with a user part, as waived at worker/test/run.mjs:564
-commit/a83aa2d24aa4:worker/test/run.mjs:510 a refused webhook URL with a user part, as waived at worker/test/run.mjs:564
-commit/e19efae18324:worker/test/run.mjs:564 a refused webhook URL with a user part, as waived at worker/test/run.mjs:564
-commit/9548060d420c:3 the hooks commit message names the --url-ref reference schemes
-commit/9548060d420c:docs/hosts.md:60 the hooks docs' example reference, made generic in a later commit
-commit/9548060d420c:docs/hosts.md:67 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
-commit/b02cda9529f5:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as waived at docs/guides/github.md:17
-commit/b02cda9529f5:docs/guides/github.md:22 the GitHub guide's example reference, made generic in a later commit
-commit/e19efae18324:docs/hosts.md:61 the hooks docs' example reference, made generic in a later commit
-commit/e19efae18324:docs/hosts.md:68 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
-commit/246369e38b9c:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as waived at docs/guides/github.md:17
-commit/246369e38b9c:docs/guides/github.md:22 the GitHub guide's example reference, made generic in a later commit
-commit/246369e38b9c:docs/hosts.md:61 the hooks docs' example reference, made generic in a later commit
-commit/246369e38b9c:docs/hosts.md:68 the hooks docs explain secret references to users, as waived at docs/hosts.md:68
 docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
 docs/guides/setup.md:87 the setup guide explains secret references for the mail key
 src/email.rs:41 the --key-ref help names the reference schemes it reads
-commit/246369e38b9c:docs/guides/setup.md:84 the setup guide's example reference, made generic in a later commit
-commit/246369e38b9c:docs/guides/setup.md:87 the setup guide explains secret references for the mail key, as waived at docs/guides/setup.md:87
+LICENSE:0 P99 is AGPL-3.0-only with a commercial licence from 1.8.0 (Gamer Dad's word, 2026-10-20); LICENSE holds the AGPL text alone
+LICENSE:1 the AGPL-3.0 text starts with its own title, not MIT's
+LICENSE:4 the AGPL-3.0 text carries no copyright line; the README and NOTICE name Catalin Ilinca
+README.md:0 the README's licence section says AGPL-3.0 with a commercial licence and that the names and logos are reserved, as P99 left MIT
+TRADEMARKS.md:0 TRADEMARKS.md says P99's licences cover the code only and the names and logos are all rights reserved, as P99 left MIT
+Cargo.toml:7 P99 is AGPL-3.0-only from 1.8.0 (Gamer Dad's word, 2026-10-20)
