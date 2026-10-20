@@ -19,7 +19,7 @@ Keep it in 1Password or in an environment variable; P99 takes it as a reference,
 ## 2. Link the host
 
 ```sh
-p99 github set example.com --repo acme/shop --token-ref op://Work/GitHub-shop/credential
+p99 github set example.com --repo acme/shop --token-ref op://vault/item/field
 p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN
 ```
 

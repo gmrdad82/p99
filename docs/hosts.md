@@ -58,7 +58,7 @@ A host can post to a Slack channel, a Discord channel or both, through an incomi
 
 ```sh
 p99 hooks set example.com --slack https://hooks.slack.com/services/T…/B…/…
-p99 hooks set example.com --url-ref op://Work/p99-discord/credential --on new,status
+p99 hooks set example.com --url-ref op://vault/item/field --on new,status
 p99 hooks
 p99 hooks test example.com
 p99 hooks remove example.com --discord
