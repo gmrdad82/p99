@@ -256,7 +256,8 @@ try {
     check(`${label}:   a ${touch ? "tap" : "click"} picks another`, (await hidden(p, "duplicate_of")) === canada.key);
 
     const moves = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-manage .p99-move-to option"), (o) => o.value));
-    check(`${label}: Move to lists the labels on my boards (${moves.join(" | ")})`, moves[0] === "Inbox" && moves.includes("Done"));
+    const drop = await p.evaluate(() => { const o = document.querySelector("p99-root").shadowRoot.querySelector(".p99-manage .p99-move-to option:last-child"); return o && o.dataset.drop; });
+    check(`${label}: Move to lists the labels on my boards and ends with Drop (${moves.join(" | ")})`, moves[0] === "Inbox" && moves.includes("Done") && drop === "Done");
     const gone = await p.evaluate(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-tag-pick, .p99-manage [name=priority], .p99-manage [name=status]"));
     check(`${label}: no labels picker, Priority or Status select in Manage`, gone);
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });

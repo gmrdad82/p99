@@ -125,6 +125,7 @@ const WORDS = {
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_labels: "changed the labels: {list}",
   move_to: "Move to",
+  move_drop: "Drop (close without fixing)",
   moved: "this card moved; refreshed",
   event_label: "moved it: {from} → {to}",
   capturing: "Capturing the screen…",
@@ -988,11 +989,12 @@ function manageForm(i) {
     }
     if ("assignee" in data && !data.assignee) data.assignee = null;
     const to = form.querySelector(".p99-move-to select");
-    if (!to || to.value === i.label) return patch(i.key, data, form);
+    const drop = to && to.selectedOptions[0] && to.selectedOptions[0].dataset.drop;
+    if (!to || (!drop && to.value === i.label)) return patch(i.key, data, form);
     if (form.p99Busy) return;
     form.p99Busy = true;
     status(form, say("sending"));
-    call("POST", "/move", JSON.stringify({ key: i.key, from: i.label, to: to.value })).then(() => {
+    call("POST", "/move", JSON.stringify(drop ? { key: i.key, from: i.label, to: drop, resolution: "abandoned" } : { key: i.key, from: i.label, to: to.value })).then(() => {
       form.p99Busy = false;
       return Object.keys(data).length ? patch(i.key, data, form) : item(i.key);
     }, (e) => {
@@ -1009,11 +1011,14 @@ function moveTo(i) {
   call("GET", "/boards").then((r) => {
     const seen = new Set([i.label.toLowerCase()]);
     const more = [];
+    let shut = null;
     for (const b of (r && r.boards) || []) if (b.mine) for (const c of b.columns || []) {
+      if (!shut && c.closes) shut = c.label;
       if (seen.has(c.label.toLowerCase())) continue;
       seen.add(c.label.toLowerCase());
       more.push(h("option", { value: c.label, text: c.label }));
     }
+    if (shut && i.resolution !== "abandoned") more.push(h("option", { value: "", "data-drop": shut, text: say("move_drop") }));
     sel.append(...more);
   }, () => {});
   return h("label", { class: "p99-move-to" }, h("span", { text: say("move_to") }), sel);
