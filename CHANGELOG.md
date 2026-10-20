@@ -2,6 +2,33 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.9.0 — 2026-10-20
+
+### Added
+
+- Boards are simpler: every item carries one label, its state (Inbox, Doing, Review and Done by default, each renameable), and a board is one person's set of 3 to 5 label columns in their own order. Moving a card changes the item's label, so a shared label such as "QA ready" hands work from one board to another. Others can watch any board, read-only.
+- The P99 page: P99 also answers on the account's own address, so it stays reachable when a site is down. Sign in with your e-mail and the 6-digit code from your authenticator, then open each site's items and boards full-page, or set your username.
+- Usernames with a generated avatar disc. Assignees are shown by username, never by e-mail.
+- Access links by mail: `p99 invite` mails each person a button per site, and `p99 relink` gives someone a fresh link, revokes the old one and keeps their authenticator. `p99 link` opens your own link.
+- `p99 delete <KEY>`, `d` in a thread and "Delete this item" in the panel remove an item with its comments, history and every file, behind typing the key back.
+- Searchable pickers in the panel's Manage for the assignee and duplicate-of, and one "Move to" list that includes Drop.
+- `p99 migrate --plan` shows, read-only, what this version's data changes would do on an account, and `p99 deploy` applies them only with `--accept-plan <hash>`.
+
+### Changed
+
+- Priority is the card's place in its column: the field, its filter and `p99 priority` are gone. Free-form tags are gone too; labels are the columns.
+- Boards no longer nest; each 1.8 board becomes its own board.
+- The panel, board, pickers and the P99 page share one spacing and type scale, with real empty, loading and error states, readable contrast in light and dark, and the same layout on phones and desktops.
+- The P99 page draws its first screen in about 220 ms on a mid-range phone.
+- Board loads and card moves are faster than in 1.8.
+
+### Fixed
+
+- A manager whose code covers one site can't change another site's items through a shared label, and sees only their own sites' label names.
+- Uploaded files keep their own strict security policy on the P99 page's address.
+- Sign-in tries are counted per IPv6 network, not per address.
+- With reduced motion, nothing on the board animates.
+
 ## v1.8.3 — 2026-10-20
 
 ### Added
