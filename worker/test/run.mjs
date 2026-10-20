@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:http";
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -140,6 +141,21 @@ async function mint(name, email, hosts, manager = false) {
   return minted.json;
 }
 
+const hookHits = [];
+let hookAnswer = 500;
+
+function hookStub() {
+  const server = createServer((request, response) => {
+    const chunks = [];
+    request.on("data", (chunk) => chunks.push(chunk));
+    request.on("end", () => {
+      hookHits.push({ path: request.url, body: JSON.parse(Buffer.concat(chunks).toString("utf8") || "null") });
+      response.writeHead(hookAnswer).end();
+    });
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+}
+
 let passed = 0;
 async function check(name, fn) {
   await fn();
@@ -189,6 +205,8 @@ async function main() {
   const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
   vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500");
+  const stub = await hookStub();
+  vars.push(`HOOKS_TEST_ORIGIN:http://127.0.0.1:${stub.address().port}`);
   const child = spawn(
     wrangler,
     [
@@ -207,6 +225,7 @@ async function main() {
     { cwd: root, env: { ...process.env, CI: "1" }, stdio: ["ignore", log, log], detached: true },
   );
   const stop = () => {
+    stub.close();
     try {
       process.kill(-child.pid, "SIGTERM");
     } catch {}
@@ -474,6 +493,65 @@ async function run() {
     const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody() });
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     assert.ok(filed.json.id > 7, `the next item is ${filed.json.key}`);
+  });
+
+  await check("a chat hook takes only Slack and Discord webhooks, never answers its URL, and a failing one never fails a write", async () => {
+    const tail = "aaaabbbbccccWXYZ";
+    const slack = `https://hooks.slack.com/services/T0001/B0002/${tail}`;
+    const refused = [
+      "http://hooks.slack.com/services/T0001/B0002/abc",
+      "https://hooks.slack.com.evil.example/services/T0001/B0002/abc",
+      "https://evil.example/services/T0001/B0002/abc",
+      "https://hooks.slack.com/services/T0001/B0002/abc?x=1",
+      "https://hooks.slack.com:8443/services/T0001/B0002/abc",
+      "https://user@hooks.slack.com/services/T0001/B0002/abc",
+      "https://hooks.slack.com/workflows/T0001/abc",
+      "https://discord.com/api/v10/users/@me",
+      "https://cdn.discordapp.com/api/webhooks/1/abc",
+      "https://127.0.0.1/api/webhooks/1/abc",
+    ];
+    for (const url of refused) assert.equal((await call("PUT", `/_p99/v1/hooks/${here}`, { body: { url } })).status, 400, url);
+    const wrong = await call("PUT", `/_p99/v1/hooks/${here}`, { body: { service: "discord", url: slack } });
+    assert.equal(wrong.status, 400);
+    const set = await call("PUT", `/_p99/v1/hooks/${here}`, { body: { service: "slack", url: slack, events: ["status", "new"] } });
+    assert.equal(set.status, 200, JSON.stringify(set.json));
+    assert.deepEqual(set.json.events, ["new", "status"]);
+    assert.equal(set.json.hint, tail.slice(-4));
+    const listed = await call("GET", "/_p99/v1/hooks");
+    assert.equal(listed.json.hooks.length, 1);
+    for (const answer of [set, listed]) assert.equal(JSON.stringify(answer.json).includes(tail), false);
+
+    hookAnswer = 500;
+    hookHits.length = 0;
+    const filed = await browse("POST", "/issues", adaHere.secret, issueBody({ title: "The hook <!channel> sees @everyone" }));
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    for (let i = 0; i < 50 && hookHits.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(hookHits.length, 1);
+    const hit = hookHits[0];
+    assert.equal(hit.path, `/slack/services/T0001/B0002/${tail}`);
+    const said = JSON.stringify(hit.body);
+    assert.ok(said.includes(filed.json.key));
+    assert.ok(said.includes("Ada Lovelace"));
+    assert.equal(said.includes("ada@example.com"), false);
+    assert.equal(said.includes("<!channel>"), false);
+
+    assert.equal((await call("PUT", "/_p99/v1/statuses/doing", { body: { name: "Building" } })).status, 200);
+    hookHits.length = 0;
+    const patched = await call("PATCH", `/_p99/v1/issues/${filed.json.key}?host=${here}`, { body: { status: "doing" } });
+    assert.equal(patched.status, 200, JSON.stringify(patched.json));
+    for (let i = 0; i < 50 && hookHits.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.equal(hookHits.length, 1);
+    assert.equal(hookHits[0].body.blocks.filter((b) => b.type === "section").length, 1);
+    assert.ok(JSON.stringify(hookHits[0].body).includes("Moved to Building"));
+    assert.equal((await call("PUT", "/_p99/v1/statuses/doing", { body: { name: "Doing" } })).status, 200);
+
+    const tested = await call("POST", `/_p99/v1/hooks/${here}/test`);
+    assert.equal(tested.status, 200, JSON.stringify(tested.json));
+    assert.deepEqual(tested.json.results.map((r) => [r.service, r.ok, r.status]), [["slack", false, "500"]]);
+    const after = await call("GET", `/_p99/v1/hooks?host=${here}`);
+    assert.equal(after.json.hooks[0].last_status, "500");
+    assert.equal((await call("DELETE", `/_p99/v1/hooks/${here}?service=slack`)).status, 204);
+    assert.equal((await call("DELETE", `/_p99/v1/hooks/${here}`)).status, 404);
   });
 
   await check("the loader carries the host's placement and version", async () => {

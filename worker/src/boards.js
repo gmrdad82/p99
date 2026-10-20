@@ -1,3 +1,5 @@
+import { noteHook } from "./hooks.js";
+
 export const STATUSES = ["inbox", "doing", "review", "done"];
 export const OPEN_STATUSES = new Set(["inbox", "doing", "review"]);
 export const RESOLUTIONS = ["fixed", "abandoned", "duplicate"];
@@ -209,8 +211,9 @@ function slugify(name) {
 }
 
 function pushOf(c, event) {
-  if (!c.env.HUB) return;
-  c.pushes.push({ by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null, at: c.now, ...event });
+  const full = { by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null, at: c.now, ...event };
+  noteHook(c, full);
+  if (c.env.HUB) c.pushes.push(full);
 }
 
 export async function getStatuses(c) {

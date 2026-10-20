@@ -86,6 +86,10 @@ pub enum Command {
         about = "print each new item, comment, change and attachment as it happens, until stopped"
     )]
     Watch(WatchArgs),
+    #[command(
+        about = "post a site's new items, comments, status changes and shipped fixes to Slack or Discord"
+    )]
+    Hooks(crate::hooks::HooksArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -397,6 +401,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Announce(a) => announce(&config, global, &a),
         Command::Import(a) => import(&config, global, &a),
         Command::Watch(a) => watch(&config, global, &a),
+        Command::Hooks(a) => crate::hooks::run(&config, global, &a),
     }
 }
 
@@ -527,7 +532,7 @@ fn key_of(raw: &str) -> Result<String, String> {
         .ok_or_else(|| format!("{raw} is not an item key; try BUG-12 or 12"))
 }
 
-fn when(stamp: &str) -> String {
+pub(crate) fn when(stamp: &str) -> String {
     stamp.replace('T', " ").chars().take(16).collect()
 }
 
