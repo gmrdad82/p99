@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "P99's Cloudflare Worker: items, comments, attachments, codes and build landings in one D1 database and one R2 bucket.",
-  "license": "MIT",
+  "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "wrangler dev --local",
     "test": "node test/run.mjs"

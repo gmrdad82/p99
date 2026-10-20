@@ -914,6 +914,7 @@ dependencies = [
  "clap",
  "hmac",
  "pito-tui",
+ "ring",
  "rustls",
  "serde",
  "serde_json",
