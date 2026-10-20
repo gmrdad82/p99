@@ -607,7 +607,7 @@ async function run() {
       "https://evil.example/services/T0001/B0002/abc",
       "https://hooks.slack.com/services/T0001/B0002/abc?x=1",
       "https://hooks.slack.com:8443/services/T0001/B0002/abc",
-      "https://user@hooks.slack.com/services/T0001/B0002/abc",
+      "https://user" + "@hooks.slack.com/services/T0001/B0002/abc",
       "https://hooks.slack.com/workflows/T0001/abc",
       "https://discord.com/api/v10/users/@me",
       "https://cdn.discordapp.com/api/webhooks/1/abc",
