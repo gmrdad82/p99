@@ -79,13 +79,11 @@ try {
   const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
   await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false });
   await must("POST", "/codes", { name: "Linus Park", email: "linus@example.com", hosts: [HOST], manager: false });
-  for (const [name, color] of [["checkout", "#539bf5"], ["mobile", "#57ab5a"], ["payments", "#c69026"], ["safari", "#986ee2"]]) await must("POST", "/labels", { name, color });
   await file("bug", "The cart total doesn't update after removing a bag");
   await file("feature", "Let returning customers reorder from a receipt");
   const canada = await file("question", "Do you ship to Canada?");
   const cart = await file("bug", "The cart badge shows 0 after a refresh");
   const main = await file("improvement", "Make the checkout button easier to reach on a phone");
-  await must("PATCH", `/issues/${main.key}?host=${HOST}`, { labels: ["checkout"] });
   const byKeys = await file("task", "Delete me by keyboard");
   const byHold = await file("task", "Delete me by a hold, with reduced motion");
 
@@ -215,8 +213,7 @@ try {
       };
     }, sel);
   const hidden = (p, name) => p.evaluate((n) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-manage [name=${n}]`).value, name);
-  const chips = (p) => p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-tag-pick .p99-tags .p99-tag"), (t) => t.firstChild.textContent));
-  const pickers = { assignee: ".p99-picker:nth-of-type(1)", duplicate: ".p99-picker:nth-of-type(2)", labels: ".p99-tag-pick" };
+  const pickers = { assignee: ".p99-picker:nth-of-type(1)", duplicate: ".p99-picker:nth-of-type(2)" };
   const sel = (k) => `.p99-manage ${pickers[k]}`;
 
   for (const [label, opts] of [["360", phone(360)], ["1440", DESK]]) {
@@ -258,32 +255,34 @@ try {
     await hit(`${sel("duplicate")} [role=option]:has-text("Canada")`);
     check(`${label}:   a ${touch ? "tap" : "click"} picks another`, (await hidden(p, "duplicate_of")) === canada.key);
 
-    await hit(`${sel("labels")} [role=combobox]`);
-    await p.waitForTimeout(400);
-    l = await listbox(p, sel("labels"));
-    check(`${label}: the labels picker offers the account's labels, not the ones it has (${l.items.join(" | ")})`, l.open && l.items.includes("mobile") && !l.items.includes("checkout") && l.fits);
-    await p.keyboard.type("mob");
-    await p.waitForTimeout(200);
-    await p.keyboard.press("Enter");
-    check(`${label}:   Enter adds a chip`, (await chips(p)).join(",") === "checkout,mobile");
-    await p.keyboard.type("Brand new");
-    await p.waitForTimeout(200);
-    l = await listbox(p, sel("labels"));
-    check(`${label}:   an unknown name offers to create it (${l.items.join(" | ")})`, l.items.length === 1 && /Create/.test(l.items[0]));
-    await p.keyboard.press("Enter");
-    await hit(`${sel("labels")} [role=option]:has-text("safari")`);
-    check(`${label}:   ${touch ? "a tap" : "a click"} adds another (${(await chips(p)).join(",")})`, (await chips(p)).join(",") === "checkout,mobile,Brand new,safari");
-    await hit(`${sel("labels")} .p99-x[aria-label="Remove mobile"]`);
-    check(`${label}:   × removes a chip`, (await chips(p)).join(",") === "checkout,Brand new,safari");
+    const moves = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-manage .p99-move-to option"), (o) => o.value));
+    const drop = await p.evaluate(() => { const o = document.querySelector("p99-root").shadowRoot.querySelector(".p99-manage .p99-move-to option:last-child"); return o && o.dataset.drop; });
+    check(`${label}: Move to lists the labels on my boards and ends with Drop (${moves.join(" | ")})`, moves[0] === "Inbox" && moves.includes("Done") && drop === "Done");
+    const gone = await p.evaluate(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-tag-pick, .p99-manage [name=priority], .p99-manage [name=status]"));
+    check(`${label}: no labels picker, Priority or Status select in Manage`, gone);
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });
     check(`${label}: nothing in Manage scrolls sideways`, wide);
     if (label === "1440") {
-      await p.keyboard.press("Escape");
       await p.locator(S(".p99-manage > button[type=submit]")).click();
       await p.waitForTimeout(1500);
       const got = (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
-      check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of}, ${(got.labels || []).map((t) => t.name).join(",")})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of && (got.labels || []).map((t) => t.name).sort().join(",") === "Brand new,checkout,safari");
-      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, status: "inbox", labels: ["checkout"] });
+      check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of);
+      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, resolution: null });
+      const moved = await open(DESK, main.key);
+      const pickMove = async (opt) => {
+        await moved.p.waitForFunction(() => document.querySelectorAll("p99-root").length && document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option").length > 2);
+        await toManage(moved.p);
+        await moved.p.locator(S(".p99-move-to select")).selectOption(opt);
+        await moved.p.locator(S(".p99-manage > button[type=submit]")).click();
+        await moved.p.waitForTimeout(1500);
+        return (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
+      };
+      const doing = await pickMove({ label: "Doing" });
+      check(`Save with Move to Doing moves the item (${doing.label}, ${doing.stage})`, doing.label === "Doing" && doing.stage === "in_progress");
+      const dropped = await pickMove({ label: "Drop (close without fixing)" });
+      check(`Drop closes it under Done without fixing (${dropped.label}, ${dropped.resolution}, ${dropped.stage})`, dropped.label === "Done" && dropped.resolution === "abandoned" && dropped.stage === "dropped");
+      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { resolution: null });
+      await moved.ctx.close();
     }
     await ctx.close();
   }

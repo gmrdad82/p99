@@ -6,8 +6,7 @@ const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
-const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
-const LEGACY = { new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
+const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
 const TYPES = {
@@ -124,10 +123,10 @@ const WORDS = {
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_labels: "changed the labels: {list}",
-  labels: "Labels",
-  label_new: "Add a label",
-  label_make: "Create “{name}”",
-  label_remove: "Remove {name}",
+  move_to: "Move to",
+  move_drop: "Drop (close without fixing)",
+  moved: "this card moved; refreshed",
+  event_label: "moved it: {from} → {to}",
   capturing: "Capturing the screen…",
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
@@ -552,7 +551,7 @@ function status(form, text, retry) {
 }
 function pill(cls, data, value, label) { return h("span", { class: cls, [data]: value, text: label }); }
 function choiceOf(s, r) {
-  const c = LEGACY[s] || s;
+  const c = LEGACY[s] || s || "";
   return c === "done" ? "done:" + (r || "fixed") : c;
 }
 function statusWord(s, r) {
@@ -561,15 +560,14 @@ function statusWord(s, r) {
   if (!named) return say("status_" + (res || key));
   return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
 }
-function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
-function statusPill(s, r) { return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), statusWord(s, r)); }
-function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
-function tagChip(t) {
-  const e = h("span", { class: "p99-tag", text: t.name });
-  if (/^#[0-9a-f]{6}$/i.test(t.color || "")) e.style.setProperty("--p99-tag", t.color);
-  return e;
+function stateOf(x) { return choiceOf(x.stage || x.status, x.resolution); }
+function statusPill(x) {
+  const c = stateOf(x);
+  const res = c.split(":")[1];
+  const named = x.label && me && me.manager ? x.label + (res && res !== "fixed" ? " · " + say("status_" + res) : "") : null;
+  return pill("p99-status", "data-status", c.replace(":", "-"), named || statusWord(c));
 }
-function tagChips(list) { return Array.isArray(list) && list.length ? h("span", { class: "p99-tags" }, list.map(tagChip)) : null; }
+function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
 function landing(l) {
   if (!l) return null;
   const envs = Array.isArray(l.envs) ? l.envs : [];
@@ -668,14 +666,13 @@ function row(r) {
   if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter)));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
-  return h("li", { class: "p99-item", "data-status": r.status, "data-kind": r.kind, "data-unread": !!r.unread },
+  return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
-      statusPill(r.status, r.resolution),
+      statusPill(r),
       kindPill(r.kind),
-      tagChips(r.labels),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
 }
@@ -723,10 +720,10 @@ function thread(t) {
   } })) : null;
   const shots = files.filter((a) => !a.comment_id && a.role !== "file");
   const loose = files.filter((a) => !a.comment_id && a.role === "file");
-  const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
+  const view = h("article", { class: "p99-view", "data-view": "item", "data-status": stateOf(i), "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution), " ", tagChips(i.labels)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -745,10 +742,11 @@ function thread(t) {
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
-    if (i.status !== "done") acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "done", resolution: "abandoned" }, wrap, e.currentTarget) }));
-    if (i.status === "done" && i.resolution === "fixed") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "inbox" }, wrap, e.currentTarget) }));
+    const state = stateOf(i);
+    if (!state.startsWith("done")) acts.append(h("button", { type: "button", text: say("abandon"), onclick: (e) => patch(i.key, { status: "done", resolution: "abandoned" }, wrap, e.currentTarget) }));
+    if (state === "done:fixed") acts.append(h("button", { type: "button", text: say("reopen"), onclick: (e) => patch(i.key, { status: "inbox" }, wrap, e.currentTarget) }));
     if (acts.firstChild) view.append(wrap);
-    if (i.status === "inbox") view.append(editForm(i));
+    if (state === "inbox") view.append(editForm(i));
   }
   return view;
 }
@@ -769,6 +767,7 @@ function eventText(ev) {
   const obj = ev.detail && typeof ev.detail === "object" ? ev.detail : {};
   const label = (k, v) => (v ? say(k + "_" + v) : "");
   if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
+  if (ev.kind === "label") return say("event_label", { from: obj.from || "", to: obj.to || "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
@@ -975,29 +974,51 @@ function duplicatePick(i) {
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, choiceOf(i.status, i.resolution)))),
+    moveTo(i),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     assigneePick(i),
     duplicatePick(i),
-    tagPicker(i),
     statusLine(),
     h("button", { type: "submit", text: say("save") }));
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const data = changed(form);
     if ("duplicate_of" in data) data.duplicate_of = data.duplicate_of || null;
-    if (data.status) {
-      const [key, res] = data.status.split(":");
-      data.status = key;
-      if (res) data.resolution = res;
-    }
     if ("assignee" in data && !data.assignee) data.assignee = null;
-    const picked = form.querySelector(".p99-tag-pick").p99Picked.map((t) => t.name);
-    const key = (list) => Array.from(new Set(list.map((n) => n.toLowerCase()))).sort().join("\n");
-    if (key(picked) !== key((i.labels || []).map((t) => t.name))) data.labels = picked;
-    patch(i.key, data, form);
+    const to = form.querySelector(".p99-move-to select");
+    const drop = to.selectedOptions[0] && to.selectedOptions[0].dataset.drop;
+    if (!drop && to.value === i.label) return patch(i.key, data, form);
+    if (form.p99Busy) return;
+    form.p99Busy = true;
+    status(form, say("sending"));
+    call("POST", "/move", JSON.stringify(drop ? { key: i.key, from: i.label, to: drop, resolution: "abandoned" } : { key: i.key, from: i.label, to: to.value })).then(() => {
+      form.p99Busy = false;
+      return Object.keys(data).length ? patch(i.key, data, form) : item(i.key);
+    }, (e) => {
+      form.p99Busy = false;
+      if (e.status !== 409) return status(form, problem(e));
+      item(i.key).then(() => status(scroller.querySelector(".p99-manage"), e.message || say("moved")));
+    });
   });
   return form;
+}
+function moveTo(i) {
+  const now = h("option", { value: i.label, selected: true, text: i.label });
+  const sel = h("select", null, now);
+  call("GET", "/boards").then((r) => {
+    const seen = new Set([i.label.toLowerCase()]);
+    const more = [];
+    let shut = null;
+    for (const b of (r && r.boards) || []) if (b.mine) for (const c of b.columns || []) {
+      if (!shut && c.closes) shut = c.label;
+      if (seen.has(c.label.toLowerCase())) continue;
+      seen.add(c.label.toLowerCase());
+      more.push(h("option", { value: c.label, text: c.label }));
+    }
+    if (shut && i.resolution !== "abandoned") more.push(h("option", { value: "", "data-drop": shut, text: say("move_drop") }));
+    sel.append(...more);
+  }, () => {});
+  return h("label", { class: "p99-move-to" }, h("span", { text: say("move_to") }), sel);
 }
 function deleteBox(i) {
   const id = "p99-d" + ++seqId;
@@ -1046,39 +1067,6 @@ function deleteBox(i) {
   ["pointerup", "pointerleave", "pointercancel"].forEach((n) => btn.addEventListener(n, stop));
   btn.addEventListener("contextmenu", (e) => e.preventDefault());
   btn.addEventListener("click", (e) => { if (!e.detail) go(); });
-  return box;
-}
-function tagPicker(i) {
-  const chips = h("span", { class: "p99-tags" });
-  const picked = (i.labels || []).slice();
-  let all = null;
-  const same = (a, b) => a.toLowerCase() === b.toLowerCase();
-  const load = () => all || (all = call("GET", "/labels").then((r) => (r && r.labels) || [], () => (all = null, [])));
-  const c = combo({
-    label: say("labels"),
-    hint: say("label_new"),
-    max: "32",
-    keep: true,
-    find: (q) => load().then((list) => {
-      const out = list.filter((t) => !picked.some((p) => same(p.name, t.name)) && has(q, t.name))
-        .map((t) => ({ value: t.name, text: t.name, tag: t, el: tagChip(t) }));
-      if (q && !list.concat(picked).some((t) => same(t.name, q))) out.push({ value: q, text: say("label_make", { name: q }), make: true, tag: { name: q } });
-      return out;
-    }),
-    pick: (x, input) => { picked.push(x.tag); input.value = ""; draw(); },
-    back: () => { if (picked.length) { picked.pop(); draw(); } },
-  });
-  const draw = () => {
-    clear(chips);
-    picked.forEach((t, k) => {
-      const chip = tagChip(t);
-      chip.append(h("button", { type: "button", class: "p99-x", "aria-label": say("label_remove", { name: t.name }), text: "×", onclick: () => { picked.splice(k, 1); draw(); c.input.focus(); } }));
-      chips.append(chip);
-    });
-  };
-  draw();
-  const box = h("div", { class: "p99-tag-pick p99-picker" }, h("label", { for: c.input.id, text: say("labels") }), chips, c.box);
-  box.p99Picked = picked;
   return box;
 }
 function editForm(i) {
