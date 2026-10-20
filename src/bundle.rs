@@ -65,6 +65,11 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/art/concrete.svg", TEXT),
     worker!("web/art/concrete-dark.svg", TEXT),
     worker!("web/art/lockup-dark.svg", TEXT),
+    worker!("web/badges/free.svg", TEXT),
+    worker!("web/badges/studio.svg", TEXT),
+    worker!("web/badges/agency.svg", TEXT),
+    worker!("web/badges/owner.svg", TEXT),
+    worker!("web/badges/ff.svg", TEXT),
 ];
 
 pub const MIGRATIONS: &[(&str, &str)] = &[

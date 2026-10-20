@@ -189,6 +189,8 @@
 }
 .p99-brand { display: grid; flex: 1; gap: var(--p99-space-xs); min-width: 0; }
 .p99-lockup { display: block; width: 100%; height: auto; pointer-events: none; }
+.p99-tags { display: flex; align-items: center; gap: var(--p99-space-sm); min-width: 0; }
+.p99-badge { display: block; flex: none; width: auto; height: 47px; margin: 0 -8px -13px -5px; pointer-events: none; }
 .p99-logo {
   display: inline-grid;
   flex: none;

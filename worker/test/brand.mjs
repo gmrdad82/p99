@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { linkShown } from "../src/brand.js";
+import { LICENSE_STATE } from "./app.mjs";
 
 export async function brandChecks({ call, browse, mint, check, here, placement }) {
   await check("the 'by PITO.MD' link hides only when LICENSE_LINK is hideable and the host turned it off", () => {
@@ -38,5 +39,19 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
     } finally {
       assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
     }
+  });
+
+  await check("/me answers the LICENSE_STATE word for the panel's badge, and every state's badge is served", async () => {
+    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    const me = await browse("GET", "/me", ada.secret);
+    assert.equal(me.status, 200, JSON.stringify(me.json));
+    assert.equal(me.json.license, LICENSE_STATE);
+    for (const state of ["free", "studio", "agency", "owner", "ff"]) {
+      const art = await call("GET", `/_p99/badges/${state}.svg?v=dev`);
+      assert.equal(art.status, 200, state);
+      assert.match(art.response.headers.get("content-type"), /^image\/svg\+xml/);
+      assert.match(await art.response.text(), /^<svg /);
+    }
+    assert.equal((await call("GET", "/_p99/badges/trial.svg")).status, 404);
   });
 }

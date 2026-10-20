@@ -19,6 +19,7 @@ import {
 } from "./boards.js";
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import { linkShown } from "./brand.js";
+import { licenseState } from "./badge.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
@@ -35,6 +36,11 @@ import cssSource from "./web/p99.css";
 import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
 import lockupDarkSource from "./web/art/lockup-dark.svg";
+import badgeFreeSource from "./web/badges/free.svg";
+import badgeStudioSource from "./web/badges/studio.svg";
+import badgeAgencySource from "./web/badges/agency.svg";
+import badgeOwnerSource from "./web/badges/owner.svg";
+import badgeFfSource from "./web/badges/ff.svg";
 import captureVendor from "./web/vendor/modern-screenshot-4.7.0.js";
 import shotSource from "./web/shot.js";
 
@@ -171,6 +177,11 @@ const STATIC_FILES = {
   "/_p99/art/concrete.svg": { source: concreteSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/art/concrete-dark.svg": { source: concreteDarkSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/art/lockup-dark.svg": { source: lockupDarkSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/badges/free.svg": { source: badgeFreeSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/badges/studio.svg": { source: badgeStudioSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/badges/agency.svg": { source: badgeAgencySource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/badges/owner.svg": { source: badgeOwnerSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/badges/ff.svg": { source: badgeFfSource, type: "image/svg+xml; charset=utf-8" },
 };
 
 class Failure extends Error {
@@ -1525,6 +1536,7 @@ async function getMe(c) {
     theme: config.theme || {},
     strings: config.strings || {},
     link: linkShown(c.env, config),
+    license: licenseState(c.env),
   });
 }
 
