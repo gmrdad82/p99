@@ -2,7 +2,7 @@ import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
-import { licenseState } from "./badge.js";
+import { licenseState } from "./license.js";
 
 let K = null;
 
@@ -149,6 +149,7 @@ function files(request, env, url, method) {
     status: 200,
     headers: {
       "content-type": file.type,
+      "x-content-type-options": "nosniff",
       "cache-control": url.searchParams.has("v") ? "public, max-age=31536000, immutable" : "public, max-age=300",
     },
   });

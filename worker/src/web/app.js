@@ -198,7 +198,7 @@ function signedOut(e) {
 function badge() {
   if (!S.spaces) return null;
   const state = Object.hasOwn(BADGES, S.spaces.license) ? S.spaces.license : "free";
-  const pill = h("small", { class: S.badged ? "app-badge" : "app-badge app-badge-in", "data-state": state, text: BADGES[state] });
+  const pill = h("img", { class: S.badged ? "app-badge" : "app-badge app-badge-in", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 47 });
   S.badged = true;
   return pill;
 }

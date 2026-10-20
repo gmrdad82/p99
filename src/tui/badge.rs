@@ -7,7 +7,7 @@ use pito_tui::ratatui::style::{Color, Modifier, Style};
 
 use crate::license::State;
 
-pub const STATE_ENV: &str = "P99_LICENSE_STATE";
+const STATE_ENV: &str = "P99_LICENSE_STATE";
 const EASE: Duration = Duration::from_millis(420);
 const RULE: char = '─';
 

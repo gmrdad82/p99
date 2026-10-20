@@ -202,11 +202,6 @@ impl Claims {
             (Group::Customer, _) => State::Free,
         }
     }
-
-    #[cfg(test)]
-    pub fn may_hide_link(&self, build_date: Option<&str>) -> bool {
-        self.state(build_date).may_hide_link()
-    }
 }
 
 pub fn verify(public_key: &str, key: &str) -> Result<Claims, Refusal> {
@@ -253,6 +248,8 @@ fn shown(claims: &Claims) -> Shown<'_> {
     }
 }
 
+const FOLLOWS: &str = "the Worker's badge and link follow at the next p99 deploy";
+
 pub fn run(args: &Args, global: &Global) -> Result<(), String> {
     let mut config = Config::load()?;
     match &args.action {
@@ -290,6 +287,7 @@ fn set(config: &mut Config, global: &Global, raw: &str) -> Result<(), String> {
     }
     println!("stored the {} licence key", title(claims.tier()));
     print_human(&claims);
+    println!("{FOLLOWS}");
     Ok(())
 }
 
@@ -328,6 +326,9 @@ fn remove(config: &mut Config, global: &Global) -> Result<(), String> {
             "no licence key was stored"
         }
     );
+    if removed {
+        println!("{FOLLOWS}");
+    }
     Ok(())
 }
 
@@ -530,8 +531,8 @@ mod tests {
         assert_eq!(State::Free.link_binding(), "shown");
         let lapsed = read(Some("customer"), "agency", "2026-12-31");
         assert_eq!(lapsed.state(Some("2027-01-15")), State::Free);
-        assert!(!lapsed.may_hide_link(Some("2027-01-15")));
-        assert!(!lapsed.may_hide_link(None));
+        assert!(!lapsed.state(Some("2027-01-15")).may_hide_link());
+        assert!(!lapsed.state(None).may_hide_link());
     }
 
     #[test]
@@ -541,7 +542,7 @@ mod tests {
             assert_eq!(claims.group(), Group::Customer);
             assert_eq!(claims.tier(), "studio");
             assert_eq!(claims.state(Some("2026-10-20")), State::Studio);
-            assert!(!claims.may_hide_link(Some("2026-10-20")));
+            assert!(!claims.state(Some("2026-10-20")).may_hide_link());
         }
         assert_eq!(State::Studio.link_binding(), "shown");
     }
@@ -552,9 +553,9 @@ mod tests {
             let claims = read(group, "agency", "2026-12-31");
             assert_eq!(claims.group(), Group::Customer);
             assert_eq!(claims.state(Some("2026-10-20")), State::Agency);
-            assert!(claims.may_hide_link(Some("2026-10-20")));
-            assert!(claims.may_hide_link(Some("2027-01-14")));
-            assert!(!claims.may_hide_link(Some("2027-01-15")));
+            assert!(claims.state(Some("2026-10-20")).may_hide_link());
+            assert!(claims.state(Some("2027-01-14")).may_hide_link());
+            assert!(!claims.state(Some("2027-01-15")).may_hide_link());
         }
         assert_eq!(State::Agency.link_binding(), "hideable");
     }
@@ -566,7 +567,7 @@ mod tests {
         assert_eq!(claims.tier(), "agency");
         for built in ["2026-10-20", "2099-01-01", "9999-12-31"] {
             assert_eq!(claims.state(Some(built)), State::Ff);
-            assert!(!claims.may_hide_link(Some(built)));
+            assert!(!claims.state(Some(built)).may_hide_link());
         }
         assert_eq!(State::Ff.word(), "ff");
         assert_eq!(State::Ff.label(), "F&F");
@@ -580,7 +581,7 @@ mod tests {
         assert_eq!(claims.tier(), "agency");
         for built in ["2026-10-20", "2099-01-01", "9999-12-31"] {
             assert_eq!(claims.state(Some(built)), State::Owner);
-            assert!(claims.may_hide_link(Some(built)));
+            assert!(claims.state(Some(built)).may_hide_link());
         }
         assert_eq!(State::Owner.word(), "owner");
         assert_eq!(State::Owner.link_binding(), "hideable");

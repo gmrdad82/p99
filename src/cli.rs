@@ -876,6 +876,9 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
         return print_json(&sent);
     }
     println!("{host} updated and pushed");
+    if args.pitomd_link.as_deref() == Some("off") {
+        println!("the 'by PITO.MD' link hides once the Worker carries this key: p99 deploy");
+    }
     Ok(())
 }
 

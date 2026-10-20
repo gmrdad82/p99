@@ -3,7 +3,7 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { cspChecks, getter } from "./csp.mjs";
 import { ipKey } from "../src/tries.js";
-import { licenseState } from "../src/badge.js";
+import { licenseState } from "../src/license.js";
 
 export const APP_HOST = "app.localhost";
 export const LICENSE_STATE = "owner";

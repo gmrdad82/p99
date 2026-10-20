@@ -83,7 +83,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
             .map_or(State::Free, |config| State::of(config.license.as_deref()))
     };
     let tui = |source: Source| tui(source, state);
-    let fixture = || tui(Source::demo(Duration::ZERO));
+    let fixture = || self::tui(Source::demo(Duration::ZERO), State::Free);
     if let Some(dir) = &options.capture {
         return match capture::capture(Path::new(dir), &walk(), fixture) {
             Ok(frames) => {

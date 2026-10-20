@@ -73,7 +73,7 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses, changing nothing, when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
+   Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
 ## Change the setup
 

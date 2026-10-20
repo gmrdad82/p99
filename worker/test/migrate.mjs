@@ -69,19 +69,19 @@ ${[
   [2, "feature", "new", "example.com", "new@example.com", 0, null],
   [3, "bug", "confirmed", "example.com", null, 0, null],
   [4, "question", "in_progress", "shop.example.com", null, 0, null],
-  [5, "task", "waiting", "shop.example.com", null, 0, null],
+  [5, "task", "waiting", "shop.example.com", null, 0, null, "jo@example.com"],
   [6, "bug", "resolved", "example.com", null, 0, null],
   [7, "improvement", "abandoned", "example.com", null, 1, null],
   [8, "bug", "duplicate", "shop.example.com", null, 0, 6],
   [9, "bug", "resolved", "old.example.com", null, 0, null],
 ]
-  .map(([id, kind, status, host, assignee, agent, duplicate]) => {
+  .map(([id, kind, status, host, assignee, agent, duplicate, reporter = "ada@example.com"]) => {
     const open = ["new", "confirmed", "in_progress", "waiting"].includes(status);
     return `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
   reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json, search_text,
   activity_at, public_activity_at, created_at, updated_at, closed_at)
   VALUES (${id}, 'seed-${id}', '${kind}', '${status}', ${open ? 1 : 0}, 'Item ${id}', '', 'production', '${host}',
-  'https://${host}/', '/', '', 'ada@example.com', 'Ada Lovelace', '{}', ${agent}, ${assignee ? `'${assignee}'` : "NULL"},
+  'https://${host}/', '/', '', '${reporter}', 'Ada Lovelace', '{}', ${agent}, ${assignee ? `'${assignee}'` : "NULL"},
   ${duplicate ?? "NULL"}, '{}', '[]', 'item ${id}', ${AT}, ${AT}, ${AT}, ${AT}, ${open ? "NULL" : AT});`;
   })
   .join("\n")}
@@ -90,6 +90,7 @@ INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, intern
   (2, 'jo@example.com', 0, 'status', '{"from":"new","to":"abandoned"}', 0, ${AT}),
   (2, 'jo@example.com', 0, 'status', '{"from":"abandoned","to":"new"}', 0, ${AT}),
   (6, 'ada@example.com', 0, 'status', '{"from":"waiting","to":"resolved"}', 0, ${AT}),
+  (5, 'jo@example.com', 0, 'status', '{"from":"waiting","to":"confirmed"}', 0, ${AT}),
   (3, 'owner@example.com', 1, 'title', '{"from":"a","to":"b"}', 0, ${AT});
 `;
 

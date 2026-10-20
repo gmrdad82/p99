@@ -51,7 +51,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font |
 | `strings` | any of the panel's English words, by key |
 | `feed` | `true` serves the host's feed of fixed items at `/_p99/feed` (`p99 feed on <host>`); off by default |
-| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says |
+| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the account's licence badge to everyone with a code |
 
 ## Slack and Discord
 

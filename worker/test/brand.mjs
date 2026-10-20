@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { linkShown } from "../src/brand.js";
+import { linkShown } from "../src/license.js";
 import { LICENSE_STATE } from "./app.mjs";
 
 export async function brandChecks({ call, browse, mint, check, here, placement }) {

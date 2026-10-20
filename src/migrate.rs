@@ -53,7 +53,7 @@ const Q_ORDER: &str = "SELECT b.slug AS board, COALESCE(s.name, x.status) AS lab
 
 const EXTRA_TAGS: &str = "FROM item_labels il JOIN labels l ON l.id = il.label_id JOIN items i ON i.id = il.item_id LEFT JOIN statuses s ON s.key = i.status WHERE s.name IS NULL OR lower(trim(s.name)) <> lower(trim(l.name))";
 
-const Q_MEMBERS: &str = "SELECT lower(trim(e.actor_email)) AS email, (SELECT n.name FROM codes n WHERE lower(trim(n.email)) = lower(trim(e.actor_email)) ORDER BY n.id DESC LIMIT 1) AS name, count(*) AS changes FROM events e WHERE e.kind = 'status' AND e.actor_email IS NOT NULL AND EXISTS (SELECT 1 FROM codes r WHERE lower(trim(r.email)) = lower(trim(e.actor_email))) AND NOT EXISTS (SELECT 1 FROM codes m WHERE lower(trim(m.email)) = lower(trim(e.actor_email)) AND m.manager = 1 AND m.revoked_at IS NULL) AND NOT (json_extract(e.detail_json, '$.to') = 'abandoned' OR (json_extract(e.detail_json, '$.to') = 'done' AND json_extract(e.detail_json, '$.resolution') = 'abandoned')) AND NOT (json_extract(e.detail_json, '$.from') IN ('done', 'resolved', 'abandoned', 'duplicate') AND json_extract(e.detail_json, '$.to') IN ('inbox', 'new')) GROUP BY lower(trim(e.actor_email)) ORDER BY 1";
+const Q_MEMBERS: &str = "SELECT lower(trim(e.actor_email)) AS email, (SELECT n.name FROM codes n WHERE lower(trim(n.email)) = lower(trim(e.actor_email)) ORDER BY n.id DESC LIMIT 1) AS name, count(*) AS changes FROM events e WHERE e.kind = 'status' AND e.actor_email IS NOT NULL AND EXISTS (SELECT 1 FROM codes r WHERE lower(trim(r.email)) = lower(trim(e.actor_email))) AND NOT EXISTS (SELECT 1 FROM codes m WHERE lower(trim(m.email)) = lower(trim(e.actor_email)) AND m.manager = 1 AND m.revoked_at IS NULL) AND NOT (json_extract(e.detail_json, '$.to') = 'abandoned' OR (json_extract(e.detail_json, '$.to') = 'done' AND json_extract(e.detail_json, '$.resolution') = 'abandoned')) AND NOT (json_extract(e.detail_json, '$.from') IN ('done', 'resolved', 'abandoned', 'duplicate') AND json_extract(e.detail_json, '$.to') IN ('inbox', 'new')) AND NOT (json_extract(e.detail_json, '$.from') = 'waiting' AND json_extract(e.detail_json, '$.to') = 'confirmed' AND EXISTS (SELECT 1 FROM items i WHERE i.id = e.item_id AND lower(trim(i.reporter_email)) = lower(trim(e.actor_email)))) GROUP BY lower(trim(e.actor_email)) ORDER BY 1";
 
 const Q_COLLIDE: &str = "SELECT s.name AS label, l.name AS tag FROM statuses s JOIN labels l ON lower(trim(l.name)) = lower(trim(s.name)) ORDER BY s.position, l.id";
 
@@ -690,6 +690,13 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         return out;
     }
     out.push_str(&format!("  pending: {}\n", pending.join(", ")));
+    let owner = match plan["owner"].as_object() {
+        Some(o) => person(
+            o["name"].as_str().unwrap_or_default(),
+            o["email"].as_str().unwrap_or_default(),
+        ),
+        None => "nobody (no live manager code)".into(),
+    };
 
     if plan.get("statuses").is_some() {
         let between: Vec<&str> = bundle::MIGRATIONS
@@ -720,13 +727,6 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
                 count(&row, "items")
             ));
         }
-        let owner = match plan["owner"].as_object() {
-            Some(o) => person(
-                o["name"].as_str().unwrap_or_default(),
-                o["email"].as_str().unwrap_or_default(),
-            ),
-            None => "nobody (no live manager code)".into(),
-        };
         out.push_str(&format!(
             "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first manager code that isn't revoked owns them; each column holds its cards newest first)\n"
         ));
@@ -749,13 +749,6 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
                 count(&row, "items")
             ));
         }
-        let owner = match plan["owner"].as_object() {
-            Some(o) => person(
-                o["name"].as_str().unwrap_or_default(),
-                o["email"].as_str().unwrap_or_default(),
-            ),
-            None => "nobody (no live manager code)".into(),
-        };
         out.push_str(&format!(
             "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first manager code that isn't revoked owns them)\n"
         ));
@@ -929,6 +922,25 @@ mod tests {
         assert_eq!(text, r#"{"a":true,"b":[1,{"x":null,"y":"é"}]}"#);
         assert_eq!(hash(&a).len(), 64);
         assert_ne!(hash(&a), hash(&json!({"a": false, "b": []})));
+    }
+
+    #[test]
+    fn a_migration_that_changes_data_waits_for_a_plan() {
+        for (name, sql) in bundle::MIGRATIONS {
+            if GATED.contains(&&name[..4]) {
+                continue;
+            }
+            for line in sql.lines() {
+                let line = line.trim().to_ascii_uppercase();
+                let writes = ["UPDATE ", "DELETE ", "INSERT ", "REPLACE ", "DROP "]
+                    .iter()
+                    .any(|word| line.starts_with(word));
+                assert!(
+                    !writes && !line.contains(" DROP "),
+                    "{name} changes data, so its number belongs in GATED: {line}"
+                );
+            }
+        }
     }
 
     #[test]
