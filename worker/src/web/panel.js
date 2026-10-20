@@ -6,7 +6,6 @@ const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
-const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
 const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
@@ -561,7 +560,6 @@ function statusWord(s, r) {
   if (!named) return say("status_" + (res || key));
   return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
 }
-function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
 function stateOf(x) { return choiceOf(x.stage || x.status, x.resolution); }
 function statusPill(x) {
   const c = stateOf(x);
@@ -976,7 +974,7 @@ function duplicatePick(i) {
 function manageForm(i) {
   const form = h("form", { class: "p99-manage", novalidate: true },
     h("h3", { text: say("manage") }),
-    i.label == null ? h("label", null, h("span", { text: say("filter_status") }), h("select", { name: "status" }, options(CHOICES, choiceWord, stateOf(i)))) : moveTo(i),
+    moveTo(i),
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     assigneePick(i),
     duplicatePick(i),
@@ -986,15 +984,10 @@ function manageForm(i) {
     e.preventDefault();
     const data = changed(form);
     if ("duplicate_of" in data) data.duplicate_of = data.duplicate_of || null;
-    if (data.status) {
-      const [key, res] = data.status.split(":");
-      data.status = key;
-      if (res) data.resolution = res;
-    }
     if ("assignee" in data && !data.assignee) data.assignee = null;
     const to = form.querySelector(".p99-move-to select");
-    const drop = to && to.selectedOptions[0] && to.selectedOptions[0].dataset.drop;
-    if (!to || (!drop && to.value === i.label)) return patch(i.key, data, form);
+    const drop = to.selectedOptions[0] && to.selectedOptions[0].dataset.drop;
+    if (!drop && to.value === i.label) return patch(i.key, data, form);
     if (form.p99Busy) return;
     form.p99Busy = true;
     status(form, say("sending"));

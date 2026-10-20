@@ -91,7 +91,7 @@ function move(body, me = ADA) {
   if (b) {
     const o = orders.get(b.id);
     const peers = items.filter((i) => i !== it && i.label === body.to).map((i) => ({ key: i.key, order: o.get(i.key) || "0.5" })).sort((x, y) => (x.order < y.order ? -1 : 1));
-    const at = body.before ? peers.findIndex((x) => x.key === body.before) : body.after ? peers.findIndex((x) => x.key === body.after) + 1 : peers.length;
+    const at = body.before ? peers.findIndex((x) => x.key === body.before) : body.after ? peers.findIndex((x) => x.key === body.after) + 1 : 0;
     order = between(at > 0 ? peers[at - 1].order : null, at < peers.length ? peers[at].order : null);
     o.set(it.key, order);
     publish({ type: "order", board: b.id, key: it.key, order });
@@ -207,7 +207,7 @@ async function worker() {
     for (const [k, b] of list.entries()) {
       const body = { name: b.name, columns: b.columns };
       const got = k === 0 ? await signed("PUT", `/boards/${first.id}${at}`, body, who) : await signed("POST", `/boards${at}`, body, who);
-      made.push(String(((got && got.board) || got || first).id ?? first.id));
+      made.push(((got && got.board) || got || first).id ?? first.id);
     }
     list.forEach((b, k) => ids.set(b.id, made[k]));
   };
@@ -221,7 +221,7 @@ async function worker() {
     if (it.assignee) await signed("PATCH", `/issues/${made.key}${at}`, { assignee: it.assignee.username });
     const by = boards.find((b) => b.owner === ADA && b.columns.some((c) => c.label === it.label)) ? ADA : GRACE;
     const on = boards.find((b) => b.owner === by && b.columns.some((c) => c.label === it.label));
-    if (it.label !== "Inbox") await signed("POST", `/move${at}`, { key: made.key, from: "Inbox", to: it.label, board: Number(ids.get(on.id)) || ids.get(on.id) }, by);
+    if (it.label !== "Inbox") await signed("POST", `/move${at}`, { key: made.key, from: "Inbox", to: it.label, board: ids.get(on.id) }, by);
   }
   const piped = new Set();
   const server = createServer((req, res) => {
@@ -250,7 +250,7 @@ async function worker() {
     up.on("error", gone);
   });
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
-  const sent = (body) => ({ ...body, key: keys.get(body.key), ...(body.board != null ? { board: Number(ids.get(body.board)) || ids.get(body.board) } : {}), ...(body.before ? { before: keys.get(body.before) } : {}), ...(body.after ? { after: keys.get(body.after) } : {}) });
+  const sent = (body) => ({ ...body, key: keys.get(body.key), ...(body.board != null ? { board: ids.get(body.board) } : {}), ...(body.before ? { before: keys.get(body.before) } : {}), ...(body.after ? { after: keys.get(body.after) } : {}) });
   return {
     name: "worker",
     code: minted.secret,
@@ -439,7 +439,7 @@ async function check(back) {
     await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("Q-4"));
     ok("live: a label my board doesn't have takes Q-4 off it");
 
-    await back.other({ key: "FEAT-9", from: "Doing", to: "Doing", board: "1" }, ADA);
+    await back.other({ key: "FEAT-9", from: "Doing", to: "Doing", board: "1", after: "TASK-3" }, ADA);
     await p.waitForTimeout(500);
     await settle(p);
     const doing = await column(p, "Doing");

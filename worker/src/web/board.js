@@ -716,7 +716,7 @@ function event(ev) {
   if (!ev || !B.data) return;
   if (ev.host && ev.host !== (B.ctx.host || location.hostname)) return;
   if (ev.type === "label") return relabel(ev.key, ev.to);
-  if (ev.type === "order") return String(ev.board) === B.id ? reorder(ev.key, ev.order) : undefined;
+  if (ev.type === "order") return String(ev.board) !== B.id ? undefined : ev.rebalanced ? soon() : reorder(ev.key, ev.order);
   if (ev.type === "delete") return gone(ev.key);
   soon();
 }

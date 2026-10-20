@@ -263,12 +263,26 @@ try {
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });
     check(`${label}: nothing in Manage scrolls sideways`, wide);
     if (label === "1440") {
-      await p.keyboard.press("Escape");
       await p.locator(S(".p99-manage > button[type=submit]")).click();
       await p.waitForTimeout(1500);
       const got = (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
       check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of);
-      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null });
+      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, resolution: null });
+      const moved = await open(DESK, main.key);
+      const pickMove = async (opt) => {
+        await moved.p.waitForFunction(() => document.querySelectorAll("p99-root").length && document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option").length > 2);
+        await toManage(moved.p);
+        await moved.p.locator(S(".p99-move-to select")).selectOption(opt);
+        await moved.p.locator(S(".p99-manage > button[type=submit]")).click();
+        await moved.p.waitForTimeout(1500);
+        return (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
+      };
+      const doing = await pickMove({ label: "Doing" });
+      check(`Save with Move to Doing moves the item (${doing.label}, ${doing.stage})`, doing.label === "Doing" && doing.stage === "in_progress");
+      const dropped = await pickMove({ label: "Drop (close without fixing)" });
+      check(`Drop closes it under Done without fixing (${dropped.label}, ${dropped.resolution}, ${dropped.stage})`, dropped.label === "Done" && dropped.resolution === "abandoned" && dropped.stage === "dropped");
+      await must("PATCH", `/issues/${main.key}?host=${HOST}`, { resolution: null });
+      await moved.ctx.close();
     }
     await ctx.close();
   }
