@@ -826,7 +826,7 @@ async function run() {
     assert.equal(await d1count(TAG_COUNT), 2);
   });
 
-  await check("the lane migration keeps each lane in its old priority order, ties by age, and flattens nested boards", async () => {
+  await check("the lane migration keeps each lane in its old priority order, then its old place, and flattens nested boards", async () => {
     const boards = await call("GET", "/_p99/v1/boards");
     assert.equal(boards.status, 200, JSON.stringify(boards.json));
     const lanes = boards.json.boards.find((b) => b.id === 950);
@@ -837,13 +837,13 @@ async function run() {
     const board = await call("GET", "/_p99/v1/boards/950");
     assert.equal(board.status, 200, JSON.stringify(board.json));
     const lane = board.json.cards.filter((cd) => cd.label === "Inbox").map((cd) => cd.key);
-    assert.deepEqual(lane, ["BUG-955", "BUG-953", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
+    assert.deepEqual(lane, ["BUG-953", "BUG-955", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
     assert.ok(board.json.cards.every((cd) => cd.key.startsWith("BUG-95")));
     const flat = await call("GET", "/_p99/v1/boards/951");
     assert.equal(flat.json.cards.length, 7);
     const legacy = boards.json.boards.find((b) => b.name === "legacy.example");
     const building = (await call("GET", `/_p99/v1/boards/${legacy.id}`)).json.cards.filter((cd) => cd.label === "Building").map((cd) => cd.key);
-    assert.deepEqual(building, ["BUG-902", "BUG-903"]);
+    assert.deepEqual(building, ["BUG-903", "BUG-902"]);
     const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*");
     assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
   });
@@ -932,10 +932,10 @@ async function run() {
     assert.equal((await browse("POST", "/move", boss.secret, { key: elsewhere, from: "Inbox", to: "Building" })).status, 404);
     assert.equal((await browse("GET", `/boards/${mineHere.id}`, boss.secret)).status, 200);
     const own = (await call("GET", `/_p99/v1/boards?host=${there}`)).json.boards.filter((b) => b.mine);
-    assert.equal(own.length, 2);
+    assert.deepEqual(own.map((b) => b.id), [away.json.id]);
+    assert.equal((await call("DELETE", `/_p99/v1/boards/${away.json.id}?host=${there}`)).status, 409);
+    assert.equal((await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Spare", columns: ["Inbox", "Building", "Done"] } })).status, 201);
     assert.equal((await call("DELETE", `/_p99/v1/boards/${away.json.id}?host=${there}`)).status, 204);
-    const last = own.find((b) => b.id !== away.json.id);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${last.id}?host=${there}`)).status, 409);
   });
 
   await check("a closing label closes the item and mails its reporter; other label changes mail no one", async () => {

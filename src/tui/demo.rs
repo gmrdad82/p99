@@ -670,6 +670,8 @@ pub fn summary(issue: &Issue) -> Summary {
         key: issue.key.clone(),
         kind: issue.kind.clone(),
         status: issue.status.clone(),
+        stage: issue.stage.clone(),
+        label: issue.label.clone(),
         resolution: issue.resolution.clone(),
         board: issue.board.clone(),
         position: issue.position,

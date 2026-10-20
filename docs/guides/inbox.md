@@ -13,27 +13,24 @@ Everything people file lands in one inbox per Cloudflare account, across all its
 
 An item is a `bug`, `feature` (an idea), `improvement`, `question` or `task` (tasks are filed by managers). Its key is a prefix and a number, `BUG-12`, `FEAT-7`, `IMP-5`, `Q-10`, `TASK-6`, over one numbering per account: any prefix with the right number, or the bare number, names the same item, so `12`, `bug-12` and `BUG-12` all work.
 
-Its status is one of four: `inbox`, `doing`, `review` and `done`. The first three are **open**, `done` is **closed**, and a done item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). The names Inbox, Doing, Review and Done are the account's to change, with `p99 statuses rename doing "In progress"`; the keys stay. Reporters see their own words in the panel: Received, In progress, In review, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and status changes when mail is on.
+An item carries one **label**, its state: a new one gets Inbox, and Inbox, Doing, Review and Done are the defaults, each renameable. A label can **close** an item (Done does); a closed item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). Reporters see their own words in the panel: Received while the item has the first label, In progress under any other open one, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and about the item closing or reopening when mail is on; other label changes mail no one.
 
 ## Boards
 
-Every item sits on one board, and its column there is its status. Each host has a home board, named after the host (slug `example-com` for `example.com`), where its new items land at the top of Inbox. A board can sit as a card inside another board's column, beside items, and shows how much of everything inside it is done, `3/7`. Moving a board card to a column moves every item inside it, boards within boards included, to that column; moving it to Done marks their open items fixed.
+A board is one manager's: a name, 3 to 5 columns, each a label, and its own order of the cards, which is that person's priority: the top of a column matters most. It shows the items whose label is one of its columns, each once, and moving a card gives the item that column's label. Everyone gets a board, Inbox, Doing, Review, Done, the first time they open the boards, and can make up to three. Others watch it read-only and see the same cards in the same order. A shared label is a handoff: when a dev's last column, "QA ready", is the first column of a QA person's board, a card the dev moves there shows up for QA, with nothing to set up.
 
 ```sh
 p99 boards
-p99 boards add "Site v2" --in example-com
-p99 boards add Checkout --in site-v2 --column doing
-p99 board site-v2
-p99 move BUG-12 --to doing
-p99 move BUG-12 --board site-v2 --after BUG-9
-p99 move board:site-v2 --to done
-p99 boards rename site-v2 "Site, version 2"
-p99 boards remove checkout
+p99 board
+p99 board @grace.hopper
+p99 boards set QA --columns "QA ready,Testing,Done" --closes Done
+p99 move BUG-12 --to Doing
+p99 move BUG-12 --to Doing --after BUG-9
+p99 labels
+p99 labels rename "QA ready" "Ready for QA"
 ```
 
-`--to` takes a status's key or its name, in any case. Without `--before` or `--after`, a card that changes column or board goes to the top. A board without `--host` or `--in` spans every host of the account; one with `--host` holds that host's items only. `p99 boards remove` takes only an empty board, and a host's home board stays.
-
-Managers also give an item a **priority**, `urgent`, `high`, `normal` or `low`, and **labels**, names shared by every host of the account, each with a colour. Lists mark an urgent item `!!`, a high one `!` and a low one `↓`, and show its labels after the title. Reporters never see either.
+`--to` takes a label on one of your boards, in any case; with `--before` or `--after` the card is also placed in that column of your board, and without them its place on boards stays as it was. `p99 boards set` makes the board or changes its columns; `--closes` names the columns whose label closes an item. A rename changes the label on every board and item; when other people's boards use it, `p99 labels rename` asks first, naming them, and `--yes` answers for scripts.
 
 ## The TUI
 
@@ -52,7 +49,6 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `/` | filter by text as you type; `esc` clears it |
 | `s` | show open, closed or any status, in turn |
 | `h` | show every host, or pick one |
-| `p` | show any priority, or one, or none |
 | `l` | show any label, or only items with one |
 | `r` | read the list again |
 | `?` | every key of the screen |
@@ -64,7 +60,6 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `i` | make the next reply internal (managers only see it), or not |
 | `s` | change the status; `duplicate` then asks for the item it duplicates |
 | `a` | assign it to someone, or to no one |
-| `p` | set its priority, or clear it |
 | `l` | put a label on it or take one off; `+ New label…` makes one |
 | `o` | open the item's page in the browser |
 | `d` | delete it for good, with its comments and files: type its key back, then `enter` |
@@ -85,29 +80,22 @@ p99 list --mine -q checkout
 p99 show BUG-12
 p99 comment BUG-12 "Fixed on dev, can you check?"
 p99 comment BUG-12 "The cart caches the total." --internal
-p99 status BUG-12 done
+p99 status BUG-12 Done
 p99 status BUG-14 abandoned
 p99 status BUG-13 duplicate --duplicate-of BUG-12
 p99 merge BUG-14 BUG-15 --into BUG-12
 p99 assign BUG-12 @grace.hopper
 p99 assign BUG-12 me
 p99 assign BUG-12 --none
-p99 priority BUG-12 urgent
-p99 label BUG-12 checkout mobile
-p99 unlabel BUG-12 mobile
-p99 list --all --priority urgent --priority high --label checkout
-p99 labels
-p99 labels add copy --color "#57ab5a"
-p99 labels rename copy wording
-p99 labels remove wording
+p99 list --all --label Doing
 p99 file example.com --kind task --title "Move product images to the new bucket"
 p99 download 41 -o receipt.png
 p99 delete BUG-16
 ```
 
-`p99 status BUG-12 done` is `p99 move BUG-12 --to done`; `abandoned` and `duplicate` end an item that way too, and the P99 1.x words (`resolved`, `in_progress` and the rest) still work.
+`p99 status BUG-12 Done` is `p99 move BUG-12 --to Done`; `abandoned` and `duplicate` close an item that way too.
 
-`p99 list` takes a host; without one it lists every host of the account, and `--all` every host of every account in the config. `--status` is `open` (the default), `closed`, `any` or one status, and `--limit` caps the lines at 50 unless you raise it. Its lines read:
+`p99 list` takes a host; without one it lists every host of the account, and `--all` every host of every account in the config. `--status` is `open` (the default), `closed` or `any`, `--label` keeps one label, and `--limit` caps the lines at 50 unless you raise it. Its lines read:
 
 ```text
 *BUG-11   Inbox       shop.example.com The total does not update after removing a line  [4 comments]
@@ -118,7 +106,7 @@ p99 delete BUG-16
 
 Everyone is a username on the account, made from their name when they get a code (`Grace Hopper` is `@grace.hopper`); each person changes only their own ([usernames](../reference/formats.md#usernames)), and an agent acting for them shows as their name with `*`, never a username of its own. `p99 assign` takes a username, with or without the `@`, or `me`; the assignee must hold a code for the item's site or be a manager.
 
-A `*` before the key marks it unread, `!!`, `!` or `↓` before the title its priority, and `labels:` ends the line when it has some. `--priority` repeats for any of several (`none` is no priority), `--label` for all of several; `p99 label` makes a label the account doesn't have yet, and `p99 labels rename`, `color` and `remove` change it on every item. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, a manager finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
+A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, a manager finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
 
 ## JSON for scripts
 

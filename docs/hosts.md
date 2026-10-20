@@ -67,7 +67,7 @@ p99 hooks remove example.com --discord
 - `--on` picks what is posted, from `new` (an item is filed), `comment` (a comment that is not an internal note), `status` (an item changes column) and `shipped` (`p99 announce` lands its fix in a `release` environment); a new hook posts all four, and setting a hook again without `--on` keeps its list.
 - `--url-ref` reads the URL from 1Password (`op://…`) or an environment variable (`env:NAME`), so it never sits in the shell's history; with it, the URL itself says whether it is Slack or Discord.
 - Only `https://hooks.slack.com/services/…` and `https://discord.com/api/webhooks/…` (or `discordapp.com`) URLs are taken. The Worker keeps each one encrypted and never shows it again: `p99 hooks` shows its last four characters, its events and how the last post went.
-- A post names the item's key, kind, title and status (the account's names for the statuses), who acted (an agent as `Ada Lovelace*`) and a link that opens the item in the panel on the site. It never carries an e-mail address, an internal note or an attachment.
+- A post names the item's key, kind, title and label, who acted (an agent as `Ada Lovelace*`) and a link that opens the item in the panel on the site. It never carries an e-mail address, an internal note or an attachment.
 - Posts go out after the Worker has answered, with a 5-second limit; a webhook that fails or hangs never fails or slows the change, and its answer shows in `p99 hooks`. A request that changes many items (a board moved to another column) posts one message per hook, listing up to ten of them.
 
 ## Environments

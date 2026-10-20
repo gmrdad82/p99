@@ -1348,13 +1348,9 @@ impl Screen<Msg> for Inbox {
         } else {
             &COLUMNS_ONE
         };
-        let view = self
-            .filter
-            .view(columns, palette)
-            .header(true)
-            .empty(Some(
-                "Nothing here. s shows other statuses, h other hosts, l other labels.",
-            ));
+        let view = self.filter.view(columns, palette).header(true).empty(Some(
+            "Nothing here. s shows other statuses, h other hosts, l other labels.",
+        ));
         frame.render_widget(view, area);
     }
 

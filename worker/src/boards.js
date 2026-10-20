@@ -540,7 +540,7 @@ export async function postMove(c) {
   const anchorId = anchor ? K.parseKey(anchor.raw) : null;
   if (anchor && anchorId === null) K.fail(400, `${anchor.raw} is not an item key`);
   const reads = await DB.batch([
-    DB.prepare(`SELECT i.*, ${LABEL_COLUMNS} FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`).bind(id, ...scopeBinds(v)),
+    DB.prepare(`SELECT i.*, ${LABEL_COLUMNS}, ${nameSql("i.assignee")} AS assignee_username FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`).bind(id, ...scopeBinds(v)),
     DB.prepare(
       `SELECT b.id, b.host, b.owner, l.id AS label_id, l.name, l.role, l.closes FROM boards b
        JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id

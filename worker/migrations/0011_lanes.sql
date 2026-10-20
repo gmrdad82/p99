@@ -17,11 +17,7 @@ CREATE TABLE lane_keys AS
 SELECT board_id, id AS item_id, status,
   row_number() OVER (
     PARTITION BY board_id, status
-    ORDER BY
-      CASE WHEN status = 'done' THEN 0
-        ELSE CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END END,
-      CASE WHEN status = 'done' THEN position END,
-      created_at, id
+    ORDER BY CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, position, id
   ) - 1 AS n
 FROM items;
 
@@ -90,7 +86,7 @@ CREATE INDEX items_duplicate ON items (duplicate_of, reporter_email);
 
 CREATE TABLE boards_hold AS
 SELECT id, name, host, created_at, updated_at,
-  (SELECT email FROM codes WHERE manager = 1 ORDER BY revoked_at IS NOT NULL, id LIMIT 1) AS owner
+  (SELECT email FROM codes WHERE manager = 1 AND revoked_at IS NULL ORDER BY id LIMIT 1) AS owner
 FROM boards;
 
 DROP TABLE boards;
