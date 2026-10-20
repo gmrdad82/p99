@@ -55,6 +55,44 @@ INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, intern
   (3, 'owner@example.com', 1, 'title', '{"from":"a","to":"b"}', 0, ${AT});
 `;
 
+const SEED_17 = `
+INSERT INTO hosts (host, env, config_json, created_at) VALUES
+  ('example.com', 'production', '{"above":"#footer","off":["/admin"]}', ${AT}),
+  ('shop.example.com', 'production', '{}', ${AT});
+INSERT INTO codes (id, hash, hint, name, email, hosts_json, manager, created_at, created_by, revoked_at) VALUES
+  (1, 'h0', 'z', 'Old Manager', 'old@example.com', '["*"]', 1, ${AT}, 'setup', ${AT}),
+  (2, 'h1', 'a', 'Ada Lovelace', 'ada@example.com', '["example.com","shop.example.com"]', 1, ${AT}, 'setup', NULL),
+  (3, 'h2', 'b', 'Grace Hopper', 'grace@example.com', '["example.com"]', 0, ${AT}, 'ada@example.com', NULL),
+  (4, 'h4', 'd', 'Jo', 'jo@example.com', '["example.com"]', 0, ${AT}, 'ada@example.com', NULL);
+${[
+  [1, "bug", "new", "example.com", "Grace@Example.com", 0, null],
+  [2, "feature", "new", "example.com", "new@example.com", 0, null],
+  [3, "bug", "confirmed", "example.com", null, 0, null],
+  [4, "question", "in_progress", "shop.example.com", null, 0, null],
+  [5, "task", "waiting", "shop.example.com", null, 0, null],
+  [6, "bug", "resolved", "example.com", null, 0, null],
+  [7, "improvement", "abandoned", "example.com", null, 1, null],
+  [8, "bug", "duplicate", "shop.example.com", null, 0, 6],
+  [9, "bug", "resolved", "old.example.com", null, 0, null],
+]
+  .map(([id, kind, status, host, assignee, agent, duplicate]) => {
+    const open = ["new", "confirmed", "in_progress", "waiting"].includes(status);
+    return `INSERT INTO items (id, client_uid, kind, status, open, title, body, origin_env, host, page_url, page_path, page_title,
+  reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json, search_text,
+  activity_at, public_activity_at, created_at, updated_at, closed_at)
+  VALUES (${id}, 'seed-${id}', '${kind}', '${status}', ${open ? 1 : 0}, 'Item ${id}', '', 'production', '${host}',
+  'https://${host}/', '/', '', 'ada@example.com', 'Ada Lovelace', '{}', ${agent}, ${assignee ? `'${assignee}'` : "NULL"},
+  ${duplicate ?? "NULL"}, '{}', '[]', 'item ${id}', ${AT}, ${AT}, ${AT}, ${AT}, ${open ? "NULL" : AT});`;
+  })
+  .join("\n")}
+INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES
+  (4, 'grace@example.com', 0, 'status', '{"from":"confirmed","to":"in_progress"}', 0, ${AT}),
+  (2, 'jo@example.com', 0, 'status', '{"from":"new","to":"abandoned"}', 0, ${AT}),
+  (2, 'jo@example.com', 0, 'status', '{"from":"abandoned","to":"new"}', 0, ${AT}),
+  (6, 'ada@example.com', 0, 'status', '{"from":"waiting","to":"resolved"}', 0, ${AT}),
+  (3, 'owner@example.com', 1, 'title', '{"from":"a","to":"b"}', 0, ${AT});
+`;
+
 function binary(root) {
   if (process.env.P99_BIN) return process.env.P99_BIN;
   const built = ["release", "debug"]
@@ -232,7 +270,9 @@ export async function migrateChecks({ check, root, work }) {
       assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items]), [["BUG", 3], ["FEAT", 1], ["IMP", 1], ["Q", 1], ["TASK", 1]]);
       assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
       assert.equal(p.url, "https://p99.example.com/_p99");
-      assert.equal(p.decisions.length, 6, p.decisions.join("\n"));
+      assert.equal(p.decisions.length, 5, p.decisions.join("\n"));
+      assert.doesNotMatch(p.decisions.join("\n"), /a person may have/);
+      assert.match(p.people.digest, /^[0-9a-f]{64}$/);
       assert.equal((await plan()).hash, first.hash);
       const text = await run(["migrate", "--plan"]);
       assert.match(text.stdout, new RegExp(`Plan hash: ${first.hash}\n`));
@@ -274,6 +314,126 @@ export async function migrateChecks({ check, root, work }) {
       const fresh = await run(["deploy", "--no-check"]);
       assert.equal(fresh.status, 0, fresh.stderr);
       assert.equal(state.db.prepare("SELECT count(*) AS n FROM d1_migrations").get().n, bundled.length);
+    });
+
+    let old;
+    await check("migrate --plan reads a seeded 1.7 database and maps every 1.7 status to its 1.9 label and stage with exact counts", async () => {
+      state.db = d1(root, "0004");
+      state.db.exec(SEED_17);
+      old = await plan();
+      const p = old.plan;
+      assert.equal(old.hash, createHash("sha256").update(canonical(p)).digest("hex"));
+      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0004", "0011", "0012", "0013"]);
+      assert.deepEqual(
+        p.statuses.map((s) => [s.status, s.label, s.stage, s.open, s.items]),
+        [
+          ["new", "Inbox", "received", 2, 2],
+          ["confirmed", "Doing", "in_progress", 1, 1],
+          ["in_progress", "Doing", "in_progress", 1, 1],
+          ["waiting", "Review", "in_progress", 1, 1],
+          ["resolved", "Done", "fixed", 0, 2],
+          ["abandoned", "Done", "dropped", 0, 1],
+          ["duplicate", "Done", "duplicate", 0, 1],
+        ],
+      );
+      assert.equal(p.labels, undefined);
+      assert.deepEqual(p.owner, { email: "ada@example.com", name: "Ada Lovelace" });
+      assert.deepEqual(p.boards.map((b) => [b.name, b.items]), [["example.com", 5], ["old.example.com", 1], ["shop.example.com", 3]]);
+      assert.deepEqual(p.members.map((m) => [m.email, m.changes]), [["grace@example.com", 1]]);
+      assert.equal(p.people.rows, 5);
+      assert.deepEqual(
+        p.people.usernames.map((u) => [u.email, u.username, u.why]),
+        [["jo@example.com", "member", "member"], ["new@example.com", "new", "e-mail"]],
+      );
+      assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace*"], ["owner@example.com", null]]);
+      assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items, k.open]), [["BUG", 5, 2], ["FEAT", 1, 1], ["IMP", 1, 0], ["Q", 1, 1], ["TASK", 1, 1]]);
+      assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
+      assert.equal(p.decisions.length, 3, p.decisions.join("\n"));
+      assert.match(p.decisions.join("\n"), /old\.example\.com, which their code doesn't cover/);
+      const text = await run(["migrate", "--plan"]);
+      assert.match(text.stdout, /new {10}-> Inbox {3}received {5}2 open, 2 in all\n/);
+      assert.match(text.stdout, new RegExp(`Plan hash: ${old.hash}\n`));
+    });
+
+    await check("deploy refuses a 1.7 account without its plan's hash or with another plan's, writing nothing", async () => {
+      const uploads = state.uploads;
+      state.sql = [];
+      const bare = await run(["deploy", "--no-check"]);
+      assert.equal(bare.status, 1);
+      assert.match(bare.stderr, /^p99: 0004_boards\.sql, 0011.*--accept-plan <hash>\n$/);
+      const other = await run(["deploy", "--no-check", "--accept-plan", first.hash]);
+      assert.equal(other.status, 1);
+      assert.match(other.stderr, /the plan changed since that hash was taken/);
+      state.db.exec("UPDATE items SET status = 'confirmed' WHERE id = 1;");
+      const moved = await run(["deploy", "--no-check", "--accept-plan", old.hash]);
+      assert.equal(moved.status, 1);
+      assert.match(moved.stderr, /the plan changed since that hash was taken/);
+      state.db.exec("UPDATE items SET status = 'new' WHERE id = 1;");
+      assert.deepEqual(writes(), []);
+      assert.equal(state.uploads, uploads);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM d1_migrations").get().n, 3);
+      assert.equal((await plan()).hash, old.hash);
+    });
+
+    await check("deploy with the 1.7 plan's hash lands every item on the label, stage and home board the plan named", async () => {
+      const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", old.hash]);
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.equal(JSON.parse(ok.stdout).migrations.accepted, old.hash);
+      const items = state.db
+        .prepare("SELECT i.id, l.name AS label, i.resolution, i.open, i.duplicate_of, b.name AS board FROM items i JOIN labels l ON l.id = i.label_id JOIN board_positions p ON p.item_id = i.id JOIN boards b ON b.id = p.board_id ORDER BY i.id")
+        .all()
+        .map((r) => [r.id, r.label, r.resolution, r.open, r.duplicate_of, r.board]);
+      assert.deepEqual(items, [
+        [1, "Inbox", null, 1, null, "example.com"],
+        [2, "Inbox", null, 1, null, "example.com"],
+        [3, "Doing", null, 1, null, "example.com"],
+        [4, "Doing", null, 1, null, "shop.example.com"],
+        [5, "Review", null, 1, null, "shop.example.com"],
+        [6, "Done", "fixed", 0, null, "example.com"],
+        [7, "Done", "abandoned", 0, null, "example.com"],
+        [8, "Done", "duplicate", 0, 6, "shop.example.com"],
+        [9, "Done", "fixed", 0, null, "old.example.com"],
+      ]);
+      assert.deepEqual(
+        state.db.prepare("SELECT name, owner FROM boards ORDER BY name").all().map((r) => [r.name, r.owner]),
+        old.plan.boards.map((b) => [b.name, old.plan.owner.email]),
+      );
+      const inbox = state.db
+        .prepare("SELECT p.item_id FROM board_positions p JOIN boards b ON b.id = p.board_id JOIN labels l ON l.id = p.label_id WHERE b.name = 'example.com' AND l.name = 'Inbox' ORDER BY p.key")
+        .all()
+        .map((r) => r.item_id);
+      assert.deepEqual(inbox, [2, 1]);
+      const people = Object.fromEntries(state.db.prepare("SELECT email, username FROM people").all().map((r) => [r.email, r.username]));
+      assert.equal(Object.keys(people).length, old.plan.people.rows);
+      for (const u of old.plan.people.usernames) assert.equal(people[u.email], u.username, u.email);
+      for (const a of old.plan.agents.filter((a) => a.shown)) assert.equal(`@${people[a.email]}*`, a.shown);
+    });
+
+    await check("a 1.7 account whose managers are all revoked plans no owner, asks for a manager code, and deploys boards with none", async () => {
+      state.db = d1(root, "0004");
+      state.db.exec(SEED_17);
+      state.db.exec(`UPDATE codes SET revoked_at = ${AT} WHERE manager = 1;`);
+      const none = await plan();
+      assert.equal(none.plan.owner, null);
+      assert.match(none.plan.decisions.join("\n"), /no live manager code exists to own the boards/);
+      const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", none.hash]);
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards").get().n, none.plan.boards.length);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE owner IS NOT NULL").get().n, 0);
+    });
+
+    await check("a deploy cut off between 0004 and 0005 picks up with this CLI: 0005 to 0010 go ahead, then the plan reads and gates the rest", async () => {
+      state.db = d1(root, "0005");
+      const uploads = state.uploads;
+      state.sql = [];
+      const bare = await run(["deploy", "--no-check"]);
+      assert.equal(bare.status, 1);
+      assert.match(bare.stderr, /^p99: 0011.*--accept-plan <hash>\n$/);
+      const names = state.db.prepare("SELECT name FROM d1_migrations ORDER BY id").all().map((r) => r.name.slice(0, 4));
+      assert.deepEqual(names, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
+      assert.equal(state.uploads, uploads);
+      const now = await plan();
+      assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013"]);
     });
   } finally {
     server.close();

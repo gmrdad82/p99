@@ -88,7 +88,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0013_app.sql"),
 ];
 
-pub const GATED: &[&str] = &["0011", "0012", "0013"];
+pub const GATED: &[&str] = &["0004", "0011", "0012", "0013"];
 
 pub fn modules() -> Vec<Module<'static>> {
     MODULES
