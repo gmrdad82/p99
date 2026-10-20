@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Records P99's web widget on a sample shop and on PITO MD's own site, frame by frame, takes its stills and load times, and times its captures on a page of lazy media.",
+  "description": "Records P99's web widget on a sample shop and on PITO MD's own site, frame by frame, takes its stills and load times, and times its captures on a page of lazy media; draws the licence badges into assets/badges.",
   "license": "AGPL-3.0-only",
   "scripts": {
     "serve": "node serve.mjs",
@@ -11,7 +11,8 @@
     "capture-check": "node capture-check.mjs",
     "mobile-check": "node mobile-check.mjs",
     "manage-check": "node manage-check.mjs",
-    "pitomd": "node pitomd.mjs"
+    "pitomd": "node pitomd.mjs",
+    "badges": "node badges.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

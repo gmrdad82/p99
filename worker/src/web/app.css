@@ -1,7 +1,26 @@
 .app-screen { display: grid; gap: var(--p99-space-lg); width: min(720px, 100%); }
 .app-in { animation: app-in var(--p99-motion-panel) var(--p99-ease-enter) both; }
 .app-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--p99-space-md); min-height: 48px; }
-.app-badge { flex: none; padding: 0 var(--p99-space-sm); border-radius: var(--p99-radius-full); background: var(--p99-accent-solid); color: var(--p99-on-accent); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18); font: var(--p99-weight-bold) var(--p99-text-xs)/1.8 var(--p99-font-text); letter-spacing: 0.02em; white-space: nowrap; }
+.app-badge {
+  --app-badge-face: #b4c2d1;
+  --app-badge-ink: #13202f;
+  --app-badge-near: #89939f;
+  --app-badge-far: #636b73;
+  flex: none;
+  margin-right: 4px;
+  padding: 0 var(--p99-space-sm);
+  border-radius: 2px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 50%) var(--app-badge-face);
+  color: var(--app-badge-ink);
+  box-shadow: inset 1px 1px 0 rgba(255, 255, 255, 0.45), inset -2px -2px 0 rgba(0, 0, 0, 0.18), 1px 1px 0 var(--app-badge-near), 2px 2px 0 var(--app-badge-near), 3px 3px 0 var(--app-badge-near), 4px 4px 0 var(--app-badge-far), 4px 6px 8px rgba(0, 0, 0, 0.28);
+  font: italic 800 var(--p99-text-xs)/1.9 var(--p99-font-text);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+.app-badge[data-state="studio"] { --app-badge-face: #2c66b8; --app-badge-ink: #ffffff; --app-badge-near: #214e8c; --app-badge-far: #183865; }
+.app-badge[data-state="agency"] { --app-badge-face: #1d4785; --app-badge-ink: #ffffff; --app-badge-near: #163665; --app-badge-far: #102749; }
+.app-badge[data-state="owner"] { --app-badge-face: #e0a32a; --app-badge-ink: #241500; --app-badge-near: #aa7c20; --app-badge-far: #7b5a17; }
+.app-badge[data-state="ff"] { --app-badge-face: #196d43; --app-badge-ink: #ffffff; --app-badge-near: #135333; --app-badge-far: #0e3c25; }
 .app-badge-in { animation: app-badge-in var(--p99-motion-panel) var(--p99-ease-enter) var(--p99-motion-fast) both; }
 .app-me { display: inline-grid; flex: none; place-items: center; border-radius: 50%; text-decoration: none; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-me:active { transform: scale(0.94); }
