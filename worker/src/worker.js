@@ -3,6 +3,7 @@ import { composeMail } from "./mail.js";
 import {
   BOARD_ROUTES,
   OPEN_STATUSES,
+  moveItem,
   boardView,
   homeStatement,
   redeemTicket,
@@ -16,6 +17,7 @@ import {
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatement, labelsByItem, tagsOf } from "./labels.js";
+import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import cssSource from "./web/p99.css";
@@ -76,6 +78,8 @@ const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 const DIRECTORY_TTL_MS = 30 * 1000;
 const HUB_NAME = "hub";
 const MANAGERS_TOKEN = Symbol("managers");
+const REPORTERS_TOKEN = Symbol("reporters");
+const MAX_MERGE_ITEMS = 50;
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
 const IMAGE_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
@@ -665,13 +669,33 @@ function itemKeyId(raw) {
   return id;
 }
 
-function allowedItem(c, row) {
-  if (!row || !inScope(c, row) || (!c.manager && row.reporter_email !== c.actor.email)) fail(404, "no such item");
+function mineClause(email, alias = "i") {
+  return `(${alias}.reporter_email = ${email} OR ${alias}.id IN (SELECT duplicate_of FROM items WHERE reporter_email = ${email} AND duplicate_of IS NOT NULL))`;
+}
+
+function followStatement(c, id) {
+  return c.env.DB.prepare("SELECT 1 AS follows FROM items WHERE duplicate_of = ?1 AND reporter_email = ?2 LIMIT 1").bind(
+    id,
+    c.actor.email,
+  );
+}
+
+function isFollower(c, row) {
+  return !c.manager && row.reporter_email !== c.actor.email;
+}
+
+function allowedItem(c, row, follows = false) {
+  if (!row || !inScope(c, row) || (!c.manager && row.reporter_email !== c.actor.email && !follows)) fail(404, "no such item");
   return row;
 }
 
 async function loadItem(c, raw) {
-  return allowedItem(c, await c.env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(itemKeyId(raw)).first());
+  const id = itemKeyId(raw);
+  const [row, follow] = await firstRows(c.env.DB, [
+    c.env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id),
+    c.manager ? null : followStatement(c, id),
+  ]);
+  return allowedItem(c, row, Boolean(follow));
 }
 
 function actionEnv(c, row) {
@@ -783,7 +807,11 @@ function summaryOf(row, c, lc) {
     host: row.host,
     env: row.origin_env,
     page: { url: row.page_url, path: row.page_path, title: row.page_title },
-    reporter: { email: row.reporter_email, name: row.reporter_name, agent: Boolean(row.reporter_agent) },
+    reporter: {
+      email: c.manager || row.reporter_email === c.actor.email ? row.reporter_email : null,
+      name: row.reporter_name,
+      agent: Boolean(row.reporter_agent),
+    },
     assignee: c.manager ? row.assignee : null,
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -1004,6 +1032,21 @@ export class P99Hub extends DurableObject {
   }
 }
 
+async function reportersOf(DB, ids) {
+  const { results } = await DB.prepare(
+    `SELECT id AS item_id, reporter_email AS email FROM items WHERE id IN (SELECT value FROM json_each(?1))
+     UNION SELECT duplicate_of, reporter_email FROM items WHERE duplicate_of IN (SELECT value FROM json_each(?1))`,
+  )
+    .bind(JSON.stringify([...new Set(ids)]))
+    .all();
+  const out = new Map();
+  for (const r of results) {
+    if (!out.has(r.item_id)) out.set(r.item_id, []);
+    out.get(r.item_id).push(r.email);
+  }
+  return out;
+}
+
 function mailable(address, c) {
   return Boolean(address) && !address.endsWith(".invalid") && address !== (c.actor ? c.actor.email : null);
 }
@@ -1013,9 +1056,12 @@ async function flushMail(c) {
   try {
     const queued = c.outbox.splice(0);
     let codeManagers = null;
+    const reportersWanted = queued.filter((m) => m.to === REPORTERS_TOKEN).map((m) => m.item_id);
+    const reporters = reportersWanted.length > 0 ? await reportersOf(env.DB, reportersWanted) : new Map();
     const mails = [];
     for (const mail of queued) {
       let targets = mail.to;
+      if (targets === REPORTERS_TOKEN) targets = reporters.get(mail.item_id) || [];
       if (targets === MANAGERS_TOKEN) {
         if (!codeManagers) {
           codeManagers = (
@@ -1185,6 +1231,10 @@ function validConfig(value) {
     if (!strings) return null;
     out.strings = strings;
   }
+  if (value.feed !== undefined && value.feed !== null) {
+    if (typeof value.feed !== "boolean") return null;
+    if (value.feed) out.feed = true;
+  }
   if (utf8Bytes(JSON.stringify(out)) > MAX_CONFIG_BYTES) return null;
   return out;
 }
@@ -1344,7 +1394,7 @@ async function announceLandings(c, envName, body, landed) {
     .bind(JSON.stringify(landed))
     .all();
   for (const row of results) {
-    sendMail(c, row, [row.reporter_email], { template: "landed", env: envName, version: body.version, ref: `${envName}-${body.sha}` });
+    sendMail(c, row, REPORTERS_TOKEN, { template: "landed", env: envName, version: body.version, ref: `${envName}-${body.sha}` });
   }
 }
 
@@ -1362,10 +1412,10 @@ async function countsFor(c, path) {
   };
   const statement = (prefix, built) => DB.prepare(`${prefix} WHERE ${built.where}`).bind(...built.binds);
   const statements = [
-    statement("SELECT count(*) AS n FROM items i", scoped(() => ["i.reporter_email = ?1", "i.open = 1"], [email])),
+    statement("SELECT count(*) AS n FROM items i", scoped(() => [mineClause("?1"), "i.open = 1"], [email])),
     statement(
       "SELECT count(*) AS n FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id",
-      scoped(() => ["i.reporter_email = ?1", `${activity} > COALESCE(r.read_at, '')`], [email]),
+      scoped(() => [mineClause("?1"), `${activity} > COALESCE(r.read_at, '')`], [email]),
     ),
   ];
   if (path !== null) {
@@ -1374,7 +1424,7 @@ async function countsFor(c, path) {
         "SELECT count(*) AS n FROM items i",
         scoped((q) => {
           const where = [`i.page_path = ${q.bind(path)}`, "i.open = 1"];
-          if (!c.manager) where.push(`i.reporter_email = ${q.bind(email)}`);
+          if (!c.manager) where.push(mineClause(q.bind(email)));
           return where;
         }),
       ),
@@ -1422,14 +1472,14 @@ async function listIssues(c) {
   const where = [];
   const q = query([c.actor.email]);
   if (scope === "mine") {
-    where.push("i.reporter_email = ?1");
+    where.push(mineClause("?1"));
   } else if (scope === "all") {
     requireManager(c);
   } else if (scope === "page") {
     const path = params.get("path");
     if (!isText(path, 1, 512)) fail(400, "scope page needs a path");
     where.push(`i.page_path = ${q.bind(path)}`);
-    if (!c.manager) where.push("i.reporter_email = ?1");
+    if (!c.manager) where.push(mineClause("?1"));
   } else {
     fail(400, "scope must be mine, all or page");
   }
@@ -1632,27 +1682,40 @@ async function getIssue(c, rawKey) {
   const id = itemKeyId(rawKey);
   const { DB } = c.env;
   const visible = c.manager ? "" : " AND internal = 0";
-  const results = await DB.batch([
-    DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id),
-    DB.prepare(`SELECT * FROM comments WHERE item_id = ?1${visible} ORDER BY id`).bind(id),
-    DB.prepare(`SELECT * FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL${visible} ORDER BY id`).bind(id),
-    DB.prepare(
-      `SELECT *, (SELECT name FROM codes WHERE email = events.actor_email ORDER BY id DESC LIMIT 1) AS actor_name
-       FROM events WHERE item_id = ?1${visible} ORDER BY id`,
-    ).bind(id),
-    ...landingStatements(c.env, [id]),
-    labelRowsStatement(DB, [id]),
-    DB.prepare(
-      `INSERT INTO reads (actor_email, item_id, read_at)
-       SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR reporter_email = ?1)
-       ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
-    ).bind(c.actor.email, id, c.now, c.scope.all ? 1 : 0, c.scope.host, c.manager ? 1 : 0),
-    ...(c.manager ? [githubLinksStatement(c, id)] : []),
-  ]);
-  const row = allowedItem(c, results[0].results[0] ?? null);
-  const [comments, attachments, events] = results.slice(1, 4).map((r) => r.results);
-  const lc = landingContext(results.slice(4, 7), c.dir);
-  row.labels = labelsByItem(results[7]).get(id);
+  const landing = landingStatements(c.env, [id]);
+  const parts = [
+    ["item", DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id)],
+    ["comments", DB.prepare(`SELECT * FROM comments WHERE item_id = ?1${visible} ORDER BY id`).bind(id)],
+    ["files", DB.prepare(`SELECT * FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL${visible} ORDER BY id`).bind(id)],
+    [
+      "events",
+      DB.prepare(
+        `SELECT *, (SELECT name FROM codes WHERE email = events.actor_email ORDER BY id DESC LIMIT 1) AS actor_name
+         FROM events WHERE item_id = ?1${visible} ORDER BY id`,
+      ).bind(id),
+    ],
+    ...landing.map((statement, at) => [`landing${at}`, statement]),
+    ["labels", labelRowsStatement(DB, [id])],
+    [
+      "read",
+      DB.prepare(
+        `INSERT INTO reads (actor_email, item_id, read_at)
+         SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR ${mineClause("?1", "items")})
+         ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
+      ).bind(c.actor.email, id, c.now, c.scope.all ? 1 : 0, c.scope.host, c.manager ? 1 : 0),
+    ],
+    ["merged", mergedStatement(c, id)],
+    ...(c.manager ? [["github", githubLinksStatement(c, id)]] : []),
+  ];
+  const batched = await DB.batch(parts.map(([, statement]) => statement));
+  const results = Object.fromEntries(parts.map(([name], at) => [name, batched[at]]));
+  const mergedRows = results.merged.results;
+  const row = allowedItem(c, results.item.results[0] ?? null, mergedRows.some((m) => m.reporter_email === c.actor.email));
+  const follower = isFollower(c, row);
+  const [comments, files, events] = [results.comments, results.files, results.events].map((r) => r.results);
+  const attachments = follower ? files.filter((a) => a.comment_id !== null) : files;
+  const lc = landingContext(landing.map((_, at) => results[`landing${at}`]), c.dir);
+  row.labels = labelsByItem(results.labels).get(id);
   const byComment = new Map();
   for (const a of attachments) {
     if (a.comment_id === null) continue;
@@ -1661,11 +1724,104 @@ async function getIssue(c, rawKey) {
   }
   const names = new Map([[c.actor.email, c.actor.name], [row.reporter_email, row.reporter_name]]);
   for (const cm of comments) names.set(cm.author_email, cm.author_name);
+  const issue = {
+    ...issueOf({ ...row, unread: 0 }, c, lc),
+    github: c.manager ? githubLinks(results.github) : [],
+    merged: mergedOf(mergedRows, c),
+  };
+  if (follower) Object.assign(issue, { body: "", context: {}, marks: [] });
   return json(200, {
-    issue: { ...issueOf({ ...row, unread: 0 }, c, lc), github: c.manager ? githubLinks(results.at(-1)) : [] },
+    issue,
     comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
     attachments: attachments.map(attachmentOf),
     events: events.map((ev) => eventOf(ev, c, names)),
+  });
+}
+
+function mergedStatement(c, id) {
+  return c.env.DB.prepare(
+    "SELECT id, kind, title, host, reporter_email, reporter_name, reporter_agent FROM items WHERE duplicate_of = ?1 ORDER BY id",
+  ).bind(id);
+}
+
+function mergedOf(rows, c) {
+  return rows
+    .filter((r) => c.manager || r.reporter_email === c.actor.email)
+    .map((r) => ({
+      key: keyOf(r.kind, r.id),
+      title: r.title,
+      host: r.host,
+      reporter: {
+        email: r.reporter_email,
+        name: r.reporter_name,
+        agent: Boolean(r.reporter_agent),
+      },
+    }));
+}
+
+async function postMerge(c) {
+  requireManager(c);
+  const body = await readJson(c, MAX_JSON_BYTES);
+  const into = parseKey(body.into);
+  if (into === null) fail(400, "into must name an item");
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MERGE_ITEMS) {
+    fail(400, `items must list 1 to ${MAX_MERGE_ITEMS} items`);
+  }
+  const named = new Map();
+  for (const raw of body.items) {
+    const id = parseKey(raw);
+    if (id === null) fail(400, `${String(raw).slice(0, 40)} is not an item key`);
+    if (id === into) fail(400, "an item cannot merge into itself");
+    named.set(id, String(raw));
+  }
+  const { DB } = c.env;
+  const { results } = await DB.prepare(`${ITEM_SELECT} WHERE i.id IN (SELECT value FROM json_each(?1))`)
+    .bind(JSON.stringify([into, ...named.keys()]))
+    .all();
+  const byId = new Map(results.map((r) => [r.id, r]));
+  const target = byId.get(into);
+  if (!target || !inScope(c, target)) fail(404, `no such item ${String(body.into).slice(0, 40)}`);
+  const targetKey = keyOf(target.kind, target.id);
+  if (target.duplicate_of !== null) {
+    fail(409, `${targetKey} is merged into ${keyOf(target.duplicate_kind, target.duplicate_of)}; merge into that one`);
+  }
+  const sources = [...named].map(([id, raw]) => {
+    const row = byId.get(id);
+    if (!row || !inScope(c, row)) fail(404, `no such item ${raw.slice(0, 40)}`);
+    return row;
+  });
+  const folded = (r) => r.duplicate_of === into && r.status === "done" && r.resolution === "duplicate";
+  const moving = sources.filter((r) => !folded(r));
+  const actor = c.actor.email;
+  const statements = [];
+  for (const row of moving) {
+    const key = keyOf(row.kind, row.id);
+    statements.push(
+      DB.prepare(
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
+         SELECT id, ?2, 'merge', json_object('into', ?3), 0, ?4, ?5 FROM items WHERE duplicate_of = ?1`,
+      ).bind(row.id, actor, targetKey, c.now, agentOf(c)),
+      DB.prepare("UPDATE items SET duplicate_of = ?2, updated_at = ?3 WHERE duplicate_of = ?1").bind(row.id, into, c.now),
+      DB.prepare("UPDATE items SET duplicate_of = ?2 WHERE id = ?1").bind(row.id, into),
+      eventStatement(c, row.id, actor, "merge", { into: targetKey }),
+      eventStatement(c, into, actor, "merge", { item: key }),
+    );
+  }
+  if (statements.length > 0) {
+    statements.push(
+      DB.prepare("UPDATE items SET updated_at = ?2, activity_at = ?2, public_activity_at = ?2 WHERE id = ?1").bind(into, c.now),
+      readStatement(c, into),
+    );
+    await DB.batch(statements);
+  }
+  for (const row of moving) {
+    await moveItem(c, { ...row, duplicate_of: into }, { to: "done", resolution: "duplicate" });
+  }
+  if (moving.length > 0) push(c, "change", target, { what: ["merged"] });
+  return json(200, {
+    into: targetKey,
+    merged: moving.map((r) => keyOf(r.kind, r.id)),
+    unchanged: sources.filter(folded).map((r) => keyOf(r.kind, r.id)),
   });
 }
 
@@ -1803,7 +1959,7 @@ async function patchIssue(c, rawKey) {
     });
   }
   if (c.manager && (moved || next.resolution !== (row.resolution ?? null))) {
-    sendMail(c, { ...row, kind: next.kind, title: next.title }, [row.reporter_email], {
+    sendMail(c, { ...row, kind: next.kind, title: next.title }, REPORTERS_TOKEN, {
       template: "status",
       status: next.status,
       resolution: next.resolution,
@@ -1880,7 +2036,7 @@ async function postComment(c, rawKey) {
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });
   } else if (!internal) {
-    sendMail(c, row, [row.reporter_email], { template: "comment_to_reporter", body: text, ref: `comment-${inserted.id}` });
+    sendMail(c, row, REPORTERS_TOKEN, { template: "comment_to_reporter", body: text, ref: `comment-${inserted.id}` });
   }
   return json(201, commentOf(inserted, c));
 }
@@ -1992,6 +2148,7 @@ async function storeReserved(c, reserved, made, length) {
 
 async function putAttachment(c, rawKey, rawUid) {
   const row = await loadItem(c, rawKey);
+  if (isFollower(c, row) && !c.url.searchParams.get("comment")) fail(404, "no such item");
   const uid = decodeURIComponentSafe(rawUid);
   if (!isUid(uid)) fail(400, "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores");
   const { DB } = c.env;
@@ -2152,13 +2309,16 @@ function contentDisposition(name) {
 async function getFile(c, rawId) {
   requireEmptyBody(c);
   const row = await c.env.DB.prepare(
-    `SELECT a.*, i.reporter_email, i.host FROM attachments a JOIN items i ON i.id = a.item_id
+    `SELECT a.*, i.reporter_email, i.host,
+       EXISTS (SELECT 1 FROM items d WHERE d.duplicate_of = i.id AND d.reporter_email = ?2) AS follows
+     FROM attachments a JOIN items i ON i.id = a.item_id
      WHERE a.id = ?1 AND a.stored_at IS NOT NULL`,
   )
-    .bind(Number(rawId))
+    .bind(Number(rawId), c.actor.email)
     .first();
   if (!row || !inScope(c, row)) fail(404, "no such file");
-  if (!c.manager && (row.reporter_email !== c.actor.email || row.internal)) fail(404, "no such file");
+  const seen = row.reporter_email === c.actor.email || (row.follows && row.comment_id !== null);
+  if (!c.manager && (!seen || row.internal)) fail(404, "no such file");
   const object = await c.env.BUCKET.get(row.r2_key);
   if (!object) fail(404, "no such file");
   return new Response(object.body, {
@@ -3056,6 +3216,7 @@ const ITEM_ROUTES = [
   ["POST", /^\/issues\/([^/]+)\/comments$/, postComment],
   ["PUT", /^\/issues\/([^/]+)\/attachments\/([^/]+)$/, putAttachment],
   ["GET", /^\/files\/(\d{1,15})$/, getFile],
+  ["POST", /^\/merge$/, postMerge],
 ];
 
 const BROWSER_ROUTES = [
@@ -3129,6 +3290,7 @@ useKit({
   requireManager,
   sendMail,
   sha256Hex,
+  REPORTERS_TOKEN,
 });
 
 useGithubKit({
@@ -3238,12 +3400,38 @@ async function signedRequest(request, env, ctx, url, path) {
   return runHandler(c, found.route[2], found.args);
 }
 
+async function serveFeed(request, env, ctx, url) {
+  const dir = await loadDirectory(env);
+  const host = dir.hosts.get(url.hostname);
+  if (!host || !host.config.feed) fail(404, "no such file");
+  const format = feedFormat(url);
+  if (!format) fail(400, "format must be atom or json");
+  const cache = typeof caches === "undefined" ? null : caches.default;
+  const cacheKey = new Request(`https://${host.host}/_p99/feed?format=${format}`);
+  const hit = cache ? await cache.match(cacheKey) : null;
+  if (hit) return hit;
+  const { results } = await env.DB.prepare(
+    `SELECT i.id, i.kind, i.title, MIN(l.at) AS at FROM landings l
+     JOIN items i ON i.id = l.item_id
+     LEFT JOIN envs e ON e.name = l.env
+     WHERE i.host = ?1 AND COALESCE(e.kind, 'release') = 'release'
+     GROUP BY i.id ORDER BY at DESC, i.id DESC LIMIT ?2`,
+  )
+    .bind(host.host, FEED_LIMIT)
+    .all();
+  const entries = results.map((r) => ({ key: keyOf(r.kind, r.id), kind: r.kind, title: r.title, at: r.at }));
+  const response = feedResponse(host.host, entries, host.created_at, format);
+  if (cache) ctx.waitUntil(cache.put(cacheKey, response.clone()).catch(() => {}));
+  return response;
+}
+
 async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === "GET" && path === "/_p99/health") return health(env);
   if (path === "/_p99/api/stream") return ticketStream(request, env, url);
   if (request.method === "POST" && path === "/_p99/v1/github") return githubDelivery(request, env, ctx, url);
+  if (request.method === "GET" && path === "/_p99/feed") return serveFeed(request, env, ctx, url);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);

@@ -787,7 +787,7 @@ fn lines(
         ),
     ];
     if let Some(of) = &issue.duplicate_of {
-        facts.push(Span::styled(format!(" of {of}"), palette.muted));
+        facts.push(Span::styled(format!(", merged into {of}"), palette.muted));
     }
     if let Some(priority) = &issue.priority {
         let mark = wire::priority_mark(Some(priority));
@@ -890,6 +890,40 @@ fn lines(
             Span::styled(link.url.clone(), palette.accent),
             Span::styled(format!(" {}", link.rel), palette.muted),
         ]));
+    }
+    if !issue.merged.is_empty() {
+        out.push(Line::default());
+        out.push(Line::styled(
+            format!("Merged here ({})", issue.merged.len()),
+            palette.strong,
+        ));
+        for merged in &issue.merged {
+            let reporter = person(
+                merged.reporter["name"].as_str().unwrap_or_default(),
+                merged.reporter["email"].as_str().unwrap_or_default(),
+                merged.reporter["agent"].as_bool().unwrap_or(false),
+            );
+            let lead = format!("  {}  ", merged.key);
+            let indent = lead.chars().count();
+            let mut parts = text::wrap(
+                &merged.title,
+                width.saturating_sub(indent + reporter.chars().count() + 3),
+            )
+            .into_iter();
+            let first = parts.next().unwrap_or_default();
+            out.push(Line::from(vec![
+                Span::styled(lead, palette.strong),
+                Span::styled(first, palette.ink),
+                dot(),
+                Span::styled(reporter, palette.muted),
+            ]));
+            for part in parts {
+                out.push(Line::styled(
+                    format!("{}{part}", " ".repeat(indent)),
+                    palette.ink,
+                ));
+            }
+        }
     }
     out.push(Line::default());
     out.push(Line::styled(
