@@ -687,6 +687,13 @@ fn lines(
         landing.push(Span::styled(detail, palette.muted));
     }
     out.push(Line::from(landing));
+    for link in &issue.github {
+        out.push(Line::from(vec![
+            Span::styled("GitHub  ", palette.strong),
+            Span::styled(link.url.clone(), palette.accent),
+            Span::styled(format!(" {}", link.rel), palette.muted),
+        ]));
+    }
     out.push(Line::default());
     out.push(Line::styled(
         format!("Comments ({})", thread.comments.len()),

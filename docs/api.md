@@ -88,6 +88,10 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `DELETE /_p99/v1/boards/{slug}` | actor | 204, only when the board holds no items and no boards, and is no host's home board (409 otherwise) |
 | `POST /_p99/v1/move` | actor | `{"target":"BUG-12"\|"board:<slug>","to"?,"board"?,"before"?,"after"?,"resolution"?}`; 200 `{"moved":card,"changed":["<key>"]}`, as [Boards](#boards) describes |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
+| `GET /_p99/v1/github` | managers | `{"hosts":[{"host","repo","hook_id","webhook","token","secret","created_at","updated_at"}]}`, `token` and `secret` true when the Worker holds them |
+| `PUT /_p99/v1/github/{host}` | the key | `{"repo":"owner/name","hook_id"}`; links the host to the repository; 200 as one entry of the list |
+| `DELETE /_p99/v1/github/{host}` | the key | removes the link and, with the host's token, the repository's webhook; 200 `{"host","repo","hook_id","hook_removed","secrets"}` |
+| `POST /_p99/v1/issues/{key}/github` | managers | opens a GitHub issue for the item (its title, a body with its key and link); 201 `{"key","existing":false,"kind","rel","repo","number","url","at"}`, or 200 with `"existing":true` when it has one |
 
 A code object is `{"id","name","email","hosts","manager","hint","created_at","created_by","revoked_at","last_used_at"}`, `hint` the secret's last four characters.
 
@@ -127,7 +131,7 @@ A board's events carry its host, `null` for an account-wide board, which only a 
 - Limits per person and day: 30 items, 200 comments, 100 MB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
+A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}],"github":[{"kind","rel","repo","number","url","at"}]` (`github` empty for anyone but a manager); a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
 
 ## Boards
 
@@ -148,6 +152,12 @@ An environment is a name with a kind. A `development` environment counts the bui
 ## Mail
 
 Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter; a first landing in a `notify` environment goes to the reporter. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an agent acting as a person reads as `Ada Lovelace*`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
+
+## GitHub
+
+`POST /_p99/v1/github` is GitHub's webhook, not signed with the account key: the host is the URL's, and the body must verify against `X-Hub-Signature-256` (HMAC-SHA256 with the host's webhook secret) or the answer is 401. A delivery id (`X-GitHub-Delivery`) is acted on once. From the host's linked repository, a `pull_request` opened, edited or reopened records the items its title and description name in `Fixes:` and `Refs:` trailers; one closed as merged also reads its commits, records them, and moves every open item named in `Fixes:` to done with the resolution fixed, with the status event, the live event and the reporter's mail. An `issues` closed (not as not planned) does the same for the item `POST /_p99/v1/issues/{key}/github` opened it for. Only items of that host are read or changed. The answer is 200 `{"linked":[key],"changed":[key]}` when something was recorded or changed, and 204 for everything else.
+
+The host's secrets are Worker secrets named after the first 16 hex digits of the SHA-256 of the host name, uppercased: `GITHUB_TOKEN_<tag>` (the fine-grained token) and `GITHUB_HOOK_<tag>` (the webhook secret). `p99 github set` writes both. Links are kept in `github_links` and shown on an issue as `github` to managers; `github_deliveries` keeps delivery ids for 30 days.
 
 ## Backups
 

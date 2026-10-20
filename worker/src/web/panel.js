@@ -79,6 +79,8 @@ const WORDS = {
   updated: "changed {when}",
   assigned_to: "assigned to {who}",
   duplicate_of: "duplicate of {n}",
+  github_issue: "GitHub issue #{n}",
+  github_pull: "GitHub pull request #{n}",
   show_marks: "Show on the page",
   shot_screenshot: "Screen",
   shot_page: "Whole page",
@@ -669,6 +671,7 @@ function thread(t) {
       pageLink),
     landing(i.landing),
     i.commits && i.commits.length ? h("ul", { class: "p99-commits" }, i.commits.map((c) => h("li", { "data-fixes": c.rel === "fixes" }, h("code", { text: String(c.sha || "").slice(0, 7) }), " ", c.subject || ""))) : null,
+    manager && i.github && i.github.length ? h("ul", { class: "p99-commits" }, i.github.filter((g) => /^https:\/\//.test(g.url || "")).map((g) => h("li", { "data-fixes": g.rel !== "refs" }, h("a", { href: g.url, target: "_blank", rel: "noopener noreferrer", text: say(g.kind === "pull" ? "github_pull" : "github_issue", { n: g.number }) })))) : null,
     marks.length && here ? h("button", { type: "button", onclick: () => showMarks(marks), text: say("show_marks") }) : null,
     i.body ? h("div", { class: "p99-body" }, pieces(i.body)) : null,
     shots.length ? h("div", { class: "p99-shots" }, shots.map((a) =>

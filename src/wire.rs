@@ -168,6 +168,19 @@ pub struct Issue {
     pub marks: Vec<Value>,
     #[serde(default)]
     pub commits: Vec<CommitRef>,
+    #[serde(default)]
+    pub github: Vec<GithubLink>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GithubLink {
+    pub kind: String,
+    pub rel: String,
+    pub repo: String,
+    pub number: i64,
+    pub url: String,
+    #[serde(default)]
+    pub at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
