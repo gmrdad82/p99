@@ -50,7 +50,11 @@ pub enum Command {
     Invites(InvitesArgs),
     #[command(about = "revoke a personal code")]
     Revoke(RevokeArgs),
-    #[command(about = "move a person's items, comments, events and codes to another e-mail")]
+    #[command(
+        about = "move a person's items, comments, events and codes to another e-mail",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
     People(PeopleArgs),
     #[command(about = "list items")]
     List(ListArgs),
