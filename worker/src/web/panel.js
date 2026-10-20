@@ -2,6 +2,8 @@ const V = "__P99_VERSION__";
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_FILES = 30;
 const MAX_MARKS = 10;
+const SLOW_MS = 4000;
+const GIVE_UP_MS = 20000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
@@ -28,6 +30,8 @@ const WORDS = {
   verify_label: "Code",
   verify_send: "Confirm",
   failed: "Couldn't send; try again.",
+  load_failed: "Couldn't load; try again.",
+  slow: "This is taking longer than usual.",
   offline: "You're offline; try again when you're back.",
   retry: "Retry",
   remove: "Remove",
@@ -58,6 +62,7 @@ const WORDS = {
   filter_every_kind: "Any kind",
   list_empty: "Nothing here.",
   list_empty_filtered: "Nothing matches these filters.",
+  list_no_match: "No issues match “{q}”.",
   unread_mark: "New for you",
   comments: { one: "1 comment", other: "{count} comments" },
   more: "More",
@@ -265,10 +270,10 @@ function api(path) {
 function auth() {
   return o.space ? { "X-P99-App": "1" } : { "X-P99-Code": o.code };
 }
-function call(method, path, body, type) {
+function call(method, path, body, type, signal) {
   const headers = Object.assign(auth(), { Accept: "application/json" });
   if (body != null) headers["Content-Type"] = type || "application/json";
-  return fetch(api(path), { method, headers, body, credentials: "same-origin" }).then((r) =>
+  return fetch(api(path), { method, headers, body, credentials: "same-origin", signal }).then((r) =>
     r.text().then((t) => {
       let data = null;
       try { data = t ? JSON.parse(t) : null; } catch (x) {}
@@ -301,6 +306,7 @@ function retrying(fn) {
   return go();
 }
 function problem(e) { return navigator.onLine ? (e && e.message) || say("failed") : say("offline"); }
+function loadProblem(e) { return e && e.status ? problem(e) : navigator.onLine ? say("load_failed") : say("offline"); }
 
 function blobOf(id) {
   if (!S.files.has(id)) {
@@ -499,6 +505,27 @@ function skeleton() {
   for (let i = 0; i < 5; i++) box.append(h("div", { class: "p99-shimmer" }));
   return box;
 }
+function rowsSkeleton() {
+  const box = h("div", { class: "p99-skeleton p99-rows-wait" }, h("p", { class: "p99-sr", text: say("loading") }));
+  for (let i = 0; i < 4; i++) box.append(h("div", { class: "p99-shimmer" }));
+  return box;
+}
+function asking() {
+  if (S.ask) S.ask.abort();
+  return (S.ask = new AbortController());
+}
+function patience(seq, box, ask, retry) {
+  const slow = setTimeout(() => {
+    if (seq !== S.seq || !box.isConnected) return;
+    box.append(h("p", { class: "p99-slow", role: "status" }, h("span", { text: say("slow") }), " ", h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry })));
+  }, SLOW_MS);
+  const cap = setTimeout(() => ask.abort(), GIVE_UP_MS);
+  return () => {
+    clearTimeout(slow);
+    clearTimeout(cap);
+    if (S.ask === ask) S.ask = null;
+  };
+}
 function verify(next) {
   const input = h("input", { name: "totp", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "7", required: true, "aria-describedby": "p99-verify-help" });
   const note = h("p", { class: "p99-error", role: "alert", hidden: true });
@@ -543,7 +570,7 @@ function mount(view, focus) {
   try { focus.focus({ preventScroll: true }); } catch (x) { focus.focus(); }
 }
 function failure(e, retry) {
-  const p = h("p", { class: "p99-error", role: "alert", id: "p99-title", text: problem(e) });
+  const p = h("p", { class: "p99-error", role: "alert", id: "p99-title", text: loadProblem(e) });
   mount(h("section", { class: "p99-view p99-failed" }, S.view === "item" ? back() : null, p, retry && e.status !== 404 ? h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry }) : null), p);
 }
 function statusLine() { return h("p", { class: "p99-status-line", role: "status", "aria-live": "polite" }); }
@@ -615,55 +642,90 @@ function listQuery(f, cursor) {
   return "/issues?" + q;
 }
 function list(f) {
+  const seq = ++S.seq;
+  const ask = asking();
+  const shown = S.view === "list" && scroller.querySelector(".p99-view[data-view=list]");
   S.view = "list";
   S.list = f;
-  const seq = ++S.seq;
-  mount(skeleton());
-  call("GET", listQuery(f)).then((res) => {
-    if (seq !== S.seq || !S.open) return;
-    const title = h("h2", { id: "p99-title", text: say("list_title") });
-    const tabs = (o.space ? [] : ["page"]).concat(["mine"], me && me.manager ? ["all"] : []);
-    const nav = h("nav", { class: "p99-tabs", "aria-label": say("list_title") }, tabs.map((t) =>
-      h("a", { href: "#", "aria-current": t === f.scope ? "page" : null, text: say("tab_" + t), onclick: (e) => { e.preventDefault(); list(Object.assign({}, f, { scope: t })); } })
-    ));
-    const items = h("ol", { class: "p99-items" });
-    const view = h("section", { class: "p99-view", "data-view": "list" }, title, nav, filters(f));
+  const view = shown || listView(f);
+  const results = view.querySelector(".p99-results");
+  const form = view.querySelector(".p99-filters");
+  for (const a of view.querySelectorAll(".p99-tabs a")) {
+    if (a.dataset.scope === f.scope) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+  results.replaceChildren(rowsSkeleton());
+  results.setAttribute("aria-busy", "true");
+  form.classList.add("is-busy");
+  if (!shown) mount(view, view.querySelector("#p99-title"));
+  const again = () => { list(S.list || f); form.elements.q.focus(); };
+  const done = patience(seq, results, ask, again);
+  const settle = (...kids) => {
+    done();
+    results.removeAttribute("aria-busy");
+    form.classList.remove("is-busy");
+    results.replaceChildren(...kids);
+  };
+  call("GET", listQuery(f), null, null, ask.signal).then((res) => {
+    if (seq !== S.seq) return;
     const rows = (res && res.issues) || [];
-    if (!rows.length) view.append(h("p", { class: "p99-empty", text: say(f.kind || f.q || (f.status && f.status !== "open") ? "list_empty_filtered" : "list_empty") }));
-    else view.append(items);
+    const items = h("ol", { class: "p99-items" });
     rows.forEach((r) => items.append(row(r)));
-    more(view, items, f, res && res.next_cursor);
-    mount(view, title);
-  }, (e) => { if (seq === S.seq) failure(e, () => list(f)); });
+    settle(rows.length ? items : h("p", { class: "p99-empty", text: f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") ? "list_empty_filtered" : "list_empty") }));
+    more(results, items, f, res && res.next_cursor);
+  }).catch((e) => {
+    if (seq !== S.seq) return;
+    settle(h("div", { class: "p99-failed" },
+      h("p", { class: "p99-error", role: "alert", text: loadProblem(e) }),
+      h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: again })));
+  });
 }
-function more(view, items, f, cursor) {
+function listView(f) {
+  const title = h("h2", { id: "p99-title", text: say("list_title") });
+  const tabs = (o.space ? [] : ["page"]).concat(["mine"], me && me.manager ? ["all"] : []);
+  const nav = h("nav", { class: "p99-tabs", "aria-label": say("list_title") }, tabs.map((t) =>
+    h("a", { href: "#", "data-scope": t, text: say("tab_" + t), onclick: (e) => { e.preventDefault(); list(Object.assign({}, S.list || f, { scope: t })); } })
+  ));
+  return h("section", { class: "p99-view", "data-view": "list" }, title, nav, filters(f), h("div", { class: "p99-results" }));
+}
+function more(box, items, f, cursor) {
   if (!cursor) return;
   const b = h("button", { type: "button", class: "p99-more", text: say("more") });
   b.addEventListener("click", () => {
     b.disabled = true;
     call("GET", listQuery(f, cursor)).then((res) => {
+      const rows = ((res && res.issues) || []).map(row);
       b.remove();
-      ((res && res.issues) || []).forEach((r) => items.append(row(r)));
-      more(view, items, f, res && res.next_cursor);
-    }, () => { b.disabled = false; });
+      items.append(...rows);
+      more(box, items, f, res && res.next_cursor);
+    }).catch(() => { b.disabled = false; });
   });
-  view.append(b);
+  box.append(b);
 }
 function filters(f) {
   const status = h("select", { name: "status" },
     [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.filter((s) => s !== "done").map((s) => [s, statusWord(s)]))
       .map(([v, l]) => h("option", { value: v, selected: (f.status || "open") === v, text: l })));
   const kind = h("select", { name: "kind" }, [["", say("filter_every_kind")]].concat(KINDS.map((k) => [k, say("kind_" + k)])).map(([v, l]) => h("option", { value: v, selected: f.kind === v, text: l })));
-  const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off" });
-  const apply = () => list(Object.assign({}, f, { status: status.value, kind: kind.value, q: q.value.trim() }));
+  const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off", maxlength: "200" });
+  let timer = 0;
+  const apply = () => {
+    clearTimeout(timer);
+    if (S.view !== "list" || !form.isConnected) return;
+    const next = Object.assign({}, S.list || f, { status: status.value, kind: kind.value, q: q.value.trim() });
+    const now = S.list || {};
+    const same = ["scope", "status", "kind", "q"].every((k) => (next[k] || "") === (now[k] || ""));
+    if (same && !form.parentNode.querySelector(".p99-failed")) return;
+    list(next);
+  };
   status.addEventListener("change", apply);
   kind.addEventListener("change", apply);
-  let timer = 0;
   q.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(apply, 260); });
-  return h("form", { class: "p99-filters", role: "search", onsubmit: (e) => { e.preventDefault(); apply(); } },
+  const form = h("form", { class: "p99-filters", role: "search", onsubmit: (e) => { e.preventDefault(); apply(); } },
     h("label", null, h("span", { text: say("filter_status") }), status),
     h("label", null, h("span", { text: say("filter_kind") }), kind),
-    h("label", null, h("span", { text: say("filter_search") }), q));
+    h("label", { class: "p99-search" }, h("span", { text: say("filter_search") }), q, h("i", { class: "p99-spin", "aria-hidden": "true" })));
+  return form;
 }
 function row(r) {
   const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
@@ -686,13 +748,23 @@ function item(key) {
   S.key = key;
   clearOutlines();
   const seq = ++S.seq;
-  mount(skeleton());
-  return call("GET", "/issues/" + enc(key)).then((t) => {
-    if (seq !== S.seq || !S.open || !t || !t.issue) return;
+  const ask = asking();
+  const box = skeleton();
+  mount(box);
+  const done = patience(seq, box, ask, () => item(key));
+  return call("GET", "/issues/" + enc(key), null, null, ask.signal).then((t) => {
+    if (seq !== S.seq) return;
+    done();
+    if (!S.open) return;
+    if (!t || !t.issue) throw new Error();
     const view = thread(t);
     mount(view, view.querySelector("#p99-title"));
     o.refresh && o.refresh();
-  }, (e) => { if (seq === S.seq) failure(e, () => item(key)); });
+  }).catch((e) => {
+    if (seq !== S.seq) return;
+    done();
+    failure(e, () => item(key));
+  });
 }
 function back() {
   return h("a", { class: "p99-back", href: "#", text: say("back"), onclick: (e) => {
