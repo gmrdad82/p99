@@ -816,9 +816,6 @@ fn our_bindings(account: &Account, rate: Option<u64>) -> Vec<Value> {
             "simple": { "limit": RATE_LIMIT, "period": RATE_PERIOD },
         }));
     }
-    if let Some(from) = &account.mail_from {
-        ours.push(json!({ "type": "plain_text", "name": "MAIL_FROM", "text": from }));
-    }
     ours
 }
 
@@ -1331,35 +1328,39 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "Mail (optional)",
         "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nmanagers about new items and reporters about replies and fixes.",
     );
-    if let Some(k) = args
+    let mut key = args
         .resend_key
         .clone()
-        .or_else(|| from_env("P99_RESEND_KEY"))
-    {
-        account.resend_key = Some(s.keep("P99 Resend key", &k)?);
-    } else if account.resend_key.is_none()
+        .or_else(|| from_env("P99_RESEND_KEY"));
+    if key.is_none()
+        && account.resend_key.is_none()
         && !args.no_mail
         && !s.ask.yes
         && s.ask.confirm("Turn mail on through Resend?", false)?
     {
-        let k = s.ask.secret("Resend API key", "--resend-key")?;
-        account.resend_key = Some(s.keep("P99 Resend key", &k)?);
+        key = Some(s.ask.secret("Resend API key", "--resend-key")?);
     }
-    if let Some(f) = &args.mail_from {
-        account.mail_from = Some(f.clone());
-    } else if account.resend_key.is_some() && account.mail_from.is_none() {
-        account.mail_from = Some(s.ask.line(
-            "Mail sender, such as P99 <p99@example.com>",
-            None,
-            "--mail-from",
-        )?);
-    }
-    if account.resend_key.is_some() {
+    let mail = match key {
+        Some(key) => {
+            let from = match &args.mail_from {
+                Some(f) => f.clone(),
+                None => s.ask.line(
+                    "Mail sender, such as P99 <p99@example.com>",
+                    None,
+                    "--mail-from",
+                )?,
+            };
+            let note = crate::email::check_sender(&key, &from)?;
+            Some((key, from, note))
+        }
+        None => None,
+    };
+    let mail_on = mail.is_some() || account.resend_key.is_some();
+    if mail_on {
         done("mail is on");
     } else {
         done("mail stays off");
     }
-    save(&mut config, &account)?;
 
     step(
         8,
@@ -1400,9 +1401,19 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         done("secret MANAGERS is kept as it is");
     }
     pepper(&cf, &id, &account.worker, &secrets)?;
-    if let Some(k) = &account.resend_key {
+    if let Some((key, from, checked)) = &mail {
+        crate::email::store(&cf, &account, "resend", Some(from), checked.as_deref())?;
+        cf.put_secret(&id, &account.worker, "RESEND_API_KEY", key)?;
+        done(&format!("secret RESEND_API_KEY, mail from {from}"));
+        if let Some(why) = checked {
+            note(why);
+        }
+    } else if let Some(k) = &account.resend_key {
         cf.put_secret(&id, &account.worker, "RESEND_API_KEY", &vault::read(k)?)?;
         done("secret RESEND_API_KEY");
+        if crate::email::adopt_legacy(&cf, &account)? {
+            done("the mail sender moved from the config to the database");
+        }
     }
 
     step(
@@ -1513,11 +1524,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     );
     say!(
         "  mail                {}",
-        if account.resend_key.is_some() {
-            "on"
-        } else {
-            "off"
-        }
+        if mail_on { "on" } else { "off" }
     );
     for host in &hosts {
         let env = &config.hosts[*host].env;
@@ -1565,7 +1572,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             "database": {"name": account.database, "id": account.database_id},
             "bucket": account.bucket,
             "key": if vault::is_reference(&account.key) { "vault" } else { "config" },
-            "mail": account.resend_key.is_some(),
+            "mail": mail_on,
             "hosts": hosts_json,
             "failed": failed,
             "config": crate::config::path().display().to_string(),
@@ -1627,6 +1634,9 @@ fn deploy_into(
     upload(&cf, account, &bindings, rate)?;
     done("secrets kept");
     pepper(&cf, id, &account.worker, &cf.secrets(id, &account.worker)?)?;
+    if crate::email::adopt_legacy(&cf, account)? {
+        done("the mail sender moved from the config to the database");
+    }
     let hosts = config.hosts_of(name);
     let zones = cf.zones(id)?;
     let mut failed = Vec::new();

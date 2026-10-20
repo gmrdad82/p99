@@ -5,6 +5,7 @@ mod client;
 mod cloudflare;
 mod config;
 mod docs;
+mod email;
 mod github;
 mod hooks;
 mod import;
@@ -60,6 +61,11 @@ enum Command {
         arg_required_else_help = false
     )]
     License(license::Args),
+    #[command(
+        about = "turn mail on or off for an account, or show how it is set",
+        arg_required_else_help = false
+    )]
+    Email(email::EmailArgs),
     #[command(flatten)]
     Work(cli::Command),
     #[command(name = "docs-cli", hide = true)]
@@ -84,6 +90,7 @@ fn main() -> ExitCode {
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::License(args) => license::run(&args, &p99.global),
+        Command::Email(args) => email::run(&args, &p99.global),
         Command::Work(command) => cli::run(command, &p99.global),
         Command::DocsCli => docs::run(),
     };

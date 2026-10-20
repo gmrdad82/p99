@@ -37,7 +37,7 @@ The steps and what each asks:
 4. **The schema.** Migrations are applied in order and recorded in `d1_migrations`, as wrangler records them.
 5. **The R2 bucket** `p99`, which keeps screenshots, attachments and the weekly backups.
 6. **The key.** 32 random bytes the CLI and the TUI sign every request with; the Worker holds the same key as its secret `KEY_P99`.
-7. **Mail (optional).** P99 sends no mail by default: the TUI is the inbox. Answer yes to give a Resend API key and a sender such as `P99 <p99@example.com>`; P99 then mails managers about new items and reporters about replies and fixes.
+7. **Mail (optional).** P99 sends no mail by default: the TUI is the inbox. Answer yes to give a Resend API key and a sender such as `P99 <p99@example.com>`; P99 then mails managers about new items and reporters about replies, status changes and fixes. The sender's domain must be verified with Resend. The key goes to the Worker as its secret `RESEND_API_KEY` and never into the config; `p99 email` changes it later.
 8. **The Worker,** uploaded with its bindings (`DB`, `BUCKET`, `RATE`, `VERSION`, and `HUB`, the Durable Object that holds the live streams of `p99 tui` and `p99 watch`; SQLite-backed Durable Objects are on the Workers free plan), its secrets (`KEY_P99`, `MANAGERS`) and a cron schedule for the backups. Setup picks a rate-limiting namespace no other Worker in the account uses.
 9. **The hosts.** The hostnames this account serves, comma separated, and each one's environment and kind. A host has one environment: `production` (a `release` kind) by default; a development address is its own host, with an environment such as `dev` (a `development` kind). Each host gets the route `<host>/_p99/*` on its zone. A Pages project, Custom Domain or Worker already serving the host is named and left as it is: the route only runs in front of it for `/_p99/*`.
 
@@ -61,7 +61,7 @@ Put <script src="/_p99/p99.js" async></script> in your pages' <head>, then invit
 
 ## Where the secrets go
 
-The token, the key and the Resend key are written to `~/.config/p99/config.toml` with mode 0600, and P99 refuses a config file anyone else can read. When a supported password manager CLI is installed, setup offers to keep them there and writes only references to the config; `--vault <name>` picks the vault and `--no-vault` keeps the secrets in the file. [The configuration reference](../reference/formats.md#configuration) lists every key.
+The token and the key are written to `~/.config/p99/config.toml` with mode 0600, and P99 refuses a config file anyone else can read. When a supported password manager CLI is installed, setup offers to keep them there and writes only references to the config; `--vault <name>` picks the vault and `--no-vault` keeps the secrets in the file. [The configuration reference](../reference/formats.md#configuration) lists every key.
 
 ## Without questions
 
@@ -75,6 +75,16 @@ p99 setup --yes --name "Ada Lovelace" --email ada@example.com \
 ```
 
 `--host` takes `host[=env[:kind]]` and repeats. `--json` prints the summary as JSON, with each host's route, health and notes, and sends the step lines to standard error.
+
+## Mail later
+
+`p99 email set` turns mail on for an account, or changes it, without running setup again:
+
+```sh
+p99 email set --provider resend --key-ref op://Private/Resend/credential --from "P99 <p99@example.com>"
+```
+
+`--key-ref` names where the key lives: `op://vault/item/field` reads it through the 1Password CLI, `env:NAME` from the environment. P99 reads the key, checks with Resend that the sender's domain is verified, puts the key in the Worker as its secret `RESEND_API_KEY` and the sender in the database; the key never touches a file. A key made for sending only can't list domains: P99 then says it couldn't check, saves it anyway, and `p99 email show` keeps that note. `p99 email show` prints the provider, the sender and whether the Worker holds a key (`--json` too), and `p99 email off` turns mail off and removes the key from the Worker. Each takes `--account`.
 
 ## More than one account
 

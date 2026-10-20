@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
-import { composeMail } from "./mail.js";
+import { composeMail, REPORTER_TEMPLATES } from "./mail.js";
+import { mailer, mailPage, mailSettings, openLink, optedOut, optOutLink, optOutToken, reporterCodes, sealCode } from "./mailer.js";
 import {
   BOARD_ROUTES,
   OPEN_STATUSES,
@@ -64,7 +65,6 @@ const MAX_CODE_HOSTS = 50;
 const SNIFF_BYTES = 1024;
 const DAILY_LIMITS = { issues: 30, comments: 200, bytes: 100 * 1024 * 1024 };
 const DAILY_PHRASES = { issues: "30 items", comments: "200 comments", bytes: "100 MB of files" };
-const RESEND_BATCH_URL = "https://api.resend.com/emails/batch";
 const MAIL_CAP = 100;
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const CODE_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
@@ -126,7 +126,7 @@ const BACKUP_TABLES = [
   { name: "landings", size: "150" },
   { name: "hosts", size: "length(config_json) + 200" },
   { name: "envs", size: "100" },
-  { name: "codes", size: "length(hosts_json) + 400" },
+  { name: "codes", size: "length(hosts_json) + 500" },
   { name: "boards", size: "length(name) + 200" },
   { name: "statuses", size: "100" },
   { name: "hooks", size: "length(url_sealed) + length(events_json) + 200" },
@@ -134,6 +134,8 @@ const BACKUP_TABLES = [
   { name: "github_links", size: "length(repo) + coalesce(length(url), 0) + 200" },
   { name: "labels", size: "length(name) + 100" },
   { name: "item_labels", size: "50" },
+  { name: "mail", size: "length(COALESCE(sender, '')) + length(COALESCE(note, '')) + 100" },
+  { name: "mail_optouts", size: "length(email) + 100" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -396,14 +398,16 @@ let directory = null;
 
 async function loadDirectory(env) {
   if (directory && Date.now() - directory.at < DIRECTORY_TTL_MS) return directory;
-  const [hosts, envs] = await env.DB.batch([
+  const [hosts, envs, mail] = await env.DB.batch([
     env.DB.prepare("SELECT host, env, config_json, created_at FROM hosts ORDER BY host"),
     env.DB.prepare("SELECT name, kind, position, notify FROM envs ORDER BY position, name"),
+    env.DB.prepare("SELECT provider, sender FROM mail WHERE id = 1"),
   ]);
   directory = {
     at: Date.now(),
     hosts: new Map(hosts.results.map((r) => [r.host, hostOf(r)])),
     envs: new Map(envs.results.map((r) => [r.name, envOf(r)])),
+    mail: mail.results[0] ?? null,
   };
   return directory;
 }
@@ -520,6 +524,16 @@ async function authoriseCode(env, ctx, request, header, host, now) {
   if (!secret) fail(401, "a valid X-P99-Code is required");
   const code = await findCode(env, request, await codeHash(env, secret));
   if (!code || code.revoked_at || !code.hosts.includes(host)) fail(401, "this code is not valid here");
+  if (!code.sealed_code) {
+    code.sealed_code = "sealing";
+    ctx.waitUntil(
+      sealCode(env, secret)
+        .then((sealed) =>
+          env.DB.prepare("UPDATE codes SET sealed_code = ?2 WHERE id = ?1 AND sealed_code IS NULL").bind(code.id, sealed).run(),
+        )
+        .catch(() => {}),
+    );
+  }
   code.trusted = !code.totp_secret || (await trustedDevice(env, code, device));
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
@@ -928,21 +942,29 @@ function pageLink(row) {
   }
 }
 
-function mailOn(env) {
-  return Boolean(env.RESEND_API_KEY && env.MAIL_FROM);
+function mailOn(c) {
+  return mailSettings(c.env, c.dir.mail) !== null;
 }
 
 function sendMail(c, row, recipients, data) {
-  if (!mailOn(c.env)) return;
-  const content = composeMail({
+  if (!mailOn(c)) return;
+  const content = {
     key: keyOf(row.kind, row.id),
     kind: row.kind,
     title: row.title,
-    link: pageLink(row),
     actorName: c.actor ? (c.actor.agent ? `${c.actor.name}*` : c.actor.name) : "P99",
     ...data,
+  };
+  c.outbox.push({
+    item_id: row.id,
+    host: row.host ?? null,
+    path: row.page_path,
+    link: pageLink(row),
+    to: recipients,
+    template: data.template,
+    ref: data.ref,
+    content,
   });
-  c.outbox.push({ item_id: row.id, host: row.host ?? null, to: recipients, template: data.template, ref: data.ref, ...content });
 }
 
 function hubOf(env) {
@@ -1049,6 +1071,10 @@ async function reportersOf(DB, ids) {
   return out;
 }
 
+function hostLink(host) {
+  return Boolean(host) && isHostName(host);
+}
+
 function mailable(address, c) {
   return Boolean(address) && !address.endsWith(".invalid") && address !== (c.actor ? c.actor.email : null);
 }
@@ -1078,30 +1104,46 @@ async function flushMail(c) {
       for (const to of new Set(targets)) if (mailable(to, c)) mails.push({ ...mail, to });
     }
     if (mails.length === 0) return;
-    const outcomes = mails.map(() => ({ ok: false, status: "capped" }));
-    const sending = mails.slice(0, MAIL_CAP);
-    const key = await sha256Hex(encoder.encode(sending.map((m) => `${m.item_id} ${m.template} ${m.ref} ${m.to}`).join("\n")));
-    let outcome;
-    try {
-      const response = await fetch(RESEND_BATCH_URL, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${env.RESEND_API_KEY}`,
-          "content-type": "application/json; charset=utf-8",
-          "idempotency-key": `p99-${key}`,
-        },
-        body: JSON.stringify(
-          sending.map((m) => ({ from: env.MAIL_FROM, to: [m.to], subject: m.subject, text: m.text, html: m.html })),
-        ),
+    const provider = mailer(env, mailSettings(env, c.dir.mail));
+    if (!provider) return;
+    const skipped = await optedOut(env.DB, mails);
+    const outcomes = mails.map((m) =>
+      skipped.has(`${m.item_id} ${m.to}`) ? { ok: false, status: "opted_out" } : { ok: false, status: "capped" },
+    );
+    const live = mails.map((m, i) => i).filter((i) => !skipped.has(`${mails[i].item_id} ${mails[i].to}`));
+    const sending = live.slice(0, Math.min(MAIL_CAP, provider.batch));
+    const reporting = sending.map((i) => mails[i]).filter((m) => REPORTER_TEMPLATES.has(m.template) && hostLink(m.host));
+    const codes = await reporterCodes(env, reporting);
+    const messages = [];
+    for (const i of sending) {
+      const m = mails[i];
+      let link = m.link;
+      let optOut = null;
+      if (REPORTER_TEMPLATES.has(m.template) && hostLink(m.host)) {
+        const code = codes.get(`${m.to} ${m.host}`);
+        if (code) link = openLink(m.host, m.path, m.content.key, code);
+        optOut = optOutLink(m.host, await optOutToken(env, m.item_id, m.to));
+      }
+      const theme = c.dir.hosts.get(m.host)?.config.theme;
+      messages.push({
+        to: m.to,
+        ...composeMail({ ...m.content, link, optOut, theme }),
+        ...(optOut ? { headers: { "List-Unsubscribe": `<${optOut}>`, "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" } } : {}),
       });
-      outcome = { ok: response.ok, status: response.status };
-      if (!response.ok) console.error(`mail batch of ${sending.length} failed with ${response.status}`);
-    } catch (error) {
-      console.error(`mail batch of ${sending.length} failed: ${error.message}`);
-      outcome = { ok: false, status: "error" };
     }
-    for (let i = 0; i < sending.length; i++) outcomes[i] = outcome;
-    if (mails.length > MAIL_CAP) console.error(`${mails.length - MAIL_CAP} mails over the cap of ${MAIL_CAP} were not sent`);
+    if (messages.length > 0) {
+      const key = await sha256Hex(encoder.encode(sending.map((i) => mails[i]).map((m) => `${m.item_id} ${m.template} ${m.ref} ${m.to}`).join("\n")));
+      let outcome;
+      try {
+        outcome = await provider.send(messages, `p99-${key}`);
+        if (!outcome.ok) console.error(`mail batch of ${messages.length} failed with ${outcome.status}`);
+      } catch (error) {
+        console.error(`mail batch of ${messages.length} failed: ${error.message}`);
+        outcome = { ok: false, status: "error" };
+      }
+      for (const i of sending) outcomes[i] = outcome;
+    }
+    if (live.length > sending.length) console.error(`${live.length - sending.length} mails over the cap of ${sending.length} were not sent`);
     const events = mails.map((m, i) => ({
       item_id: m.item_id,
       detail: JSON.stringify({ to: m.to, template: m.template, ...outcomes[i] }),
@@ -1389,7 +1431,7 @@ async function postBuilds(c) {
 
 async function announceLandings(c, envName, body, landed) {
   const known = c.dir.envs.get(envName);
-  if (!known || !known.notify || !mailOn(c.env)) return;
+  if (!known || !known.notify || !mailOn(c)) return;
   const { results } = await c.env.DB.prepare(
     "SELECT id, kind, title, host, origin_env, page_path, reporter_email FROM items WHERE id IN (SELECT value FROM json_each(?1))",
   )
@@ -1817,7 +1859,7 @@ async function postMerge(c) {
     await DB.batch(statements);
   }
   for (const row of moving) {
-    await moveItem(c, { ...row, duplicate_of: into }, { to: "done", resolution: "duplicate" });
+    await moveItem(c, { ...row, duplicate_of: into, merged_into: targetKey }, { to: "done", resolution: "duplicate" });
   }
   if (moving.length > 0) push(c, "change", target, { what: ["merged"] });
   return json(200, {
@@ -2443,14 +2485,15 @@ async function postCode(c) {
   const totp = wantsTotp ? await newTotp(c.env) : null;
   const secret = newSecret();
   const hash = await codeHash(c.env, secret);
+  const sealed = await sealCode(c.env, secret);
   let row;
   try {
     row = await DB.prepare(
-      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret, sealed_code)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
        RETURNING *`,
     )
-      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid, totp && totp.sealed)
+      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid, totp && totp.sealed, sealed)
       .first();
   } catch (error) {
     if (uid === null || !isUniqueViolation(error)) throw error;
@@ -3436,6 +3479,7 @@ async function handle(request, env, ctx) {
   if (request.method === "GET" && path === "/_p99/feed") return serveFeed(request, env, ctx, url);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
+  if (path === "/_p99/open" || path === "/_p99/mail") return mailPage(request, env, url, await loadDirectory(env), keyOf);
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);
   fail(404, "no such route");
 }
