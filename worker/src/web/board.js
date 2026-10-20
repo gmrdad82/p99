@@ -1,6 +1,7 @@
 const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
 const KEYS = ["inbox", "doing", "review", "done"];
+const MARKS = { urgent: "!!", high: "!", low: "↓" };
 const WORDS = {
   board: "Board",
   boards: "Boards",
@@ -66,16 +67,15 @@ const CSS = `
 .p99-card .p99-key{font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono);letter-spacing:.02em;color:var(--p99-muted)}
 .p99-card-title{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-weight:var(--p99-weight-medium);font-size:var(--p99-text-sm);line-height:1.4}
 .p99-card-foot{display:flex;align-items:center;gap:var(--p99-space-xs);flex-wrap:wrap;min-height:22px}
-.p99-chip{display:inline-flex;align-items:center;gap:5px;padding:0 var(--p99-space-sm);border:1px solid color-mix(in srgb,var(--c,var(--p99-rule)) 55%,var(--p99-rule));border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--c,var(--p99-rule)) 14%,transparent);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text);color:var(--p99-ink)}
-.p99-chip::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--c,var(--p99-rule))}
 .p99-res{padding:0 var(--p99-space-sm);border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);color:var(--p99-muted);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text)}
 .p99-who{display:inline-grid;place-items:center;width:24px;height:24px;margin-left:auto;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) 10px/1 var(--p99-font-text)}
-.p99-prio{display:inline-flex;align-items:flex-end;gap:2px;height:12px;margin-left:auto}
-.p99-prio i{width:3px;border-radius:1px;background:color-mix(in srgb,var(--p99-ink) 18%,transparent)}
-.p99-prio i:nth-child(1){height:5px}.p99-prio i:nth-child(2){height:8px}.p99-prio i:nth-child(3){height:12px}
-.p99-prio[data-p=low] i:nth-child(1){background:var(--p99-muted)}
-.p99-prio[data-p=high] i:nth-child(-n+2){background:var(--p99-status-warning)}
-.p99-prio[data-p=urgent] i{background:var(--p99-danger)}
+.p99-tags{display:inline-flex;flex-wrap:wrap;gap:var(--p99-space-xs)}
+.p99-tag{display:inline-flex;align-items:center;gap:5px;padding:0 var(--p99-space-sm);border:1px solid color-mix(in srgb,var(--p99-tag) 55%,var(--p99-raised));border-radius:var(--p99-radius-full);background:color-mix(in srgb,var(--p99-tag) 16%,var(--p99-raised));color:var(--p99-ink);font:var(--p99-weight-medium) 11px/1.7 var(--p99-font-text)}
+.p99-tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-tag)}
+.p99-rank{margin-right:6px;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono)}
+.p99-rank[data-priority=urgent]{color:var(--p99-danger)}
+.p99-rank[data-priority=high]{color:var(--p99-status-warning)}
+.p99-rank[data-priority=low]{color:var(--p99-muted)}
 .p99-card[data-type=board]{margin:0 6px 6px 0;border-color:color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 9%,var(--p99-raised));box-shadow:inset 4px 0 0 var(--p99-accent),inset 0 1px 0 rgba(255,255,255,.5),3px 3px 0 -1px var(--p99-raised),3px 3px 0 0 color-mix(in srgb,var(--p99-accent) 40%,var(--p99-rule)),6px 6px 0 -1px var(--p99-raised),6px 6px 0 0 color-mix(in srgb,var(--p99-accent) 25%,var(--p99-rule))}
 .p99-card[data-type=board] .p99-card-title{font-size:var(--p99-text-md);font-weight:var(--p99-weight-bold)}
 .p99-sub-mark{display:inline-flex;align-items:center;gap:5px;color:var(--p99-accent-ink);font:var(--p99-weight-bold) 11px var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
@@ -275,17 +275,17 @@ function card(c) {
     e.setAttribute("aria-label", c.name);
     return e;
   }
-  const prio = c.priority && c.priority !== "normal" ? h("span", { class: "p99-prio", "data-p": c.priority, title: t("priority_" + c.priority), "aria-label": t("priority_" + c.priority) }, h("i"), h("i"), h("i")) : null;
-  const chips = (c.labels || []).map((l) => {
-    const chip = h("span", { class: "p99-chip", text: l.name });
-    if (/^#[0-9a-f]{3,8}$/i.test(l.color || "")) chip.style.setProperty("--c", l.color);
+  const rank = MARKS[c.priority] ? h("span", { class: "p99-rank", "data-priority": c.priority, title: t("priority_" + c.priority), "aria-label": t("priority_" + c.priority), text: MARKS[c.priority] }) : null;
+  const chips = (c.labels || []).filter((l) => /^#[0-9a-f]{6}$/i.test(l.color || "")).map((l) => {
+    const chip = h("span", { class: "p99-tag", text: l.name });
+    chip.style.setProperty("--p99-tag", l.color);
     return chip;
   });
   const res = c.status === "done" && c.resolution && c.resolution !== "fixed" ? h("span", { class: "p99-res", text: t("resolution_" + c.resolution) }) : null;
   const who = c.assignee ? h("span", { class: "p99-who", title: typeof c.assignee === "string" ? c.assignee : c.assignee.name || c.assignee.email, text: initials(c.assignee) }) : null;
-  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), prio), h("b", { class: "p99-card-title", text: c.title }));
-  if (chips.length || res || who) e.append(h("div", { class: "p99-card-foot" }, res, chips, who));
-  e.setAttribute("aria-label", c.key + ", " + c.title);
+  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key })), h("b", { class: "p99-card-title" }, rank, c.title));
+  if (chips.length || res || who) e.append(h("div", { class: "p99-card-foot" }, res, chips.length ? h("span", { class: "p99-tags" }, chips) : null, who));
+  e.setAttribute("aria-label", c.key + ", " + (rank ? t("priority_" + c.priority) + ", " : "") + c.title);
   return e;
 }
 
