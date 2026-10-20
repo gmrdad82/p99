@@ -133,6 +133,7 @@ pub struct Inbox {
     following: bool,
     refreshing: bool,
     again: bool,
+    told: bool,
 }
 
 impl Inbox {
@@ -157,6 +158,7 @@ impl Inbox {
             following: false,
             refreshing: false,
             again: false,
+            told: false,
         }
     }
 
@@ -195,6 +197,25 @@ impl Inbox {
         if let Some(at) = at {
             self.filter.list_mut().select(at);
         }
+    }
+
+    fn empty(&self) -> String {
+        if self.entries.as_ref().is_some_and(Vec::is_empty) {
+            return "No items yet. Reports from your sites land here.".to_owned();
+        }
+        if !self.filter.query().is_empty() {
+            return "Nothing matches the filter. esc clears it.".to_owned();
+        }
+        let mut said = format!(
+            "Nothing {} here. s shows {}",
+            self.shown.word(),
+            self.shown.next().word()
+        );
+        if self.host.is_some() {
+            said.push_str(" · h picks another host");
+        }
+        said.push('.');
+        said
     }
 
     fn ago(&self, stamp: &str) -> String {
@@ -1038,6 +1059,7 @@ impl Screen<Msg> for Inbox {
         match event {
             Msg::Inbox(result) => {
                 let refreshed = std::mem::take(&mut self.refreshing);
+                let told = refreshed && !self.again && std::mem::take(&mut self.told);
                 match result {
                     Ok(entries) => {
                         let kept = self
@@ -1060,7 +1082,11 @@ impl Screen<Msg> for Inbox {
                             self.source.follow(&cx.waker());
                         }
                     }
-                    Err(_) if refreshed && self.entries.is_some() => {}
+                    Err(error) if refreshed && self.entries.is_some() => {
+                        if told {
+                            cx.say(error, Tone::Alert);
+                        }
+                    }
                     Err(error) => self.error = Some(error),
                 }
                 if refreshed && std::mem::take(&mut self.again) {
@@ -1173,12 +1199,15 @@ impl Screen<Msg> for Inbox {
             Turn::Filtered => self.sift(),
             Turn::Open(index) => self.open_at(index, cx),
             Turn::Pass => match key.code {
-                KeyCode::Char('r') => cx.reload(),
+                KeyCode::Char('r') => {
+                    self.told = true;
+                    self.refresh(cx);
+                }
                 KeyCode::Char('s') => {
                     self.shown = self.shown.next();
                     self.sift();
                 }
-                KeyCode::Char('h') => self.pick_host(cx),
+                KeyCode::Char('h') if self.hosts.len() > 1 => self.pick_host(cx),
                 _ => {}
             },
             _ => {}
@@ -1278,9 +1307,12 @@ impl Screen<Msg> for Inbox {
         } else {
             &COLUMNS_ONE
         };
-        let view = self.filter.view(columns, palette).header(true).empty(Some(
-            "Nothing here. s shows open or closed items, h other hosts.",
-        ));
+        let empty = self.empty();
+        let view = self
+            .filter
+            .view(columns, palette)
+            .header(true)
+            .empty(Some(&empty));
         frame.render_widget(view, area);
     }
 
@@ -1334,6 +1366,13 @@ impl Screen<Msg> for Inbox {
             } else {
                 "internal off"
             };
+            if open.sending {
+                return vec![
+                    Hint::new("", "saving…"),
+                    Hint::new("↑↓", "scroll").rank(3),
+                    Hint::new("esc", "back"),
+                ];
+            }
             return vec![
                 Hint::new("r", "reply"),
                 Hint::new("a", "assign").rank(1),
@@ -1353,9 +1392,11 @@ impl Screen<Msg> for Inbox {
             Hint::new("enter", "open").rank(1),
             Hint::new("/", "filter").rank(1),
             Hint::new("s", "status").rank(2),
-            Hint::new("h", "host").rank(2),
-            Hint::new("r", "read again").rank(3),
         ];
+        if self.hosts.len() > 1 {
+            hints.push(Hint::new("h", "host").rank(2));
+        }
+        hints.push(Hint::new("r", "read again").rank(3));
         if self.filter.active() {
             hints.push(Hint::new("esc", "clear filter"));
         }
@@ -1377,6 +1418,9 @@ impl Screen<Msg> for Inbox {
         facts.push((format!("{shown} of {in_scope} items"), Style::new()));
         if unread > 0 {
             facts.push((format!("{unread} unread"), self.palette.accent));
+        }
+        if self.told {
+            facts.push(("reading…".to_owned(), self.palette.muted));
         }
         if self.source.is_demo() {
             facts.push(("sample data".to_owned(), self.palette.muted));

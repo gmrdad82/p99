@@ -57,6 +57,7 @@ const WORDS = {
   filter_any: "Any",
   filter_every_kind: "Any kind",
   list_empty: "Nothing here.",
+  list_empty_filtered: "Nothing matches these filters.",
   unread_mark: "New for you",
   comments: { one: "1 comment", other: "{count} comments" },
   more: "More",
@@ -155,6 +156,7 @@ let root, panel, scroller, scrim;
 
 const phone = matchMedia("(max-width: 599px)");
 const still = matchMedia("(prefers-reduced-motion: reduce)");
+const dark = matchMedia("(prefers-color-scheme: dark)");
 
 export function open(opts) {
   if (opts.space && opts.root !== root) {
@@ -180,7 +182,7 @@ export function open(opts) {
     };
     if (S.verify) verify(go);
     else go();
-  }).catch(() => {});
+  }).catch((e) => { if (opts.space) throw e; });
 }
 
 function say(key, args, n) {
@@ -352,6 +354,7 @@ function ensure() {
     try { tint.replaceSync(theme(me && me.theme)); } catch (x) {}
     chrome();
     root.adoptedStyleSheets = root.adoptedStyleSheets.concat([base, tint]);
+    legible();
   });
   S.assets.catch(() => { S.assets = null; });
   return S.assets;
@@ -386,6 +389,7 @@ function chrome() {
   swipe(head);
   root.addEventListener("keydown", keys);
   phone.addEventListener("change", () => { if (S.open) scrim.hidden = !phone.matches; });
+  dark.addEventListener("change", legible);
 }
 function boardModule() {
   if (!S.board) S.board = import("/_p99/board.js?v=" + V).catch((e) => { S.board = null; throw e; });
@@ -538,9 +542,9 @@ function mount(view, focus) {
   if (!/^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(focus.tagName) && !focus.hasAttribute("tabindex")) focus.setAttribute("tabindex", "-1");
   try { focus.focus({ preventScroll: true }); } catch (x) { focus.focus(); }
 }
-function failure(e) {
+function failure(e, retry) {
   const p = h("p", { class: "p99-error", role: "alert", id: "p99-title", text: problem(e) });
-  mount(h("section", { class: "p99-view" }, p), p);
+  mount(h("section", { class: "p99-view p99-failed" }, S.view === "item" ? back() : null, p, retry && e.status !== 404 ? h("button", { type: "button", class: "p99-retry", text: say("retry"), onclick: retry }) : null), p);
 }
 function statusLine() { return h("p", { class: "p99-status-line", role: "status", "aria-live": "polite" }); }
 function status(form, text, retry) {
@@ -625,12 +629,12 @@ function list(f) {
     const items = h("ol", { class: "p99-items" });
     const view = h("section", { class: "p99-view", "data-view": "list" }, title, nav, filters(f));
     const rows = (res && res.issues) || [];
-    if (!rows.length) view.append(h("p", { class: "p99-empty", text: say("list_empty") }));
+    if (!rows.length) view.append(h("p", { class: "p99-empty", text: say(f.kind || f.q || (f.status && f.status !== "open") ? "list_empty_filtered" : "list_empty") }));
     else view.append(items);
     rows.forEach((r) => items.append(row(r)));
     more(view, items, f, res && res.next_cursor);
     mount(view, title);
-  }, (e) => { if (seq === S.seq) failure(e); });
+  }, (e) => { if (seq === S.seq) failure(e, () => list(f)); });
 }
 function more(view, items, f, cursor) {
   if (!cursor) return;
@@ -688,7 +692,7 @@ function item(key) {
     const view = thread(t);
     mount(view, view.querySelector("#p99-title"));
     o.refresh && o.refresh();
-  }, (e) => { if (seq === S.seq) failure(e); });
+  }, (e) => { if (seq === S.seq) failure(e, () => item(key)); });
 }
 function back() {
   return h("a", { class: "p99-back", href: "#", text: say("back"), onclick: (e) => {
@@ -881,7 +885,17 @@ function combo(o) {
   const fill = () => {
     const n = ++ask;
     const q = typed ? input.value.trim() : "";
+    const note = (text) => {
+      if (n !== ask || root.activeElement !== input) return;
+      opts = [];
+      clear(lb);
+      lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text }));
+      show(true);
+      mark(-1);
+    };
+    const slow = setTimeout(() => note(say("loading")), 150);
     Promise.resolve(o.find(q)).then((list) => {
+      clearTimeout(slow);
       if (n !== ask || root.activeElement !== input) return;
       opts = list;
       clear(lb);
@@ -889,7 +903,10 @@ function combo(o) {
       if (!list.length) lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("no_match") }));
       show(true);
       mark(q && list.length ? 0 : -1);
-    }, () => {});
+    }, (e) => {
+      clearTimeout(slow);
+      note(problem(e));
+    });
   };
   const pick = (k) => {
     const x = opts[k];
@@ -1184,6 +1201,23 @@ function preview(canvas, max) {
 }
 function accent() {
   return (panel && getComputedStyle(panel).getPropertyValue("--p99-accent").trim()) || "#3b7dd8";
+}
+function legible() {
+  o.host.style.removeProperty("--p99-on-accent");
+  const t = me && me.theme;
+  if (t && typeof t === "object" && ("on-accent" in t || (t.dark && typeof t.dark === "object" && "on-accent" in t.dark))) return;
+  const probe = h("i", { hidden: true });
+  probe.style.color = accent();
+  if (!probe.style.color) return;
+  panel.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  if (!c.startsWith("rgb")) return;
+  const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => {
+    const x = (v * 0.8) / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  if (0.2126 * r + 0.7152 * g + 0.0722 * b > 0.2) o.host.style.setProperty("--p99-on-accent", "#0c1a2b");
 }
 function drawMarks(shot, marks, page) {
   const c = document.createElement("canvas");

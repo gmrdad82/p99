@@ -14,7 +14,7 @@ use pito_tui::ratatui::{
 use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, text};
 
 use super::Msg;
-use super::deck::{BoardView, Boards, Card, MOVED, Patch, patch, request, sort, stale};
+use super::deck::{BoardView, Boards, Card, MOVED, NONE, Patch, patch, request, sort, stale};
 use super::inbox::Inbox;
 use super::source::Source;
 
@@ -23,6 +23,7 @@ const PITCH: i32 = 5;
 const SLIDE: Duration = Duration::from_millis(180);
 const LANES: usize = 5;
 const QUIET: Duration = Duration::from_millis(250);
+const MAKE: &str = "p99 boards set <name> --columns \"Inbox,Doing,Done\" makes one.";
 
 struct Lift {
     id: String,
@@ -49,12 +50,18 @@ struct Spot {
     from: (f32, f32),
     to: (f32, f32),
     start: Instant,
+    held: bool,
+    travel: bool,
 }
 
 impl Spot {
     fn at(&self, now: Instant) -> (f32, f32) {
-        let t =
-            ease_out(now.saturating_duration_since(self.start).as_secs_f32() / SLIDE.as_secs_f32());
+        let t = now.saturating_duration_since(self.start).as_secs_f32() / SLIDE.as_secs_f32();
+        let t = if self.travel {
+            ease_in_out(t)
+        } else {
+            ease_out(t)
+        };
         (
             self.from.0 + (self.to.0 - self.from.0) * t,
             self.from.1 + (self.to.1 - self.from.1) * t,
@@ -69,6 +76,15 @@ impl Spot {
 fn ease_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
     1.0 - (1.0 - t).powi(3)
+}
+
+fn ease_in_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        4.0 * t.powi(3)
+    } else {
+        1.0 - (2.0 - 2.0 * t).powi(3) / 2.0
+    }
 }
 
 pub struct Board {
@@ -93,6 +109,7 @@ pub struct Board {
     lanes: [Rect; LANES],
     hits: Vec<(String, Rect)>,
     picking: Option<Vec<(usize, i64)>>,
+    wanted: Option<(usize, i64)>,
     sending: usize,
     reader: Inbox,
     following: bool,
@@ -126,6 +143,7 @@ impl Board {
             lanes: [Rect::default(); LANES],
             hits: Vec::new(),
             picking: None,
+            wanted: None,
             sending: 0,
         }
     }
@@ -328,7 +346,7 @@ impl Board {
             }
         }
         if rows.is_empty() {
-            cx.say("No board yet.", Tone::Muted);
+            cx.say(format!("No board yet: {MAKE}"), Tone::Muted);
             return;
         }
         let here = self.slug();
@@ -508,7 +526,7 @@ impl Board {
         }
     }
 
-    fn place(&mut self, id: &str, to: (f32, f32)) -> (f32, f32) {
+    fn place(&mut self, id: &str, to: (f32, f32), held: bool) -> (f32, f32) {
         let now = self.moment;
         match self.spots.get_mut(id) {
             Some(spot) if spot.to != to => {
@@ -517,10 +535,15 @@ impl Board {
                     from,
                     to,
                     start: now,
+                    travel: !held && !spot.held && from.0 != to.0,
+                    held,
                 };
                 from
             }
-            Some(spot) => spot.at(now),
+            Some(spot) => {
+                spot.held = held;
+                spot.at(now)
+            }
             None => {
                 self.spots.insert(
                     id.to_owned(),
@@ -528,6 +551,8 @@ impl Board {
                         from: to,
                         to,
                         start: now,
+                        held,
+                        travel: false,
                     },
                 );
                 to
@@ -543,14 +568,13 @@ impl Board {
         }
         let gap = 1u16;
         let count = self.lanes();
-        let width = area.width.saturating_sub(gap * (count as u16 - 1)) / count as u16;
+        let room = area.width.saturating_sub(gap * (count as u16 - 1));
+        let (width, spare) = (room / count as u16, room % count as u16);
+        let mut x = area.x;
         for (at, lane) in self.lanes.iter_mut().enumerate().take(count) {
-            *lane = Rect::new(
-                area.x + at as u16 * (width + gap),
-                area.y,
-                width,
-                area.height,
-            );
+            let wide = width + u16::from((at as u16) < spare);
+            *lane = Rect::new(x, area.y, wide, area.height);
+            x += wide + gap;
         }
         let region_height = area.height.saturating_sub(2);
         self.fit = ((i32::from(region_height) + PITCH - TALL) / PITCH).max(1) as usize;
@@ -572,6 +596,17 @@ impl Board {
                 .filter(|(_, to, _)| to.0 == column)
                 .map(|(_, to, _)| to.1);
             let total = lanes[column].len() + usize::from(gap_at.is_some());
+            if total == 0 && region.height > 1 {
+                put(
+                    frame.buffer_mut(),
+                    region,
+                    i32::from(region.x) + 2,
+                    i32::from(region.y) + 1,
+                    "no cards",
+                    usize::from(region.width.saturating_sub(2)),
+                    palette.muted,
+                );
+            }
             for row in 0..total {
                 let y = i32::from(region.y) + (row as i32 - self.tops[column] as i32) * PITCH;
                 let spot = (f32::from(region.x), y as f32);
@@ -589,7 +624,7 @@ impl Board {
                         Some(grip) => {
                             let x = (grip.x - grip.dx).clamp(
                                 i32::from(area.x),
-                                i32::from(area.right()) - i32::from(width),
+                                i32::from(area.right()) - i32::from(region.width),
                             );
                             let y = (grip.y - grip.dy)
                                 .clamp(i32::from(area.y), i32::from(area.bottom()) - TALL);
@@ -599,13 +634,15 @@ impl Board {
                                     from: (x as f32, y as f32),
                                     to: (x as f32, y as f32),
                                     start: self.moment,
+                                    held: true,
+                                    travel: false,
                                 },
                             );
                             (x as f32, y as f32)
                         }
-                        None => self.place(&id, spot),
+                        None => self.place(&id, spot, true),
                     };
-                    floating = Some((id, at));
+                    floating = Some((id, at, region.width));
                     continue;
                 }
                 let index = lanes[column][slot];
@@ -618,7 +655,7 @@ impl Board {
                     .as_ref()
                     .is_some_and(|v| v.board.closes(&card.label));
                 let id = card.key.clone();
-                let (x, y) = self.place(&id, spot);
+                let (x, y) = self.place(&id, spot, false);
                 let (x, y) = (x.round() as i32, y.round() as i32);
                 let selected =
                     self.lift.is_none() && column == self.column && row == self.rows[column];
@@ -638,7 +675,7 @@ impl Board {
                 }
             }
         }
-        if let Some((id, (x, y))) = floating
+        if let Some((id, (x, y), width)) = floating
             && let Some(card) = self
                 .view
                 .as_ref()
@@ -690,7 +727,14 @@ impl Board {
             }
             more.push_str(&format!("↓{below}"));
         }
-        let name = text::clip(&name, room.saturating_sub(4 + more.len()));
+        let count = count.to_string();
+        let tail = text::cells(&count)
+            + if more.is_empty() {
+                0
+            } else {
+                2 + text::cells(&more)
+            };
+        let name = text::clip(&name, room.saturating_sub(1 + tail));
         let (x, _) = buf.set_stringn(
             lane.x,
             lane.y,
@@ -698,7 +742,8 @@ impl Board {
             room,
             style.add_modifier(Modifier::BOLD),
         );
-        let (x, _) = buf.set_stringn(x + 1, lane.y, count.to_string(), room, palette.muted);
+        let room = usize::from(lane.right().saturating_sub(x + 1));
+        let (x, _) = buf.set_stringn(x + 1, lane.y, &count, room, palette.muted);
         if !more.is_empty() {
             let room = usize::from(lane.right().saturating_sub(x + 2));
             buf.set_stringn(x + 2, lane.y, &more, room, palette.muted);
@@ -904,6 +949,15 @@ impl Screen<Msg> for Board {
             return Phase::Ready;
         }
         match (&self.error, self.stopped) {
+            (Some(error), _) if error == NONE => Phase::Trouble(
+                vec![
+                    Line::from("No board yet."),
+                    Line::from(MAKE),
+                    Line::default(),
+                    Line::from("r reads it again · p99 tui --demo shows sample data"),
+                ]
+                .into(),
+            ),
             (Some(error), _) => Phase::Trouble(
                 vec![
                     Line::from("Couldn't read the board."),
@@ -956,8 +1010,12 @@ impl Screen<Msg> for Board {
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Board(slug, result) => {
-                if slug.is_some() && self.at.is_some() && slug != self.slug() {
+                let asked = slug.is_some() && slug == self.wanted;
+                if slug.is_some() && self.at.is_some() && slug != self.slug() && !asked {
                     return;
+                }
+                if asked {
+                    self.wanted = None;
                 }
                 self.reading = false;
                 if result.is_ok() && !self.following && !self.source.is_demo() {
@@ -1125,12 +1183,14 @@ impl Screen<Msg> for Board {
         let (Some(rows), Some(choice)) = (self.picking.take(), choice) else {
             return;
         };
-        let Some((account, id)) = rows.into_iter().nth(choice) else {
+        let Some(slug) = rows.into_iter().nth(choice) else {
             return;
         };
-        self.account = account;
-        self.at = Some(id);
-        self.read(Some((account, id)), cx);
+        if Some(slug) == self.slug() {
+            return;
+        }
+        self.wanted = Some(slug);
+        self.read(Some(slug), cx);
     }
 
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -1188,12 +1248,15 @@ impl Screen<Msg> for Board {
             ];
         }
         let mut hints = vec![Hint::new("←→↑↓", "move")];
-        if self.mine() {
+        let card = self.current().is_some();
+        if !self.mine() {
+            hints.push(Hint::new("", &self.watching));
+        } else if card {
             hints.push(Hint::new("space", "pick up").rank(1));
-        } else {
-            hints.push(Hint::new(&self.watching, ""));
         }
-        hints.push(Hint::new("enter", "open").rank(1));
+        if card {
+            hints.push(Hint::new("enter", "open").rank(1));
+        }
         hints.push(Hint::new("b", "boards").rank(2));
         hints.push(Hint::new("r", "read again").rank(3));
         hints

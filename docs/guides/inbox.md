@@ -48,8 +48,8 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `enter` | open the item |
 | `/` | filter by text as you type; `esc` clears it |
 | `s` | show open, closed, or open and closed items, in turn |
-| `h` | show every host, or pick one |
-| `r` | read the list again |
+| `h` | show every host, or pick one, when there is more than one |
+| `r` | read the list again, keeping it on screen |
 | `?` | every key of the screen |
 | `ctrl+c` twice | quit |
 

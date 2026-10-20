@@ -1,5 +1,6 @@
 import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
+import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
 
 let K = null;
@@ -14,10 +15,7 @@ const TRY_SLOT_MS = 15 * 60 * 1000;
 const TRY_LIMITS = { mail: 5, ip: 30 };
 const DENIED = "that e-mail and code don't match";
 const SIGNED_OUT = "sign in again";
-const CSP =
-  "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 const HEADERS = {
-  "content-security-policy": CSP,
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "x-frame-options": "DENY",
@@ -50,26 +48,46 @@ export function sameText(a, b) {
   return diff === 0;
 }
 
-function secured(response) {
+function csp(hash) {
+  return `default-src 'none'; script-src 'self'; style-src 'self' 'sha256-${hash}'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`;
+}
+
+let first = null;
+
+async function inlineStyle(env) {
+  const v = env.VERSION || "dev";
+  if (!first || first.v !== v) {
+    const css = (tokens() + firstStyle).split("__P99_VERSION__").join(v).replace(/\r\n?/g, "\n");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", K.encoder.encode(css)));
+    let binary = "";
+    for (const b of digest) binary += String.fromCharCode(b);
+    first = { v, css, csp: csp(btoa(binary)) };
+  }
+  return first;
+}
+
+function secured(response, style) {
   if (response.status === 101) return response;
   const out = new Response(response.body, response);
   const own = response.headers.has("content-security-policy");
-  for (const [name, value] of Object.entries(HEADERS)) if (!own || name !== "content-security-policy") out.headers.set(name, value);
+  for (const [name, value] of Object.entries(HEADERS)) out.headers.set(name, value);
+  if (!own) out.headers.set("content-security-policy", style.csp);
   return out;
 }
 
 export async function appRequest(request, env, ctx, url) {
+  const style = await inlineStyle(env);
   let response;
   try {
-    response = await route(request, env, ctx, url);
+    response = await route(request, env, ctx, url, style);
   } catch (error) {
     if (!(error instanceof K.Failure)) throw error;
     response = K.errorResponse(error.status, error.message, error.code);
   }
-  return secured(response);
+  return secured(response, style);
 }
 
-async function route(request, env, ctx, url) {
+async function route(request, env, ctx, url, style) {
   const path = url.pathname;
   const method = request.method;
   if (path === "/_p99/api/stream") return stream(request, env, url);
@@ -78,14 +96,14 @@ async function route(request, env, ctx, url) {
   if (method === "POST" && path === "/_p99/app/signout") return signOut(request, env, url);
   if (method === "GET" && path === "/_p99/app/spaces") return spaces(request, env, url);
   if (method !== "GET" && method !== "HEAD") K.fail(404, "no such route");
-  if (path === "/") return page(request, env, method);
+  if (path === "/") return page(request, env, method, style);
   return files(request, env, url, method);
 }
 
-function page(request, env, method) {
+function page(request, env, method, style) {
   const v = env.VERSION || "dev";
   const known = cookieToken(request) !== null;
-  const body = known ? '<div class="app-wait" aria-busy="true"></div>' : signInMarkup();
+  const body = known ? '<div class="app-wait" role="status" aria-busy="true" aria-label="Loading…"></div>' : signInMarkup();
   const html = `<!doctype html>
 <html lang="en">
 <head>
@@ -93,7 +111,8 @@ function page(request, env, method) {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <title>P99</title>
-<link rel="stylesheet" href="/_p99/app.css?v=${v}">
+<style>${style.css}</style>
+<link rel="stylesheet" id="app-css" href="/_p99/app.css?v=${v}" media="print">
 <script type="module" src="/_p99/app.js?v=${v}"></script>
 </head>
 <body>
@@ -124,8 +143,7 @@ function files(request, env, url, method) {
   const file = own || (SHARED_FILES.includes(path) ? K.staticFiles[path] : null);
   if (!file) K.fail(404, "no such file");
   const v = env.VERSION || "dev";
-  const source = path === "/_p99/app.css" ? tokens() + file.source : file.source;
-  const text = source.split("__P99_VERSION__").join(v);
+  const text = file.source.split("__P99_VERSION__").join(v);
   return new Response(method === "HEAD" ? null : text, {
     status: 200,
     headers: {

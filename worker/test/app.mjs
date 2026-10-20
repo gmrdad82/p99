@@ -1,6 +1,7 @@
 import { request } from "node:http";
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
+import { cspChecks, getter } from "./csp.mjs";
 import { ipKey } from "../src/tries.js";
 
 export const APP_HOST = "app.localhost";
@@ -69,25 +70,21 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const page = await app("GET", "/", { page: false });
     assert.equal(page.status, 200, page.text);
     assert.match(page.headers["content-type"], /^text\/html/);
-    assert.equal(
-      page.headers["content-security-policy"],
-      "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-    );
     assert.equal(page.headers["x-content-type-options"], "nosniff");
     assert.equal(page.headers["referrer-policy"], "no-referrer");
     assert.equal(page.headers["x-frame-options"], "DENY");
-    assert.ok(!/<script>|style=/.test(page.text), "the page has no inline script or style");
     assert.match(page.text, /id="signin"/);
     const script = await app("GET", "/_p99/app.js?v=dev", { page: false });
     assert.equal(script.status, 200);
     assert.match(script.headers["cache-control"], /immutable/);
-    const style = await app("GET", "/_p99/app.css?v=dev", { page: false });
-    assert.match(style.text, /^:root \{/);
+    assert.equal((await app("GET", "/_p99/app.css?v=dev", { page: false })).status, 200);
     assert.equal((await app("GET", "/_p99/panel.js?v=dev", { page: false })).status, 200);
     assert.equal((await app("GET", "/_p99/p99.js", { page: false })).status, 404);
     assert.equal((await fetch(`${base}/_p99/app.js?v=dev`)).status, 404);
     assert.equal((await fetch(`${base}/`)).status, 404);
   });
+
+  await cspChecks({ check, get: getter(`${APP_HOST}:${port}`, port) });
 
   await check("the CLI's signed routes still answer on the page's address, and only signed", async () => {
     const ts = Math.floor(Date.now() / 1000);
