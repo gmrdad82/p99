@@ -74,6 +74,10 @@ P99_CONFIG="$RUNNER_TEMP/p99.toml" p99 announce example.com --branch "$GITHUB_RE
 
 Check the whole history out (`fetch-depth: 0` in `actions/checkout`), so `git describe` and the 500 commits are there. A host behind Cloudflare Access needs the account's `url` or an Access service token too ([Put P99 on a site](site.md#6-hosts-behind-cloudflare-access)).
 
+## A feed of fixes
+
+`p99 feed on example.com` serves `https://example.com/_p99/feed`, an Atom feed of the items whose fix reached a release environment (`?format=json` for a JSON Feed), with each item's key, kind, title and date only. It is off until you turn it on, and `p99 feed off example.com` turns it off again ([the API reference](../reference/formats.md#the-fixed-feed)).
+
 ## Read the landings
 
 `p99 list` ends each line with where the item has landed, `p99 show` lists its commits with the environments each reached, and the TUI shows a "Landed" line on every item. In JSON, a summary's `landing` is `{"branch", "envs": [{"env","kind","at","sha","version"}]}` ([the API reference](../reference/formats.md#environments-and-landings)).

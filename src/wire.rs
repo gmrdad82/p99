@@ -232,6 +232,8 @@ pub struct Issue {
     pub labels: Vec<Tag>,
     #[serde(default)]
     pub github: Vec<GithubLink>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub merged: Vec<Merged>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -243,6 +245,26 @@ pub struct GithubLink {
     pub url: String,
     #[serde(default)]
     pub at: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Merged {
+    pub key: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub host: Option<String>,
+    #[serde(default)]
+    pub reporter: Value,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Merge {
+    pub into: String,
+    #[serde(default)]
+    pub merged: Vec<String>,
+    #[serde(default)]
+    pub unchanged: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

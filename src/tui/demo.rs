@@ -407,6 +407,16 @@ impl Demo {
                 thread.issue.labels = labels.iter().map(|&at| tag(LABELS[at].0)).collect();
             }
         }
+        let folded = &threads[11].issue;
+        let merged = wire::Merged {
+            key: folded.key.clone(),
+            title: folded.title.clone(),
+            host: folded.host.clone(),
+            reporter: folded.reporter.clone(),
+        };
+        if let Some(target) = threads.iter_mut().find(|t| t.issue.key == "BUG-11") {
+            target.issue.merged.push(merged);
+        }
         for thread in &mut threads {
             thread.events.sort_by(|a, b| a.at.cmp(&b.at));
         }

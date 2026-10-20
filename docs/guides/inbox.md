@@ -87,6 +87,7 @@ p99 comment BUG-12 "The cart caches the total." --internal
 p99 status BUG-12 done
 p99 status BUG-14 abandoned
 p99 status BUG-13 duplicate --duplicate-of BUG-12
+p99 merge BUG-14 BUG-15 --into BUG-12
 p99 assign BUG-12 me
 p99 assign BUG-12 --none
 p99 priority BUG-12 urgent

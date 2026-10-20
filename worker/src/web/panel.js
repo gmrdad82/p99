@@ -80,7 +80,7 @@ const WORDS = {
   filed_by: "Sent by {who}, {when}",
   updated: "changed {when}",
   assigned_to: "assigned to {who}",
-  duplicate_of: "duplicate of {n}",
+  duplicate_of: "merged into {n}",
   github_issue: "GitHub issue #{n}",
   github_pull: "GitHub pull request #{n}",
   show_marks: "Show on the page",
@@ -111,6 +111,7 @@ const WORDS = {
   event_title: "changed the title: {to}",
   event_body: "changed the details",
   event_landed: "the fix reached {env}",
+  event_merge: "merged {item} into this",
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_priority: "set the priority to {to}",
@@ -672,7 +673,7 @@ function thread(t) {
   if (manager && i.reporter && i.reporter.email) meta.push(" · ", h("span", { text: i.reporter.email }));
   if (manager && i.env) meta.push(" · ", h("span", { text: i.env }));
   if (i.assignee) meta.push(" · ", say("assigned_to", { who: i.assignee }));
-  if (i.duplicate_of) meta.push(" · ", say("duplicate_of", { n: i.duplicate_of }));
+  if (i.duplicate_of) meta.push(" · ", h("a", { href: "#p99=" + enc(i.duplicate_of), text: say("duplicate_of", { n: i.duplicate_of }), onclick: (e) => { e.preventDefault(); item(i.duplicate_of); } }));
   const page = i.page || {};
   const dest = pageUrl(page.path);
   const here = !!dest && dest.pathname === location.pathname;
@@ -736,6 +737,7 @@ function eventText(ev) {
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
+  if (ev.kind === "merge") return obj.into ? say("duplicate_of", { n: obj.into }) : say("event_merge", { item: obj.item || "" });
   if (("event_" + ev.kind) in WORDS) return say("event_" + ev.kind, { to: obj.to == null ? "" : obj.to, env: obj.env || "" });
   return null;
 }

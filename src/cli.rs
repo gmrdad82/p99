@@ -1,3 +1,5 @@
+mod merge;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as Process;
@@ -104,6 +106,12 @@ pub enum Command {
     Unlabel(crate::labels::LabelArgs),
     #[command(about = "list the account's labels; add, rename, recolour or remove one")]
     Labels(crate::labels::LabelsArgs),
+    #[command(
+        about = "fold duplicates into one item; their reporters follow it and get its updates"
+    )]
+    Merge(merge::MergeArgs),
+    #[command(about = "list each host's feed of fixed items; turn one on or off")]
+    Feed(merge::FeedArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -433,6 +441,8 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Label(a) => crate::labels::label(&config, global, &a, true),
         Command::Unlabel(a) => crate::labels::label(&config, global, &a, false),
         Command::Labels(a) => crate::labels::labels(&config, global, &a),
+        Command::Merge(a) => merge::merge(&config, global, &a),
+        Command::Feed(a) => merge::feed(&mut config, global, &a),
     }
 }
 
@@ -1192,7 +1202,13 @@ fn print_thread(thread: &Thread) {
         out!("assigned to {assignee}");
     }
     if let Some(of) = &issue.duplicate_of {
-        out!("duplicate of {of}");
+        out!("merged into {of}");
+    }
+    if !issue.merged.is_empty() {
+        println!("merged here");
+        for line in merge::merged_lines(&issue.merged) {
+            out!("{line}");
+        }
     }
     if let Some(board) = &issue.board {
         out!("on the board {board}");

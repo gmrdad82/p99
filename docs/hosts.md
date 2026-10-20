@@ -50,6 +50,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `off` | path patterns (`*` matches one segment, `**` any) where P99 never loads |
 | `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font |
 | `strings` | any of the panel's English words, by key |
+| `feed` | `true` serves the host's feed of fixed items at `/_p99/feed` (`p99 feed on <host>`); off by default |
 
 ## Slack and Discord
 

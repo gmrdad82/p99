@@ -436,7 +436,7 @@ function anchorStatus(anchor) {
 
 function itemMail(c, row, status, resolution) {
   if (!c.actor || !row.reporter_email) return;
-  K.sendMail(c, row, [row.reporter_email], { template: "status", status, resolution, ref: `status-${c.now}` });
+  K.sendMail(c, row, K.REPORTERS_TOKEN, { template: "status", status, resolution, ref: `status-${c.now}` });
 }
 
 export async function moveItem(c, row, opts = {}) {

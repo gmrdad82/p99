@@ -229,6 +229,11 @@ impl Client {
         })
     }
 
+    pub fn merge(&self, items: &[String], into: &str) -> Result<crate::wire::Merge, String> {
+        let pq = format!("/v1/merge{}", query(&[("host", self.host.clone())]));
+        self.json("POST", &pq, Some(json!({"items": items, "into": into})))
+    }
+
     pub fn hosts(&self) -> Result<Vec<HostEntry>, String> {
         let list: Value = self.json("GET", "/v1/hosts", None)?;
         field(list, "hosts")

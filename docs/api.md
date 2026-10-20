@@ -43,6 +43,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `POST /_p99/api/stream-ticket` | managers | 201 `{"ticket":"<48 hex>","expires_in":60}`: a ticket for one WebSocket, used once, within 60 seconds |
 | `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket answers 401 |
 | `GET /_p99/api/labels`, `POST /_p99/api/labels` | managers | as the signed API; the counts are this host's items |
+| `POST /_p99/api/merge` | managers | as the signed API |
 
 ## The signed API
 
@@ -73,6 +74,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/labels` | managers | `{"name","color"?}`; 201 label; a name taken in any case answers 409 |
 | `PATCH /_p99/v1/labels/{name}` | managers, every host | `{"name"?,"color"?}`; 200 label: renames or recolours it on every item |
 | `DELETE /_p99/v1/labels/{name}` | managers, every host | 200 `{"name","items"}`: removes it from the account and from every item |
+| `POST /_p99/v1/merge` | actor | `{"items":[key],"into":key}`, at most 50 items; 200 `{"into","merged":[key],"unchanged":[key]}`, as [Merging duplicates](#merging-duplicates) describes |
 | `GET /_p99/v1/hosts` | managers | `{"hosts":[{"host","env","config","created_at"}]}` |
 | `PUT /_p99/v1/hosts/{host}` | the key | `{"env","config"}`; adds or updates a host; 200 host |
 | `DELETE /_p99/v1/hosts/{host}` | the key | 204; its items stay |
@@ -138,13 +140,13 @@ A board's events carry its host, `null` for an account-wide board, which only a 
 - The keys of P99 1.x are still taken wherever a status is: `new` is `inbox`, `confirmed` and `in_progress` are `doing`, `waiting` is `review`, `resolved` is done and `fixed`, `abandoned` and `duplicate` are done with that resolution. Status events written before keep their old keys in `detail`; readers map them the same way.
 - Managers change `status` (with `resolution`), `kind`, `assignee`, `duplicate_of`, `title` and `body`; setting `duplicate_of` alone makes the item done and `duplicate`. The reporter changes `title` and `body` while the item is in `inbox`, sets `done` with `abandoned` on an open item, and `inbox` to reopen a `fixed` one. Every change is one event; a status event's `detail` is `{"from","to","resolution"?,"from_resolution"?}`; a `title` or `body` event keeps the old and new text as `{"from","to"}`, and neither mails anyone. A status change puts the item at the top of its new column.
 - Reporters see their items' statuses in plain words: inbox "Received", doing "In progress", review "In review", and done "Fixed", "Dropped" or "Duplicate" by resolution; managers see the account's names.
-- Everyone but a manager sees only what they reported; internal comments and their files are for managers only.
+- Everyone but a manager sees only what they reported, and the items theirs were merged into; internal comments and their files are for managers only.
 - Managers set `priority` (`urgent`, `high`, `normal`, `low`, or null) and `labels` with `PATCH`: a list sets the item's labels to exactly those, `{"add":[…],"remove":[…]}` changes some. A label name is 1 to 32 letters, digits, spaces or `. _ : + -`, matched without case; adding a name the account doesn't have makes it, with a colour picked from the name. Labels are the account's, shared by every host: 200 per account, 20 per item. Their events are internal, and anyone but a manager reads `priority` as null and `labels` as `[]`.
 - Attachments: 20 MB (20 MiB) each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension). A name ending in an executable or web page extension (`.html`, `.svg`, `.xml`, `.js`, `.exe`, `.bat`, `.sh` and the like) is refused, whatever the type.
 - Limits per person and day: 30 items, 200 comments, 100 MB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing","priority","labels":[{"name","color"}]}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}],"github":[{"kind","rel","repo","number","url","at"}]` (`github` empty for anyone but a manager); a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
+A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing","priority","labels":[{"name","color"}]}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}],"github":[{"kind","rel","repo","number","url","at"}]` (`github` empty for anyone but a manager), and a thread's issue `"merged":[{"key","title","host","reporter"}]`, the items merged into it (for anyone but a manager, only their own); a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, the reporter's `email`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
 
 ## Boards
 
@@ -156,15 +158,25 @@ A board may sit as a card in another board's column, beside items: its `parent` 
 
 `0004_boards.sql` brought the statuses and boards in: every existing item went to its host's home board in the column its old status maps to, the newest at the top.
 
+## Merging duplicates
+
+`p99 merge BUG-14 BUG-15 --into BUG-12` folds reports of the same thing into one item. Each merged item gets `duplicate_of` the target and moves to `done` with resolution `duplicate` (a status event and a live `move`), with a `merge` event on it (`{"into"}`) and on the target (`{"item"}`), and its reporter is mailed the status change. Items already merged into a merged item move to the target too, so a merge stays one level deep; a target that is itself merged answers 409 and names the one to use. A manager scoped to one host (`?host=`) merges that host's items only: an item on another host answers 404. Without `host`, items of several hosts merge.
+
+Every reporter of a merged item follows the target: it shows in their "mine" list and counts, they read its thread and comment on it as any reporter does, and they are mailed its replies, status changes and landings. A follower sees the target's title, status, public comments with their files, events and landings; never its internal notes, its reporter's e-mail, text, page context, marks or capture files. Only the target's own reporter changes or drops it. `p99 show` and the TUI's thread list the items merged into an item, and the panel shows "merged into BUG-12" on each merged one.
+
 ## Environments and landings
 
 An environment is a name with a kind. A `development` environment counts the build of branch `main`; a `release` environment counts its latest announced build, whatever the branch. `p99 announce` (or a host's own build) posts a build with the items its commits name in `Fixes:` and `Refs:` trailers; an item lands in an environment when a counted build there carries a `Fixes:` commit for it, or when an import records a landing there, and the first landing is an event. An environment with `notify` mails the reporter at an item's first landing there, when mail is set up.
 
 `landing` is `{"branch":bool,"envs":[{"env","kind","at","sha","version"}]}` in `position` order, `branch` true when a fix sits only on a branch no counted build carries.
 
+## The fixed feed
+
+Off by default. `p99 feed on <host>` sets the host's `feed` and `https://<host>/_p99/feed` then serves an Atom feed (`?format=json`: a JSON Feed 1.1) of the host's items whose fix reached a `release` environment, newest first, at most 50: each entry carries the key, the kind, the title and the date of the first landing, and nothing else (no reporter, text, page, comments or commits). Anyone may read it, the response is cached at the edge for five minutes, and a host without `feed` answers 404. `p99 feed off <host>` turns it off; `p99 feed` lists each host's feed.
+
 ## Mail
 
-Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter; a first landing in a `notify` environment goes to the reporter. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an agent acting as a person reads as `Ada Lovelace*`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
+Off unless the Worker has `RESEND_API_KEY` and `MAIL_FROM`. New items and comments by non-managers go to every manager; a manager's non-internal comment or status change goes to the reporter and to every reporter of an item merged into it; a first landing in a `notify` environment goes to the same reporters. A manager's own new item mails nobody, and no one is mailed about their own action. Mail goes to Resend as UTF-8 JSON, so subjects and bodies keep their accents; an agent acting as a person reads as `Ada Lovelace*`. Sending never fails a request; each send is an event. Links are `https://<item's host><page path>#p99=<key>`, which opens the panel on that item.
 
 ## Chat hooks
 
@@ -187,7 +199,7 @@ The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the b
 
 ## Host config
 
-`PUT /_p99/v1/hosts/{host}`'s `config` is `{"theme":{…},"strings":{…},"corner","offset":{"x","y"},"above","off":[…]}`, as docs/hosts.md describes. The Worker writes the host's `corner`, `offset`, `above`, `off` and `theme.accent` into the loader it serves for that host (replacing `__P99_HOST__` with that JSON), so the button draws in place before any request; `/_p99/api/me` answers the whole config.
+`PUT /_p99/v1/hosts/{host}`'s `config` is `{"theme":{…},"strings":{…},"corner","offset":{"x","y"},"above","off":[…],"feed"}`, as docs/hosts.md describes. The Worker writes the host's `corner`, `offset`, `above`, `off` and `theme.accent` into the loader it serves for that host (replacing `__P99_HOST__` with that JSON), so the button draws in place before any request; `/_p99/api/me` answers the whole config.
 
 ## Test vector
 

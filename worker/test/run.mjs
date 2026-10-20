@@ -5,6 +5,7 @@ import { mkdirSync, openSync, readFileSync, readdirSync, rmSync, writeFileSync }
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
+import { mergeFeedChecks } from "./merge-feed.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -849,6 +850,8 @@ async function run() {
     const module = await import(`data:text/javascript;base64,${Buffer.from(text).toString("base64")}`);
     for (const name of ["capture", "elementsAt", "context"]) assert.equal(typeof module[name], "function", name);
   });
+
+  await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
 
   console.log(`${passed} checks passed`);
 }
