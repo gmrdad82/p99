@@ -26,3 +26,4 @@ commit/218d97340879:README.md:127 the README line that names password managers t
 commit/218d97340879:docs/config.md:64 the config docs explain secret references to users, as waived at docs/config.md:64
 commit/218d97340879:docs/guides/invite.md:83 the invite guide names password managers for the authenticator setup, as waived at docs/guides/invite.md:124
 commit/218d97340879:src/github.rs:33 the --token-ref help names the reference schemes it reads, as waived at src/github.rs:33
+commit/7d9ba95001ff:worker/test/run.mjs:610 a refused webhook URL with a user part in the hooks test, respelled in a later commit
