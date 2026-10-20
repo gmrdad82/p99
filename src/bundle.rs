@@ -72,6 +72,8 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0012_people.sql"),
 ];
 
+pub const GATED: &[&str] = &["0011", "0012", "0013"];
+
 pub fn modules() -> Vec<Module<'static>> {
     MODULES
         .iter()

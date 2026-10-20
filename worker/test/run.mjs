@@ -9,6 +9,7 @@ import { mergeFeedChecks } from "./merge-feed.mjs";
 import { deleteChecks } from "./delete.mjs";
 import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
+import { migrateChecks } from "./migrate.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -967,6 +968,7 @@ async function run() {
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
+  await migrateChecks({ check, root, work });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);
