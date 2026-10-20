@@ -2,6 +2,13 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.9.1 — 2026-10-21
+
+### Fixed
+
+- Typing in the panel's search no longer leaves it on its loading screen: every search ends in its results, a "No issues match" line, or an error with Retry. The search field keeps its text and focus while it looks.
+- The panel shows it is working while it loads (a soft shimmer and a small spinner by the search field), says so when a load takes longer than a few seconds, and gives up with Retry after 20 seconds.
+
 ## v1.9.0 — 2026-10-20
 
 ### Added
