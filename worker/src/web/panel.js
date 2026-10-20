@@ -19,7 +19,6 @@ const TYPES = {
 };
 const ACCEPTED = new Set(Object.values(TYPES).concat(["text/x-log", "application/x-zip-compressed"]));
 const WORDS = {
-  brand: "Feedback",
   board: "Board",
   close: "Close",
   loading: "Loading…",
@@ -384,7 +383,8 @@ function chrome() {
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
   const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
   const by = me && me.link === false ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
-  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-brand-text" }, h("span", { class: "p99-logo-name", text: o.space || say("brand") }), by)), board, x);
+  const lockup = h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
+  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.space }) : null, by), board, x);
   const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);

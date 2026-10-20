@@ -34,6 +34,7 @@ import avatarSource from "./web/avatar.js";
 import cssSource from "./web/p99.css";
 import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
+import lockupDarkSource from "./web/art/lockup-dark.svg";
 import captureVendor from "./web/vendor/modern-screenshot-4.7.0.js";
 import shotSource from "./web/shot.js";
 
@@ -169,6 +170,7 @@ const STATIC_FILES = {
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
   "/_p99/art/concrete.svg": { source: concreteSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/art/concrete-dark.svg": { source: concreteDarkSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/art/lockup-dark.svg": { source: lockupDarkSource, type: "image/svg+xml; charset=utf-8" },
 };
 
 class Failure extends Error {
