@@ -70,7 +70,6 @@ body {
   font: 16px/var(--p99-leading-normal) var(--p99-font-text);
   transition: border-color var(--p99-motion-hover-out) var(--p99-ease-in-out);
 }
-.app input:hover { border-color: var(--p99-muted); }
 .app input[aria-invalid="true"] { border-color: var(--p99-danger); }
 .app input[name="totp"] { font: var(--p99-weight-bold) var(--p99-text-xl)/1 var(--p99-font-mono); letter-spacing: 0.3em; }
 .app input:focus-visible, .app button:focus-visible, .app a:focus-visible { outline: 2px solid var(--p99-focus); outline-offset: 2px; }
@@ -91,7 +90,7 @@ body {
 }
 .app button:active { transform: translateY(1px) scale(0.985); }
 .app button[disabled] { opacity: 0.7; cursor: progress; }
-.app .app-primary { border-color: var(--p99-accent-solid); background: var(--p99-accent-solid); color: var(--p99-on-accent); }
+.app .app-primary { border-color: var(--p99-accent-ink); background: var(--p99-accent-solid); color: var(--p99-on-accent); }
 .app-error { margin: 0; padding: var(--p99-space-sm) var(--p99-space-md); border-radius: var(--p99-radius-sm); background: var(--p99-danger-zone); color: var(--p99-danger); font-size: var(--p99-text-sm); }
 .app-wait {
   width: min(720px, 100%);
@@ -102,8 +101,9 @@ body {
 }
 @keyframes app-shimmer { from { background-position: -100% 0, 0 0; } to { background-position: 200% 0, 0 0; } }
 @media (hover: hover) {
+  .app input:not([aria-invalid="true"]):hover { border-color: var(--p99-muted); }
   .app button:hover { border-color: var(--p99-muted); }
-  .app .app-primary:hover { border-color: var(--p99-accent-press); background: var(--p99-accent-press); }
+  .app .app-primary:hover { border-color: var(--p99-accent-ink); background: var(--p99-accent-press); }
 }
 @media (max-width: 599px) {
   .app { padding-left: var(--p99-space-md); padding-right: var(--p99-space-md); }

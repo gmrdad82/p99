@@ -58,6 +58,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/p99.css", TEXT),
     worker!("web/app.js", TEXT),
     worker!("web/app.css", TEXT),
+    worker!("web/app-first.css", TEXT),
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
     worker!("web/art/concrete.svg", TEXT),
     worker!("web/art/concrete-dark.svg", TEXT),

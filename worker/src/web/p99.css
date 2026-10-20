@@ -262,11 +262,11 @@
 .p99-panel button:active,
 .p99-mark-bar button:active { transform: translateY(1px) scale(0.985); }
 .p99-panel button[type="submit"] {
-  border-color: var(--p99-accent-solid);
+  border-color: var(--p99-accent-ink);
   background: var(--p99-accent-solid);
   color: var(--p99-on-accent);
 }
-@media (hover: hover) { .p99-panel button[type="submit"]:not([disabled]):hover { border-color: var(--p99-accent-press); background: var(--p99-accent-press); } }
+@media (hover: hover) { .p99-panel button[type="submit"]:not([disabled]):hover { background: var(--p99-accent-press); } }
 .p99-panel button[disabled] { opacity: 0.55; cursor: progress; }
 .p99-panel .p99-x { min-height: 0; padding: 0; border: 0; background: transparent; }
 .p99-view h2 { color: var(--p99-ink); }

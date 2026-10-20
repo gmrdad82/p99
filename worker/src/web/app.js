@@ -27,14 +27,14 @@ const WORDS = {
   sign_out: "Sign out",
 };
 const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
-:host(.app-space) .p99-panel{top:0;left:0;right:0;bottom:0;width:auto;max-height:none;border-radius:0;box-shadow:none;--p99-slide:0px;transform:translateY(12px)}
-:host(.app-space) .p99-panel.is-open{transform:none}
-:host(.app-space) .p99-panel::after{box-shadow:inset 0 4px 0 var(--p99-edge),inset 0 5px 0 rgba(255,255,255,.18)}
-:host(.app-space) .p99-scrim,:host(.app-space) .p99-grip{display:none}
-:host(.app-space) .p99-head{cursor:auto;touch-action:auto;padding:var(--p99-space-md) max(var(--p99-space-sm),calc((100% - 880px)/2)) 0 max(var(--p99-space-lg),calc((100% - 880px)/2 + var(--p99-space-lg)))}
-:host(.app-space) .p99-scroll{padding-left:max(var(--p99-space-lg),calc((100% - 832px)/2));padding-right:max(var(--p99-space-lg),calc((100% - 832px)/2))}
-:host(.app-space) .p99-foot{padding-left:max(var(--p99-space-lg),calc((100% - 832px)/2))}
-@media (prefers-reduced-motion:reduce){:host(.app-space) .p99-panel{transform:none}}`;
+:host(.app-full) .p99-panel{top:0;left:0;right:0;bottom:0;width:auto;max-height:none;border-radius:0;box-shadow:none;--p99-slide:0px;transform:translateY(12px)}
+:host(.app-full) .p99-panel.is-open{transform:none}
+:host(.app-full) .p99-panel::after{box-shadow:inset 0 4px 0 var(--p99-edge),inset 0 5px 0 rgba(255,255,255,.18)}
+:host(.app-full) .p99-scrim,:host(.app-full) .p99-grip{display:none}
+:host(.app-full) .p99-head{cursor:auto;touch-action:auto;padding:var(--p99-space-md) max(var(--p99-space-sm),calc((100% - 880px)/2)) 0 max(var(--p99-space-lg),calc((100% - 880px)/2 + var(--p99-space-lg)))}
+:host(.app-full) .p99-scroll{padding-left:max(var(--p99-space-lg),calc((100% - 832px)/2));padding-right:max(var(--p99-space-lg),calc((100% - 832px)/2))}
+:host(.app-full) .p99-foot{padding-left:max(var(--p99-space-lg),calc((100% - 832px)/2))}
+@media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
 const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0 };
@@ -107,10 +107,14 @@ function waiting(title) {
 
 function failed(e) {
   if (signedOut(e)) return;
-  const again = h("button", { type: "button", text: say("retry"), onclick: route });
-  mount("problem", h("section", { class: "app-card app-problem" },
-    h("p", { class: "app-error", role: "alert", text: problem(e) }),
-    h("div", { class: "app-actions" }, again)), again);
+  const seq = S.seq;
+  styled.then(() => {
+    if (seq !== S.seq) return;
+    const again = h("button", { type: "button", text: say("retry"), onclick: route });
+    mount("problem", h("div", { class: "app-screen" }, bar(""), h("section", { class: "app-card app-problem" },
+      h("p", { class: "app-error", role: "alert", text: problem(e) }),
+      h("div", { class: "app-actions" }, again))), again);
+  });
 }
 
 function avatarModule() {
@@ -317,7 +321,7 @@ function space(host) {
   ++S.seq;
   root.dataset.screen = "space";
   root.replaceChildren(h("div", { class: "app-wait", role: "status", "aria-busy": "true", "aria-label": say("loading") }));
-  const el = h("p99-root", null);
+  const el = h("p99-root", { class: "app-full" });
   const shadow = el.attachShadow({ mode: "closed" });
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(FULL);

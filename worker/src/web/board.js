@@ -104,7 +104,7 @@ const CSS = `
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, menu: null, live: null, say: null, note: null, id: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   if (B.el && B.root !== ctx.root) {
@@ -196,6 +196,7 @@ function remembered() {
 
 function load(id) {
   const seq = ++B.seq;
+  B.want = id ? String(id) : null;
   if (!B.data || (id && String(id) !== B.id)) waiting(id);
   const all = B.boards ? Promise.resolve(B.boards) : B.ctx.call("GET", "/boards").then((r) => (B.boards = (r && r.boards) || []));
   return all.then((boards) => {
@@ -206,6 +207,7 @@ function load(id) {
     }
     return B.ctx.call("GET", "/boards/" + encodeURIComponent(pick.id)).then((d) => {
       if (seq !== B.seq || !B.open || !d || !d.board) return;
+      B.want = null;
       B.id = String(d.board.id);
       try { sessionStorage.setItem("p99:board", B.id); } catch (x) {}
       B.data = d;
@@ -215,6 +217,7 @@ function load(id) {
     if (e && e.status === 401) return close();
     if (e && e.status === 404 && id && seq === B.seq) return load(null);
     if (seq !== B.seq) return;
+    B.want = null;
     if (B.data) {
       if (!B.cols.querySelector(".p99-col[data-label]")) paint();
       note((e && e.message) || t("load_failed"));
@@ -741,7 +744,7 @@ function refresh() {
   B.stale = false;
   clearTimeout(B.reload);
   B.boards = null;
-  return load(B.id);
+  return load(B.want || B.id);
 }
 
 function soon() {

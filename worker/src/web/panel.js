@@ -1203,6 +1203,7 @@ function accent() {
 function legible() {
   const probe = h("i", { hidden: true });
   probe.style.color = accent();
+  if (!probe.style.color) return;
   panel.append(probe);
   const c = getComputedStyle(probe).color;
   probe.remove();
