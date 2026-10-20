@@ -8,6 +8,7 @@ pub use crate::wire::{
 use super::source::Source;
 
 pub const MOVED: &str = "this card moved; refreshed";
+pub const NONE: &str = "no board yet";
 
 impl Board {
     pub fn lane(&self, label: &str) -> Option<usize> {
@@ -144,7 +145,7 @@ impl Source {
                         })
                     })
                     .map(|(account, b)| (account, b.id))
-                    .ok_or_else(|| "no board yet; p99 board makes your first one".to_owned())?;
+                    .ok_or_else(|| NONE.to_owned())?;
                 self.board(Some(first))
             }
             (Source::Broken(why), _) => Err(why.clone()),
