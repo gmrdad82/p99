@@ -33,6 +33,8 @@ p99 boards remove checkout
 
 `--to` takes a status's key or its name, in any case. Without `--before` or `--after`, a card that changes column or board goes to the top. A board without `--host` or `--in` spans every host of the account; one with `--host` holds that host's items only. `p99 boards remove` takes only an empty board, and a host's home board stays.
 
+Managers also give an item a **priority**, `urgent`, `high`, `normal` or `low`, and **labels**, names shared by every host of the account, each with a colour. Lists mark an urgent item `!!`, a high one `!` and a low one `↓`, and show its labels after the title. Reporters never see either.
+
 ## The TUI
 
 ```sh
@@ -50,6 +52,8 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `/` | filter by text as you type; `esc` clears it |
 | `s` | show open, closed or any status, in turn |
 | `h` | show every host, or pick one |
+| `p` | show any priority, or one, or none |
+| `l` | show any label, or only items with one |
 | `r` | read the list again |
 | `?` | every key of the screen |
 | `ctrl+c` twice | quit |
@@ -60,6 +64,8 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `i` | make the next reply internal (managers only see it), or not |
 | `s` | change the status; `duplicate` then asks for the item it duplicates |
 | `a` | assign it to someone, or to no one |
+| `p` | set its priority, or clear it |
+| `l` | put a label on it or take one off; `+ New label…` makes one |
 | `o` | open the item's page in the browser |
 | `↑` `↓`, `space`, `g`, `G` | scroll |
 | `ctrl+r` | read the item again |
@@ -83,6 +89,14 @@ p99 status BUG-14 abandoned
 p99 status BUG-13 duplicate --duplicate-of BUG-12
 p99 assign BUG-12 me
 p99 assign BUG-12 --none
+p99 priority BUG-12 urgent
+p99 label BUG-12 checkout mobile
+p99 unlabel BUG-12 mobile
+p99 list --all --priority urgent --priority high --label checkout
+p99 labels
+p99 labels add copy --color "#57ab5a"
+p99 labels rename copy wording
+p99 labels remove wording
 p99 file example.com --kind task --title "Move product images to the new bucket"
 p99 download 41 -o receipt.png
 ```
@@ -98,7 +112,7 @@ p99 download 41 -o receipt.png
  IMP-5    Doing       shop.example.com Show delivery dates on product pages  -> ada@example.com  landed: dev
 ```
 
-A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
+A `*` before the key marks it unread, `!!`, `!` or `↓` before the title its priority, and `labels:` ends the line when it has some. `--priority` repeats for any of several (`none` is no priority), `--label` for all of several; `p99 label` makes a label the account doesn't have yet, and `p99 labels rename`, `color` and `remove` change it on every item. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
 
 ## JSON for scripts
 

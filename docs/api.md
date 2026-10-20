@@ -32,7 +32,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | --- | --- | --- |
 | `GET /_p99/api/me?path=` | any code | `{"name","email","manager","host","env","version","counts":{"page_open","mine_open","mine_unread","all_open"},"theme":{},"strings":{}}`; `all_open` is null for non-managers; `theme` and `strings` are the host's config; a manager's answer adds `"statuses":[{"key","name","position"}]`, the account's status names |
 | `POST /_p99/api/verify` | a code with an authenticator | `{"totp":"<6 digits>"}`; 201 `{"device":"<32 hex>"}`; the panel stores `<code>.<device>` where the loader keeps the code |
-| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any\|<status>&board=&kind=&q=&cursor=&limit=` | any code; `all` and `board` managers only | `{"issues":[summary],"next_cursor"}`, newest first, this host's items only, `limit` at most 100 (default 50); `board` is a board's slug and keeps the items on that board |
+| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any\|<status>&board=&kind=&q=&cursor=&limit=&priority=&label=` | any code; `all`, `board`, `priority` and `label` managers only | `{"issues":[summary],"next_cursor"}`, newest first, this host's items only, `limit` at most 100 (default 50); `board` is a board's slug and keeps the items on that board; `priority` (`urgent`, `high`, `normal`, `low` or `none`) repeats for any of several, `label` repeats for all of several |
 | `POST /_p99/api/issues` | any code (`task` managers only) | `{"client_uid","kind","title","body","page","context","marks"}`; 201 issue |
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
 | `PATCH /_p99/api/issues/{key}` | as the signed API | 200 issue |
@@ -42,6 +42,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `GET /_p99/api/statuses`, `PUT …/statuses/{key}`, `GET /_p99/api/boards`, `POST`, `GET /_p99/api/boards/{slug}`, `PATCH`, `DELETE`, `POST /_p99/api/move` | managers | as the signed API, over this host's boards; a code that holds every listed host reaches every board, as the key does |
 | `POST /_p99/api/stream-ticket` | managers | 201 `{"ticket":"<48 hex>","expires_in":60}`: a ticket for one WebSocket, used once, within 60 seconds |
 | `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket answers 401 |
+| `GET /_p99/api/labels`, `POST /_p99/api/labels` | managers | as the signed API; the counts are this host's items |
 
 ## The signed API
 
@@ -68,6 +69,10 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `GET /_p99/v1/issues?scope=&path=&status=&kind=&q=&cursor=&limit=` | actor; `all` managers only | as the browser API; with `host=*`, every host's items |
 | `POST /_p99/v1/issues` | actor | as the browser API, plus `"host"`; 201 issue |
 | `GET /_p99/v1/issues/{key}`, `PATCH`, `POST …/comments`, `PUT …/attachments/{uid}`, `GET /_p99/v1/files/{id}` | as the browser API | |
+| `GET /_p99/v1/labels` | managers | `{"labels":[{"name","color","items"}]}` by name, `items` the items in scope that carry it |
+| `POST /_p99/v1/labels` | managers | `{"name","color"?}`; 201 label; a name taken in any case answers 409 |
+| `PATCH /_p99/v1/labels/{name}` | managers, every host | `{"name"?,"color"?}`; 200 label: renames or recolours it on every item |
+| `DELETE /_p99/v1/labels/{name}` | managers, every host | 200 `{"name","items"}`: removes it from the account and from every item |
 | `GET /_p99/v1/hosts` | managers | `{"hosts":[{"host","env","config","created_at"}]}` |
 | `PUT /_p99/v1/hosts/{host}` | the key | `{"env","config"}`; adds or updates a host; 200 host |
 | `DELETE /_p99/v1/hosts/{host}` | the key | 204; its items stay |
@@ -103,13 +108,14 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 | --- | --- | --- |
 | `item` | an item is filed | |
 | `comment` | a comment is added | `internal` |
-| `change` | status, kind, assignee, title or body change | `what`, the fields that changed |
+| `change` | status, kind, assignee, title, body, priority or labels change | `what`, the fields that changed |
 | `attachment` | a file is stored | `internal` |
 | `import` | an import writes records | `items` and `comments`, the counts of new ones; `key` and `title` are null |
 | `move` | an item changes column, board or place | `board` (its board's slug), `from` and `to` (status keys), `position`; a move to another board adds `from_board` |
 | `board.move` | a board card changes column, parent or place | `board`, `parent`, `from`, `to`, `position`; `key` is absent; one `move` follows for each item that changed column with it, in the same message batch |
 | `board` | a board is created, renamed or deleted | `action` (`created`, `renamed`, `deleted`) and `board` |
 | `statuses` | a status is renamed | nothing; every socket hears it |
+| `labels` | a label is made, renamed, recoloured or removed | `action` (`created`, `renamed`, `recolored`, `removed`) and `names`; `key` and `title` are null |
 
 A board's events carry its host, `null` for an account-wide board, which only a socket for every host hears. A reader patches its board in place on `move` and `board.move` and reads it again on anything else. A status change through `PATCH` sends both `change` and `move`.
 
@@ -123,11 +129,12 @@ A board's events carry its host, `null` for an account-wide board, which only a 
 - Managers change `status` (with `resolution`), `kind`, `assignee`, `duplicate_of`, `title` and `body`; setting `duplicate_of` alone makes the item done and `duplicate`. The reporter changes `title` and `body` while the item is in `inbox`, sets `done` with `abandoned` on an open item, and `inbox` to reopen a `fixed` one. Every change is one event; a status event's `detail` is `{"from","to","resolution"?,"from_resolution"?}`; a `title` or `body` event keeps the old and new text as `{"from","to"}`, and neither mails anyone. A status change puts the item at the top of its new column.
 - Reporters see their items' statuses in plain words: inbox "Received", doing "In progress", review "In review", and done "Fixed", "Dropped" or "Duplicate" by resolution; managers see the account's names.
 - Everyone but a manager sees only what they reported; internal comments and their files are for managers only.
+- Managers set `priority` (`urgent`, `high`, `normal`, `low`, or null) and `labels` with `PATCH`: a list sets the item's labels to exactly those, `{"add":[…],"remove":[…]}` changes some. A label name is 1 to 32 letters, digits, spaces or `. _ : + -`, matched without case; adding a name the account doesn't have makes it, with a colour picked from the name. Labels are the account's, shared by every host: 200 per account, 20 per item. Their events are internal, and anyone but a manager reads `priority` as null and `labels` as `[]`.
 - Attachments: 20 MB (20 MiB) each, 30 per item; roles `screenshot`, `page`, `region` (with `mark`), `file`; the type is the body's `Content-Type`, checked against the file's first bytes: PNG, JPEG or WebP for the images; for a `file` also GIF, PDF, `text/plain`, `text/csv`, `text/x-log`, JSON, zip, and Word, Excel, PowerPoint and OpenDocument files (`p99 file --attach` and `p99 comment --attach` pick it from the file's extension). A name ending in an executable or web page extension (`.html`, `.svg`, `.xml`, `.js`, `.exe`, `.bat`, `.sh` and the like) is refused, whatever the type.
 - Limits per person and day: 30 items, 200 comments, 100 MB of files. Managers have none.
 - Search (`q`) matches the title and body with accents and case folded on both sides (`cafe` finds `Café`): the Worker keeps `search_text`, the NFD form of title and body without combining marks, lowercased, and folds `q` the same way. A `q` that is a key also finds that item.
 
-A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing"}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
+A summary is `{"id","key","kind","status","resolution","board","position","title","host","env","page":{"url","path","title"},"reporter":{"email","name","agent"},"assignee","created_at","updated_at","comments","attachments","unread","landing","priority","labels":[{"name","color"}]}`; an issue adds `"body","duplicate_of","closed_at","context","marks","commits":[{"sha","subject","rel","envs"}]`; a comment is `{"id","client_uid","author":{"email","name","manager","agent"},"body","internal","created_at","attachments":[id]}`; an attachment `{"id","client_uid","role","mark","name","type","bytes","sha256","comment_id","created_at"}`; an event `{"actor","actor_name","agent","kind","detail","at"}`, `actor_name` the person's name as the thread, or else the newest code for that e-mail, knows it (null for P99 itself), `agent` true when an agent acting as that person made it; `agent` is always a boolean. `board` (the slug of the item's board) and `position` show to managers only; `assignee`, event actors' e-mails (and the `from` and `to` of an assignee event) and a comment author's `email` show to managers only: for anyone else they are null, unless they are that person's own.
 
 ## Boards
 

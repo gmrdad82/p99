@@ -13,6 +13,7 @@ import {
   postStreamTicket,
   useKit,
 } from "./boards.js";
+import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatement, labelsByItem, tagsOf } from "./labels.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import cssSource from "./web/p99.css";
@@ -121,6 +122,8 @@ const BACKUP_TABLES = [
   { name: "codes", size: "length(hosts_json) + 400" },
   { name: "boards", size: "length(name) + 200" },
   { name: "statuses", size: "100" },
+  { name: "labels", size: "length(name) + 100" },
+  { name: "item_labels", size: "50" },
 ];
 const BACKUP_PAGE_ROWS = 1000;
 const BACKUP_PAGE_BYTES = 128 * 1024;
@@ -783,6 +786,7 @@ function summaryOf(row, c, lc) {
     attachments: c.manager ? row.attachment_count : row.public_attachment_count,
     unread: Boolean(row.unread),
     landing: landingOf(row.id, lc),
+    ...tagsOf(row, c),
   };
 }
 
@@ -868,9 +872,11 @@ async function issueResponse(c, id, status) {
   const results = await c.env.DB.batch([
     c.env.DB.prepare(`${ITEM_SELECT} WHERE i.id = ?1`).bind(id),
     ...landingStatements(c.env, [id]),
+    labelRowsStatement(c.env.DB, [id]),
   ]);
   const row = results[0].results[0];
-  return json(status, issueOf({ ...row, unread: 0 }, c, landingContext(results.slice(1), c.dir)));
+  const labels = labelsByItem(results[4]).get(id);
+  return json(status, issueOf({ ...row, unread: 0, labels }, c, landingContext(results.slice(1, 4), c.dir)));
 }
 
 function pageLink(row) {
@@ -1422,6 +1428,7 @@ async function listIssues(c) {
   }
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
+  labelFilters(c, params, q, where);
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1463,7 +1470,7 @@ async function listIssues(c) {
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
   const sql = `SELECT i.id, i.kind, i.status, i.resolution, i.position, i.title, i.host, i.origin_env, i.page_url, i.page_path,
       i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at,
-      i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, b.slug AS board_slug,
+      i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, i.priority, b.slug AS board_slug,
       ${activity} > COALESCE(r.read_at, '') AS unread
     FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id LEFT JOIN boards b ON b.id = i.board_id
     ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
@@ -1472,10 +1479,12 @@ async function listIssues(c) {
     .bind(...q.binds)
     .all();
   const page = results.slice(0, limit);
-  const lc =
-    page.length > 0
-      ? landingContext(await c.env.DB.batch(landingStatements(c.env, page.map((row) => row.id))), c.dir)
-      : emptyLandingContext(c.dir);
+  const ids = page.map((row) => row.id);
+  const tagged = c.manager ? [labelRowsStatement(c.env.DB, ids)] : [];
+  const extra = page.length > 0 ? await c.env.DB.batch([...landingStatements(c.env, ids), ...tagged]) : [];
+  const lc = page.length > 0 ? landingContext(extra.slice(0, 3), c.dir) : emptyLandingContext(c.dir);
+  const labels = labelsByItem(extra[3]);
+  for (const row of page) row.labels = labels.get(row.id);
   return json(200, {
     issues: page.map((row) => summaryOf(row, c, lc)),
     next_cursor: results.length > limit ? String(page[page.length - 1].id) : null,
@@ -1625,6 +1634,7 @@ async function getIssue(c, rawKey) {
        FROM events WHERE item_id = ?1${visible} ORDER BY id`,
     ).bind(id),
     ...landingStatements(c.env, [id]),
+    labelRowsStatement(DB, [id]),
     DB.prepare(
       `INSERT INTO reads (actor_email, item_id, read_at)
        SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR reporter_email = ?1)
@@ -1634,6 +1644,7 @@ async function getIssue(c, rawKey) {
   const row = allowedItem(c, results[0].results[0] ?? null);
   const [comments, attachments, events] = results.slice(1, 4).map((r) => r.results);
   const lc = landingContext(results.slice(4, 7), c.dir);
+  row.labels = labelsByItem(results[7]).get(id);
   const byComment = new Map();
   for (const a of attachments) {
     if (a.comment_id === null) continue;
@@ -1653,6 +1664,7 @@ async function getIssue(c, rawKey) {
 async function patchIssue(c, rawKey) {
   const body = await readJson(c, MAX_JSON_BYTES);
   const row = await loadItem(c, rawKey);
+  const tagged = await labelChanges(c, row, body);
   const reporter = row.reporter_email === c.actor.email;
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
   const next = {
@@ -1740,7 +1752,7 @@ async function patchIssue(c, rawKey) {
   }
   if (next.title !== row.title) statements.push(eventStatement(c, row.id, actor, "title", { from: row.title, to: next.title }));
   if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "body", { from: row.body, to: next.body }));
-  if (statements.length === 0) return issueResponse(c, row.id, 200);
+  if (statements.length === 0 && tagged.what.length === 0) return issueResponse(c, row.id, 200);
 
   const open = OPEN_STATUSES.has(next.status);
   const closedAt = open ? null : row.open ? c.now : row.closed_at;
@@ -1769,10 +1781,10 @@ async function patchIssue(c, rawKey) {
       moved ? 1 : 0,
     ),
   );
-  statements.push(readStatement(c, row.id));
+  statements.push(...tagged.statements, readStatement(c, row.id));
   const done = await c.env.DB.batch(statements);
   push(c, "change", { ...row, kind: next.kind, title: next.title }, {
-    what: ["status", "resolution", "kind", "assignee", "title", "body"].filter((f) => next[f] !== (row[f] ?? null)),
+    what: ["status", "resolution", "kind", "assignee", "title", "body"].filter((f) => next[f] !== (row[f] ?? null)).concat(tagged.what),
   });
   if (moved) {
     push(c, "move", { ...row, kind: next.kind, title: next.title }, {
@@ -3014,6 +3026,20 @@ async function putImportAttachment(c, rawUid) {
   return json(201, attachmentOf({ ...reserved, sha256 }));
 }
 
+bindLabels({
+  MAX_JSON_BYTES,
+  clean,
+  eventStatement,
+  fail,
+  isObject,
+  isUniqueViolation,
+  json,
+  push,
+  readJson,
+  requireEmptyBody,
+  requireManager,
+});
+
 const ITEM_ROUTES = [
   ["GET", /^\/issues$/, listIssues],
   ["POST", /^\/issues$/, createIssue],
@@ -3030,6 +3056,7 @@ const BROWSER_ROUTES = [
   ...ITEM_ROUTES,
   ...BOARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
+  ...LABEL_ROUTES,
 ];
 
 const SIGNED_ROUTES = [
@@ -3052,6 +3079,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/import$/, postImport, {}],
   ["POST", /^\/import\/finish$/, finishImport, {}],
   ["PUT", /^\/import\/attachments\/([^/]+)$/, putImportAttachment, {}],
+  ...LABEL_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
 ];
 
 useKit({

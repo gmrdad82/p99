@@ -11,7 +11,7 @@ use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
     Attachment, Board, BoardView, Boards, Build, Change, Code, Comment, Download, EnvEntry,
-    HostEntry, ImportFinish, ImportReport, Issue, IssueList, ListQuery, Minted, Move, Moved,
+    HostEntry, ImportFinish, ImportReport, Issue, IssueList, Label, ListQuery, Minted, Move, Moved,
     NewBoard, NewCode, NewIssue, StatusEntry, Thread,
 };
 
@@ -118,20 +118,55 @@ impl Client {
     }
 
     pub fn list(&self, q: &ListQuery) -> Result<IssueList, String> {
-        let pq = format!(
-            "/v1/issues{}",
-            query(&[
-                ("host", q.host.clone()),
-                ("scope", Some(q.scope.clone())),
-                ("path", q.path.clone()),
-                ("status", q.status.clone()),
-                ("kind", q.kind.clone()),
-                ("q", q.q.clone()),
-                ("cursor", q.cursor.clone()),
-                ("limit", Some(q.limit.clamp(1, 100).to_string())),
-            ])
-        );
+        let mut pairs = vec![
+            ("host", q.host.clone()),
+            ("scope", Some(q.scope.clone())),
+            ("path", q.path.clone()),
+            ("status", q.status.clone()),
+            ("kind", q.kind.clone()),
+            ("q", q.q.clone()),
+            ("cursor", q.cursor.clone()),
+            ("limit", Some(q.limit.clamp(1, 100).to_string())),
+        ];
+        pairs.extend(q.priority.iter().map(|p| ("priority", Some(p.clone()))));
+        pairs.extend(q.label.iter().map(|l| ("label", Some(l.clone()))));
+        let pq = format!("/v1/issues{}", query(&pairs));
         self.json("GET", &pq, None)
+    }
+
+    pub fn labels(&self) -> Result<Vec<Label>, String> {
+        let list: Value = self.json("GET", "/v1/labels", None)?;
+        field(list, "labels")
+    }
+
+    pub fn add_label(&self, name: &str, color: Option<&str>) -> Result<Label, String> {
+        self.json(
+            "POST",
+            "/v1/labels",
+            Some(json!({"name": name, "color": color})),
+        )
+    }
+
+    pub fn change_label(
+        &self,
+        name: &str,
+        to: Option<&str>,
+        color: Option<&str>,
+    ) -> Result<Label, String> {
+        let mut body = json!({});
+        if let Some(to) = to {
+            body["name"] = json!(to);
+        }
+        if let Some(color) = color {
+            body["color"] = json!(color);
+        }
+        let pq = format!("/v1/labels/{}", encode(name));
+        self.json("PATCH", &pq, Some(body))
+    }
+
+    pub fn remove_label(&self, name: &str) -> Result<Value, String> {
+        let pq = format!("/v1/labels/{}", encode(name));
+        self.json("DELETE", &pq, None)
     }
 
     pub fn thread(&self, key: &str) -> Result<Thread, String> {

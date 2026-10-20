@@ -1,3 +1,5 @@
+import { boardLabelsStatement, labelRowsStatement, labelsByItem } from "./labels.js";
+
 export const STATUSES = ["inbox", "doing", "review", "done"];
 export const OPEN_STATUSES = new Set(["inbox", "doing", "review"]);
 export const RESOLUTIONS = ["fixed", "abandoned", "duplicate"];
@@ -19,7 +21,7 @@ const SLUG = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 const ITEM_COLUMNS = `i.id, i.kind, i.title, i.host, i.status, i.resolution, i.open, i.board_id, i.position, i.duplicate_of,
-  i.assignee, i.reporter_email, i.reporter_name, i.reporter_agent, i.origin_env, i.page_path, i.closed_at`;
+  i.assignee, i.reporter_email, i.reporter_name, i.reporter_agent, i.origin_env, i.page_path, i.closed_at, i.priority`;
 
 let K = null;
 
@@ -257,10 +259,12 @@ export async function getBoard(c, rawSlug) {
     DB.prepare(
       `SELECT ${ITEM_COLUMNS} FROM items i WHERE i.board_id = (SELECT id FROM boards WHERE slug = ?1) AND (?2 OR i.host = ?3)`,
     ).bind(slug, v.all ? 1 : 0, v.host),
+    boardLabelsStatement(DB, slug),
   ]);
   const board = boardIn(tree, slug);
+  const labels = labelsByItem(tree.extra[1]);
   const cards = [
-    ...tree.extra[0].results.map(itemCard),
+    ...tree.extra[0].results.map((row) => itemCard({ ...row, labels: labels.get(row.id) })),
     ...(tree.kids.get(board.id) || []).map((id) => boardCard(tree, tree.byId.get(id))),
   ].sort(cardOrder(tree.statuses));
   return K.json(200, { statuses: tree.statuses, board: boardOf(tree, board), cards });
@@ -471,7 +475,8 @@ export async function moveItem(c, row, opts = {}) {
   const statusChanged = to !== row.status || resolution !== (row.resolution ?? null);
   const boardChanged = board.id !== row.board_id;
   if (!statusChanged && !boardChanged && !target) {
-    return { moved: itemCard({ ...row, status: to, resolution }), changed: [] };
+    const labels = labelsByItem(await labelRowsStatement(DB, [row.id]).all()).get(row.id);
+    return { moved: itemCard({ ...row, status: to, resolution, labels }), changed: [] };
   }
   const place =
     !target && !boardChanged && to === row.status
@@ -499,8 +504,9 @@ export async function moveItem(c, row, opts = {}) {
     statements.push(K.eventStatement(c, row.id, actor, "status", detail));
   }
   if (boardChanged) statements.push(K.eventStatement(c, row.id, actor, "board", { from: current.slug, to: board.slug }, true));
-  await DB.batch(statements);
-  const moved = { ...row, status: to, resolution, open: open ? 1 : 0, board_id: board.id, position: place.position };
+  const done = await DB.batch([...statements, labelRowsStatement(DB, [row.id])]);
+  const labels = labelsByItem(done[done.length - 1]).get(row.id);
+  const moved = { ...row, status: to, resolution, open: open ? 1 : 0, board_id: board.id, position: place.position, labels };
   pushOf(c, {
     type: "move",
     key,
