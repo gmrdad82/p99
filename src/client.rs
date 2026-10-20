@@ -10,9 +10,9 @@ use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
-    Attachment, Board, BoardView, Boards, Build, Change, Code, Comment, Download, EnvEntry,
-    HostEntry, ImportFinish, ImportReport, Issue, IssueList, Label, ListQuery, Member, Minted,
-    Move, Moved, NewBoard, NewCode, NewIssue, StatusEntry, Thread,
+    Attachment, BoardSpec, BoardView, Boards, Build, Change, Code, Comment, Download, EnvEntry,
+    HostEntry, ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards,
+    LanePage, ListQuery, Member, Minted, Move, MoveTo, Moved, MovedCard, NewCode, NewIssue, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -128,45 +128,45 @@ impl Client {
             ("cursor", q.cursor.clone()),
             ("limit", Some(q.limit.clamp(1, 100).to_string())),
         ];
-        pairs.extend(q.priority.iter().map(|p| ("priority", Some(p.clone()))));
         pairs.extend(q.label.iter().map(|l| ("label", Some(l.clone()))));
         let pq = format!("/v1/issues{}", query(&pairs));
         self.json("GET", &pq, None)
     }
 
-    pub fn labels(&self) -> Result<Vec<Label>, String> {
-        let list: Value = self.json("GET", "/v1/labels", None)?;
+    pub fn label_list(&self) -> Result<Vec<LabelEntry>, String> {
+        let list: Value = self.json("GET", &self.scoped("/v1/labels"), None)?;
         field(list, "labels")
     }
 
-    pub fn add_label(&self, name: &str, color: Option<&str>) -> Result<Label, String> {
+    pub fn rename_label(&self, id: i64, name: &str) -> Result<LabelEntry, String> {
         self.json(
-            "POST",
-            "/v1/labels",
-            Some(json!({"name": name, "color": color})),
+            "PATCH",
+            &format!("/v1/labels/{id}"),
+            Some(json!({ "name": name })),
         )
     }
 
-    pub fn change_label(
-        &self,
-        name: &str,
-        to: Option<&str>,
-        color: Option<&str>,
-    ) -> Result<Label, String> {
-        let mut body = json!({});
-        if let Some(to) = to {
-            body["name"] = json!(to);
-        }
-        if let Some(color) = color {
-            body["color"] = json!(color);
-        }
-        let pq = format!("/v1/labels/{}", encode(name));
-        self.json("PATCH", &pq, Some(body))
+    pub fn lanes(&self) -> Result<LaneBoards, String> {
+        self.json("GET", &self.scoped("/v1/boards"), None)
     }
 
-    pub fn remove_label(&self, name: &str) -> Result<Value, String> {
-        let pq = format!("/v1/labels/{}", encode(name));
-        self.json("DELETE", &pq, None)
+    pub fn lane(&self, id: i64) -> Result<LanePage, String> {
+        self.json("GET", &self.scoped(&format!("/v1/boards/{id}")), None)
+    }
+
+    pub fn add_lane_board(&self, spec: &BoardSpec) -> Result<LaneBoard, String> {
+        let body = serde_json::to_value(spec).map_err(|e| e.to_string())?;
+        self.json("POST", &self.scoped("/v1/boards"), Some(body))
+    }
+
+    pub fn set_lane_board(&self, id: i64, spec: &BoardSpec) -> Result<LaneBoard, String> {
+        let body = serde_json::to_value(spec).map_err(|e| e.to_string())?;
+        self.json("PUT", &self.scoped(&format!("/v1/boards/{id}")), Some(body))
+    }
+
+    pub fn move_to(&self, request: &MoveTo) -> Result<MovedCard, String> {
+        let body = serde_json::to_value(request).map_err(|e| e.to_string())?;
+        self.json("POST", &self.scoped("/v1/move"), Some(body))
     }
 
     pub fn thread(&self, key: &str) -> Result<Thread, String> {
@@ -363,17 +363,6 @@ impl Client {
         parse(&reply)
     }
 
-    pub fn statuses(&self) -> Result<Vec<StatusEntry>, String> {
-        let list: Value = self.json("GET", &self.scoped("/v1/statuses"), None)?;
-        field(list, "statuses")
-    }
-
-    pub fn rename_status(&self, key: &str, name: &str) -> Result<Vec<StatusEntry>, String> {
-        let pq = self.scoped(&format!("/v1/statuses/{}", segment(key)?));
-        let list: Value = self.json("PUT", &pq, Some(json!({ "name": name })))?;
-        field(list, "statuses")
-    }
-
     pub fn boards(&self) -> Result<Boards, String> {
         self.json("GET", &self.scoped("/v1/boards"), None)
     }
@@ -381,22 +370,6 @@ impl Client {
     pub fn board(&self, slug: &str) -> Result<BoardView, String> {
         let pq = self.scoped(&format!("/v1/boards/{}", segment(slug)?));
         self.json("GET", &pq, None)
-    }
-
-    pub fn add_board(&self, board: &NewBoard) -> Result<Board, String> {
-        let body = serde_json::to_value(board).map_err(|e| e.to_string())?;
-        self.json("POST", &self.scoped("/v1/boards"), Some(body))
-    }
-
-    pub fn rename_board(&self, slug: &str, name: &str) -> Result<Board, String> {
-        let pq = self.scoped(&format!("/v1/boards/{}", segment(slug)?));
-        self.json("PATCH", &pq, Some(json!({ "name": name })))
-    }
-
-    pub fn remove_board(&self, slug: &str) -> Result<(), String> {
-        let pq = self.scoped(&format!("/v1/boards/{}", segment(slug)?));
-        self.send("DELETE", &pq, true, false, &[], TIMEOUT)
-            .map(|_| ())
     }
 
     pub fn move_card(&self, request: &Move) -> Result<Moved, String> {

@@ -39,6 +39,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("worker.js", ES),
     worker!("mail.js", ES),
     worker!("boards.js", ES),
+    worker!("order.js", ES),
     worker!("labels.js", ES),
     worker!("hooks.js", ES),
     worker!("github.js", ES),
@@ -72,6 +73,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0008_mail.sql"),
     migration!("0009_merge.sql"),
     migration!("0010_deletions.sql"),
+    migration!("0011_lanes.sql"),
     migration!("0012_people.sql"),
     migration!("0013_app.sql"),
 ];

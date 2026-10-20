@@ -72,13 +72,13 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 ## In your terminal
 
-**The inbox.** `p99` (or `p99 tui`) shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row, narrowed by priority or label. Open a thread to read it, reply, add an internal note, change the status, set its priority and labels, or assign it. People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
+**The inbox.** `p99` (or `p99 tui`) shows every item across your sites and Cloudflare accounts, or one site at a time, with its host on every row. Open a thread to read it, reply, add an internal note, or assign it. People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
 
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists items from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the status set to resolved, and the view switches to one host."></p>
 
 <p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace* (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role, the code's last four characters, when it was last used, and whether it is active."></p>
 
-**Boards.** Every item sits on one board, in the column of its status, and a board can sit as a card in another board's column. Moving a board card moves everything on it, nested boards included. The Board tab of `p99 tui` drags cards with the keys (Space to pick up, the arrows, Enter to drop) or the mouse, and `p99 move` does the same from a script or an agent: `p99 move BUG-12 --to doing`, `p99 move board:site-v2 --to done`. `p99 boards`, `p99 board <slug>` and `p99 statuses` list and rename them, with `--json`.
+**Boards.** Every item carries one label, its state, and a board is one manager's columns of labels, in that person's order: the top matters most, and there is no priority field to fill. Moving a card gives the item that column's label, so it shows on every board with that column; a shared label is a handoff between people. Others watch a board read-only. `p99 move BUG-12 --to Doing` does it from a script or an agent; `p99 boards`, `p99 board` and `p99 labels` list them, with `--json`.
 
 **A CLI for people and agents.** Every command answers `--json`. An agent acting for you runs with `--agent` (or `P99_AGENT=1`), and its items, comments and changes show as your name with an asterisk, `Ada Lovelace*`, so your words and your agent's never look alike.
 
@@ -86,12 +86,12 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 p99 list --all --status open
 p99 show BUG-12
 p99 comment BUG-12 "Fixed on dev, can you check?"
-p99 move BUG-12 --to done
+p99 move BUG-12 --to Done
 ```
 
 <p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first item's JSON: key, kind, status, title, host, env, page, reporter, counts and landing."></p>
 
-**Changes arrive live.** A new item, a comment, a change of status, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open inbox and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new items as they come.
+**Changes arrive live.** A new item, a comment, a change of label, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open inbox and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new items as they come.
 
 ```
 $ p99 watch --host shop.example.com
@@ -102,15 +102,15 @@ BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 
 **Where a fix landed.** `p99 announce` reads your commits' `Fixes: BUG-12` and `Refs: FEAT-3` trailers and tells P99 which environment a build reached. Each item then shows when its fix is on dev and in production, and its reporter can be told when it ships. `p99 feed on <host>` also publishes the fixed items as an Atom or JSON feed on the site, with keys, kinds, titles and dates only.
 
-**One item for the same report.** `p99 merge BUG-14 BUG-15 --into BUG-12` folds duplicates into one item. Their reporters follow it: they read its public thread in the panel and get its replies, status changes and landings by mail.
+**One item for the same report.** `p99 merge BUG-14 BUG-15 --into BUG-12` folds duplicates into one item. Their reporters follow it: they read its public thread in the panel and get its replies, its closing and its landings by mail.
 
 **Delete for good.** `p99 delete BUG-12`, `d` in the TUI or the panel's Delete under Manage removes an item with its comments, notes and every stored file; managers only.
 
 **GitHub, kept small.** `p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN` links a site to a repository: `p99 github open BUG-12` opens a GitHub issue for the item, and when a pull request carrying `Fixes: BUG-12` merges, or that issue is closed, the item is marked fixed ([the GitHub guide](docs/guides/github.md)).
 
-**Slack and Discord.** `p99 hooks set example.com --slack <webhook URL>` posts the site's new items, comments, status changes and shipped fixes to a channel, with no app to install; the URL is kept sealed and never shown again ([docs/hosts.md](docs/hosts.md)).
+**Slack and Discord.** `p99 hooks set example.com --slack <webhook URL>` posts the site's new items, comments, closed items and shipped fixes to a channel, with no app to install; the URL is kept sealed and never shown again ([docs/hosts.md](docs/hosts.md)).
 
-**Mail for reporters.** With `p99 email set --provider resend --key-ref env:RESEND_KEY --from p99@example.com`, a reporter gets a mail when someone replies, when the status changes and when the fix ships, in the site's colours with a plain-text part. Each mail's link opens the item straight in the panel, and one click stops mail about that item.
+**Mail for reporters.** With `p99 email set --provider resend --key-ref env:RESEND_KEY --from p99@example.com`, a reporter gets a mail when someone replies, when the item is closed or reopened and when the fix ships, in the site's colours with a plain-text part. Each mail's link opens the item straight in the panel, and one click stops mail about that item.
 
 **Setup that explains itself.** `p99 setup` says which Cloudflare API token to create, where, and why each permission is needed. It checks the token and every permission, then creates the D1 database, the R2 bucket, the key, the Worker and a route for each site, showing its progress. It ends with what exists and the command to run next. It is safe to run again, and a second Cloudflare account goes in beside the first. `p99 deploy` uploads a new version later, keeping every secret.
 

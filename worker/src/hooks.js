@@ -9,7 +9,6 @@ const SLACK_PATH = /^\/services\/[A-Za-z0-9]{1,64}\/[A-Za-z0-9]{1,64}\/[A-Za-z0-
 const DISCORD_HOSTS = new Set(["discord.com", "discordapp.com"]);
 const DISCORD_PATH = /^\/api(?:\/v\d{1,2})?\/webhooks\/\d{1,25}\/[A-Za-z0-9_-]{1,128}$/;
 const TEST_ORIGIN = /^http:\/\/127\.0\.0\.1:\d{1,5}$/;
-const STATUS_NAMES = { inbox: "Inbox", doing: "Doing", review: "Review", done: "Done" };
 const KIND_NAMES = { bug: "Bug", feature: "Feature", improvement: "Improvement", question: "Question", task: "Task" };
 const encoder = new TextEncoder();
 
@@ -243,23 +242,16 @@ function accentOf(dir, host) {
   return parseInt(digits, 16);
 }
 
-async function statusNames(env) {
-  const names = { ...STATUS_NAMES };
-  const { results } = await env.DB.prepare("SELECT key, name FROM statuses").all();
-  for (const r of results) if (r.key in names && r.name) names[r.key] = r.name;
-  return names;
+function statusName(row) {
+  const name = String(row.label);
+  return !row.open && row.resolution && row.resolution !== "fixed" ? `${name} (${row.resolution})` : name;
 }
 
-function statusName(names, row) {
-  const name = names[row.status] ?? String(row.status);
-  return row.status === "done" && row.resolution && row.resolution !== "fixed" ? `${name} (${row.resolution})` : name;
-}
-
-function headline(entry, row, names) {
+function headline(entry, row) {
   const by = actorName(entry.by);
   if (entry.event === "new") return `New, by ${by}`;
   if (entry.event === "comment") return `Comment by ${by}`;
-  if (entry.event === "status") return `Moved to ${statusName(names, row)} by ${by}`;
+  if (entry.event === "status") return `Moved to ${statusName(row)} by ${by}`;
   return `Shipped to ${entry.env}${entry.version ? ` ${entry.version}` : ""}`;
 }
 
@@ -369,16 +361,16 @@ export async function flushHooks(c, kit) {
       let event = null;
       if (e.type === "item") event = "new";
       else if (e.type === "comment" && !e.internal) event = "comment";
-      else if (e.type === "move" && e.from !== e.to) event = "status";
+      else if (e.type === "label" && e.done) event = "status";
       if (event && wants(e.host ?? null, event)) add(event, kit.parseKey(e.key), e);
     }
     if (entries.length === 0) return;
-    const [items, names] = await Promise.all([
-      c.env.DB.prepare("SELECT id, kind, title, status, resolution, host, page_path FROM items WHERE id IN (SELECT value FROM json_each(?1))")
-        .bind(JSON.stringify([...new Set(entries.map((x) => x.id))]))
-        .all(),
-      statusNames(c.env),
-    ]);
+    const items = await c.env.DB.prepare(
+      `SELECT i.id, i.kind, i.title, l.name AS label, i.open, i.resolution, i.host, i.page_path FROM items i
+       JOIN labels l ON l.id = i.label_id WHERE i.id IN (SELECT value FROM json_each(?1))`,
+    )
+      .bind(JSON.stringify([...new Set(entries.map((x) => x.id))]))
+      .all();
     const rows = new Map(items.results.map((r) => [r.id, r]));
     const sends = [];
     for (const hook of hooks) {
@@ -394,7 +386,7 @@ export async function flushHooks(c, kit) {
           key: kit.keyOf(row.kind, row.id),
           title: row.title,
           link: kit.pageLink(row),
-          meta: `${headline(x, row, names)} · ${kind} · ${statusName(names, row)}`,
+          meta: `${headline(x, row)} · ${kind} · ${statusName(row)}`,
         };
       });
       const more = mine.length - lines.length;

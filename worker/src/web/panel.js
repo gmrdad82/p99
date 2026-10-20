@@ -8,8 +8,6 @@ const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const CHOICES = ["inbox", "doing", "review", "done:fixed", "done:abandoned", "done:duplicate"];
 const LEGACY = { new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
-const PRIORITIES = ["urgent", "high", "normal", "low"];
-const MARKS = { urgent: "!!", high: "!", low: "↓" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
 const TYPES = {
@@ -125,15 +123,7 @@ const WORDS = {
   event_merge: "merged {item} into this",
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
-  event_priority: "set the priority to {to}",
-  event_priority_none: "cleared the priority",
   event_labels: "changed the labels: {list}",
-  priority: "Priority",
-  priority_none: "None",
-  priority_urgent: "Urgent",
-  priority_high: "High",
-  priority_normal: "Normal",
-  priority_low: "Low",
   labels: "Labels",
   label_new: "Add a label",
   label_make: "Create “{name}”",
@@ -574,8 +564,6 @@ function statusWord(s, r) {
 function choiceWord(c) { const [key, res] = c.split(":"); return statusWord(key, res); }
 function statusPill(s, r) { return pill("p99-status", "data-status", choiceOf(s, r).replace(":", "-"), statusWord(s, r)); }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
-function rankMark(p) { return MARKS[p] ? h("span", { class: "p99-rank", "data-priority": p, title: say("priority_" + p), text: MARKS[p] }) : null; }
-function rankPill(p) { return p ? pill("p99-kind p99-rank-pill", "data-priority", p, (MARKS[p] ? MARKS[p] + " " : "") + say("priority_" + p)) : null; }
 function tagChip(t) {
   const e = h("span", { class: "p99-tag", text: t.name });
   if (/^#[0-9a-f]{6}$/i.test(t.color || "")) e.style.setProperty("--p99-tag", t.color);
@@ -682,7 +670,6 @@ function row(r) {
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": r.status, "data-kind": r.kind, "data-unread": !!r.unread },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
-      rankMark(r.priority),
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
@@ -739,7 +726,7 @@ function thread(t) {
   const view = h("article", { class: "p99-view", "data-view": "item", "data-status": i.status, "data-kind": i.kind },
     h("header", { class: "p99-item-head" },
       back(),
-      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution), " ", rankPill(i.priority), tagChips(i.labels)),
+      h("p", { class: "p99-labels" }, h("span", { class: "p99-key", text: i.key }), " ", kindPill(i.kind), " ", statusPill(i.status, i.resolution), " ", tagChips(i.labels)),
       h("h2", { id: "p99-title", text: i.title }),
       h("p", { class: "p99-meta" }, meta),
       pageLink),
@@ -784,7 +771,6 @@ function eventText(ev) {
   if (ev.kind === "status") return say("event_status", { from: obj.from ? statusWord(obj.from, obj.from_resolution) : "", to: obj.to ? statusWord(obj.to, obj.resolution) : "" });
   if (ev.kind === "kind") return say("event_kind", { from: label("kind", obj.from), to: label("kind", obj.to) });
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
-  if (ev.kind === "priority") return obj.to ? say("event_priority", { to: say("priority_" + obj.to) }) : say("event_priority_none");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
@@ -993,7 +979,6 @@ function manageForm(i) {
     h("label", null, h("span", { text: say("filter_kind") }), h("select", { name: "kind" }, options(KINDS, (k) => say("kind_" + k), i.kind))),
     assigneePick(i),
     duplicatePick(i),
-    h("label", null, h("span", { text: say("priority") }), h("select", { name: "priority" }, [""].concat(PRIORITIES).map((p) => h("option", { value: p, selected: (i.priority || "") === p, text: say("priority_" + (p || "none")) })))),
     tagPicker(i),
     statusLine(),
     h("button", { type: "submit", text: say("save") }));
@@ -1007,7 +992,6 @@ function manageForm(i) {
       if (res) data.resolution = res;
     }
     if ("assignee" in data && !data.assignee) data.assignee = null;
-    if ("priority" in data) data.priority = data.priority || null;
     const picked = form.querySelector(".p99-tag-pick").p99Picked.map((t) => t.name);
     const key = (list) => Array.from(new Set(list.map((n) => n.toLowerCase()))).sort().join("\n");
     if (key(picked) !== key((i.labels || []).map((t) => t.name))) data.labels = picked;

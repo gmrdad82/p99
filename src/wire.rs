@@ -77,7 +77,12 @@ pub struct Summary {
     pub id: i64,
     pub key: String,
     pub kind: String,
+    #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub label: Option<String>,
     #[serde(default)]
     pub resolution: Option<String>,
     #[serde(default)]
@@ -108,8 +113,6 @@ pub struct Summary {
     #[serde(default)]
     pub landing: Landing,
     #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
     pub labels: Vec<Tag>,
 }
 
@@ -121,41 +124,11 @@ pub struct Tag {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Label {
-    pub name: String,
-    #[serde(default)]
-    pub color: String,
-    #[serde(default)]
-    pub items: i64,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LabelEdit {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub add: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove: Vec<String>,
-}
-
-pub const PRIORITIES: [&str; 4] = ["urgent", "high", "normal", "low"];
-
-pub fn priority_word(priority: &str) -> &str {
-    match priority {
-        "urgent" => "Urgent",
-        "high" => "High",
-        "normal" => "Normal",
-        "low" => "Low",
-        other => other,
-    }
-}
-
-pub fn priority_mark(priority: Option<&str>) -> &'static str {
-    match priority {
-        Some("urgent") => "!!",
-        Some("high") => "!",
-        Some("low") => "↓",
-        _ => "",
-    }
 }
 
 pub fn rgb(color: &str) -> Option<(u8, u8, u8)> {
@@ -184,7 +157,12 @@ pub struct Issue {
     pub id: i64,
     pub key: String,
     pub kind: String,
+    #[serde(default)]
     pub status: String,
+    #[serde(default)]
+    pub stage: String,
+    #[serde(default)]
+    pub label: Option<String>,
     #[serde(default)]
     pub resolution: Option<String>,
     #[serde(default)]
@@ -226,8 +204,6 @@ pub struct Issue {
     pub marks: Vec<Value>,
     #[serde(default)]
     pub commits: Vec<CommitRef>,
-    #[serde(default)]
-    pub priority: Option<String>,
     #[serde(default)]
     pub labels: Vec<Tag>,
     #[serde(default)]
@@ -568,8 +544,6 @@ pub struct Change {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub priority: Option<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub labels: Option<LabelEdit>,
 }
 
@@ -589,8 +563,6 @@ pub struct ListQuery {
     pub cursor: Option<String>,
     #[serde(default)]
     pub host: Option<String>,
-    #[serde(default)]
-    pub priority: Vec<String>,
     #[serde(default)]
     pub label: Vec<String>,
     #[serde(default = "thirty")]
@@ -828,8 +800,6 @@ pub struct ItemCard {
     #[serde(default)]
     pub reporter: CardPerson,
     #[serde(default)]
-    pub priority: Option<String>,
-    #[serde(default)]
     pub labels: Vec<Tag>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub board: Option<String>,
@@ -876,19 +846,6 @@ pub struct BoardView {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct NewBoard {
-    pub name: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slug: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub host: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Move {
     pub target: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -908,6 +865,127 @@ pub struct Moved {
     pub moved: Card,
     #[serde(default)]
     pub changed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Owner {
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
+impl Owner {
+    pub fn handle(&self) -> String {
+        self.username
+            .as_deref()
+            .map_or_else(|| "someone".to_owned(), |u| format!("@{u}"))
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Lane {
+    pub label: String,
+    #[serde(default)]
+    pub closes: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LaneBoard {
+    pub id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub owner: Option<Owner>,
+    #[serde(default)]
+    pub mine: bool,
+    #[serde(default)]
+    pub columns: Vec<Lane>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LaneBoards {
+    #[serde(default)]
+    pub boards: Vec<LaneBoard>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LaneCard {
+    pub key: String,
+    #[serde(default)]
+    pub kind: String,
+    pub title: String,
+    pub label: String,
+    #[serde(default)]
+    pub assignee: Option<Owner>,
+    #[serde(default)]
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LanePage {
+    pub board: LaneBoard,
+    #[serde(default)]
+    pub cards: Vec<LaneCard>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LabelUse {
+    pub id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub owner_username: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LabelEntry {
+    pub id: i64,
+    pub name: String,
+    #[serde(default)]
+    pub closes: bool,
+    #[serde(default)]
+    pub boards: Vec<LabelUse>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MoveTo {
+    pub key: String,
+    pub from: String,
+    pub to: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MovedCard {
+    pub card: LaneCard,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LaneSpec {
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closes: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BoardSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub columns: Option<Vec<LaneSpec>>,
+}
+
+pub fn stage_word(stage: &str) -> &str {
+    match stage {
+        "received" => "Received",
+        "in_progress" => "In progress",
+        "fixed" => "Fixed",
+        "dropped" => "Dropped",
+        "duplicate" => "Duplicate",
+        other => other,
+    }
 }
 
 pub const IMPORT_TYPES: [&str; 7] = [
@@ -991,11 +1069,8 @@ mod tests {
     }
 
     #[test]
-    fn the_status_keys_are_the_workers() {
+    fn the_resolutions_are_the_workers() {
         let boards = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src/boards.js"));
-        let keys: Vec<String> = STATUSES.iter().map(|s| format!("\"{s}\"")).collect();
-        let line = format!("export const STATUSES = [{}];", keys.join(", "));
-        assert!(boards.contains(&line), "{line}");
         let resolutions: Vec<String> = RESOLUTIONS.iter().map(|s| format!("\"{s}\"")).collect();
         let line = format!("export const RESOLUTIONS = [{}];", resolutions.join(", "));
         assert!(boards.contains(&line), "{line}");

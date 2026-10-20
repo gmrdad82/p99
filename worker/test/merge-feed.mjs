@@ -44,13 +44,13 @@ export async function mergeFeedChecks({ base, call, browse, mint, check, issueBo
     assert.ok(mine.json.issues.some((i) => i.key === target.json.key));
     const own = await browse("GET", `/issues/${source.json.key}`, lin.secret);
     assert.equal(own.json.issue.duplicate_of, target.json.key);
-    assert.equal(own.json.issue.status, "done");
+    assert.equal(own.json.issue.stage, "duplicate");
     assert.equal(own.json.issue.resolution, "duplicate");
     assert.ok(own.json.events.some((ev) => ev.kind === "merge" && ev.detail.into === target.json.key));
     const again = await call("POST", `/_p99/v1/merge?host=${here}`, { body: { items: [source.json.key], into: target.json.key } });
     assert.deepEqual(again.json.unchanged, [source.json.key]);
     assert.equal(
-      (await browse("PATCH", `/issues/${target.json.key}`, lin.secret, { status: "done", resolution: "abandoned" })).status,
+      (await browse("PATCH", `/issues/${target.json.key}`, lin.secret, { resolution: "abandoned" })).status,
       403,
     );
     const shown = await call("GET", `/_p99/v1/issues/${target.json.key}?host=${here}`);

@@ -451,11 +451,6 @@
 .p99-status[data-status="review"] { color: var(--p99-status-warning); border-color: color-mix(in srgb, var(--p99-status-warning) 40%, var(--p99-rule)); }
 .p99-status[data-status="done-fixed"] { color: var(--p99-status-validated); border-color: color-mix(in srgb, var(--p99-status-validated) 40%, var(--p99-rule)); }
 .p99-meta { margin: 0; font-size: var(--p99-text-xs); color: var(--p99-muted); }
-.p99-rank { font: var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono); color: var(--p99-muted); }
-.p99-rank[data-priority="urgent"],
-.p99-rank-pill[data-priority="urgent"] { color: var(--p99-danger); border-color: color-mix(in srgb, var(--p99-danger) 40%, var(--p99-rule)); }
-.p99-rank[data-priority="high"],
-.p99-rank-pill[data-priority="high"] { color: var(--p99-status-warning); border-color: color-mix(in srgb, var(--p99-status-warning) 40%, var(--p99-rule)); }
 .p99-tags { display: inline-flex; flex-wrap: wrap; gap: var(--p99-space-xs); }
 .p99-tag {
   --p99-tag: var(--p99-rule);

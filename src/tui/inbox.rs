@@ -8,36 +8,34 @@ use pito_tui::list::{Cell, Column, Part, Row};
 use pito_tui::ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
 use crate::wire::{
-    self, Change, Issue, LabelEdit, Tag, Thread, kind_word, priority_word, status_text, status_word,
+    self, Change, Issue, LabelEdit, Tag, Thread, kind_word, status_text, status_word,
 };
 
 use super::Msg;
 use super::source::{Entry, Source, hits, merged_hosts, merged_tags, person, unix, words};
 
-const COLUMNS_ALL: [Column; 9] = [
+const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
     Column::new("Key", 6, 8).pinned(),
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Status", 6, 11).pinned(),
-    Column::new("", 2, 2).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Host", 10, 17).priority(1),
     Column::new("Reporter", 10, 22).priority(2),
     Column::new("Updated", 4, 7).right().pinned(),
 ];
 
-const COLUMNS_ONE: [Column; 8] = [
+const COLUMNS_ONE: [Column; 7] = [
     Column::new("", 1, 1).pinned(),
     Column::new("Key", 6, 8).pinned(),
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Status", 6, 11).pinned(),
-    Column::new("", 2, 2).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Reporter", 10, 22).priority(1),
     Column::new("Updated", 4, 7).right().pinned(),
@@ -82,31 +80,11 @@ impl Shown {
     }
 }
 
-const RANKS: [Option<&str>; 6] = [
-    None,
-    Some("urgent"),
-    Some("high"),
-    Some("normal"),
-    Some("low"),
-    None,
-];
-const RANK_WORDS: [&str; 6] = [
-    "Any priority",
-    "Urgent",
-    "High",
-    "Normal",
-    "Low",
-    "No priority",
-];
-const NO_RANK: usize = 5;
-
 enum Picking {
     Host,
     Status,
     Assign(Vec<Option<String>>),
-    Rank,
     Tagged,
-    Priority,
     Label(Vec<String>),
 }
 
@@ -120,7 +98,6 @@ enum Typing {
 #[derive(Clone, Copy)]
 enum Asked {
     Status,
-    Priority,
     Labels,
 }
 
@@ -150,7 +127,6 @@ pub struct Inbox {
     hosts: Vec<String>,
     host: Option<String>,
     shown: Shown,
-    rank: usize,
     tagged: Option<String>,
     tags: Vec<String>,
     counts: (usize, usize),
@@ -178,7 +154,6 @@ impl Inbox {
                 .hint("enter keeps the filter · esc clears it"),
             host: None,
             shown: Shown::Open,
-            rank: 0,
             tagged: None,
             tags: Vec::new(),
             counts: (0, 0),
@@ -243,7 +218,6 @@ impl Inbox {
         let mut filter = std::mem::replace(&mut self.filter, Filter::new(""));
         let host = self.host.clone();
         let shown = self.shown;
-        let rank = self.rank;
         let tagged = self.tagged.as_deref();
         let palette = &self.palette;
         let this = &*self;
@@ -251,7 +225,6 @@ impl Inbox {
             let item = &entry.summary;
             shown.keeps(&item.status)
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
-                && ranked(rank, item.priority.as_deref())
                 && tagged.is_none_or(|t| item.labels.iter().any(|l| l.name.eq_ignore_ascii_case(t)))
                 && hits(&entry.haystack, &words)
         };
@@ -265,7 +238,6 @@ impl Inbox {
                 Cell::new(kind_word(&item.kind)).faint(),
                 Cell::new(status_text(&item.status, item.resolution.as_deref()))
                     .style(status_style(palette, &item.status)),
-                rank_cell(palette, item.priority.as_deref()),
                 titled(palette, &item.title, &item.labels),
             ];
             if all_hosts {
@@ -314,7 +286,6 @@ impl Inbox {
         summary.comments = issue.comments;
         summary.unread = false;
         summary.landing = issue.landing.clone();
-        summary.priority = issue.priority.clone();
         summary.labels = issue.labels.clone();
         entry.refold();
     }
@@ -386,9 +357,7 @@ impl Inbox {
     fn change(&mut self, change: Change, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
-        open.asked = if change.priority.is_some() {
-            Asked::Priority
-        } else if change.labels.is_some() {
+        open.asked = if change.labels.is_some() {
             Asked::Labels
         } else {
             Asked::Status
@@ -543,15 +512,6 @@ impl Inbox {
         );
     }
 
-    fn pick_rank(&mut self, cx: &mut Cx<'_, Msg>) {
-        self.picking = Some(Picking::Rank);
-        cx.pick(
-            Pick::new("Priority", RANK_WORDS)
-                .selected(self.rank)
-                .hints(pick_hints()),
-        );
-    }
-
     fn pick_tagged(&mut self, cx: &mut Cx<'_, Msg>) {
         if self.tags.is_empty() {
             cx.say("No item has a label yet.", Tone::Muted);
@@ -566,20 +526,6 @@ impl Inbox {
             .map_or(0, |at| at + 1);
         self.picking = Some(Picking::Tagged);
         cx.pick(Pick::new("Label", options).selected(at).hints(pick_hints()));
-    }
-
-    fn pick_priority(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some(issue) = self.issue() else { return };
-        let at = match issue.priority.as_deref() {
-            None => NO_RANK,
-            Some(p) => RANKS.iter().position(|r| *r == Some(p)).unwrap_or(NO_RANK),
-        };
-        self.picking = Some(Picking::Priority);
-        cx.pick(
-            Pick::new("Priority", RANK_WORDS[1..].iter().copied())
-                .selected(at - 1)
-                .hints(pick_hints()),
-        );
     }
 
     fn pick_label(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -710,7 +656,6 @@ impl Inbox {
             KeyCode::Char('r') if ready => open.typing = Some(Typing::Reply(Input::new())),
             KeyCode::Char('s') if ready => self.pick_status(cx),
             KeyCode::Char('a') if ready => self.pick_assignee(cx),
-            KeyCode::Char('p') if ready => self.pick_priority(cx),
             KeyCode::Char('l') if ready => self.pick_label(cx),
             KeyCode::Char('o') => self.browse(cx),
             KeyCode::Char('d') if ready => {
@@ -780,26 +725,6 @@ fn pick_hints() -> [Hint<'static>; 3] {
         Hint::new("enter", "choose"),
         Hint::new("esc", "cancel"),
     ]
-}
-
-fn ranked(rank: usize, priority: Option<&str>) -> bool {
-    match rank {
-        0 => true,
-        NO_RANK => priority.is_none(),
-        at => RANKS.get(at).copied().flatten() == priority,
-    }
-}
-
-fn mark_style(palette: &Palette, priority: Option<&str>) -> Style {
-    match priority {
-        Some("urgent") => palette.bad.add_modifier(Modifier::BOLD),
-        Some("high") => palette.warn,
-        _ => palette.muted,
-    }
-}
-
-fn rank_cell(palette: &Palette, priority: Option<&str>) -> Cell {
-    Cell::new(wire::priority_mark(priority)).style(mark_style(palette, priority))
 }
 
 fn tag_style(palette: &Palette, color: &str) -> Style {
@@ -880,20 +805,6 @@ fn lines(
     ];
     if let Some(of) = &issue.duplicate_of {
         facts.push(Span::styled(format!(", merged into {of}"), palette.muted));
-    }
-    if let Some(priority) = &issue.priority {
-        let mark = wire::priority_mark(Some(priority));
-        facts.push(dot());
-        if !mark.is_empty() {
-            facts.push(Span::styled(
-                format!("{mark} "),
-                mark_style(palette, Some(priority)),
-            ));
-        }
-        facts.push(Span::styled(
-            format!("{} priority", priority_word(priority)),
-            palette.ink,
-        ));
     }
     if let Some(host) = &issue.host {
         let tone = if production(&issue.env) {
@@ -1250,12 +1161,6 @@ impl Screen<Msg> for Inbox {
                                         .to_lowercase()
                                 )
                             }
-                            Asked::Priority => match &issue.priority {
-                                Some(p) => {
-                                    format!("{key} is {} priority", priority_word(p).to_lowercase())
-                                }
-                                None => format!("{key} has no priority"),
-                            },
                             Asked::Labels if issue.labels.is_empty() => {
                                 format!("{key} has no labels")
                             }
@@ -1304,7 +1209,6 @@ impl Screen<Msg> for Inbox {
                     self.sift();
                 }
                 KeyCode::Char('h') => self.pick_host(cx),
-                KeyCode::Char('p') => self.pick_rank(cx),
                 KeyCode::Char('l') => self.pick_tagged(cx),
                 _ => {}
             },
@@ -1348,28 +1252,11 @@ impl Screen<Msg> for Inbox {
                     cx,
                 );
             }
-            Picking::Rank => {
-                self.rank = choice.min(NO_RANK);
-                self.sift();
-            }
             Picking::Tagged => {
                 self.tagged = choice
                     .checked_sub(1)
                     .and_then(|at| self.tags.get(at).cloned());
                 self.sift();
-            }
-            Picking::Priority => {
-                let to = RANKS.get(choice + 1).copied().flatten().map(str::to_owned);
-                if self.issue().is_some_and(|i| i.priority == to) {
-                    return;
-                }
-                self.change(
-                    Change {
-                        priority: Some(to),
-                        ..Change::default()
-                    },
-                    cx,
-                );
             }
             Picking::Label(names) => {
                 let Some(name) = names.get(choice).cloned() else {
@@ -1461,13 +1348,9 @@ impl Screen<Msg> for Inbox {
         } else {
             &COLUMNS_ONE
         };
-        let view = self
-            .filter
-            .view(columns, palette)
-            .header(true)
-            .empty(Some(
-                "Nothing here. s shows other statuses, h other hosts, p and l other priorities and labels.",
-            ));
+        let view = self.filter.view(columns, palette).header(true).empty(Some(
+            "Nothing here. s shows other statuses, h other hosts, l other labels.",
+        ));
         frame.render_widget(view, area);
     }
 
@@ -1531,7 +1414,6 @@ impl Screen<Msg> for Inbox {
                 Hint::new("r", "reply"),
                 Hint::new("s", "status").rank(1),
                 Hint::new("a", "assign").rank(1),
-                Hint::new("p", "priority").rank(2),
                 Hint::new("l", "labels").rank(2),
                 Hint::new("i", internal).rank(2),
                 Hint::new("o", "open page").rank(3),
@@ -1549,7 +1431,6 @@ impl Screen<Msg> for Inbox {
             Hint::new("/", "filter").rank(1),
             Hint::new("s", "status").rank(2),
             Hint::new("h", "host").rank(2),
-            Hint::new("p", "priority").rank(3),
             Hint::new("l", "label").rank(3),
             Hint::new("r", "read again").rank(3),
         ];
@@ -1571,9 +1452,6 @@ impl Screen<Msg> for Inbox {
         let (in_scope, unread) = self.counts;
         let shown = self.filter.shown().len();
         let mut facts = vec![(self.shown.word().to_owned(), self.palette.strong)];
-        if self.rank > 0 {
-            facts.push((RANK_WORDS[self.rank].to_lowercase(), self.palette.strong));
-        }
         if let Some(tag) = &self.tagged {
             facts.push((format!("label {tag}"), self.palette.strong));
         }

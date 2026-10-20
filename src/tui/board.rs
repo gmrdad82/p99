@@ -20,7 +20,6 @@ use super::deck::{
 };
 use super::inbox::Inbox;
 use super::source::Source;
-use crate::wire::ItemCard;
 
 const TALL: i32 = 4;
 const PITCH: i32 = 5;
@@ -884,13 +883,10 @@ fn draw_card(
     match card {
         Card::Item(item) => {
             let done = item.status == "done";
-            let mut head = vec![(
+            let head = vec![(
                 format!(" {} ", item.key),
                 key_style(palette, selected || held),
             )];
-            if let Some((mark, look)) = priority(item, palette) {
-                head.push((format!("{mark} "), look));
-            }
             edge(buf, clip, x, y, w, edges.top, &head, &[], frame);
             let title = if done && item.resolution.as_deref() != Some("fixed") {
                 palette.muted
@@ -1006,15 +1002,6 @@ fn key_style(palette: &Palette, lit: bool) -> Style {
         palette.accent.add_modifier(Modifier::BOLD)
     } else {
         palette.strong
-    }
-}
-
-fn priority(item: &ItemCard, palette: &Palette) -> Option<(&'static str, Style)> {
-    match item.priority.as_deref()? {
-        "urgent" => Some(("!!", palette.bad.add_modifier(Modifier::BOLD))),
-        "high" => Some(("!", palette.warn)),
-        "low" => Some(("↓", palette.muted)),
-        _ => None,
     }
 }
 

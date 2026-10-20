@@ -1,4 +1,4 @@
-import { moveItem } from "./boards.js";
+import { LABEL_COLUMNS, LABEL_JOIN, closeItem } from "./boards.js";
 
 const GITHUB_API = "https://api.github.com";
 const PREFIXES = new Set(["BUG", "FEAT", "IMP", "Q", "TASK"]);
@@ -279,7 +279,7 @@ async function deliver(c, bytes) {
 async function itemsIn(c, ids) {
   if (ids.length === 0) return [];
   return (
-    await c.env.DB.prepare("SELECT * FROM items WHERE id IN (SELECT value FROM json_each(?1)) AND host = ?2 ORDER BY id")
+    await c.env.DB.prepare(`SELECT i.*, ${LABEL_COLUMNS} FROM items i ${LABEL_JOIN} WHERE i.id IN (SELECT value FROM json_each(?1)) AND i.host = ?2 ORDER BY i.id`)
       .bind(JSON.stringify(ids), c.scope.host)
       .all()
   ).results;
@@ -311,7 +311,10 @@ async function commitMessages(c, setup, number) {
 
 async function fixAll(c, rows) {
   const changed = [];
-  for (const row of rows.filter((r) => r.open)) changed.push(...(await moveItem(c, row, { to: "done", resolution: "fixed" })).changed);
+  for (const row of rows.filter((r) => r.open)) {
+    await closeItem(c, row, "fixed");
+    changed.push(K.keyOf(row.kind, row.id));
+  }
   return changed;
 }
 

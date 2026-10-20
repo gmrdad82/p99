@@ -73,16 +73,14 @@ pub enum Command {
     File(FileArgs),
     #[command(about = "comment on an item")]
     Comment(CommentArgs),
-    #[command(about = "change an item's status: p99 move <KEY> --to <status>")]
+    #[command(about = "set an item's label, or close it as abandoned or duplicate")]
     Status(StatusArgs),
-    #[command(about = "move an item or a board card to a column, a board or beside another card")]
+    #[command(about = "move an item to a label on your boards, or beside another card")]
     Move(crate::boards::MoveArgs),
-    #[command(about = "list the boards with their done/total; add, rename or remove one")]
+    #[command(about = "list your boards and others'; set one's columns")]
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print a board's columns and cards")]
     Board(crate::boards::BoardArgs),
-    #[command(about = "list the four statuses with their names; rename one")]
-    Statuses(crate::boards::StatusesArgs),
     #[command(about = "assign an item to someone, or to no one")]
     Assign(AssignArgs),
     #[command(
@@ -105,14 +103,8 @@ pub enum Command {
     Hooks(crate::hooks::HooksArgs),
     #[command(about = "link a host to a GitHub repository, and open GitHub issues for items")]
     Github(crate::github::GithubArgs),
-    #[command(about = "set an item's priority, or clear it")]
-    Priority(crate::labels::PriorityArgs),
-    #[command(about = "put labels on an item; a label that doesn't exist yet is made")]
-    Label(crate::labels::LabelArgs),
-    #[command(about = "take labels off an item")]
-    Unlabel(crate::labels::LabelArgs),
-    #[command(about = "list the account's labels; add, rename, recolour or remove one")]
-    Labels(crate::labels::LabelsArgs),
+    #[command(about = "list the labels, the columns of every board; rename one")]
+    Labels(crate::boards::LabelsArgs),
     #[command(
         about = "fold duplicates into one item; their reporters follow it and get its updates"
     )]
@@ -284,18 +276,8 @@ pub struct ListArgs {
         help = "items whose title or text holds these words, accents ignored"
     )]
     pub query: Option<String>,
-    #[arg(
-        long,
-        value_parser = ["urgent", "high", "normal", "low", "none"],
-        help = "only this priority; repeat it for any of several"
-    )]
-    pub priority: Vec<String>,
-    #[arg(
-        long,
-        value_name = "name",
-        help = "only items with this label; repeat it for all of several"
-    )]
-    pub label: Vec<String>,
+    #[arg(long, value_name = "name", help = "only items with this label")]
+    pub label: Option<String>,
     #[arg(long, default_value_t = 50, help = "at most this many items")]
     pub limit: usize,
 }
@@ -347,9 +329,7 @@ pub struct CommentArgs {
 pub struct StatusArgs {
     #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(
-        help = "the new status: inbox, doing, review or done, its name, or abandoned or duplicate"
-    )]
+    #[arg(help = "a label on your boards, such as Doing or Done, or abandoned or duplicate")]
     pub status: String,
     #[arg(
         long,
@@ -452,7 +432,6 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Move(a) => crate::boards::run_move(&config, global, &a),
         Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
-        Command::Statuses(a) => crate::boards::run_statuses(&config, global, &a),
         Command::Assign(a) => assign(&config, global, &a),
         Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
@@ -461,10 +440,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Watch(a) => watch(&config, global, &a),
         Command::Hooks(a) => crate::hooks::run(&config, global, &a),
         Command::Github(a) => crate::github::run(&config, global, &a),
-        Command::Priority(a) => crate::labels::priority(&config, global, &a),
-        Command::Label(a) => crate::labels::label(&config, global, &a, true),
-        Command::Unlabel(a) => crate::labels::label(&config, global, &a, false),
-        Command::Labels(a) => crate::labels::labels(&config, global, &a),
+        Command::Labels(a) => crate::boards::run_labels(&config, global, &a),
         Command::Merge(a) => merge::merge(&config, global, &a),
         Command::Feed(a) => merge::feed(&mut config, global, &a),
         Command::Delete(a) => delete::delete(&config, global, &a),
@@ -1047,16 +1023,17 @@ fn rename(config: &Config, global: &Global, from: &str, to: &str) -> Result<(), 
     Ok(())
 }
 
+fn state_text<'a>(label: Option<&'a str>, stage: &'a str) -> &'a str {
+    label.unwrap_or_else(|| crate::wire::stage_word(stage))
+}
+
 fn summary_line(item: &Summary) -> String {
-    let mark = crate::wire::priority_mark(item.priority.as_deref());
     let mut line = format!(
-        "{}{:<8} {:<11} {:<11} {}{}{}",
+        "{}{:<8} {:<11} {:<11} {}",
         if item.unread { "*" } else { " " },
         item.key,
-        crate::wire::status_text(&item.status, item.resolution.as_deref()),
+        state_text(item.label.as_deref(), &item.stage),
         item.host.as_deref().unwrap_or("-"),
-        mark,
-        if mark.is_empty() { "" } else { " " },
         item.title
     );
     if let Some(assignee) = &item.assignee {
@@ -1070,9 +1047,6 @@ fn summary_line(item: &Summary) -> String {
         line.push_str(&format!("  landed: {}", landed.join(", ")));
     } else if item.landing.branch {
         line.push_str("  fixed on a branch");
-    }
-    if !item.labels.is_empty() {
-        line.push_str(&format!("  labels: {}", crate::labels::tags(&item.labels)));
     }
     line
 }
@@ -1098,11 +1072,6 @@ fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
                 .is_none_or(|h| s.host.as_ref() == Some(h))
             && (!args.mine || s.reporter.email == crate::tui::demo::ME.1)
             && text.is_none_or(|t| s.title.to_lowercase().contains(&t))
-            && (args.priority.is_empty()
-                || args
-                    .priority
-                    .iter()
-                    .any(|p| s.priority.as_deref().unwrap_or("none") == p))
             && args.label.iter().all(|l| {
                 s.labels
                     .iter()
@@ -1154,8 +1123,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 q: args.query.clone(),
                 cursor: cursor.clone(),
                 host: host.clone(),
-                priority: args.priority.clone(),
-                label: args.label.clone(),
+                label: args.label.iter().cloned().collect(),
                 limit: (args.limit - taken).min(100) as i64,
             };
             let page = client.list(&query)?;
@@ -1197,7 +1165,7 @@ fn print_thread(thread: &Thread) {
         "{}  {}  {}",
         issue.key,
         crate::wire::kind_word(&issue.kind),
-        crate::wire::status_text(&issue.status, issue.resolution.as_deref())
+        state_text(issue.label.as_deref(), &issue.stage)
     );
     out!("{}", issue.title);
     let reporter = &issue.reporter;
@@ -1248,14 +1216,8 @@ fn print_thread(thread: &Thread) {
             link.url
         );
     }
-    if let Some(priority) = &issue.priority {
-        out!(
-            "priority {}",
-            crate::wire::priority_word(priority).to_lowercase()
-        );
-    }
-    if !issue.labels.is_empty() {
-        out!("labels: {}", crate::labels::tags(&issue.labels));
+    if issue.label.is_some() && !issue.stage.is_empty() {
+        out!("{}", crate::wire::stage_word(&issue.stage).to_lowercase());
     }
     for reached in &issue.landing.envs {
         out!(
@@ -1418,10 +1380,10 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
         return Err("a duplicate needs --duplicate-of KEY".into());
     }
     if args.status != "duplicate" && args.duplicate_of.is_some() {
-        return Err("--duplicate-of goes with the status duplicate".into());
+        return Err("--duplicate-of goes with duplicate".into());
     }
-    if args.duplicate_of.is_none() {
-        return crate::boards::status_move(
+    if args.status != "duplicate" && args.status != "abandoned" {
+        return crate::boards::label_move(
             config,
             global,
             &args.key,
@@ -1431,8 +1393,7 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     }
     let (client, _) = client_for(config, global, args.host.as_deref())?;
     let change = Change {
-        status: Some("done".into()),
-        resolution: Some("duplicate".into()),
+        resolution: Some(args.status.clone()),
         duplicate_of: args.duplicate_of.clone(),
         ..Change::default()
     };
@@ -1445,7 +1406,7 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
     out!(
         "{} is now {}",
         issue.key,
-        crate::wire::status_text(&issue.status, issue.resolution.as_deref()).to_lowercase()
+        crate::wire::stage_word(&issue.stage).to_lowercase()
     );
     Ok(())
 }
