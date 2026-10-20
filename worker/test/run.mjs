@@ -11,6 +11,7 @@ import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
 import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
+import { brandChecks } from "./brand.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -1156,6 +1157,7 @@ async function run() {
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
+  await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await check("board.js is served as the module the panel imports for managers", async () => {

@@ -3,6 +3,7 @@ const MAX_FILE = 20 * 1024 * 1024;
 const MAX_FILES = 30;
 const MAX_MARKS = 10;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
+const PITOMD = "https://pitomd.com";
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
@@ -382,7 +383,8 @@ function chrome() {
   const x = h("button", { type: "button", class: "p99-x", "aria-label": say("close"), title: say("close"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
   const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
-  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: o.space || say("brand") })), board, x);
+  const by = me && me.link === false ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
+  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-brand-text" }, h("span", { class: "p99-logo-name", text: o.space || say("brand") }), by)), board, x);
   const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);
@@ -429,7 +431,7 @@ function keys(e) {
 function swipe(grip) {
   let from = null, dy = 0, t0 = 0;
   grip.addEventListener("pointerdown", (e) => {
-    if (!phone.matches || e.target.closest("button")) return;
+    if (!phone.matches || e.target.closest("button, a")) return;
     from = e.clientY;
     dy = 0;
     t0 = performance.now();

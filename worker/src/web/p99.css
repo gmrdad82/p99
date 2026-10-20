@@ -191,6 +191,9 @@
     4px 4px 0 #1d4785,
     6px 9px 14px rgba(0, 0, 0, 0.3);
 }
+.p99-brand-text { display: grid; gap: var(--p99-space-xxs); min-width: 0; }
+.p99-panel .p99-by { justify-self: start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--p99-weight-medium) var(--p99-text-xs)/var(--p99-leading-tight) var(--p99-font-text); color: var(--p99-muted); text-decoration: none; transition: color var(--p99-motion-hover-out) var(--p99-ease-in-out); }
+@media (hover: hover) { .p99-panel .p99-by:hover { color: var(--p99-ink); text-decoration: underline; text-underline-offset: 2px; transition-duration: var(--p99-motion-hover-in); transition-timing-function: var(--p99-ease-enter); } }
 .p99-logo-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text); letter-spacing: var(--p99-tracking-caps); text-transform: uppercase; color: var(--p99-muted); }
 .p99-grip { display: none; }
 .p99-panel .p99-board-open { flex: none; margin-left: auto; min-height: 32px; padding: 0 var(--p99-space-md); }
@@ -683,7 +686,8 @@
     position: absolute;
     inset: 0 48px;
   }
-  .p99-panel .p99-board-open { position: relative; z-index: 1; }
+  .p99-panel .p99-board-open,
+  .p99-panel .p99-by { position: relative; z-index: 1; }
   .p99-grip::before {
     content: "";
     display: block;

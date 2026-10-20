@@ -18,6 +18,7 @@ import {
   useKit,
 } from "./boards.js";
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
+import { linkShown } from "./brand.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
@@ -1289,6 +1290,10 @@ function validConfig(value) {
     if (typeof value.feed !== "boolean") return null;
     if (value.feed) out.feed = true;
   }
+  if (value.link !== undefined && value.link !== null) {
+    if (typeof value.link !== "boolean") return null;
+    if (!value.link) out.link = false;
+  }
   if (utf8Bytes(JSON.stringify(out)) > MAX_CONFIG_BYTES) return null;
   return out;
 }
@@ -1517,6 +1522,7 @@ async function getMe(c) {
     counts,
     theme: config.theme || {},
     strings: config.strings || {},
+    link: linkShown(c.env, config),
   });
 }
 
