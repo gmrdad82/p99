@@ -62,6 +62,7 @@ enum Command {
         about = "show, read-only, what this version's data-changing migrations would do on an account"
     )]
     Migrate(migrate::MigrateArgs),
+    #[command(
         about = "print the address of the account's P99 page, which works when a site is down"
     )]
     App,
