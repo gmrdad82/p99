@@ -2,6 +2,7 @@ import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
+import { licenseState } from "./badge.js";
 
 let K = null;
 
@@ -346,6 +347,7 @@ async function spaces(request, env, url) {
       : [];
   return K.json(200, {
     name: codes[0].name,
+    license: licenseState(env),
     spaces: hosts.map((host, i) => ({ host, open: counts[i].results[0].n, manager: seen.get(host) })),
   });
 }
