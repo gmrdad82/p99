@@ -180,6 +180,7 @@
 }
 .p99-logo-name { font: var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text); letter-spacing: var(--p99-tracking-caps); text-transform: uppercase; color: var(--p99-muted); }
 .p99-grip { display: none; }
+.p99-panel .p99-board-open { margin-left: auto; min-height: 32px; padding: 0 var(--p99-space-md); }
 .p99-x {
   display: grid;
   place-items: center;

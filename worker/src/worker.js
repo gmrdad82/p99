@@ -15,6 +15,7 @@ import {
 } from "./boards.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
+import boardSource from "./web/board.js";
 import cssSource from "./web/p99.css";
 import concreteSource from "./web/art/concrete.svg";
 import concreteDarkSource from "./web/art/concrete-dark.svg";
@@ -137,6 +138,7 @@ const CAPTURE_SOURCE = `const ms = (() => {\nvar exports = {}, module = {};\n${c
 const STATIC_FILES = {
   "/_p99/p99.js": { source: loaderSource, type: JS_TYPE, loader: true },
   "/_p99/panel.js": { source: panelSource, type: JS_TYPE },
+  "/_p99/board.js": { source: boardSource, type: JS_TYPE },
   "/_p99/p99.css": { source: cssSource, type: "text/css; charset=utf-8" },
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
   "/_p99/art/concrete.svg": { source: concreteSource, type: "image/svg+xml; charset=utf-8" },
