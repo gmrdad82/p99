@@ -155,6 +155,34 @@ mod tests {
     }
 
     #[test]
+    fn every_worker_module_and_what_it_imports_is_bundled() {
+        let src = concat!(env!("CARGO_MANIFEST_DIR"), "/worker/src");
+        let bundled: Vec<&str> = MODULES.iter().map(|m| m.0).collect();
+        let mut wanted: Vec<String> = std::fs::read_dir(src)
+            .unwrap()
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .filter(|n| n.ends_with(".js"))
+            .collect();
+        for (name, _, bytes) in MODULES.iter().filter(|m| m.1 == ES) {
+            let text = std::str::from_utf8(bytes).unwrap();
+            let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
+            for quote in ["from \"./", "import \"./"] {
+                for part in text.split(quote).skip(1) {
+                    let path = &part[..part.find('"').unwrap()];
+                    wanted.push(if dir.is_empty() {
+                        path.to_owned()
+                    } else {
+                        format!("{dir}/{path}")
+                    });
+                }
+            }
+        }
+        for file in wanted {
+            assert!(bundled.contains(&file.as_str()), "{file} is not bundled");
+        }
+    }
+
+    #[test]
     fn the_listing_covers_every_module() {
         let listed = listing();
         assert_eq!(listed.len(), MODULES.len());
