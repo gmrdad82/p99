@@ -20,7 +20,7 @@
 .app-badge[data-state="studio"] { --app-badge-face: #2c66b8; --app-badge-ink: #ffffff; --app-badge-near: #214e8c; --app-badge-far: #183865; }
 .app-badge[data-state="agency"] { --app-badge-face: #1d4785; --app-badge-ink: #ffffff; --app-badge-near: #163665; --app-badge-far: #102749; }
 .app-badge[data-state="owner"] { --app-badge-face: #e0a32a; --app-badge-ink: #241500; --app-badge-near: #aa7c20; --app-badge-far: #7b5a17; }
-.app-badge[data-state="ff"] { --app-badge-face: #196d43; --app-badge-ink: #ffffff; --app-badge-near: #135333; --app-badge-far: #0e3c25; }
+.app-badge[data-state="ff"] { --app-badge-face: #b8264d; --app-badge-ink: #ffffff; --app-badge-near: #8c1d3b; --app-badge-far: #65152a; }
 .app-badge-in { animation: app-badge-in var(--p99-motion-panel) var(--p99-ease-enter) var(--p99-motion-fast) both; }
 .app-me { display: inline-grid; flex: none; place-items: center; border-radius: 50%; text-decoration: none; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-me:active { transform: scale(0.94); }

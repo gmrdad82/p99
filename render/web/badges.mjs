@@ -19,7 +19,7 @@ export const BADGES = [
   { state: "studio", word: "Studio", face: "#2c66b8", ink: "#ffffff" },
   { state: "agency", word: "Agency", face: "#1d4785", ink: "#ffffff" },
   { state: "owner", word: "Owner", face: "#e0a32a", ink: "#241500" },
-  { state: "ff", word: "F&F", face: "#196d43", ink: "#ffffff" },
+  { state: "ff", word: "F&F", face: "#b8264d", ink: "#ffffff" },
 ];
 
 const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
