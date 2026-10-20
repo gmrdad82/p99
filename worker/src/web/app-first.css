@@ -1,4 +1,4 @@
-:root { --p99-accent: #3b7dd8; --app-line: color-mix(in srgb, var(--p99-muted) 60%, var(--p99-rule)); --app-solid: var(--p99-slab-side); color-scheme: light dark; }
+:root { --p99-accent: #3b7dd8; color-scheme: light dark; }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
@@ -23,7 +23,6 @@ body {
   padding: max(var(--p99-space-xl), env(safe-area-inset-top)) var(--p99-space-lg) calc(var(--p99-space-xl) + env(safe-area-inset-bottom));
 }
 .app[data-screen="signin"] { align-content: center; }
-.app[data-screen="space"] { padding: 0; }
 .app-card {
   position: relative;
   display: grid;
@@ -64,7 +63,7 @@ body {
   min-height: 44px;
   margin: 0;
   padding: var(--p99-space-sm) var(--p99-space-md);
-  border: 1px solid var(--app-line);
+  border: 1px solid var(--p99-control);
   border-radius: var(--p99-radius-sm);
   background: var(--p99-raised);
   color: var(--p99-ink);
@@ -82,7 +81,7 @@ body {
   min-height: 44px;
   margin: 0;
   padding: 0 var(--p99-space-lg);
-  border: 1px solid var(--app-line);
+  border: 1px solid var(--p99-control);
   border-radius: var(--p99-radius-sm);
   background: var(--p99-raised);
   color: var(--p99-ink);
@@ -92,7 +91,7 @@ body {
 }
 .app button:active { transform: translateY(1px) scale(0.985); }
 .app button[disabled] { opacity: 0.7; cursor: progress; }
-.app .app-primary { border-color: var(--app-solid); background: var(--app-solid); color: var(--p99-on-accent); }
+.app .app-primary { border-color: var(--p99-accent-solid); background: var(--p99-accent-solid); color: var(--p99-on-accent); }
 .app-error { margin: 0; padding: var(--p99-space-sm) var(--p99-space-md); border-radius: var(--p99-radius-sm); background: var(--p99-danger-zone); color: var(--p99-danger); font-size: var(--p99-text-sm); }
 .app-wait {
   width: min(720px, 100%);
@@ -101,11 +100,10 @@ body {
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--p99-raised) 60%, transparent), transparent) 0 0 / 50% 100% no-repeat, color-mix(in srgb, var(--p99-base) 70%, transparent);
   animation: app-shimmer 1.2s var(--p99-ease-in-out) infinite;
 }
-.app[data-screen="space"] .app-wait { display: none; }
 @keyframes app-shimmer { from { background-position: -100% 0, 0 0; } to { background-position: 200% 0, 0 0; } }
 @media (hover: hover) {
   .app button:hover { border-color: var(--p99-muted); }
-  .app .app-primary:hover { border-color: var(--p99-slab-edge); background: var(--p99-slab-edge); }
+  .app .app-primary:hover { border-color: var(--p99-accent-press); background: var(--p99-accent-press); }
 }
 @media (max-width: 599px) {
   .app { padding-left: var(--p99-space-md); padding-right: var(--p99-space-md); }

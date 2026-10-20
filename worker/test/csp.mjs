@@ -18,6 +18,7 @@ export async function cspChecks({ check, get }) {
       assert.equal((page.text.match(/<style\b/g) || []).length, 1, "one inline style block");
       const block = /<style>([\s\S]*?)<\/style>/.exec(page.text);
       assert.ok(block && block[1].length > 0, "the inline style has no attributes and is not empty");
+      assert.ok(!block[1].includes("\r"), "the block is LF only, as the browser hashes it");
       const hash = createHash("sha256").update(block[1], "utf8").digest("base64");
       assert.equal(page.headers["content-security-policy"], POLICY(hash));
       assert.ok(!/unsafe-/.test(page.headers["content-security-policy"]));

@@ -221,7 +221,7 @@ function spaces() {
   }, (e) => { if (seq === S.seq) failed(e); });
 }
 
-function whoAmI() {
+function whoAmI(strict) {
   const first = S.spaces && S.spaces.spaces[0];
   if (!first || S.me) return Promise.resolve(S.me);
   return call("GET", "/_p99/api/me?host=" + encodeURIComponent(first.host)).then((m) => {
@@ -229,7 +229,10 @@ function whoAmI() {
     const me = root.querySelector(".app-me");
     if (me) me.replaceChildren(disc(m.username, 36));
     return m;
-  }, () => null);
+  }, (e) => {
+    if (strict) throw e;
+    return null;
+  });
 }
 
 function profile() {
@@ -237,9 +240,12 @@ function profile() {
   const seq = ++S.seq;
   if (!S.spaces || !S.me) waiting(say("profile"));
   const ready = S.spaces ? Promise.resolve(S.spaces) : loadSpaces();
-  ready.then(() => whoAmI()).then((m) => {
+  ready.then(() => whoAmI(true)).then((m) => {
     if (seq !== S.seq) return;
-    if (!m) return spaces();
+    if (!m) {
+      history.replaceState(null, "", "/");
+      return spaces();
+    }
     const first = S.spaces.spaces[0];
     const input = h("input", { name: "username", value: m.username || "", autocomplete: "username", autocapitalize: "none", spellcheck: "false", minlength: "3", maxlength: "30", pattern: "[A-Za-z0-9][A-Za-z0-9._\\-]{1,28}[A-Za-z0-9]", required: true, "aria-describedby": "app-username-help" });
     const face = h("div", { class: "app-face" }, disc(m.username, 96));
@@ -310,8 +316,8 @@ function space(host) {
   closeSpace();
   ++S.seq;
   root.dataset.screen = "space";
-  root.replaceChildren(h("div", { class: "app-wait", "aria-busy": "true" }));
-  const el = h("p99-root", { class: "app-space" });
+  root.replaceChildren(h("div", { class: "app-wait", role: "status", "aria-busy": "true", "aria-label": say("loading") }));
+  const el = h("p99-root", null);
   const shadow = el.attachShadow({ mode: "closed" });
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(FULL);
@@ -334,7 +340,7 @@ function space(host) {
         S.spaces = null;
         signIn();
       },
-    }),
+    }).then(() => { if (S.space === el) root.replaceChildren(); }),
   ).catch((e) => {
     if (S.space !== el) return;
     closeSpace();

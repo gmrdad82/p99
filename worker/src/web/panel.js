@@ -384,6 +384,7 @@ function chrome() {
   const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
   panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
   root.append(scrim, panel);
+  legible();
   swipe(head);
   root.addEventListener("keydown", keys);
   phone.addEventListener("change", () => { if (S.open) scrim.hidden = !phone.matches; });
@@ -882,14 +883,15 @@ function combo(o) {
   const fill = () => {
     const n = ++ask;
     const q = typed ? input.value.trim() : "";
-    const slow = setTimeout(() => {
+    const note = (text) => {
       if (n !== ask || root.activeElement !== input) return;
       opts = [];
       clear(lb);
-      lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("loading") }));
+      lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text }));
       show(true);
       mark(-1);
-    }, 150);
+    };
+    const slow = setTimeout(() => note(say("loading")), 150);
     Promise.resolve(o.find(q)).then((list) => {
       clearTimeout(slow);
       if (n !== ask || root.activeElement !== input) return;
@@ -899,9 +901,9 @@ function combo(o) {
       if (!list.length) lb.append(h("li", { role: "option", "aria-disabled": "true", class: "p99-none", text: say("no_match") }));
       show(true);
       mark(q && list.length ? 0 : -1);
-    }, () => {
+    }, (e) => {
       clearTimeout(slow);
-      if (n === ask) show(false);
+      note(problem(e));
     });
   };
   const pick = (k) => {
@@ -1197,6 +1199,19 @@ function preview(canvas, max) {
 }
 function accent() {
   return (panel && getComputedStyle(panel).getPropertyValue("--p99-accent").trim()) || "#3b7dd8";
+}
+function legible() {
+  const probe = h("i", { hidden: true });
+  probe.style.color = accent();
+  panel.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  if (!c.startsWith("rgb")) return;
+  const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => {
+    const x = (v * 0.8) / 255;
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
+  });
+  if (0.2126 * r + 0.7152 * g + 0.0722 * b > 0.2) o.host.style.setProperty("--p99-on-accent", "#0c1a2b");
 }
 function drawMarks(shot, marks, page) {
   const c = document.createElement("canvas");

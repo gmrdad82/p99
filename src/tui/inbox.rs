@@ -1059,7 +1059,7 @@ impl Screen<Msg> for Inbox {
         match event {
             Msg::Inbox(result) => {
                 let refreshed = std::mem::take(&mut self.refreshing);
-                let told = refreshed && std::mem::take(&mut self.told);
+                let told = refreshed && !self.again && std::mem::take(&mut self.told);
                 match result {
                     Ok(entries) => {
                         let kept = self

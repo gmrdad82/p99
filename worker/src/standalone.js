@@ -56,7 +56,7 @@ let first = null;
 async function inlineStyle(env) {
   const v = env.VERSION || "dev";
   if (!first || first.v !== v) {
-    const css = (tokens() + firstStyle).split("__P99_VERSION__").join(v);
+    const css = (tokens() + firstStyle).split("__P99_VERSION__").join(v).replace(/\r\n?/g, "\n");
     const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", K.encoder.encode(css)));
     let binary = "";
     for (const b of digest) binary += String.fromCharCode(b);
