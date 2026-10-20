@@ -1858,7 +1858,8 @@ mod tests {
             assert_eq!(found["text"], link);
             assert!(ours.iter().all(|b| !b.to_string().contains("PITO1")));
         }
-        let stale = vec![json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": "agency" })];
+        let stale =
+            vec![json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": "agency" })];
         let merged = merge_bindings(&stale, our_bindings(&account, None, None, State::Free));
         let states: Vec<&Value> = merged
             .iter()

@@ -71,9 +71,9 @@ impl Badge {
 
     fn shown(&self) -> f32 {
         match (self.start.get(), self.now) {
-            (Some(start), Some(now)) => ease_out(
-                now.saturating_duration_since(start).as_secs_f32() / EASE.as_secs_f32(),
-            ),
+            (Some(start), Some(now)) => {
+                ease_out(now.saturating_duration_since(start).as_secs_f32() / EASE.as_secs_f32())
+            }
             _ => 0.0,
         }
     }
@@ -107,7 +107,10 @@ impl Badge {
             left -= text[..end].chars().count();
         }
         if shown < total {
-            parts.push((std::iter::repeat_n(RULE, total - shown).collect(), self.rule));
+            parts.push((
+                std::iter::repeat_n(RULE, total - shown).collect(),
+                self.rule,
+            ));
         }
         parts
     }
@@ -143,4 +146,3 @@ pub fn demo_state() -> State {
         .and_then(|word| State::parse(word.trim()))
         .unwrap_or(State::Free)
 }
-

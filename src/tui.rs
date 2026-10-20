@@ -146,11 +146,19 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         let average = total / u32::try_from(frames.max(1)).unwrap_or(u32::MAX);
         report("Thread", frames, width, height, average, worst);
         let carry = dump::keys("right right down left left up").unwrap_or_default();
-        let times = timed(&source, state, width, height, frames, "space", |app, frame| {
-            if frame % 6 == 0 {
-                app.key(carry[frame / 6 % carry.len()]);
-            }
-        });
+        let times = timed(
+            &source,
+            state,
+            width,
+            height,
+            frames,
+            "space",
+            |app, frame| {
+                if frame % 6 == 0 {
+                    app.key(carry[frame / 6 % carry.len()]);
+                }
+            },
+        );
         spread(
             "Board, carrying a card with the keys",
             frames,

@@ -520,7 +520,11 @@ mod tests {
 
     fn read(group: Option<&str>, tier: &str, paid_through: &str) -> Claims {
         let (signing, public) = pair();
-        verify(&public, &mint(&signing, &grouped(tier, paid_through, group))).unwrap()
+        verify(
+            &public,
+            &mint(&signing, &grouped(tier, paid_through, group)),
+        )
+        .unwrap()
     }
 
     #[test]
@@ -590,11 +594,19 @@ mod tests {
     #[test]
     fn a_key_without_a_group_is_a_customer() {
         let (signing, public) = pair();
-        let bare = verify(&public, &mint(&signing, &grouped("agency", "2026-12-31", None))).unwrap();
+        let bare = verify(
+            &public,
+            &mint(&signing, &grouped("agency", "2026-12-31", None)),
+        )
+        .unwrap();
         assert_eq!(bare.group, None);
         assert_eq!(bare.group(), Group::Customer);
         assert_eq!(bare.state(Some("2026-10-20")), State::Agency);
-        let old = verify(&public, &mint(&signing, &claims("p99", "agency", Some("timed")))).unwrap();
+        let old = verify(
+            &public,
+            &mint(&signing, &claims("p99", "agency", Some("timed"))),
+        )
+        .unwrap();
         assert_eq!(old.group(), Group::Customer);
     }
 
@@ -608,7 +620,10 @@ mod tests {
             grouped("studio", "2026-12-31", Some("friends-family")),
             grouped("agency", "9999-12-31", Some("owner")),
         ] {
-            let token = format!("PITO1.{}.{signature}", URL_SAFE_NO_PAD.encode(forged.as_bytes()));
+            let token = format!(
+                "PITO1.{}.{signature}",
+                URL_SAFE_NO_PAD.encode(forged.as_bytes())
+            );
             assert_eq!(verify(&public, &token), Err(Refusal::Signature));
             assert_eq!(State::of(Some(&token)), State::Free);
         }

@@ -863,10 +863,7 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
     merge(&mut entry.theme, &args.theme)?;
     merge(&mut entry.strings, &args.string)?;
     if let Some(wanted) = &args.pitomd_link {
-        entry.link = pitomd_link(
-            crate::license::State::of(config.license.as_deref()),
-            wanted,
-        )?;
+        entry.link = pitomd_link(crate::license::State::of(config.license.as_deref()), wanted)?;
     }
     let (env, pushed) = (entry.env.clone(), entry.pushed());
     config.save()?;
