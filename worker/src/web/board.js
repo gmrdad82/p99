@@ -677,7 +677,16 @@ function event(ev) {
   if (!ev || !B.data) return;
   if (ev.type === "move") return place(ev.key, ev.board, ev.from, ev.to, ev.position);
   if (ev.type === "board.move") return place("board:" + ev.board, ev.parent, ev.from, ev.to, ev.position);
+  if (ev.type === "delete") return gone(ev.key);
   soon();
+}
+
+function gone(id) {
+  const e = find(id);
+  if (!e) return;
+  if (B.drag && B.drag.id === id) return soon();
+  flip(() => e.remove(), TRAVEL, 200);
+  counts();
 }
 
 function place(id, board, from, to, pos) {

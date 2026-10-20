@@ -268,6 +268,19 @@ pub struct Merge {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Deleted {
+    pub key: String,
+    #[serde(default)]
+    pub comments: u64,
+    #[serde(default)]
+    pub files: u64,
+    #[serde(default)]
+    pub retrying: u64,
+    #[serde(default)]
+    pub unlinked: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Author {
     #[serde(default)]
     pub email: String,

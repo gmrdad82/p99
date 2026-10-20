@@ -234,6 +234,10 @@ impl Client {
         self.json("POST", &pq, Some(json!({"items": items, "into": into})))
     }
 
+    pub fn delete_item(&self, key: &str) -> Result<crate::wire::Deleted, String> {
+        self.json("DELETE", &self.item(key, "")?, None)
+    }
+
     pub fn hosts(&self) -> Result<Vec<HostEntry>, String> {
         let list: Value = self.json("GET", "/v1/hosts", None)?;
         field(list, "hosts")

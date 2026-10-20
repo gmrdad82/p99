@@ -485,6 +485,37 @@ impl Demo {
         Ok(comment)
     }
 
+    pub fn delete(&mut self, key: &str) -> Result<wire::Deleted, String> {
+        let number = wire::item_number(key).ok_or_else(|| format!("{key} is not an item key"))?;
+        let at = self
+            .threads
+            .iter()
+            .position(|thread| thread.issue.id == number)
+            .ok_or_else(|| format!("no item is called {key}"))?;
+        let gone = self.threads.remove(at);
+        let mut unlinked = Vec::new();
+        for thread in &mut self.threads {
+            let issue = &mut thread.issue;
+            issue.merged.retain(|m| m.key != gone.issue.key);
+            if issue.duplicate_of.as_deref() == Some(gone.issue.key.as_str()) {
+                issue.duplicate_of = None;
+                if issue.status == "done" {
+                    issue.status = "inbox".into();
+                    issue.resolution = None;
+                    issue.closed_at = None;
+                }
+                unlinked.push(issue.key.clone());
+            }
+        }
+        Ok(wire::Deleted {
+            key: gone.issue.key,
+            comments: gone.comments.len() as u64,
+            files: gone.attachments.len() as u64,
+            retrying: 0,
+            unlinked,
+        })
+    }
+
     pub fn change(&mut self, key: &str, change: &Change) -> Result<Issue, String> {
         let thread = self.find(key)?;
         let issue = &mut thread.issue;

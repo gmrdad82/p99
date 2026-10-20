@@ -105,6 +105,10 @@ const WORDS = {
   abandon: "Drop it",
   reopen: "Reopen",
   edit: "Edit what you wrote",
+  delete: "Delete this item",
+  delete_warn: "{key} goes for good, with its comments, internal notes, history and files. Items merged into it go back to the inbox. GitHub keeps its own issue.",
+  delete_type: "Type {key} to delete it, or hold the button",
+  delete_go: "Delete for good",
   event_system: "P99",
   event_created: "opened the item",
   event_status: "changed the status: {from} → {to}",
@@ -728,7 +732,7 @@ function thread(t) {
     loose.length ? fileList(loose) : null,
     h("ol", { class: "p99-thread" }, entries(t, byId, mine)),
     commentForm(i, manager));
-  if (manager) view.append(manageForm(i));
+  if (manager) view.append(manageForm(i), deleteBox(i));
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
@@ -882,6 +886,45 @@ function manageForm(i) {
     patch(i.key, data, form);
   });
   return form;
+}
+function deleteBox(i) {
+  const input = h("input", { autocomplete: "off", autocapitalize: "characters", spellcheck: "false", placeholder: i.key });
+  const btn = h("button", { type: "button", text: say("delete_go") });
+  const box = h("details", { class: "p99-delete" },
+    h("summary", { text: say("delete") }),
+    h("p", { text: say("delete_warn", { key: i.key }) }),
+    h("label", { class: "p99-field" }, h("span", { text: say("delete_type", { key: i.key }) }), input),
+    statusLine(),
+    btn);
+  const ok = () => input.value.trim().toUpperCase() === i.key.toUpperCase();
+  let held = 0;
+  const go = () => {
+    if (box.p99Busy) return;
+    box.p99Busy = true;
+    btn.disabled = true;
+    status(box, say("sending"));
+    call("DELETE", "/issues/" + enc(i.key)).then(() => {
+      if (/^#p99=/i.test(location.hash)) history.replaceState(history.state, "", location.pathname + location.search);
+      o.refresh && o.refresh();
+      list(S.list || defaultList());
+    }, (e) => {
+      box.p99Busy = false;
+      btn.disabled = false;
+      status(box, problem(e));
+    });
+  };
+  const stop = () => { clearTimeout(held); btn.classList.remove("is-holding"); };
+  input.addEventListener("input", () => btn.toggleAttribute("data-ready", ok()));
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); if (ok()) go(); } });
+  btn.addEventListener("pointerdown", (e) => {
+    if (ok() || e.button) return;
+    btn.classList.add("is-holding");
+    held = setTimeout(() => { stop(); go(); }, 1200);
+  });
+  ["pointerup", "pointerleave", "pointercancel"].forEach((n) => btn.addEventListener(n, stop));
+  btn.addEventListener("contextmenu", (e) => e.preventDefault());
+  btn.addEventListener("click", () => { if (ok()) go(); else if (!box.p99Busy) status(box, say("delete_type", { key: i.key })); });
+  return box;
 }
 function tagPicker(i) {
   const list = h("span", { class: "p99-tags" });

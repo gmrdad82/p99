@@ -19,6 +19,7 @@ import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { LABEL_ROUTES, bindLabels, labelChanges, labelFilters, labelRowsStatement, labelsByItem, tagsOf } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
+import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -3262,6 +3263,7 @@ const ITEM_ROUTES = [
   ["POST", /^\/issues$/, createIssue],
   ["GET", /^\/issues\/([^/]+)$/, getIssue],
   ["PATCH", /^\/issues\/([^/]+)$/, patchIssue],
+  ["DELETE", /^\/issues\/([^/]+)$/, deleteIssue],
   ["POST", /^\/issues\/([^/]+)\/comments$/, postComment],
   ["PUT", /^\/issues\/([^/]+)\/attachments\/([^/]+)$/, putAttachment],
   ["GET", /^\/files\/(\d{1,15})$/, getFile],
@@ -3362,6 +3364,8 @@ useGithubKit({
   runHandler,
   sha256Hex,
 });
+
+useDeleteKit({ fail, json, keyOf, loadItem, push, requireEmptyBody, requireManager });
 
 function findRoute(routes, method, path) {
   for (const route of routes) {
@@ -3500,5 +3504,6 @@ export default {
   },
   async scheduled(event, env, ctx) {
     ctx.waitUntil(backupStep(env));
+    ctx.waitUntil(sweepDeletions(env));
   },
 };
