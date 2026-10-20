@@ -134,6 +134,12 @@ Invites are personal codes rather than accounts. `p99 invite example.com --name 
 
 When the account has mail on (`p99 email set`), `p99 invite` mails the person their link: one "Open P99 on <host>" button per host the code covers, and the plain `https://<host>/#p99=<code>` lines in the text part, with replies going to whoever sent it. Without mail, or with `--no-mail`, the terminal prints the links once. `p99 revoke <id>` ends a code at once, and `p99 relink <id|email>` gives someone a new code in place of the one they hold: the old code stops working in the same request, the new link is mailed, and their authenticator, items and history carry over, since those follow the e-mail. With an authenticator on the code, a forwarded link alone opens nothing in another browser. Your own links are printed in the terminal, never mailed unless you add `--mail-me`; P99 writes them nowhere, so save them in your password manager if you keep them there. `p99 link [host]` opens your link in the browser from the `code` your config keeps (inline, or an `op://` reference read at that moment), and `--print` prints it. More in [docs/guides/invite.md](docs/guides/invite.md).
 
+## The P99 page
+
+Each account's Worker also answers on an address of its own, so P99 stays reachable when a site is down or its tag is off. It is the account's `workers.dev` address (`https://p99.<subdomain>.workers.dev/`), or a host you set once as `app = "p99.example.com"` for the account in the config, and `p99 deploy` sets it up; `p99 app` prints it. The page has three screens: sign in, your spaces (each site your codes cover, with its open count) and your profile (your username, with its generated disc). Opening a space shows the same panel as on the site, full page: your items and threads, and the board for managers.
+
+Signing in takes your e-mail and the 6-digit code from the authenticator on your P99 code; there are no passwords and no mailed links, so only codes with an authenticator sign in here (`p99 invites totp <id>` adds one). The session is a cookie that lasts 30 days and ends at sign-out, or the moment its code is revoked or relinked. On the page a person sees exactly what their codes see on the sites. More in [docs/security.md](docs/security.md).
+
 ## Install and first use
 
 Each [release](https://github.com/gmrdad82/p99/releases/latest) carries a Linux (x86_64) and a macOS (Apple Silicon) binary with a `SHA256SUMS` file. The macOS binary is built on an Apple Silicon Mac.

@@ -22,6 +22,7 @@ import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
 import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
+import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -2569,6 +2570,7 @@ async function postCodeTotp(c, rawId) {
       totp.sealed,
     ),
     DB.prepare("DELETE FROM code_devices WHERE code_id = ?1").bind(Number(rawId)),
+    DB.prepare("DELETE FROM app_sessions WHERE code_id = ?1").bind(Number(rawId)),
   ]);
   const row = updated.results[0];
   codeCache.clear();
@@ -2589,7 +2591,7 @@ async function postVerify(c) {
   const now = Math.floor(Date.parse(c.now) / 1000 / TOTP_STEP_SECONDS);
   let matched = null;
   for (const step of [now - 1, now, now + 1]) {
-    if (step > row.totp_step && (await totpAt(key, step)) === typed) matched = step;
+    if (step > row.totp_step && sameText(await totpAt(key, step), typed)) matched = step;
   }
   if (matched === null) {
     await DB.prepare("UPDATE codes SET totp_fails = totp_fails + 1 WHERE id = ?1").bind(c.code.id).run();
@@ -3407,6 +3409,29 @@ useLinkKit({
   sealCode,
 });
 
+useAppKit({
+  Failure,
+  browserRun,
+  codeHash,
+  encoder,
+  errorResponse,
+  fail,
+  isEmail,
+  json,
+  loadDirectory,
+  managersOf,
+  mineClause,
+  openTotp,
+  parseJson,
+  readJson,
+  sealTotp,
+  staticFiles: STATIC_FILES,
+  ticketStream,
+  totpAt,
+  totpMaxFails: TOTP_MAX_FAILS,
+  totpStepSeconds: TOTP_STEP_SECONDS,
+});
+
 function findRoute(routes, method, path) {
   for (const route of routes) {
     if (route[0] !== method) continue;
@@ -3430,6 +3455,10 @@ async function browserRequest(request, env, ctx, url, path) {
   if (!hostRow) fail(404, "no such host");
   const now = new Date().toISOString();
   const code = await authoriseCode(env, ctx, request, request.headers.get("x-p99-code"), hostRow.host, now);
+  return browserRun(request, env, ctx, url, path, dir, hostRow, code, now);
+}
+
+function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
   const found = findRoute(BROWSER_ROUTES, request.method, path);
   if (!found) fail(404, "no such route");
   if (!code.trusted && found.route[2] !== postVerify) fail(428, "enter the 6-digit code from your authenticator app");
@@ -3522,11 +3551,12 @@ async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === "GET" && path === "/_p99/health") return health(env);
-  if (path === "/_p99/api/stream") return ticketStream(request, env, url);
   if (request.method === "POST" && path === "/_p99/v1/github") return githubDelivery(request, env, ctx, url);
+  if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
+  if (isApp(env, url)) return appRequest(request, env, ctx, url);
+  if (path === "/_p99/api/stream") return ticketStream(request, env, url);
   if (request.method === "GET" && path === "/_p99/feed") return serveFeed(request, env, ctx, url);
   if (path.startsWith("/_p99/api/")) return browserRequest(request, env, ctx, url, path.slice("/_p99/api".length));
-  if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
   if (path === "/_p99/open" || path === "/_p99/mail") return mailPage(request, env, url, await loadDirectory(env), keyOf);
   if (path.startsWith("/_p99/")) return serveStatic(request, env, url);
   fail(404, "no such route");

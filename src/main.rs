@@ -1,3 +1,4 @@
+mod app;
 mod boards;
 mod bundle;
 mod cli;
@@ -56,6 +57,10 @@ enum Command {
     Setup(setup::SetupArgs),
     #[command(about = "upload this version's Worker to an account")]
     Deploy(setup::DeployArgs),
+    #[command(
+        about = "print the address of the account's P99 page, which works when a site is down"
+    )]
+    App,
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
     Bundle,
     #[command(
@@ -91,6 +96,7 @@ fn main() -> ExitCode {
         Command::Tui(args) => return tui::run(&args, &p99.global),
         Command::Setup(args) => setup::setup(&args, &p99.global),
         Command::Deploy(args) => setup::deploy(&args, &p99.global),
+        Command::App => app::run(&p99.global),
         Command::Bundle => bundle::run(&p99.global),
         Command::License(args) => license::run(&args, &p99.global),
         Command::Email(args) => email::run(&args, &p99.global),

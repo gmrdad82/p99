@@ -51,6 +51,8 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resend_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail_from: Option<String>,
