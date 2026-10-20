@@ -82,6 +82,11 @@ pub fn patch(view: &mut BoardView, event: &Value) -> Patch {
             Some(slug) => (format!("board:{slug}"), event["parent"].as_str()),
             None => return Patch::Reload,
         },
+        Some("delete") => {
+            let key = event["key"].as_str().unwrap_or_default();
+            view.cards.retain(|card| card.id() != key);
+            return Patch::Patched;
+        }
         _ => return Patch::Reload,
     };
     let at = view.cards.iter().position(|card| card.id() == id);

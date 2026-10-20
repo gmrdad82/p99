@@ -44,6 +44,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("github.js", ES),
     worker!("feed.js", ES),
     worker!("mailer.js", ES),
+    worker!("deletes.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
     worker!("web/board.js", TEXT),
@@ -64,6 +65,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0007_github.sql"),
     migration!("0008_mail.sql"),
     migration!("0009_merge.sql"),
+    migration!("0010_deletions.sql"),
 ];
 
 pub fn modules() -> Vec<Module<'static>> {

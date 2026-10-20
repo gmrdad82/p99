@@ -36,6 +36,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `POST /_p99/api/issues` | any code (`task` managers only) | `{"client_uid","kind","title","body","page","context","marks"}`; 201 issue |
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
 | `PATCH /_p99/api/issues/{key}` | as the signed API | 200 issue |
+| `DELETE /_p99/api/issues/{key}` | managers | as the signed API; a reporter gets 403 |
 | `POST /_p99/api/issues/{key}/comments` | its reporter or a manager (`internal` managers only) | `{"client_uid","body","internal"}`; 201 comment |
 | `PUT /_p99/api/issues/{key}/attachments/{client_uid}?name=&role=&mark=&comment=` | its reporter or a manager | raw body, `Content-Length` required, `X-Content-SHA256` optional (the Worker hashes the body when it is absent); 201 attachment |
 | `GET /_p99/api/files/{id}` | its reporter or a manager | the file, `Content-Disposition: attachment` |
@@ -75,6 +76,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `PATCH /_p99/v1/labels/{name}` | managers, every host | `{"name"?,"color"?}`; 200 label: renames or recolours it on every item |
 | `DELETE /_p99/v1/labels/{name}` | managers, every host | 200 `{"name","items"}`: removes it from the account and from every item |
 | `POST /_p99/v1/merge` | actor | `{"items":[key],"into":key}`, at most 50 items; 200 `{"into","merged":[key],"unchanged":[key]}`, as [Merging duplicates](#merging-duplicates) describes |
+| `DELETE /_p99/v1/issues/{key}` | actor | deletes the item for good; 200 `{"key","comments","files","retrying","unlinked":[key]}`, as [Deleting an item](#deleting-an-item) describes |
 | `GET /_p99/v1/hosts` | managers | `{"hosts":[{"host","env","config","created_at"}]}` |
 | `PUT /_p99/v1/hosts/{host}` | the key | `{"env","config"}`; adds or updates a host; 200 host |
 | `DELETE /_p99/v1/hosts/{host}` | the key | 204; its items stay |
@@ -128,8 +130,9 @@ A code object is `{"id","name","email","hosts","manager","hint","created_at","cr
 | `board` | a board is created, renamed or deleted | `action` (`created`, `renamed`, `deleted`) and `board` |
 | `statuses` | a status is renamed | nothing; every socket hears it |
 | `labels` | a label is made, renamed, recoloured or removed | `action` (`created`, `renamed`, `recolored`, `removed`) and `names`; `key` and `title` are null |
+| `delete` | an item is deleted | `board`, the slug of the board it was on; a `move` to `inbox` follows for each item that was merged into it |
 
-A board's events carry its host, `null` for an account-wide board, which only a socket for every host hears. A reader patches its board in place on `move` and `board.move` and reads it again on anything else. A status change through `PATCH` sends both `change` and `move`.
+A board's events carry its host, `null` for an account-wide board, which only a socket for every host hears. A reader patches its board in place on `move`, `board.move` and `delete` and reads it again on anything else. A status change through `PATCH` sends both `change` and `move`.
 
 `title` is the item's title after the change and `by` the actor, `null` for a write without one. Internal comments and files are included, since only the signed API listens. A socket opened with `host=<host>` hears only that host's events; an unlisted host answers 404. The socket answers the text `ping` with `pong`, which keeps it open through idle proxies; the CLI and the TUI send one every 30 seconds and reconnect when it drops. A Worker without the `HUB` binding (one not deployed since live updates came) answers 404 `this Worker has no push yet; run p99 deploy`, and its writes skip the event. The event is sent after the response, so a write never waits on it, and a socket that is not open misses it: a client that reconnects reads the list again.
 
@@ -163,6 +166,14 @@ A board may sit as a card in another board's column, beside items: its `parent` 
 `p99 merge BUG-14 BUG-15 --into BUG-12` folds reports of the same thing into one item. Each merged item gets `duplicate_of` the target and moves to `done` with resolution `duplicate` (a status event and a live `move`), with a `merge` event on it (`{"into"}`) and on the target (`{"item"}`), and its reporter is mailed the status change. Items already merged into a merged item move to the target too, so a merge stays one level deep; a target that is itself merged answers 409 and names the one to use. A manager scoped to one host (`?host=`) merges that host's items only: an item on another host answers 404. Without `host`, items of several hosts merge.
 
 Every reporter of a merged item follows the target: it shows in their "mine" list and counts, they read its thread and comment on it as any reporter does, and they are mailed its replies, status changes and landings. A follower sees the target's title, status, public comments with their files, events and landings; never its internal notes, its reporter's e-mail, text, page context, marks or capture files. Only the target's own reporter changes or drops it. `p99 show` and the TUI's thread list the items merged into an item, and the panel shows "merged into BUG-12" on each merged one.
+
+## Deleting an item
+
+`p99 delete BUG-12` (or `DELETE /issues/{key}` on either API, managers only) removes an item for good: the item, its comments and internal notes, its events, read marks, labels, its place on its board, its GitHub links (GitHub's own issue and pull requests stay as they are), mail opt-outs, landings, and every file in the bucket, screenshots, page captures, marked areas and attachments, on the item and on its comments. There is no undo and no trace in the account but the Worker's log line, `deleted BUG-12 by Ada Lovelace*`.
+
+The rows go in one D1 batch, which is one transaction: a failure part-way leaves the item whole. The same batch records every file's bucket key in `deletions`; the files are then removed from R2, up to 1,000 keys a call, and each key is struck off once its object is gone. A key whose removal fails stays in `deletions`, and the cron trigger retries it every 15 minutes until it goes, so no file is left behind; a file still uploading when the item went is removed once more 15 minutes later. `retrying` counts the files still waiting.
+
+Items merged into the deleted one lose their `duplicate_of`; a done duplicate moves back to the top of Inbox on its board (a status event on it, and a live `move`), so its report is triaged again. Keys are never handed out again: an item's number comes from SQLite's `AUTOINCREMENT`, which never reuses one. Chat hooks and GitHub get nothing, and no one is mailed. The fixed feed reads the current rows, so a deleted item drops out of it. The weekly backups in the bucket keep the item until they age out, eight weeks later.
 
 ## Environments and landings
 
@@ -198,7 +209,7 @@ The host's secrets are Worker secrets named after the first 16 hex digits of the
 
 ## Backups
 
-The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the bucket under `backups/<date>/`, in steps small enough for one invocation, keeping eight.
+The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the bucket under `backups/<date>/`, in steps small enough for one invocation, keeping eight. A deleted item stays in the backups taken before its delete until they age out; P99 never edits a backup.
 
 ## Schema
 

@@ -1133,7 +1133,21 @@ impl Screen<Msg> for Board {
                     }
                 }
             }
-            Msg::Heard(account, text) if account == self.account => self.heard(&text),
+            Msg::Heard(account, text) if account == self.account => {
+                self.heard(&text);
+                if self.reading_thread() {
+                    self.reader.event(Msg::Heard(account, text), cx);
+                }
+            }
+            Msg::Deleted(key, result) => {
+                if result.is_ok()
+                    && let Some(view) = &mut self.view
+                {
+                    view.cards.retain(|c| c.id() != key);
+                    self.clamp();
+                }
+                self.reader.event(Msg::Deleted(key, result), cx);
+            }
             Msg::Boards(Ok(all)) => self.offer(all, cx),
             Msg::Boards(Err(error)) => cx.say(error, Tone::Alert),
             Msg::Pushed(_, None) => self.stale = Some(self.moment),

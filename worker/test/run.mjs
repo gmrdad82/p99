@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { mergeFeedChecks } from "./merge-feed.mjs";
+import { deleteChecks } from "./delete.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -952,6 +953,7 @@ async function run() {
   });
 
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
+  await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

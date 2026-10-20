@@ -248,6 +248,19 @@ impl Source {
         }
     }
 
+    pub fn delete(
+        &self,
+        account: usize,
+        host: Option<&str>,
+        key: &str,
+    ) -> Result<crate::wire::Deleted, String> {
+        match self {
+            Source::Demo(..) => self.sample(|demo| demo.delete(key)),
+            Source::Live(live) => live.client(account, host)?.delete_item(key),
+            Source::Broken(why) => Err(why.clone()),
+        }
+    }
+
     pub fn follow(&self, waker: &Waker<Msg>) {
         let Source::Live(live) = self else { return };
         let Ok(clients) = live.clients() else { return };
@@ -271,11 +284,13 @@ impl Source {
                     Heard::Open { again: false } | Heard::Dropped(..) => true,
                     Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(account, None))),
                     Heard::Event(text) => {
-                        let key = serde_json::from_str::<serde_json::Value>(text)
-                            .ok()
+                        let event = serde_json::from_str::<serde_json::Value>(text).ok();
+                        let key = event
+                            .as_ref()
                             .and_then(|event| event["key"].as_str().map(str::to_owned));
+                        let gone = event.is_some_and(|event| event["type"] == "delete");
                         tell(&|w| {
-                            w.send(Msg::Pushed(account, key.clone()))
+                            (gone || w.send(Msg::Pushed(account, key.clone())))
                                 & w.send(Msg::Heard(account, text.to_owned()))
                         })
                     }

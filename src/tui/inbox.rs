@@ -114,6 +114,7 @@ enum Typing {
     Reply(Input),
     Duplicate(Input),
     Label(Input),
+    Delete(Input, String),
 }
 
 #[derive(Clone, Copy)]
@@ -420,6 +421,69 @@ impl Inbox {
         });
     }
 
+    fn delete(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(open) = &mut self.open else { return };
+        open.sending = true;
+        let (source, key, account, host) = (
+            self.source.clone(),
+            open.key.clone(),
+            open.account,
+            open.host.clone(),
+        );
+        cx.detach(move || {
+            let result = source.delete(account, host.as_deref(), &key);
+            Msg::Deleted(key, result)
+        });
+    }
+
+    fn drop_entry(&mut self, account: usize, key: &str) {
+        let kept = self
+            .filter
+            .current()
+            .and_then(|at| self.entries.as_ref()?.get(at))
+            .map(|e| (e.account, e.summary.key.clone()));
+        let Some(entries) = &mut self.entries else {
+            return;
+        };
+        let before = entries.len();
+        entries.retain(|e| !(e.account == account && e.summary.key == key));
+        if entries.len() == before {
+            return;
+        }
+        if let Some(open) = &mut self.open {
+            open.entry = entries
+                .iter()
+                .position(|e| e.account == open.account && e.summary.key == open.key);
+        }
+        self.sift();
+        self.keep(kept);
+    }
+
+    fn heard(&mut self, account: usize, text: &str, cx: &mut Cx<'_, Msg>) {
+        let Ok(event) = serde_json::from_str::<serde_json::Value>(text) else {
+            return;
+        };
+        let (Some("delete"), Some(key)) = (event["type"].as_str(), event["key"].as_str()) else {
+            return;
+        };
+        self.drop_entry(account, key);
+        let reading = self
+            .open
+            .as_ref()
+            .is_some_and(|o| o.account == account && o.key == key && !o.sending);
+        if reading {
+            self.open = None;
+            let by = &event["by"];
+            let name = by["name"].as_str().unwrap_or("Someone");
+            let star = if by["agent"].as_bool().unwrap_or(false) {
+                "*"
+            } else {
+                ""
+            };
+            cx.say(format!("{name}{star} deleted {key}"), Tone::Alert);
+        }
+    }
+
     fn pick_host(&mut self, cx: &mut Cx<'_, Msg>) {
         let mut options = vec!["All hosts".to_owned()];
         options.extend(self.hosts.iter().cloned());
@@ -588,18 +652,31 @@ impl Inbox {
         let Some(open) = &mut self.open else { return };
         if let Some(typing) = &mut open.typing {
             let input = match typing {
-                Typing::Reply(input) | Typing::Duplicate(input) | Typing::Label(input) => input,
+                Typing::Reply(input)
+                | Typing::Duplicate(input)
+                | Typing::Label(input)
+                | Typing::Delete(input, _) => input,
             };
             match input.key(key.into()) {
                 Edit::Submit(value) => {
                     let value = value.trim().to_owned();
                     let reply = matches!(typing, Typing::Reply(_));
                     let label = matches!(typing, Typing::Label(_));
+                    let delete = matches!(typing, Typing::Delete(..));
                     open.typing = None;
                     if value.is_empty() {
                         return;
                     }
-                    if reply {
+                    if delete {
+                        if value.eq_ignore_ascii_case(&open.key) {
+                            self.delete(cx);
+                        } else {
+                            cx.say(
+                                format!("{} is kept: the key typed back didn't match", open.key),
+                                Tone::Muted,
+                            );
+                        }
+                    } else if reply {
                         self.reply(value, cx);
                     } else if label {
                         self.change(
@@ -649,6 +726,10 @@ impl Inbox {
             KeyCode::Char('p') if ready => self.pick_priority(cx),
             KeyCode::Char('l') if ready => self.pick_label(cx),
             KeyCode::Char('o') => self.browse(cx),
+            KeyCode::Char('d') if ready => {
+                let prompt = format!("type {} to delete it", open.key);
+                open.typing = Some(Typing::Delete(Input::new(), prompt));
+            }
             _ => {}
         }
     }
@@ -1102,6 +1183,33 @@ impl Screen<Msg> for Inbox {
                 }
             }
             Msg::Pushed(account, key) => self.pushed(account, key, cx),
+            Msg::Heard(account, text) => self.heard(account, &text, cx),
+            Msg::Deleted(key, result) => {
+                let Some(open) = self.open.as_mut().filter(|o| o.key == key) else {
+                    return;
+                };
+                open.sending = false;
+                match result {
+                    Ok(done) => {
+                        let account = open.account;
+                        self.open = None;
+                        self.drop_entry(account, &key);
+                        let mut said = format!("Deleted {key}");
+                        if done.files > 0 {
+                            said.push_str(&format!(" and its {} files", done.files));
+                        }
+                        if !done.unlinked.is_empty() {
+                            said.push_str(&format!(
+                                "; {} back in the inbox",
+                                done.unlinked.join(", ")
+                            ));
+                            self.refresh(cx);
+                        }
+                        cx.say(said, Tone::Good);
+                    }
+                    Err(error) => cx.say(error, Tone::Alert),
+                }
+            }
             Msg::Thread(key, result) => {
                 let Some(open) = self.open.as_mut().filter(|o| o.key == key) else {
                     return;
@@ -1337,8 +1445,12 @@ impl Screen<Msg> for Inbox {
 
     fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
         if let Some(open) = &mut self.open {
-            if let Some(Typing::Reply(input) | Typing::Duplicate(input) | Typing::Label(input)) =
-                &mut open.typing
+            if let Some(
+                Typing::Reply(input)
+                | Typing::Duplicate(input)
+                | Typing::Label(input)
+                | Typing::Delete(input, _),
+            ) = &mut open.typing
             {
                 input.paste(text);
             }
@@ -1406,6 +1518,12 @@ impl Screen<Msg> for Inbox {
                     .hint("enter puts it on · esc cancels")
                     .tone(Tone::Accent),
             ),
+            Typing::Delete(input, prompt) => Some(
+                InputBar::new("Delete for good", input)
+                    .placeholder(prompt)
+                    .hint("enter deletes it, its comments and files · esc keeps it")
+                    .tone(Tone::Alert),
+            ),
         }
     }
 
@@ -1427,6 +1545,7 @@ impl Screen<Msg> for Inbox {
                 Hint::new("l", "labels").rank(2),
                 Hint::new("i", internal).rank(2),
                 Hint::new("o", "open page").rank(3),
+                Hint::new("d", "delete").rank(3),
                 Hint::new("↑↓", "scroll").rank(3),
                 Hint::new("esc", "back"),
             ];

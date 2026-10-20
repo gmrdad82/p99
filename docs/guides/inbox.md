@@ -67,6 +67,7 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `p` | set its priority, or clear it |
 | `l` | put a label on it or take one off; `+ New label…` makes one |
 | `o` | open the item's page in the browser |
+| `d` | delete it for good, with its comments and files: type its key back, then `enter` |
 | `↑` `↓`, `space`, `g`, `G` | scroll |
 | `ctrl+r` | read the item again |
 | `esc` | back to the list |
@@ -100,6 +101,7 @@ p99 labels rename copy wording
 p99 labels remove wording
 p99 file example.com --kind task --title "Move product images to the new bucket"
 p99 download 41 -o receipt.png
+p99 delete BUG-16
 ```
 
 `p99 status BUG-12 done` is `p99 move BUG-12 --to done`; `abandoned` and `duplicate` end an item that way too, and the P99 1.x words (`resolved`, `in_progress` and the rest) still work.
@@ -113,7 +115,7 @@ p99 download 41 -o receipt.png
  IMP-5    Doing       shop.example.com Show delivery dates on product pages  -> ada@example.com  landed: dev
 ```
 
-A `*` before the key marks it unread, `!!`, `!` or `↓` before the title its priority, and `labels:` ends the line when it has some. `--priority` repeats for any of several (`none` is no priority), `--label` for all of several; `p99 label` makes a label the account doesn't have yet, and `p99 labels rename`, `color` and `remove` change it on every item. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
+A `*` before the key marks it unread, `!!`, `!` or `↓` before the title its priority, and `labels:` ends the line when it has some. `--priority` repeats for any of several (`none` is no priority), `--label` for all of several; `p99 label` makes a label the account doesn't have yet, and `p99 labels rename`, `color` and `remove` change it on every item. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, a manager finds **Delete this item** at the bottom of an item, under Manage: type the key, or hold the button. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
 
 ## JSON for scripts
 

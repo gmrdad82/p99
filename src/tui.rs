@@ -238,6 +238,7 @@ pub enum Msg {
     Thread(String, Result<Thread, String>),
     Commented(String, Result<bool, String>),
     Changed(String, Result<Issue, String>),
+    Deleted(String, Result<crate::wire::Deleted, String>),
     Codes(Result<Vec<Code>, String>),
     Pushed(usize, Option<String>),
     Board(

@@ -524,6 +524,14 @@
 .p99-manage > .p99-status-line,
 .p99-manage > button { grid-column: 1 / -1; }
 .p99-manage label { display: grid; gap: var(--p99-space-xxs); min-width: 0; }
+.p99-delete { display: grid; gap: var(--p99-space-sm); padding-top: var(--p99-space-md); border-top: 1px solid var(--p99-rule); }
+.p99-delete summary { cursor: pointer; width: max-content; color: var(--p99-danger); font-weight: var(--p99-weight-medium); font-size: var(--p99-text-sm); }
+.p99-delete[open] > :not(summary) { animation: p99-in var(--p99-motion-base) var(--p99-ease-enter) both; }
+.p99-delete p:not(.p99-status-line) { margin: 0; font-size: var(--p99-text-sm); color: var(--p99-muted); }
+.p99-panel .p99-delete > button { justify-self: end; position: relative; overflow: hidden; border-color: var(--p99-danger); color: var(--p99-danger); touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.p99-panel .p99-delete > button[data-ready] { background: var(--p99-danger); color: var(--p99-raised); }
+.p99-delete > button::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--p99-danger) 24%, transparent); transform: scaleX(0); transform-origin: left; transition: transform var(--p99-motion-base) var(--p99-ease-exit); pointer-events: none; }
+.p99-delete > button.is-holding::after { transform: scaleX(1); transition: transform 1200ms var(--p99-ease-in-out); }
 .p99-check { display: flex; align-items: center; gap: var(--p99-space-sm); font-size: var(--p99-text-sm); }
 .p99-tag-pick { grid-column: 1 / -1; display: grid; gap: var(--p99-space-xs); margin: 0; padding: 0; border: 0; min-width: 0; }
 .p99-tag-pick legend { padding: 0; margin-bottom: var(--p99-space-xxs); font: var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text); letter-spacing: var(--p99-tracking-caps); text-transform: uppercase; color: var(--p99-muted); }

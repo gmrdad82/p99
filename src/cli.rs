@@ -1,3 +1,4 @@
+mod delete;
 mod merge;
 
 use std::collections::BTreeMap;
@@ -112,6 +113,10 @@ pub enum Command {
     Merge(merge::MergeArgs),
     #[command(about = "list each host's feed of fixed items; turn one on or off")]
     Feed(merge::FeedArgs),
+    #[command(
+        about = "delete an item for good, with its comments, notes, events and files; asks for the key typed back"
+    )]
+    Delete(delete::DeleteArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -443,6 +448,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Labels(a) => crate::labels::labels(&config, global, &a),
         Command::Merge(a) => merge::merge(&config, global, &a),
         Command::Feed(a) => merge::feed(&mut config, global, &a),
+        Command::Delete(a) => delete::delete(&config, global, &a),
     }
 }
 
