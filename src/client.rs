@@ -10,9 +10,9 @@ use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
-    Attachment, BoardSpec, BoardView, Boards, Build, Change, Code, Comment, Download, EnvEntry,
-    HostEntry, ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards,
-    LanePage, ListQuery, Member, Minted, Move, MoveTo, Moved, MovedCard, NewCode, NewIssue, Thread,
+    Attachment, BoardSpec, Build, Change, Code, Comment, Download, EnvEntry, HostEntry,
+    ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards, LanePage,
+    ListQuery, Member, Minted, MoveTo, MovedCard, NewCode, NewIssue, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -361,20 +361,6 @@ impl Client {
             .map_err(|e| e.to_string())?;
         let reply = self.send_as("POST", &pq, None, &body, TRANSFER)?;
         parse(&reply)
-    }
-
-    pub fn boards(&self) -> Result<Boards, String> {
-        self.json("GET", &self.scoped("/v1/boards"), None)
-    }
-
-    pub fn board(&self, slug: &str) -> Result<BoardView, String> {
-        let pq = self.scoped(&format!("/v1/boards/{}", segment(slug)?));
-        self.json("GET", &pq, None)
-    }
-
-    pub fn move_card(&self, request: &Move) -> Result<Moved, String> {
-        let body = serde_json::to_value(request).map_err(|e| e.to_string())?;
-        self.json("POST", &self.scoped("/v1/move"), Some(body))
     }
 
     fn scoped(&self, path: &str) -> String {

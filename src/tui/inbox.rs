@@ -13,7 +13,7 @@ use pito_tui::ratatui::{
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
-use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, status_text, status_word};
+use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, stage_word, status_word};
 
 use super::Msg;
 use super::deck::Move;
@@ -217,7 +217,7 @@ impl Inbox {
         let this = &*self;
         let keeps = |entry: &Entry, _: &str| {
             let item = &entry.summary;
-            shown.keeps(closed(item.resolution.as_deref(), &item.status))
+            shown.keeps(closed(item.resolution.as_deref(), &item.stage))
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
                 && hits(&entry.haystack, &words)
         };
@@ -267,7 +267,7 @@ impl Inbox {
             return;
         };
         let summary = &mut entry.summary;
-        summary.status = issue.status.clone();
+        summary.stage = issue.stage.clone();
         summary.resolution = issue.resolution.clone();
         summary.board = issue.board.clone();
         summary.position = issue.position;
@@ -530,7 +530,11 @@ impl Inbox {
         let mut options = labels.clone();
         options.extend([DROP.to_owned(), DUPLICATE.to_owned()]);
         self.picking = Some(Picking::Move(labels));
-        cx.pick(Pick::new("Move to", options).selected(at).hints(pick_hints()));
+        cx.pick(
+            Pick::new("Move to", options)
+                .selected(at)
+                .hints(pick_hints()),
+        );
     }
 
     fn issue(&self) -> Option<&Issue> {
@@ -689,21 +693,21 @@ fn pick_hints() -> [Hint<'static>; 3] {
     ]
 }
 
-fn closed(resolution: Option<&str>, status: &str) -> bool {
-    resolution.is_some() || (!status.is_empty() && !wire::open(status))
+fn closed(resolution: Option<&str>, stage: &str) -> bool {
+    resolution.is_some() || matches!(stage, "fixed" | "dropped" | "duplicate")
 }
 
 fn label_text(item: &Summary) -> &str {
     item.label
         .as_deref()
-        .unwrap_or_else(|| status_text(&item.status, item.resolution.as_deref()))
+        .unwrap_or_else(|| stage_word(&item.stage))
 }
 
 fn issue_label(issue: &Issue) -> String {
     issue
         .label
         .clone()
-        .unwrap_or_else(|| status_word(&issue.status).to_owned())
+        .unwrap_or_else(|| stage_word(&issue.stage).to_owned())
 }
 
 fn state(issue: &Issue) -> String {
@@ -717,24 +721,22 @@ fn state(issue: &Issue) -> String {
     }
 }
 
-fn label_style(palette: &Palette, item: &Summary) -> Style {
-    if closed(item.resolution.as_deref(), &item.status) {
+fn tone(palette: &Palette, label: &str, closed: bool) -> Style {
+    if closed {
         palette.good
-    } else if label_text(item) == "Inbox" {
+    } else if label == "Inbox" || label == stage_word("received") {
         palette.accent
     } else {
         palette.strong
     }
 }
 
-fn status_style(palette: &Palette, status: &str) -> Style {
-    match status {
-        "inbox" => palette.accent,
-        "doing" => palette.strong,
-        "review" => palette.warn,
-        "done" => palette.good,
-        _ => palette.muted,
-    }
+fn label_style(palette: &Palette, item: &Summary) -> Style {
+    tone(
+        palette,
+        label_text(item),
+        closed(item.resolution.as_deref(), &item.stage),
+    )
 }
 
 fn lines(
@@ -780,11 +782,12 @@ fn lines(
         Span::styled(kind_word(&issue.kind).to_owned(), palette.ink),
         dot(),
         Span::styled(
-            match &issue.label {
-                Some(label) => label.clone(),
-                None => status_text(&issue.status, issue.resolution.as_deref()).to_owned(),
-            },
-            status_style(palette, &issue.status),
+            issue_label(issue),
+            tone(
+                palette,
+                &issue_label(issue),
+                closed(issue.resolution.as_deref(), &issue.stage),
+            ),
         ),
     ];
     if let (Some(_), Some(resolution)) = (&issue.label, issue.resolution.as_deref())
@@ -975,7 +978,10 @@ fn lines(
 fn plain(kind: &str, value: &serde_json::Value) -> String {
     match value {
         serde_json::Value::Null => "nobody".into(),
-        serde_json::Value::String(s) if kind == "status" => status_word(s).to_owned(),
+        serde_json::Value::String(s) if kind == "status" => match stage_word(s) {
+            word if word != s => word.to_owned(),
+            _ => status_word(s).to_owned(),
+        },
         serde_json::Value::String(s) if kind == "kind" => kind_word(s).to_owned(),
         serde_json::Value::String(s) => s.replace('_', " "),
         other => other.to_string(),

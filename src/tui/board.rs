@@ -71,7 +71,6 @@ fn ease_out(t: f32) -> f32 {
     1.0 - (1.0 - t).powi(3)
 }
 
-
 pub struct Board {
     source: Source,
     palette: Palette,
@@ -213,7 +212,7 @@ impl Board {
         self.reading = true;
         let source = self.source.clone();
         cx.detach(move || {
-            let result = source.board(slug.clone());
+            let result = source.board(slug);
             Msg::Board(slug, result)
         });
     }
@@ -341,7 +340,11 @@ impl Board {
             })
             .unwrap_or(0);
         let labels: Vec<String> = rows.iter().map(|(_, _, label)| label.clone()).collect();
-        self.picking = Some(rows.into_iter().map(|(account, id, _)| (account, id)).collect());
+        self.picking = Some(
+            rows.into_iter()
+                .map(|(account, id, _)| (account, id))
+                .collect(),
+        );
         cx.pick(Pick::new("Board", labels).selected(at).hints([
             Hint::new("↑↓", "move"),
             Hint::new("enter", "open"),
@@ -610,7 +613,10 @@ impl Board {
                 let Some(card) = self.view.as_ref().map(|v| v.cards[index].clone()) else {
                     continue;
                 };
-                let done = self.view.as_ref().is_some_and(|v| v.board.closes(&card.label));
+                let done = self
+                    .view
+                    .as_ref()
+                    .is_some_and(|v| v.board.closes(&card.label));
                 let id = card.key.clone();
                 let (x, y) = self.place(&id, spot);
                 let (x, y) = (x.round() as i32, y.round() as i32);
@@ -639,7 +645,10 @@ impl Board {
                 .and_then(|v| v.cards.iter().find(|c| c.key == id))
                 .cloned()
         {
-            let done = self.view.as_ref().is_some_and(|v| v.board.closes(&card.label));
+            let done = self
+                .view
+                .as_ref()
+                .is_some_and(|v| v.board.closes(&card.label));
             draw_card(
                 frame.buffer_mut(),
                 area,
@@ -791,6 +800,7 @@ fn edge(
     put(buf, clip, x + width as i32 - 1, y, ends[2], 1, style);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_card(
     buf: &mut Buffer,
     clip: Rect,
@@ -921,7 +931,7 @@ impl Screen<Msg> for Board {
         let source = self.source.clone();
         let slug = self.slug();
         Some(Box::new(move || {
-            let result = source.board(slug.clone());
+            let result = source.board(slug);
             Msg::Board(slug, result)
         }))
     }

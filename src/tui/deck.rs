@@ -125,7 +125,9 @@ impl Source {
 
     pub fn board(&self, at: Option<(usize, i64)>) -> Result<(usize, BoardView), String> {
         match (self, at) {
-            (Source::Demo(..), at) => self.sample(|demo| Ok((0, demo.board(at.map(|(_, id)| id))?))),
+            (Source::Demo(..), at) => {
+                self.sample(|demo| Ok((0, demo.board(at.map(|(_, id)| id))?)))
+            }
             (Source::Live(_), Some((account, id))) => {
                 Ok((account, self.client(account, None)?.lane(id)?))
             }
@@ -137,8 +139,9 @@ impl Source {
                         boards.boards.iter().find(|b| b.mine).map(|b| (*account, b))
                     })
                     .or_else(|| {
-                        all.iter()
-                            .find_map(|(account, boards)| boards.boards.first().map(|b| (*account, b)))
+                        all.iter().find_map(|(account, boards)| {
+                            boards.boards.first().map(|b| (*account, b))
+                        })
                     })
                     .map(|(account, b)| (account, b.id))
                     .ok_or_else(|| "no board yet; p99 board makes your first one".to_owned())?;
@@ -155,7 +158,12 @@ impl Source {
             Source::Broken(why) => return Err(why.clone()),
         };
         let mut labels: Vec<String> = Vec::new();
-        for column in boards.boards.iter().filter(|b| b.mine).flat_map(|b| &b.columns) {
+        for column in boards
+            .boards
+            .iter()
+            .filter(|b| b.mine)
+            .flat_map(|b| &b.columns)
+        {
             if !labels.contains(&column.label) {
                 labels.push(column.label.clone());
             }
@@ -188,7 +196,7 @@ mod tests {
                 {"key": "BUG-1", "kind": "bug", "title": "One", "label": "Inbox", "assignee": null, "order": "a0"},
                 {"key": "BUG-3", "kind": "bug", "title": "Three", "label": "Inbox", "assignee": null, "order": "a1"},
                 {"key": "BUG-2", "kind": "bug", "title": "Two", "label": "QA ready",
-                 "assignee": {"username": "grace.hopper"}, "order": "a0"}
+                 "assignee": {"username": "grace.hopper"}, "order": "Zy"}
             ]
         }))
         .unwrap()
@@ -198,8 +206,8 @@ mod tests {
     fn a_drop_asks_the_move_endpoint_in_the_contract_shape() {
         let view = view();
         let lane: Vec<&Card> = view.cards.iter().filter(|c| c.label == "Inbox").collect();
-        let card = &view.cards[2];
-        let between = request(&view.board, &lane, card, 0, 1);
+        let card = view.cards.iter().find(|c| c.key == "BUG-2").unwrap();
+        let between = request(&view.board, &lane, card, 0, 2);
         assert_eq!(
             serde_json::to_value(&between).unwrap(),
             json!({"key": "BUG-2", "from": "QA ready", "to": "Inbox", "board": 7, "before": "BUG-3"})
@@ -237,6 +245,9 @@ mod tests {
         assert_eq!(patch(&mut view, &arrives), Patch::Reload);
         let passes = json!({"type": "label", "key": "BUG-8", "from": "Testing", "to": "Shipped", "host": "example.com"});
         assert_eq!(patch(&mut view, &passes), Patch::Patched);
-        assert_eq!(patch(&mut view, &json!({"type": "comment", "key": "BUG-3"})), Patch::Reload);
+        assert_eq!(
+            patch(&mut view, &json!({"type": "comment", "key": "BUG-3"})),
+            Patch::Reload
+        );
     }
 }

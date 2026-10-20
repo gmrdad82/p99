@@ -213,8 +213,7 @@ impl Shelf {
 
     fn append(&mut self, key: &str, label: &str) {
         for board in &self.boards {
-            if board.lane(label).is_none()
-                || self.orders.contains_key(&(board.id, key.to_owned()))
+            if board.lane(label).is_none() || self.orders.contains_key(&(board.id, key.to_owned()))
             {
                 continue;
             }
@@ -372,7 +371,13 @@ impl Demo {
 
     pub fn labels(&self) -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
-        for column in self.shelf.boards.iter().filter(|b| b.mine).flat_map(|b| &b.columns) {
+        for column in self
+            .shelf
+            .boards
+            .iter()
+            .filter(|b| b.mine)
+            .flat_map(|b| &b.columns)
+        {
             if !out.contains(&column.label) {
                 out.push(column.label.clone());
             }
