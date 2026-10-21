@@ -49,6 +49,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("links.js", ES),
     worker!("people.js", ES),
     worker!("tries.js", ES),
+    worker!("license.js", ES),
     worker!("standalone.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
@@ -62,6 +63,12 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
     worker!("web/art/concrete.svg", TEXT),
     worker!("web/art/concrete-dark.svg", TEXT),
+    worker!("web/art/lockup-dark.svg", TEXT),
+    worker!("web/badges/free.svg", TEXT),
+    worker!("web/badges/studio.svg", TEXT),
+    worker!("web/badges/agency.svg", TEXT),
+    worker!("web/badges/owner.svg", TEXT),
+    worker!("web/badges/ff.svg", TEXT),
 ];
 
 pub const MIGRATIONS: &[(&str, &str)] = &[
@@ -80,7 +87,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0013_app.sql"),
 ];
 
-pub const GATED: &[&str] = &["0011", "0012", "0013"];
+pub const GATED: &[&str] = &["0004", "0011", "0012", "0013"];
 
 pub fn modules() -> Vec<Module<'static>> {
     MODULES

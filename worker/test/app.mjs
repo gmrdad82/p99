@@ -3,8 +3,10 @@ import { createHash, createHmac, randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { cspChecks, getter } from "./csp.mjs";
 import { ipKey } from "../src/tries.js";
+import { licenseState } from "../src/license.js";
 
 export const APP_HOST = "app.localhost";
+export const LICENSE_STATE = "owner";
 
 function totpOf(key, offset = 0) {
   const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -84,6 +86,16 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal((await fetch(`${base}/`)).status, 404);
   });
 
+  await check("the page's badge is the word the LICENSE_STATE binding carries, and free for a missing or unknown one", async () => {
+    for (const word of ["free", "studio", "agency", "owner", "ff"]) assert.equal(licenseState({ LICENSE_STATE: word }), word);
+    for (const env of [{}, { LICENSE_STATE: "" }, { LICENSE_STATE: "trial" }, { LICENSE_STATE: "Agency" }, { LICENSE_STATE: " studio" }, { LICENSE_STATE: "friends-family" }, { LICENSE_STATE: ["agency"] }, { LICENSE_STATE: "p99_v2.eyJ0aWVyIjoiYWdlbmN5In0.sig" }]) {
+      assert.equal(licenseState(env), "free", JSON.stringify(env));
+    }
+    assert.equal(licenseState(undefined), "free");
+    const page = await app("GET", "/", { page: false });
+    assert.ok(!page.text.includes(LICENSE_STATE), "the badge stays off the signed-out page");
+  });
+
   await cspChecks({ check, get: getter(`${APP_HOST}:${port}`, port) });
 
   await check("the CLI's signed routes still answer on the page's address, and only signed", async () => {
@@ -134,6 +146,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.deepEqual(spaces.json.spaces.map((s) => s.host), [here]);
     assert.equal(spaces.json.spaces[0].manager, false);
     assert.equal(typeof spaces.json.spaces[0].open, "number");
+    assert.equal(spaces.json.license, LICENSE_STATE);
     const second = await signIn("annie.page@example.com", totpOf(annie.totp_key, 1), one);
     assert.equal(second.status, 200, second.text);
     const two = tokenOf(second);

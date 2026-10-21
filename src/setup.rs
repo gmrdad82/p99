@@ -11,6 +11,7 @@ use crate::bundle::{self, ModuleInfo};
 use crate::cli::Global;
 use crate::cloudflare::{ApiError, CRON, Cloudflare, Named};
 use crate::config::{Account, AccountMe, Config, Host};
+use crate::license::State;
 use crate::vault;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -743,21 +744,35 @@ pub fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, 
 
 fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
     let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
-    let accepted = crate::migrate::gate(cf, entry, &applied(cf, account, db)?, accept)?;
+    let before = applied(cf, account, db)?;
+    let mut early = Vec::new();
+    for (name, sql) in crate::migrate::early(&before) {
+        cf.query(account, db, &migration_sql(name, sql), &[])?;
+        done(&format!("applied {name}"));
+        early.push(name.to_owned());
+    }
+    let before = if early.is_empty() {
+        before
+    } else {
+        applied(cf, account, db)?
+    };
+    let accepted = crate::migrate::gate(cf, entry, &before, accept)?;
     cf.query(account, db, MIGRATIONS_TABLE, &[])?;
     let applied = applied(cf, account, db)?;
     let todo = pending(bundle::MIGRATIONS, &applied);
     let mut out = Migrated {
-        applied: Vec::new(),
         already: bundle::MIGRATIONS
             .iter()
-            .filter(|(name, _)| applied.iter().any(|a| a == name))
+            .filter(|(name, _)| {
+                applied.iter().any(|a| a == name) && !early.iter().any(|e| e == name)
+            })
             .map(|(name, _)| (*name).to_owned())
             .collect(),
+        applied: early,
         accepted,
     };
     out.already.sort();
-    if todo.is_empty() {
+    if todo.is_empty() && out.applied.is_empty() {
         done("every migration is applied");
     }
     for (name, sql) in todo {
@@ -820,11 +835,18 @@ fn hub_migration(tag: Option<&str>) -> Option<Value> {
     Some(step)
 }
 
-fn our_bindings(account: &Account, rate: Option<u64>, app: Option<&str>) -> Vec<Value> {
+fn our_bindings(
+    account: &Account,
+    rate: Option<u64>,
+    app: Option<&str>,
+    state: State,
+) -> Vec<Value> {
     let mut ours = vec![
         json!({ "type": "d1", "name": "DB", "database_id": account.database_id }),
         json!({ "type": "r2_bucket", "name": "BUCKET", "bucket_name": account.bucket }),
         json!({ "type": "plain_text", "name": "VERSION", "text": VERSION }),
+        json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": state.word() }),
+        json!({ "type": "plain_text", "name": "LICENSE_LINK", "text": state.link_binding() }),
         json!({ "type": "durable_object_namespace", "name": "HUB", "class_name": HUB_CLASS }),
     ];
     if let Some(host) = app {
@@ -915,8 +937,9 @@ fn upload(
     existing: &[Value],
     rate: Option<u64>,
     app: Option<&str>,
+    state: State,
 ) -> Result<Uploaded, String> {
-    let bindings = merge_bindings(existing, our_bindings(account, rate, app));
+    let bindings = merge_bindings(existing, our_bindings(account, rate, app, state));
     let tag = cf.migration_tag(&account.account_id, &account.worker)?;
     let migrations = hub_migration(tag.as_deref());
     cf.upload(
@@ -1420,7 +1443,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         8,
         total,
         "The Worker",
-        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION, HUB) and its secrets (KEY_P99, MANAGERS, and CODE_PEPPER, which keys the stored\nhashes of the personal codes so the database alone can't recover one).",
+        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION, LICENSE_STATE, LICENSE_LINK, HUB) and its secrets (KEY_P99, MANAGERS, and\nCODE_PEPPER, which keys the stored hashes of the personal codes so the database alone can't\nrecover one).",
     );
     let existing = cf.bindings(&id, &account.worker)?;
     if let Some(bindings) = &existing
@@ -1443,7 +1466,14 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             args.rate_namespace,
         )?),
     };
-    upload(&cf, &account, &bindings, rate, None)?;
+    upload(
+        &cf,
+        &account,
+        &bindings,
+        rate,
+        None,
+        State::of(config.license.as_deref()),
+    )?;
     let secrets = cf.secrets(&id, &account.worker)?;
     cf.put_secret(&id, &account.worker, "KEY_P99", &vault::read(&account.key)?)?;
     done("secret KEY_P99");
@@ -1699,6 +1729,7 @@ fn deploy_into(
         &bindings,
         rate,
         app.as_ref().map(|a| a.host()),
+        State::of(config.license.as_deref()),
     )?;
     done("secrets kept");
     pepper(&cf, id, &account.worker, &cf.secrets(id, &account.worker)?)?;
@@ -1808,5 +1839,34 @@ mod tests {
         let mut sorted = bundled.clone();
         sorted.sort();
         assert_eq!(bundled, sorted);
+    }
+
+    #[test]
+    fn the_worker_gets_the_licence_state_word_and_never_the_key() {
+        let account = Account::default();
+        for (state, link) in [
+            (State::Free, "shown"),
+            (State::Studio, "shown"),
+            (State::Agency, "hideable"),
+            (State::Ff, "shown"),
+            (State::Owner, "hideable"),
+        ] {
+            let ours = our_bindings(&account, None, None, state);
+            let found = find_binding(&ours, "plain_text", Some("LICENSE_STATE")).unwrap();
+            assert_eq!(found["text"], state.word());
+            let found = find_binding(&ours, "plain_text", Some("LICENSE_LINK")).unwrap();
+            assert_eq!(found["text"], link);
+            assert!(ours.iter().all(|b| !b.to_string().contains("PITO1")));
+        }
+        let stale =
+            vec![json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": "agency" })];
+        let merged = merge_bindings(&stale, our_bindings(&account, None, None, State::Free));
+        let states: Vec<&Value> = merged
+            .iter()
+            .filter(|b| binding_name(b) == "LICENSE_STATE")
+            .collect();
+        assert_eq!(states.len(), 1);
+        assert_eq!(states[0]["text"], "free");
+        assert_eq!(states[0]["type"], "plain_text");
     }
 }

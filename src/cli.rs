@@ -202,6 +202,12 @@ pub struct SetArgs {
         help = "one of the panel's words; an empty value removes it"
     )]
     pub string: Vec<String>,
+    #[arg(
+        long,
+        value_parser = ["off", "on"],
+        help = "hide (off) or show (on) the panel's 'by PITO.MD' link; off takes an Agency or Owner key"
+    )]
+    pub pitomd_link: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -856,6 +862,9 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
     }
     merge(&mut entry.theme, &args.theme)?;
     merge(&mut entry.strings, &args.string)?;
+    if let Some(wanted) = &args.pitomd_link {
+        entry.link = pitomd_link(crate::license::State::of(config.license.as_deref()), wanted)?;
+    }
     let (env, pushed) = (entry.env.clone(), entry.pushed());
     config.save()?;
     let (client, _) = client_for(config, global, Some(&host))?;
@@ -864,7 +873,18 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
         return print_json(&sent);
     }
     println!("{host} updated and pushed");
+    if args.pitomd_link.as_deref() == Some("off") {
+        println!("the 'by PITO.MD' link hides once the Worker carries this key: p99 deploy");
+    }
     Ok(())
+}
+
+fn pitomd_link(state: crate::license::State, wanted: &str) -> Result<Option<bool>, String> {
+    match wanted {
+        "off" if state.may_hide_link() => Ok(Some(false)),
+        "off" => Err("Only an Agency or Owner key hides the 'by PITO.MD' link".to_owned()),
+        _ => Ok(None),
+    }
 }
 
 fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), String> {
@@ -1587,7 +1607,52 @@ fn announce(config: &Config, global: &Global, args: &AnnounceArgs) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::key_of;
+    use super::{key_of, pitomd_link};
+    use crate::config::Host;
+    use crate::license::State;
+
+    const REFUSED: &str = "Only an Agency or Owner key hides the 'by PITO.MD' link";
+
+    fn pushed(link: Option<bool>) -> serde_json::Value {
+        Host {
+            link,
+            ..Host::default()
+        }
+        .pushed()
+    }
+
+    #[test]
+    fn free_cannot_turn_the_link_off() {
+        assert_eq!(pitomd_link(State::Free, "off").unwrap_err(), REFUSED);
+        assert_eq!(pitomd_link(State::Free, "on"), Ok(None));
+    }
+
+    #[test]
+    fn studio_cannot_turn_the_link_off() {
+        assert_eq!(pitomd_link(State::Studio, "off").unwrap_err(), REFUSED);
+    }
+
+    #[test]
+    fn agency_turns_the_link_off_and_the_host_pushes_it_hidden() {
+        let link = pitomd_link(State::Agency, "off").unwrap();
+        assert_eq!(link, Some(false));
+        assert_eq!(pushed(link)["link"], false);
+        let link = pitomd_link(State::Agency, "on").unwrap();
+        assert_eq!(link, None);
+        assert!(pushed(link).get("link").is_none());
+    }
+
+    #[test]
+    fn ff_cannot_turn_the_link_off() {
+        assert_eq!(pitomd_link(State::Ff, "off").unwrap_err(), REFUSED);
+    }
+
+    #[test]
+    fn owner_turns_the_link_off() {
+        let link = pitomd_link(State::Owner, "off").unwrap();
+        assert_eq!(link, Some(false));
+        assert_eq!(pushed(link)["link"], false);
+    }
 
     #[test]
     fn keys_take_any_prefix_or_a_bare_number() {

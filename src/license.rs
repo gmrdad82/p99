@@ -17,6 +17,8 @@ const VERSION: u32 = 2;
 const TIMED: &str = "timed";
 const APP: &str = "p99";
 const TIERS: [&str; 2] = ["studio", "agency"];
+const TOP: &str = "agency";
+pub const HIDES_LINK: &[&str] = &["agency", "owner"];
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -81,6 +83,75 @@ pub struct Claims {
     pub paid_through: Option<String>,
     #[serde(default)]
     pub grace_days: Option<u32>,
+    #[serde(default)]
+    pub group: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    Owner,
+    FriendsFamily,
+    Customer,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum State {
+    Free,
+    Studio,
+    Agency,
+    Owner,
+    Ff,
+}
+
+impl State {
+    pub const ALL: [State; 5] = [
+        State::Free,
+        State::Studio,
+        State::Agency,
+        State::Owner,
+        State::Ff,
+    ];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            State::Free => "free",
+            State::Studio => "studio",
+            State::Agency => "agency",
+            State::Owner => "owner",
+            State::Ff => "ff",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            State::Free => "Free",
+            State::Studio => "Studio",
+            State::Agency => "Agency",
+            State::Owner => "Owner",
+            State::Ff => "F&F",
+        }
+    }
+
+    pub fn parse(word: &str) -> Option<State> {
+        State::ALL.into_iter().find(|state| state.word() == word)
+    }
+
+    pub fn may_hide_link(self) -> bool {
+        HIDES_LINK.contains(&self.word())
+    }
+
+    pub fn link_binding(self) -> &'static str {
+        if self.may_hide_link() {
+            "hideable"
+        } else {
+            "shown"
+        }
+    }
+
+    pub fn of(key: Option<&str>) -> State {
+        key.and_then(|key| verify(PUBLIC_KEY, key).ok())
+            .map_or(State::Free, |claims| claims.state(BUILT))
+    }
 }
 
 #[derive(Deserialize)]
@@ -102,6 +173,34 @@ impl Claims {
             return false;
         };
         built <= through + i64::from(self.grace_days.unwrap_or(0))
+    }
+
+    pub fn group(&self) -> Group {
+        match self.group.as_deref() {
+            Some("owner") => Group::Owner,
+            Some("friends-family") => Group::FriendsFamily,
+            _ => Group::Customer,
+        }
+    }
+
+    pub fn tier(&self) -> &str {
+        match self.group() {
+            Group::Owner | Group::FriendsFamily => TOP,
+            Group::Customer => &self.tier,
+        }
+    }
+
+    pub fn state(&self, build_date: Option<&str>) -> State {
+        if !covers(self, build_date) {
+            return State::Free;
+        }
+        match (self.group(), self.tier()) {
+            (Group::Owner, _) => State::Owner,
+            (Group::FriendsFamily, _) => State::Ff,
+            (Group::Customer, "studio") => State::Studio,
+            (Group::Customer, "agency") => State::Agency,
+            (Group::Customer, _) => State::Free,
+        }
     }
 }
 
@@ -140,7 +239,7 @@ struct Shown<'a> {
 
 fn shown(claims: &Claims) -> Shown<'_> {
     Shown {
-        tier: &claims.tier,
+        tier: claims.tier(),
         studio: claims.studio.as_deref(),
         paid_through: claims.paid_through.as_deref(),
         grace_days: claims.grace_days.unwrap_or(0),
@@ -148,6 +247,8 @@ fn shown(claims: &Claims) -> Shown<'_> {
         covers_build: covers(claims, BUILT),
     }
 }
+
+const FOLLOWS: &str = "the Worker's badge and link follow at the next p99 deploy";
 
 pub fn run(args: &Args, global: &Global) -> Result<(), String> {
     let mut config = Config::load()?;
@@ -182,25 +283,28 @@ fn set(config: &mut Config, global: &Global, raw: &str) -> Result<(), String> {
     config.license = Some(normalize(&pasted));
     config.save()?;
     if global.json {
-        return print_json(&json!({"license": shown(&claims)}));
+        return print_json(&verdict(claims.state(BUILT), Some(&claims)));
     }
-    println!("stored the {} licence key", title(&claims.tier));
+    println!("stored the {} licence key", title(claims.tier()));
     print_human(&claims);
+    println!("{FOLLOWS}");
     Ok(())
 }
 
 fn show(config: &Config, global: &Global) -> Result<(), String> {
     let Some(key) = config.license.as_deref() else {
         if global.json {
-            return print_json(&json!({"license": null}));
+            return print_json(&verdict(State::Free, None));
         }
+        crate::wire::out!("{:<14}{}", "state", State::Free.label());
+        crate::wire::out!("{:<14}{}", "pitomd link", link_word(State::Free));
         println!("no licence key; p99 license set <key> stores one");
         return Ok(());
     };
     let claims = verify(PUBLIC_KEY, key)
         .map_err(|r| format!("the stored licence key is refused: {r}; p99 license set <key>"))?;
     if global.json {
-        return print_json(&json!({"license": shown(&claims)}));
+        return print_json(&verdict(claims.state(BUILT), Some(&claims)));
     }
     print_human(&claims);
     Ok(())
@@ -222,12 +326,18 @@ fn remove(config: &mut Config, global: &Global) -> Result<(), String> {
             "no licence key was stored"
         }
     );
+    if removed {
+        println!("{FOLLOWS}");
+    }
     Ok(())
 }
 
 fn print_human(claims: &Claims) {
     let shown = shown(claims);
     let line = |label: &str, value: &str| crate::wire::out!("{label:<14}{value}");
+    let state = claims.state(BUILT);
+    line("state", state.label());
+    line("pitomd link", link_word(state));
     line("tier", &title(shown.tier));
     line("studio", shown.studio.unwrap_or("-"));
     line(
@@ -246,6 +356,22 @@ fn print_human(claims: &Claims) {
             None => "no build date, not covered".to_owned(),
         },
     );
+}
+
+fn verdict(state: State, claims: Option<&Claims>) -> serde_json::Value {
+    json!({
+        "state": state.word(),
+        "may_hide_link": state.may_hide_link(),
+        "license": claims.map(shown),
+    })
+}
+
+fn link_word(state: State) -> &'static str {
+    if state.may_hide_link() {
+        "this key may hide the 'by PITO.MD' link"
+    } else {
+        "always shown; only an Agency or Owner key hides it"
+    }
 }
 
 fn title(tier: &str) -> String {
@@ -383,6 +509,124 @@ mod tests {
         format!(
             r#"{{"v":2,"id":"k1","email":"a@b.c","app":"{app}","tier":"{tier}","major":1,"device_cap":1,"issued":"2026-01-01"{timed}}}"#
         )
+    }
+
+    fn grouped(tier: &str, paid_through: &str, group: Option<&str>) -> String {
+        let group = group.map_or_else(String::new, |group| format!(r#","group":"{group}""#));
+        format!(
+            r#"{{"v":2,"id":"k1","email":"ada@example.com","app":"p99","tier":"{tier}","major":1,"device_cap":1,"issued":"2026-01-01","type":"timed","studio":"Acme","paid_through":"{paid_through}","grace_days":14{group}}}"#
+        )
+    }
+
+    fn read(group: Option<&str>, tier: &str, paid_through: &str) -> Claims {
+        let (signing, public) = pair();
+        verify(
+            &public,
+            &mint(&signing, &grouped(tier, paid_through, group)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn free_may_not_hide_the_link() {
+        assert_eq!(State::of(None), State::Free);
+        assert_eq!(State::of(Some("PITO1.abc")), State::Free);
+        assert!(!State::Free.may_hide_link());
+        assert_eq!(State::Free.link_binding(), "shown");
+        let lapsed = read(Some("customer"), "agency", "2026-12-31");
+        assert_eq!(lapsed.state(Some("2027-01-15")), State::Free);
+        assert!(!lapsed.state(Some("2027-01-15")).may_hide_link());
+        assert!(!lapsed.state(None).may_hide_link());
+    }
+
+    #[test]
+    fn a_studio_key_may_not_hide_the_link() {
+        for group in [Some("customer"), Some("education"), Some("nonprofit"), None] {
+            let claims = read(group, "studio", "2026-12-31");
+            assert_eq!(claims.group(), Group::Customer);
+            assert_eq!(claims.tier(), "studio");
+            assert_eq!(claims.state(Some("2026-10-20")), State::Studio);
+            assert!(!claims.state(Some("2026-10-20")).may_hide_link());
+        }
+        assert_eq!(State::Studio.link_binding(), "shown");
+    }
+
+    #[test]
+    fn an_agency_key_covering_the_build_may_hide_the_link() {
+        for group in [Some("customer"), Some("education"), Some("nonprofit"), None] {
+            let claims = read(group, "agency", "2026-12-31");
+            assert_eq!(claims.group(), Group::Customer);
+            assert_eq!(claims.state(Some("2026-10-20")), State::Agency);
+            assert!(claims.state(Some("2026-10-20")).may_hide_link());
+            assert!(claims.state(Some("2027-01-14")).may_hide_link());
+            assert!(!claims.state(Some("2027-01-15")).may_hide_link());
+        }
+        assert_eq!(State::Agency.link_binding(), "hideable");
+    }
+
+    #[test]
+    fn an_ff_key_reads_as_agency_and_may_not_hide_the_link() {
+        let claims = read(Some("friends-family"), "agency", "9999-12-31");
+        assert_eq!(claims.group(), Group::FriendsFamily);
+        assert_eq!(claims.tier(), "agency");
+        for built in ["2026-10-20", "2099-01-01", "9999-12-31"] {
+            assert_eq!(claims.state(Some(built)), State::Ff);
+            assert!(!claims.state(Some(built)).may_hide_link());
+        }
+        assert_eq!(State::Ff.word(), "ff");
+        assert_eq!(State::Ff.label(), "F&F");
+        assert_eq!(State::Ff.link_binding(), "shown");
+    }
+
+    #[test]
+    fn an_owner_key_reads_as_agency_and_may_hide_the_link() {
+        let claims = read(Some("owner"), "agency", "9999-12-31");
+        assert_eq!(claims.group(), Group::Owner);
+        assert_eq!(claims.tier(), "agency");
+        for built in ["2026-10-20", "2099-01-01", "9999-12-31"] {
+            assert_eq!(claims.state(Some(built)), State::Owner);
+            assert!(claims.state(Some(built)).may_hide_link());
+        }
+        assert_eq!(State::Owner.word(), "owner");
+        assert_eq!(State::Owner.link_binding(), "hideable");
+    }
+
+    #[test]
+    fn a_key_without_a_group_is_a_customer() {
+        let (signing, public) = pair();
+        let bare = verify(
+            &public,
+            &mint(&signing, &grouped("agency", "2026-12-31", None)),
+        )
+        .unwrap();
+        assert_eq!(bare.group, None);
+        assert_eq!(bare.group(), Group::Customer);
+        assert_eq!(bare.state(Some("2026-10-20")), State::Agency);
+        let old = verify(
+            &public,
+            &mint(&signing, &claims("p99", "agency", Some("timed"))),
+        )
+        .unwrap();
+        assert_eq!(old.group(), Group::Customer);
+    }
+
+    #[test]
+    fn a_tampered_group_fails_the_signature() {
+        let (signing, public) = pair();
+        let key = mint(&signing, &grouped("studio", "2026-12-31", Some("customer")));
+        let (_, signature) = key.rsplit_once('.').unwrap();
+        for forged in [
+            grouped("studio", "2026-12-31", Some("owner")),
+            grouped("studio", "2026-12-31", Some("friends-family")),
+            grouped("agency", "9999-12-31", Some("owner")),
+        ] {
+            let token = format!(
+                "PITO1.{}.{signature}",
+                URL_SAFE_NO_PAD.encode(forged.as_bytes())
+            );
+            assert_eq!(verify(&public, &token), Err(Refusal::Signature));
+            assert_eq!(State::of(Some(&token)), State::Free);
+        }
     }
 
     #[test]

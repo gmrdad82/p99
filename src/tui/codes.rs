@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use pito_tui::clock::{self, Units};
 use pito_tui::crossterm::event::{KeyCode, KeyEvent};
@@ -10,6 +10,7 @@ use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Turn};
 use crate::wire::Code;
 
 use super::Msg;
+use super::badge::Badge;
 use super::source::{Source, fold, hits, unix, words};
 
 const COLUMNS: [Column; 7] = [
@@ -29,6 +30,7 @@ pub struct Codes {
     error: Option<String>,
     stopped: bool,
     filter: Filter,
+    badge: Badge,
 }
 
 impl Codes {
@@ -42,7 +44,13 @@ impl Codes {
             filter: Filter::new("Filter")
                 .placeholder("type to filter by person or host")
                 .hint("enter keeps the filter · esc clears it"),
+            badge: Badge::off(),
         }
+    }
+
+    pub fn badge(mut self, badge: Badge) -> Self {
+        self.badge = badge;
+        self
     }
 
     fn sift(&mut self) {
@@ -90,6 +98,18 @@ impl Codes {
 }
 
 impl Screen<Msg> for Codes {
+    fn moment(&mut self, now: Instant) {
+        self.badge.moment(now);
+    }
+
+    fn animating(&self) -> bool {
+        self.badge.easing()
+    }
+
+    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
+        self.badge.status(None)
+    }
+
     fn legend(&self) -> Option<&str> {
         Some(crate::ASK)
     }

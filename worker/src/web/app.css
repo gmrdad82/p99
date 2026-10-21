@@ -1,6 +1,8 @@
 .app-screen { display: grid; gap: var(--p99-space-lg); width: min(720px, 100%); }
 .app-in { animation: app-in var(--p99-motion-panel) var(--p99-ease-enter) both; }
 .app-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--p99-space-md); min-height: 48px; }
+.app-badge { display: block; flex: none; width: auto; height: 47px; margin: -4px -12px -17px -5px; pointer-events: none; }
+.app-badge-in { animation: app-badge-in var(--p99-motion-panel) var(--p99-ease-enter) var(--p99-motion-fast) both; }
 .app-me { display: inline-grid; flex: none; place-items: center; border-radius: 50%; text-decoration: none; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-me:active { transform: scale(0.94); }
 .app-disc { display: block; border-radius: 50%; }
@@ -45,12 +47,13 @@
 .app-problem { width: min(400px, 100%); justify-self: center; }
 .app-problem .app-actions { justify-content: flex-end; }
 @keyframes app-in { from { opacity: 0; transform: translateY(12px) scale(0.99); } to { opacity: 1; transform: none; } }
+@keyframes app-badge-in { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
 @keyframes app-fade { from { opacity: 0; } to { opacity: 1; } }
 @media (hover: hover) {
   .app-space:hover { border-color: var(--p99-muted); transform: translateY(-1px); }
   .app .app-quiet:hover { border-color: var(--p99-control); color: var(--p99-ink); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .app-in { animation-name: app-fade; }
+  .app-in, .app-badge-in { animation-name: app-fade; }
   .app-space:hover, .app-space:active, .app-me:active { transform: none; }
 }

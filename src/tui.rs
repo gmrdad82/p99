@@ -1,3 +1,4 @@
+mod badge;
 mod board;
 mod codes;
 mod deck;
@@ -18,9 +19,11 @@ use pito_tui::header::Section;
 use pito_tui::ratatui::style::Color;
 use pito_tui::{FRAME, Modes, Palette, Tui, Words, dump};
 
+use crate::license::State;
 use crate::wire::{Code, Issue, Thread};
 use crate::{NAME, VERSION};
 
+use badge::Badge;
 use board::Board;
 use codes::Codes;
 use inbox::Inbox;
@@ -73,7 +76,14 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     } else {
         Source::live(global.account.as_deref(), global.agent)
     };
-    let fixture = || tui(Source::demo(Duration::ZERO));
+    let state = if global.demo {
+        badge::demo_state()
+    } else {
+        crate::config::Config::load()
+            .map_or(State::Free, |config| State::of(config.license.as_deref()))
+    };
+    let tui = |source: Source| tui(source, state);
+    let fixture = || self::tui(Source::demo(Duration::ZERO), State::Free);
     if let Some(dir) = &options.capture {
         return match capture::capture(Path::new(dir), &walk(), fixture) {
             Ok(frames) => {
@@ -136,11 +146,19 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         let average = total / u32::try_from(frames.max(1)).unwrap_or(u32::MAX);
         report("Thread", frames, width, height, average, worst);
         let carry = dump::keys("right right down left left up").unwrap_or_default();
-        let times = timed(&source, width, height, frames, "space", |app, frame| {
-            if frame % 6 == 0 {
-                app.key(carry[frame / 6 % carry.len()]);
-            }
-        });
+        let times = timed(
+            &source,
+            state,
+            width,
+            height,
+            frames,
+            "space",
+            |app, frame| {
+                if frame % 6 == 0 {
+                    app.key(carry[frame / 6 % carry.len()]);
+                }
+            },
+        );
         spread(
             "Board, carrying a card with the keys",
             frames,
@@ -149,7 +167,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
             &times,
         );
         let reach = i32::from(width.saturating_sub(12));
-        let times = timed(&source, width, height, frames, "", |app, frame| {
+        let times = timed(&source, state, width, height, frames, "", |app, frame| {
             let swing = (frame as i32 * 3) % (2 * reach);
             let x = 6 + if swing < reach {
                 swing
@@ -268,13 +286,14 @@ fn report(
 
 fn timed(
     source: &Source,
+    state: State,
     width: u16,
     height: u16,
     frames: usize,
     lift: &str,
     mut step: impl FnMut(&mut Tui<Msg>, usize),
 ) -> Vec<Duration> {
-    let mut app = tui(source.clone());
+    let mut app = tui(source.clone(), state);
     app.shot(width, height, &dump::keys("tab").unwrap_or_default(), true);
     for key in dump::keys(lift).unwrap_or_default() {
         app.key(key);
@@ -328,7 +347,8 @@ fn palette() -> Palette {
     }
 }
 
-fn tui(source: Source) -> Tui<Msg> {
+fn tui(source: Source, state: State) -> Tui<Msg> {
+    let badge = Badge::new(state, &palette());
     Tui::new(NAME, VERSION, ACCENT)
         .title("P99")
         .words(words())
@@ -338,9 +358,18 @@ fn tui(source: Source) -> Tui<Msg> {
         ])
         .footer_look(|footer, _| footer.separator(" · "))
         .modes(Modes::new().mouse(true))
-        .screen(Section::new("Inbox"), Inbox::new(source.clone(), palette()))
-        .screen(Section::new("Board"), Board::new(source.clone(), palette()))
-        .screen(Section::new("Codes"), Codes::new(source, palette()))
+        .screen(
+            Section::new("Inbox"),
+            Inbox::new(source.clone(), palette()).badge(badge.clone()),
+        )
+        .screen(
+            Section::new("Board"),
+            Board::new(source.clone(), palette()).badge(badge.clone()),
+        )
+        .screen(
+            Section::new("Codes"),
+            Codes::new(source, palette()).badge(badge),
+        )
 }
 
 fn walk() -> Walk {

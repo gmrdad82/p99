@@ -5,6 +5,8 @@ const MAX_MARKS = 10;
 const SLOW_MS = 4000;
 const GIVE_UP_MS = 20000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
+const PITOMD = "https://pitomd.com";
+const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
@@ -20,7 +22,6 @@ const TYPES = {
 };
 const ACCEPTED = new Set(Object.values(TYPES).concat(["text/x-log", "application/x-zip-compressed"]));
 const WORDS = {
-  brand: "Feedback",
   board: "Board",
   close: "Close",
   loading: "Loading…",
@@ -387,15 +388,34 @@ function chrome() {
   scroller = h("div", { class: "p99-scroll" });
   const x = h("button", { type: "button", class: "p99-x", "aria-label": say("close"), title: say("close"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   const grip = h("div", { class: "p99-grip", "aria-hidden": "true" });
-  const board = me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
-  const head = h("div", { class: "p99-head" }, grip, h("div", { class: "p99-brand" }, h("b", { class: "p99-logo", text: "P99" }), h("span", { class: "p99-logo-name", text: o.space || say("brand") })), board, x);
-  const foot = me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
-  panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot);
+  const head = h("div", { class: "p99-head" }, grip, brand(), boardOpen(), x);
+  panel = h("div", { class: "p99-panel", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-title", tabindex: "-1", hidden: true }, head, scroller, foot());
   root.append(scrim, panel);
   swipe(head);
   root.addEventListener("keydown", keys);
   phone.addEventListener("change", () => { if (S.open) scrim.hidden = !phone.matches; });
   dark.addEventListener("change", legible);
+}
+function brand() {
+  const by = me && me.link === false ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
+  const lockup = h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
+  const state = me && Object.hasOwn(BADGES, me.license) ? me.license : "free";
+  const badge = me ? h("img", { class: "p99-badge", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 47 }) : null;
+  const tags = badge || by ? h("div", { class: "p99-tags" }, badge, by) : null;
+  return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.space }) : null, tags);
+}
+function boardOpen() {
+  return me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
+}
+function foot() {
+  return me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
+}
+function rehead() {
+  panel.querySelector(".p99-brand").replaceWith(brand());
+  const board = boardOpen();
+  if (board && !panel.querySelector(".p99-board-open")) panel.querySelector(".p99-x").before(board);
+  const f = foot();
+  if (f && !panel.querySelector(".p99-foot")) panel.append(f);
 }
 function boardModule() {
   if (!S.board) S.board = import("/_p99/board.js?v=" + V).catch((e) => { S.board = null; throw e; });
@@ -435,7 +455,7 @@ function keys(e) {
 function swipe(grip) {
   let from = null, dy = 0, t0 = 0;
   grip.addEventListener("pointerdown", (e) => {
-    if (!phone.matches || e.target.closest("button")) return;
+    if (!phone.matches || e.target.closest("button, a")) return;
     from = e.clientY;
     dy = 0;
     t0 = performance.now();
@@ -548,6 +568,7 @@ function verify(next) {
         return call("GET", "/me?path=" + enc(location.pathname)).then((m) => {
           me = m;
           try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
+          rehead();
         }, () => {});
       })
       .then(() => { if (!S.verify) next(); })

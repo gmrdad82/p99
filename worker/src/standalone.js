@@ -2,6 +2,7 @@ import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
+import { licenseState } from "./license.js";
 
 let K = null;
 
@@ -28,7 +29,7 @@ const OWN_FILES = {
   "/_p99/app.js": { source: appScript, type: JS_TYPE },
   "/_p99/app.css": { source: appStyle, type: "text/css; charset=utf-8" },
 };
-const SHARED_FILES = ["/_p99/panel.js", "/_p99/board.js", "/_p99/avatar.js", "/_p99/p99.css", "/_p99/art/concrete.svg", "/_p99/art/concrete-dark.svg"];
+const SHARED_FILES = ["/_p99/panel.js", "/_p99/board.js", "/_p99/avatar.js", "/_p99/p99.css", "/_p99/art/concrete.svg", "/_p99/art/concrete-dark.svg", "/_p99/art/lockup-dark.svg", "/_p99/badges/free.svg", "/_p99/badges/studio.svg", "/_p99/badges/agency.svg", "/_p99/badges/owner.svg", "/_p99/badges/ff.svg"];
 
 export function appHost(env) {
   const host = typeof env.APP_HOST === "string" ? env.APP_HOST.trim().toLowerCase() : "";
@@ -148,6 +149,7 @@ function files(request, env, url, method) {
     status: 200,
     headers: {
       "content-type": file.type,
+      "x-content-type-options": "nosniff",
       "cache-control": url.searchParams.has("v") ? "public, max-age=31536000, immutable" : "public, max-age=300",
     },
   });
@@ -346,6 +348,7 @@ async function spaces(request, env, url) {
       : [];
   return K.json(200, {
     name: codes[0].name,
+    license: licenseState(env),
     spaces: hosts.map((host, i) => ({ host, open: counts[i].results[0].n, manager: seen.get(host) })),
   });
 }
