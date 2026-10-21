@@ -75,6 +75,8 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
 
    Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
+On an account already past 0011, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). 0011 keeps them untouched and unused, and no migration drops them.
+
 ## Change the setup
 
 `p99 deploy` changes only the Worker and its database. To change the token, mail, the hosts or the names of the Worker, database or bucket, run `p99 setup` again: it checks each step and does only what is missing. To change a host's button, theme or words, use `p99 hosts set` ([Put P99 on a site](site.md)).

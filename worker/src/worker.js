@@ -1320,8 +1320,27 @@ function placementOf(config) {
   if (config.offset) out.o = config.offset;
   if (config.above) out.a = config.above;
   if (config.off && config.off.length) out.f = config.off.map(offSource);
-  if (config.theme && config.theme.accent) out.t = config.theme.accent;
+  if (config.theme && config.theme.accent) {
+    out.t = config.theme.accent;
+    if (legibleOnDark(out.t)) out.l = 1;
+  }
   return out;
+}
+
+function luminance(color) {
+  const hex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(String(color).trim());
+  if (!hex) return null;
+  const digits = hex[1].length === 3 ? hex[1].replace(/./g, "$&$&") : hex[1];
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const v = parseInt(digits.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function legibleOnDark(color) {
+  const glyph = luminance(color);
+  return glyph !== null && (glyph + 0.05) / (luminance("#2a3b50") + 0.05) >= 3;
 }
 
 function scriptJson(value) {

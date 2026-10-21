@@ -48,7 +48,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `offset` | `{ x = 16, y = 16 }`, pixels from the corner's two edges |
 | `above` | a CSS selector; while that element is visible the button sits above it |
 | `off` | path patterns (`*` matches one segment, `**` any) where P99 never loads |
-| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font |
+| `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font. The page's "+" button takes the `accent`; in dark mode it falls back to P99's light blue (#8db8f0) unless the accent is a `#rgb` or `#rrggbb` colour that reaches 3:1 against the button |
 | `strings` | any of the panel's English words, by key |
 | `feed` | `true` serves the host's feed of fixed items at `/_p99/feed` (`p99 feed on <host>`); off by default |
 | `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the account's licence badge to everyone with a code |
