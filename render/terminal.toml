@@ -73,7 +73,7 @@ settle = "400ms"
 
 [shots.arrives]
 kind = "clip"
-line = "The item the web widget just filed, at the top of the inbox with its host, then opened; needs render/web/serve.mjs running and seeded"
+line = "The item the web widget just filed, at the top of the inbox with its Inbox label and its host, then opened; needs render/web/serve.mjs running and seeded"
 tape = "render/terminal/arrives.tape"
 launch = "P99_CONFIG={tmp}/web/home/.config/p99/config.toml p99 tui"
 settle = "1200ms"
@@ -87,15 +87,9 @@ launch = "export P99_CONFIG={tmp}/web/home/.config/p99/config.toml && clear"
 settle = "300ms"
 
 [shots.board]
-kind = "still"
-line = "The board on sample data: four columns, item cards with priority and labels, and two nested boards with their rollups"
+kind = "clip"
+line = "The board on sample data: four label columns, item cards with their assignee, a card picked up with the keys and slid into QA ready, then the board picker and Grace Hopper's watched QA board, read-only, with the card on it"
 tape = "render/terminal/board.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
-
-[shots.board-drag]
-kind = "still"
-line = "A board card picked up with the keys and carried to another column, the column it will land in lit"
-tape = "render/terminal/board-drag.tape"
-launch = "p99 tui --demo"
-settle = "400ms"
+closure = { crossfade = 0.5 }
