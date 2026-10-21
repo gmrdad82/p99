@@ -15,6 +15,7 @@ import { brandChecks, hideableLinkChecks } from "./brand.mjs";
 import { widgetStories } from "./stories/widget.mjs";
 import { triageStories } from "./stories/triage.mjs";
 import { licenceStories } from "./stories/licence.mjs";
+import { safetyStories } from "./stories/safety.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -1185,6 +1186,7 @@ async function run() {
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
+  await safetyStories({ base, call, browse, mint, check, issueBody, here, there, keys, root, wrangler, work });
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
