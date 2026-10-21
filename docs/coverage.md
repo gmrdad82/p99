@@ -1,11 +1,11 @@
 # Coverage
 
-How much of P99's code its tests run, measured at every integration. There is no fixed threshold: each wave raises it, worst-covered and most critical code first.
+How much of P99's code its tests run, measured at every integration. There is no fixed threshold.
 
 ## How it's measured
 
 - **Rust:** `cargo llvm-cov --summary-only` (through build-step). Lines and regions run by `cargo test`: the unit tests and tests/*.rs.
-- **JavaScript:** not measured yet. The Worker runs inside workerd (wrangler dev), which node's coverage doesn't see, and the panel and board run in the browser. The next wave adds both: Chromium's JS coverage in the render/web checks for the loader, panel and board, and a coverage-instrumented run of the Worker suite.
+- **JavaScript:** not measured yet. The Worker runs inside workerd (wrangler dev), which node's coverage doesn't see, and the panel and board run in the browser.
 
 ## Baseline, 2026-10-21 (P99 1.9.2 plus the merged 1.9.3 smalls, main 94cd963)
 
