@@ -238,3 +238,6 @@ impl Screen<Msg> for Codes {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests;

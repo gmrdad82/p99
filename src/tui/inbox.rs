@@ -1448,3 +1448,6 @@ impl Screen<Msg> for Inbox {
         facts
     }
 }
+
+#[cfg(test)]
+mod tests;

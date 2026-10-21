@@ -1315,3 +1315,6 @@ impl Screen<Msg> for Board {
         self.rows[self.column]
     }
 }
+
+#[cfg(test)]
+mod tests;
