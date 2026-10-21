@@ -150,7 +150,7 @@ const thread = (p) => p.locator(S("[data-view=item]")).waitFor({ timeout: 20000 
 const panelOpen = (p) => p.evaluate(() => Boolean(document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open")));
 
 async function found(title) {
-  const list = await must("GET", `/issues?scope=all&host=${HOST}&q=${encodeURIComponent(title)}`);
+  const list = await must("GET", `/issues?scope=all&host=${HOST}&q=${RUN}`);
   return list.issues.filter((i) => i.title === title);
 }
 
@@ -323,7 +323,7 @@ try {
       if (r.method() !== "POST") return route.fallback();
       uids.push(JSON.parse(r.postData()).client_uid);
       if (!losing) return route.fallback();
-      const answer = await route.fetch();
+      const answer = await route.fetch({ url: r.url().replace(`http://${HOST}`, `http://127.0.0.1:${PORT}`), headers: { ...r.headers(), host: HOST } });
       answers.push({ status: answer.status(), key: (await answer.json()).key });
       await route.abort("connectionreset");
     });

@@ -14,9 +14,12 @@ const FAR = "localhost";
 const SCHEDULED = "/__scheduled?cron=*%2F15+*+*+*+*";
 const LEFT_OUT = ["app_sessions", "app_tries", "backup_runs", "code_devices", "deletions", "github_deliveries", "usage"];
 const OLD_RUNS = ["2025-01-06", "2025-01-13", "2025-01-20", "2025-01-27", "2025-02-03", "2025-02-10", "2025-02-17", "2025-02-24"];
+const BACKUP_STEP_PAGES = 6;
+const BACKUP_STEP_BYTES = 512 * 1024;
 const BIG = "replace(hex(zeroblob(30000)), '0', 'x')";
 
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const harness = (message) => Object.assign(new Error(message), { harness: true });
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function send(port, host, method, path, { headers = {}, body } = {}) {
@@ -133,7 +136,7 @@ function signedSocket(port, secret, path, heard) {
 
 const leaks = (answers, marker) => answers.filter((a) => a.text.includes(marker)).map((a) => a.text);
 
-export async function safetyStories({ base, call, browse, mint, check, issueBody, here, there, keys, root, wrangler, work }) {
+export async function safetyStories({ base, call, browse, mint, check, red, issueBody, here, there, keys, root, wrangler, work }) {
   const port = Number(new URL(base).port);
   const signed = signedSender(port, keys.p99);
   const panel = panelSender(port);
@@ -384,17 +387,22 @@ export async function safetyStories({ base, call, browse, mint, check, issueBody
 
   await backupStories({ check, issueBody, keys, root, wrangler, work, later });
 
-  await check("[safety] red until fixed: a stream ticket handed out before its code was revoked opens nothing", async () => {
+  await red("[safety] a stream ticket handed out before its code was revoked opens nothing", "a revoked manager's unexpired stream ticket still opens the live board", async () => {
     const boss = await mint("Karen Spärck Jones", "karen.safety@example.com", [here], true);
-    const ticket = await panel(here, "POST", "/stream-ticket", boss.secret);
+    const kept = await mint("Mary Jackson", "mary.ticket.safety@example.com", [here], true);
+    const [ticket, control] = await Promise.all([panel(here, "POST", "/stream-ticket", boss.secret), panel(here, "POST", "/stream-ticket", kept.secret)]);
     assert.equal(ticket.status, 201, ticket.text);
+    assert.equal(control.status, 201, control.text);
     assert.equal((await call("POST", `/_p99/v1/codes/${boss.code.id}/revoke`)).status, 200);
     const opened = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${ticket.json.ticket}`, []);
+    const reference = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${control.json.ticket}`, []);
     if (opened) opened.socket.close();
+    if (reference) reference.socket.close();
+    if (!reference) throw harness("the run outlived the ticket's TTL: an unrevoked manager's ticket fetched at the same moment no longer opens");
     assert.equal(opened, null, "a revoked manager's ticket still opened the live board");
   });
 
-  await check("[safety] red until fixed: an open live board stops hearing the moment its code is revoked", async () => {
+  await red("[safety] an open live board stops hearing the moment its code is revoked", "a live board opened before its code was revoked keeps hearing new items", async () => {
     const boss = await mint("Annie Easley", "annie.safety@example.com", [here], true);
     const heard = [];
     const control = [];
@@ -410,7 +418,7 @@ export async function safetyStories({ base, call, browse, mint, check, issueBody
     assert.equal(heard.some((e) => e.key === after), false, "a revoked manager's open board heard an item filed after the revoke");
   });
 
-  for (const [name, fn] of later) await check(name, fn);
+  for (const [name, bug, fn] of later) await (bug ? red(name, bug, fn) : check(name, fn));
 }
 
 function freePort() {
@@ -527,6 +535,30 @@ function bucket(persist, prefix) {
   return found;
 }
 
+async function unlessBusy(fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    if (/database is locked|SQLITE_BUSY/.test(String(error?.message))) return null;
+    throw error;
+  }
+}
+
+function pageTexts(persist, date) {
+  return [...bucket(persist, `backups/${date}/`).values()].map((blob) => {
+    const text = readFileSync(join(persist, "v3", "r2", "p99", "blobs", blob), "utf8");
+    return { exported_at: JSON.parse(text).exported_at, length: text.length };
+  });
+}
+
+function stepEnded(from, row, written) {
+  const rows = JSON.parse(row.rows_json || "{}");
+  const empty = (counts) => Object.values(counts).filter((n) => n === 0).length;
+  const pages = row.pages - from.pages;
+  if (pages + (row.table_index - from.table_index) - (empty(rows) - empty(from.rows)) >= BACKUP_STEP_PAGES) return true;
+  return written.length === pages && written.reduce((n, p) => n + p.length, 0) >= BACKUP_STEP_BYTES;
+}
+
 function backupPages(persist, date) {
   const prefix = `backups/${date}/`;
   return [...bucket(persist, prefix)]
@@ -573,21 +605,33 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
     assert.equal(answer.status, 200, answer.text);
     return answer.json;
   };
+  const runRow = (where, ...args) =>
+    readDb(persist, (db) =>
+      db.prepare(`SELECT date, started_at, finished_at, table_index, pages, rows_json FROM backup_runs WHERE ${where} ORDER BY date DESC LIMIT 1`).get(...args),
+    );
   const tick = async () => {
-    const before = JSON.stringify(await status());
+    const open = runRow("finished_at IS NULL");
+    const newest = readDb(persist, (db) => db.prepare("SELECT max(started_at) AS s FROM backup_runs").get().s) || "";
+    const from = open ? { table_index: open.table_index, pages: open.pages, rows: JSON.parse(open.rows_json || "{}") } : { table_index: 0, pages: 0, rows: {} };
+    const since = open ? pageTexts(persist, open.date).reduce((m, p) => (p.exported_at > m ? p.exported_at : m), "") : "";
     const ran = await send(port, NEAR, "GET", SCHEDULED);
     assert.equal(ran.status, 200, ran.text);
     let seen = null;
     let same = 0;
     return until(
-      "the backup step to settle",
-      async () => {
+      "the backup step to end",
+      () => unlessBusy(async () => {
+        const row = open ? runRow("date = ?1 AND started_at = ?2", open.date, open.started_at) : runRow("started_at > ?1", newest);
+        if (!row || !(row.finished_at !== null || stepEnded(from, row, pageTexts(persist, row.date).filter((p) => p.exported_at > since)))) {
+          seen = null;
+          same = 0;
+          return null;
+        }
         const now = JSON.stringify(await status());
-        if (now === before) return null;
         same = now === seen ? same + 1 : 0;
         seen = now;
-        return same >= 10 ? JSON.parse(now) : null;
-      },
+        return same >= 2 ? JSON.parse(now) : null;
+      }),
       30000,
     );
   };
@@ -809,21 +853,24 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
     const torn = restore(persist, fresh);
 
     later.push([
-      "[safety] red until fixed: after a restore, a deleted item's key is never handed out again",
+      "[safety] after a restore, a deleted item's key is never handed out again",
+      "a restore hands a deleted item's key to the next item filed",
       async () => {
         assert.ok(after.json.id > doomed.json.id, `${after.json.key} reuses the deleted ${doomed.json.key}`);
       },
     ]);
     later.push([
-      "[safety] red until fixed: a second run on the same date leaves no page of the first behind for a restore to mix in",
+      "[safety] a second run on the same date leaves no page of the first behind for a restore to mix in",
+      "a second backup run on one date leaves the first run's pages beside its own",
       async () => {
-        assert.equal(second.date, first.date);
+        if (second.date !== first.date) throw harness(`the two runs fell on ${first.date} and ${second.date}: the story crossed 00:00 UTC and proves nothing`);
         assert.deepEqual(stale, []);
         assert.equal(folder.length, second.last.pages);
       },
     ]);
     later.push([
-      "[safety] red until fixed: a backup taken while reporters keep filing restores with no row pointing at one it lacks",
+      "[safety] a backup taken while reporters keep filing restores with no row pointing at one it lacks",
+      "a backup taken while items are filed restores rows that point at rows it lacks",
       async () => {
         assert.ok(busy, "no step ended between the comments and the events");
         assert.deepEqual(torn, []);

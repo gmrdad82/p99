@@ -195,20 +195,43 @@ fn p99(home: &Home, args: &[&str]) -> Output {
         .env("NO_COLOR", "1")
         .env_remove("P99_TOKEN")
         .env_remove("P99_AGENT")
+        .env_remove("HTTPS_PROXY")
+        .env_remove("https_proxy")
+        .env_remove("HTTP_PROXY")
+        .env_remove("http_proxy")
+        .env_remove("ALL_PROXY")
+        .env_remove("all_proxy")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let out = drain(child.stdout.take().unwrap());
+    let err = drain(child.stderr.take().unwrap());
     let deadline = Instant::now() + Duration::from_secs(40);
-    while child.try_wait().unwrap().is_none() {
+    let status = loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            break status;
+        }
         if Instant::now() > deadline {
             let _ = child.kill();
             panic!("p99 {} did not stop on its own", args.join(" "));
         }
         thread::sleep(Duration::from_millis(20));
+    };
+    Output {
+        status,
+        stdout: out.join().unwrap(),
+        stderr: err.join().unwrap(),
     }
-    child.wait_with_output().unwrap()
+}
+
+fn drain(mut from: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = from.read_to_end(&mut bytes);
+        bytes
+    })
 }
 
 fn text(bytes: &[u8]) -> String {

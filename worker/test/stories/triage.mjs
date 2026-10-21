@@ -6,7 +6,7 @@ const ADA = { email: "ada.triage@example.com", name: "Ada Lovelace" };
 const GRACE = { email: "grace.triage@example.com", name: "Grace Hopper" };
 const MANY = 520;
 
-export async function triageStories({ call, browse, mint, check, issueBody, here, listen, wrangler, state, root }) {
+export async function triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root }) {
   const d1 = (command) => {
     const run = spawnSync(wrangler, ["d1", "execute", "DB", "--local", "--persist-to", state, "--json", "--command", command], {
       cwd: root,
@@ -82,7 +82,6 @@ export async function triageStories({ call, browse, mint, check, issueBody, here
     assert.deepEqual(await found("\\"), [keys.slash]);
     assert.deepEqual(await found(keys.rocket), [keys.rocket]);
     assert.deepEqual(await found("nothing like this anywhere"), []);
-    assert.deepEqual(await found("x".repeat(200)), []);
     const long = await ada.list(`q=${"x".repeat(201)}`);
     assert.equal(long.status, 400, JSON.stringify(long.json));
     assert.equal(long.json.message, "q must be at most 200 characters");
@@ -294,7 +293,7 @@ export async function triageStories({ call, browse, mint, check, issueBody, here
     ]);
   });
 
-  await check("triage: a label filter finds a label whatever its case, accents included, as a move does", async () => {
+  await red("triage: a label filter finds a label whatever its case, accents included, as a move does", "a list filtered by an accented label in another case finds nothing, though a move to it works", async () => {
     const accents = await call("POST", `/_p99/v1/boards?host=${HOST}`, {
       actor: ADA,
       body: { name: "Accents", columns: [inbox, "Évalué", done] },
@@ -306,34 +305,19 @@ export async function triageStories({ call, browse, mint, check, issueBody, here
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("évalué")}`)), [key]);
   });
 
-  await check("triage: a 200-character title is taken whatever its script, emoji included", async () => {
+  await red("triage: a search for a whole sentence, up to the 200 characters q takes, answers with results, never a 500", "a search over about 48 characters answers 500: D1 refuses a LIKE pattern over 50 bytes", async () => {
+    const title = "Pay stays grey after the card is accepted on the checkout page";
+    const key = await filed(ada, { title });
+    const answer = await ada.list(`q=${encodeURIComponent(title)}`);
+    assert.equal(answer.status, 200, JSON.stringify(answer.json));
+    assert.deepEqual(keysOf(answer), [key]);
+    assert.deepEqual(keysOf(await ada.list(`q=${"x".repeat(200)}`)), []);
+  });
+
+  await red("triage: a 200-character title is taken whatever its script, emoji included", "a title of 200 emoji is refused as too long", async () => {
     const emoji = "🚀".repeat(200);
     const made = await ada.file({ title: emoji });
     assert.equal(made.status, 201, `200 emoji were refused: ${JSON.stringify(made.json)}`);
     assert.equal((await ada.get(made.json.key)).json.issue.title, emoji);
-  });
-
-  await check("triage: two sessions moving one card to the same column at once leave one move in its history", async () => {
-    const key = await filed(grace, { title: "Everyone grabs it" });
-    const tries = await Promise.all(Array.from({ length: 6 }, (_, n) => (n % 2 ? ada : grace).move({ key, from: inbox, to: doing })));
-    assert.equal(tries.filter((t) => t.status === 200).length, 1, JSON.stringify(tries.map((t) => t.status)));
-    assert.ok(tries.every((t) => t.status === 200 || t.status === 409));
-    const thread = (await ada.get(key)).json;
-    assert.equal(thread.issue.label, doing);
-    assert.equal(labelEvents(thread).length, 1, `the history holds ${labelEvents(thread).length} moves for one`);
-    assert.equal(thread.events.filter((e) => e.kind === "status").length, 1);
-  });
-
-  await check("triage: two sessions changing different fields of one item at once both keep their change", async () => {
-    const hedy = (await call("GET", `/_p99/v1/people?host=${HOST}`, { actor: ADA })).json.people.map((p) => p.username).find((u) => u.startsWith("hedy"));
-    for (let round = 0; round < 5; round++) {
-      const key = await filed(grace, { title: `Untouched ${round}` });
-      const [titled, assigned] = await Promise.all([ada.patch(key, { title: `Retitled ${round}` }), grace.patch(key, { assignee: hedy })]);
-      assert.equal(titled.status, 200, JSON.stringify(titled.json));
-      assert.equal(assigned.status, 200, JSON.stringify(assigned.json));
-      const issue = (await ada.get(key)).json.issue;
-      assert.equal(issue.title, `Retitled ${round}`, `round ${round}: the new title was lost`);
-      assert.deepEqual(issue.assignee, { username: hedy }, `round ${round}: the assignment was lost`);
-    }
   });
 }

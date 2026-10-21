@@ -236,10 +236,38 @@ function hookStub() {
 }
 
 let passed = 0;
+const failed = [];
+const reds = [];
+const unexpected = [];
+const firstLine = (error) => String(error?.message ?? error).split("\n")[0];
 async function check(name, fn) {
-  await fn();
+  try {
+    await fn();
+  } catch (error) {
+    failed.push(name);
+    console.log(`not ok - ${name}`);
+    console.error(error?.stack ?? error);
+    return;
+  }
   passed += 1;
   console.log(`ok - ${name}`);
+}
+async function red(name, bug, fn) {
+  try {
+    await fn();
+  } catch (error) {
+    if (error?.harness) {
+      failed.push(name);
+      console.log(`not ok - ${name}`);
+      console.error(error.stack);
+      return;
+    }
+    reds.push(name);
+    console.log(`not ok - ${name} # TODO red until fixed: ${bug} (${firstLine(error)})`);
+    return;
+  }
+  unexpected.push(name);
+  console.log(`not ok - ${name} # passed while marked red: ${bug}; make it a check`);
 }
 
 function wranglerSync(args) {
@@ -313,8 +341,9 @@ async function main() {
     base = `http://127.0.0.1:${port + 1}`;
     dev = await startDev(port + 1, [...vars, "LICENSE_LINK:hideable"], "test-dev-hideable.log");
     await hideableLinkChecks({ call, browse, mint, check, here, placement: PLACEMENT });
-    await licenceStories({ base, call, browse, mint, check, here, placement: PLACEMENT, root });
-    console.log(`${passed} checks passed`);
+    await licenceStories({ base, call, browse, mint, check, red, here, placement: PLACEMENT, root });
+    console.log(`${passed} checks passed, ${reds.length} known red, ${failed.length} failed, ${unexpected.length} red that passed`);
+    if (failed.length + unexpected.length > 0) process.exitCode = 1;
   } finally {
     await dev?.stop();
     stub.close();
@@ -1186,12 +1215,12 @@ async function run() {
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
-  await safetyStories({ base, call, browse, mint, check, issueBody, here, there, keys, root, wrangler, work });
+  await safetyStories({ base, call, browse, mint, check, red, issueBody, here, there, keys, root, wrangler, work });
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
-  await widgetStories({ base, call, browse, mint, check, issueBody, here, there, state, wrangler, root });
-  await triageStories({ call, browse, mint, check, issueBody, here, listen, wrangler, state, root });
+  await widgetStories({ base, call, browse, mint, check, red, issueBody, here, there, state, wrangler, root });
+  await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

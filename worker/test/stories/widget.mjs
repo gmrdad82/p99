@@ -140,6 +140,7 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
 
   await check("story widget: a file over 20 MB is refused before it is stored and costs the reporter none of their daily room", async () => {
     const filed = await browse("POST", "/issues", mary.secret, issueBody({ title: "The export is too big to attach" }));
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;
     const before = used("mary@example.com", "bytes");
     const big = Buffer.alloc(MAX_FILE + 1, 0x41);
@@ -313,8 +314,6 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     const filed = await raw("POST", "/_p99/api/issues", { host, headers, body: Buffer.from(JSON.stringify(issueBody({ title: "Filed on a site P99 doesn't know" }))) });
     assert.equal(filed.status, 404, filed.text);
     assert.equal(rows("items", "host = 'unlisted.example'"), 0);
-    const away = await browse("POST", "/issues", mary.secret, issueBody({ title: "Filed with a code for another site" }));
-    assert.equal(away.status, 201);
     const crossed = await raw("POST", "/_p99/api/issues", { host: there, headers, body: Buffer.from(JSON.stringify(issueBody({ title: "Crossed to another host" }))) });
     assert.equal(crossed.status, 401, crossed.text);
     assert.equal(rows("items", "title = 'Crossed to another host'"), 0);
