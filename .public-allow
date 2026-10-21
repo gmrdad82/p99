@@ -4,8 +4,6 @@ src/vault.rs:5 the name of the tool P99 asks for in its error
 docs/config.md:65 the config docs explain secret references to users
 README.md:131 the README names password managers that take the authenticator setup
 docs/guides/invite.md:124 the invite guide tells users which password managers take the authenticator setup
-docs/hosts.md:61 the hooks docs show the secret-reference form a webhook URL is read through
-docs/hosts.md:68 the hooks docs explain secret references to users
 docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager
 docs/guides/github.md:22 the GitHub guide shows the secret-reference form the token is read through
 src/hooks.rs:50 the --url-ref help names the reference schemes it reads
@@ -27,3 +25,14 @@ commit/218d97340879:docs/config.md:64 the config docs explain secret references 
 commit/218d97340879:docs/guides/invite.md:83 the invite guide names password managers for the authenticator setup, as waived at docs/guides/invite.md:124
 commit/218d97340879:src/github.rs:33 the --token-ref help names the reference schemes it reads, as waived at src/github.rs:33
 commit/7d9ba95001ff:worker/test/run.mjs:610 a refused webhook URL with a user part in the hooks test, respelled in a later commit
+commit/923a50c2826f:docs/config.md:65 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/923a50c2826f:docs/hosts.md:62 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/923a50c2826f:docs/hosts.md:69 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/b017fc8b7bf4:README.md:131 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/b017fc8b7bf4:README.md:139 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/d5b0ac34faea:README.md:131 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/d5b0ac34faea:README.md:139 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/fb2e7ec61d26:README.md:131 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+commit/fb2e7ec61d26:README.md:139 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+docs/hosts.md:62 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
+docs/hosts.md:69 the documented secret-reference feature (op:// references and password managers named for users), as waived at its current line
