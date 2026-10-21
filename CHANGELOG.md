@@ -2,6 +2,19 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.9.2 — 2026-10-21
+
+### Added
+
+- Licence badges in P99's own flat style: Free, Studio, Agency, Owner and F&F. They show in `p99 tui`'s header, in `p99 license show`, on the P99 page and in the panel's head.
+- The panel's head shows P99's lockup ("Issue & Feedback Reporter"), the site's licence badge and a small "by PITO.MD" link. An Agency or Owner key can hide the link with `p99 hosts set <host> --pitomd-link off`.
+- Owner and friends-and-family keys: they read as Agency, the top tier, with their own badge.
+- `p99 migrate --plan` also reads an account that is still on P99 1.7, and `p99 deploy` applies 1.7's data change only with the plan accepted.
+
+### Changed
+
+- A migration plan accepted with 1.9.0 or 1.9.1 must be read again with `p99 migrate --plan` before deploying; the old hash is refused, safely.
+
 ## v1.9.1 — 2026-10-21
 
 ### Fixed
