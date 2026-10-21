@@ -16,7 +16,7 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
     }
   });
 
-  await check("a host keeps link: false, refuses a non-boolean link, and the Worker without the binding still shows the link", async () => {
+  await check("a host keeps link: false, refuses a non-boolean link, and the Worker with LICENSE_LINK=shown still shows the link", async () => {
     const listed = await call("GET", "/_p99/v1/hosts");
     const env = listed.json.hosts.find((h) => h.host === here).env;
     for (const bad of ["off", 0, 1, "false", [], {}]) {
@@ -53,5 +53,25 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
       assert.match(await art.response.text(), /^<svg /);
     }
     assert.equal((await call("GET", "/_p99/badges/trial.svg")).status, 404);
+  });
+}
+
+export async function hideableLinkChecks({ call, browse, mint, check, here, placement }) {
+  await check("with LICENSE_LINK=hideable, /me hides the link for a host with link: false and shows it again with link: true", async () => {
+    const env = (await call("GET", "/_p99/v1/hosts")).json.hosts.find((h) => h.host === here).env;
+    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    try {
+      const off = await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: { ...placement, link: false } } });
+      assert.equal(off.status, 200, JSON.stringify(off.json));
+      const hidden = await browse("GET", "/me", ada.secret);
+      assert.equal(hidden.status, 200, JSON.stringify(hidden.json));
+      assert.equal(hidden.json.link, false);
+      assert.equal(hidden.json.license, LICENSE_STATE);
+      const on = await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: { ...placement, link: true } } });
+      assert.equal(on.status, 200, JSON.stringify(on.json));
+      assert.equal((await browse("GET", "/me", ada.secret)).json.link, true);
+    } finally {
+      assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
+    }
   });
 }

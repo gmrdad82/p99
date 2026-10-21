@@ -311,6 +311,9 @@ export async function migrateChecks({ check, root, work }) {
       }
       const again = await run(["deploy", "--no-check"]);
       assert.equal(again.status, gatedBundled(bundled) ? 0 : 1, again.stderr);
+      const past = (await plan()).plan;
+      assert.deepEqual(past.old_tags, { items: now.plan.tagged, tags: now.plan.tags.length });
+      assert.match((await run(["migrate", "--plan"])).stdout, new RegExp(`Old tags beyond the label .*: ${now.plan.tags.length} tags? on ${now.plan.tagged} items?\n`));
       state.db = d1(root, null);
       const fresh = await run(["deploy", "--no-check"]);
       assert.equal(fresh.status, 0, fresh.stderr);

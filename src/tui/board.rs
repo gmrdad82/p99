@@ -756,6 +756,7 @@ impl Board {
             let room = usize::from(lane.right().saturating_sub(x + 2));
             buf.set_stringn(x + 2, lane.y, &more, room, palette.muted);
         }
+        let room = usize::from(lane.width);
         let rule = if target {
             "━".repeat(room)
         } else {

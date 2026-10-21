@@ -11,14 +11,14 @@ import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
 import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
-import { brandChecks } from "./brand.mjs";
+import { brandChecks, hideableLinkChecks } from "./brand.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
 const work = join(root, ".wrangler");
 const state = join(work, "test-state");
 const port = Number(process.env.P99_TEST_PORT || 8791);
-const base = `http://127.0.0.1:${port}`;
+let base = `http://127.0.0.1:${port}`;
 const keys = {
   test: "test-secret",
   p99: randomBytes(24).toString("hex"),
@@ -253,11 +253,11 @@ function d1count(sql) {
   return JSON.parse(result.stdout)[0].results[0].n;
 }
 
-async function waitForHealth(child) {
+async function waitForHealth(child, origin, logName) {
   for (let i = 0; i < 300; i++) {
-    if (child.exitCode !== null) throw new Error("wrangler dev exited; see .wrangler/test-dev.log");
+    if (child.exitCode !== null) throw new Error(`wrangler dev exited; see .wrangler/${logName}`);
     try {
-      const response = await fetch(`${base}/_p99/health`);
+      const response = await fetch(`${origin}/_p99/health`);
       if (response.ok) return;
     } catch {}
     await new Promise((r) => setTimeout(r, 200));
@@ -291,7 +291,6 @@ async function main() {
   const seed = join(work, "test-seed.sql");
   writeFileSync(seed, SEED_SQL);
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
-  const log = openSync(join(work, "test-dev.log"), "w");
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
   vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`, `LICENSE_STATE:${LICENSE_STATE}`);
   const stub = await hookStub();
@@ -301,13 +300,33 @@ async function main() {
   }
   const resend = await fakeResend();
   vars.push("RESEND_API_KEY:test-resend", `RESEND_API_URL:http://127.0.0.1:${resend.address().port}`);
+  let dev = null;
+  process.on("exit", () => dev?.stop());
+  try {
+    dev = await startDev(port, [...vars, "LICENSE_LINK:shown"], "test-dev.log");
+    const here = await run();
+    await dev.stop();
+    base = `http://127.0.0.1:${port + 1}`;
+    dev = await startDev(port + 1, [...vars, "LICENSE_LINK:hideable"], "test-dev-hideable.log");
+    await hideableLinkChecks({ call, browse, mint, check, here, placement: PLACEMENT });
+    console.log(`${passed} checks passed`);
+  } finally {
+    await dev?.stop();
+    stub.close();
+    resend.close();
+    resend.closeAllConnections();
+  }
+}
+
+async function startDev(at, vars, logName) {
+  const log = openSync(join(work, logName), "w");
   const child = spawn(
     wrangler,
     [
       "dev",
       "--local",
       "--port",
-      String(port),
+      String(at),
       "--ip",
       "127.0.0.1",
       "--persist-to",
@@ -318,21 +337,25 @@ async function main() {
     ],
     { cwd: root, env: { ...process.env, CI: "1" }, stdio: ["ignore", log, log], detached: true },
   );
-  const stop = () => {
-    stub.close();
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  const signal = (name) => {
     try {
-      process.kill(-child.pid, "SIGTERM");
+      process.kill(-child.pid, name);
     } catch {}
   };
-  process.on("exit", stop);
+  const stop = async () => {
+    signal("SIGTERM");
+    const late = setTimeout(() => signal("SIGKILL"), 10000);
+    await exited;
+    clearTimeout(late);
+  };
   try {
-    await waitForHealth(child);
-    await run();
-  } finally {
-    stop();
-    resend.close();
-    resend.closeAllConnections();
+    await waitForHealth(child, `http://127.0.0.1:${at}`, logName);
+  } catch (error) {
+    await stop();
+    throw error;
   }
+  return { stop };
 }
 
 async function run() {
@@ -756,6 +779,7 @@ async function run() {
     if (source.includes("__P99_HOST__")) {
       assert.ok(served.includes('"c":"top-left"'));
       assert.ok(served.includes('"t":"#3b7dd8"'));
+      assert.equal(served.includes('"l":1'), false, "P99 blue on the dark face is under 3:1, so the + takes the dark fallback");
     }
     assert.equal(served.length === 0, source.length === 0);
   });
@@ -1167,7 +1191,7 @@ async function run() {
     assert.match(await response.text(), /^export function open\(/m);
   });
 
-  console.log(`${passed} checks passed`);
+  return here;
 }
 
 main().catch((error) => {
