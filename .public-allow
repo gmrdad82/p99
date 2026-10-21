@@ -49,3 +49,4 @@ commit/f96af6e35c30:.public-allow:37 a waiver reason that named the reference sc
 commit/f96af6e35c30:.public-allow:38 a waiver reason that named the reference scheme, reworded in the next commit
 tests/stories_deploy.rs:1279 a neutral vault-reference placeholder in the deploy story's fake config (pci 2631)
 commit/07fdf97a2cfe:tests/stories_deploy.rs:1279 the deploy story's fake config reference, made neutral in a later commit (pci 2631)
+commit/ea55d653924a:tests/stories_deploy.rs:1279 the deploy story's fake config reference as the story train merged it, made neutral in a later commit (pci 2631)
