@@ -451,6 +451,54 @@ async function check(back) {
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live").dataset.state === "live", null, { timeout: 8000 });
     ok("the stream reconnects with a fresh ticket after the socket drops");
 
+    const done = await column(p, "Done");
+    const list = await p.locator('p99-root .p99-col[data-label="Done"] .p99-cards').boundingBox();
+    const first = await p.locator(card(done[0])).boundingBox();
+    const second = await p.locator(card(done[1])).boundingBox();
+    const from = await p.locator(card(K("TASK-3"))).boundingBox();
+    const gx = list.x + list.width / 2, edge = list.y + list.height - 12, mid = (first.y + first.height + second.y) / 2;
+    const sent0 = moves().length;
+    await p.mouse.move(from.x + from.width / 2, from.y + 20);
+    await p.mouse.down();
+    for (let i = 1; i <= 12; i++) {
+      await p.mouse.move(from.x + from.width / 2 + ((gx - from.x - from.width / 2) * i) / 12, from.y + 20 + ((edge - from.y - 20) * i) / 12);
+      await p.waitForTimeout(16);
+    }
+    for (let i = 0; i < 24; i++) {
+      await p.mouse.move(gx + (i % 2 ? 30 : -30), edge);
+      await p.waitForTimeout(16);
+    }
+    for (let i = 1; i <= 12; i++) {
+      await p.mouse.move(gx, edge + ((mid - edge) * i) / 12);
+      await p.waitForTimeout(16);
+    }
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await settle(p);
+    assert.equal(moves().length, sent0 + 1);
+    assert.deepEqual(lastMove(), { key: K("TASK-3"), from: "Doing", to: "Done", board: back.board("1"), before: done[1] });
+    assert.deepEqual(await column(p, "Done"), [done[0], K("TASK-3"), ...done.slice(1)]);
+    ok("a drag that sweeps the bottom edge of a short column, then moves up, drops where the pointer is");
+
+    const qa = await column(p, "QA ready");
+    const sent1 = moves().length;
+    await drag(p, K("FEAT-9"), K("IMP-6"));
+    await back.other({ key: qa[0], from: "QA ready", to: "Done", board: "3" });
+    await p.waitForTimeout(500);
+    const held = (await column(p, "QA ready")).includes(qa[0]);
+    await p.mouse.up();
+    await settle(p);
+    await shown(p, inCol("Done", qa[0]));
+    await p.waitForTimeout(500);
+    await settle(p);
+    const twice = await R(p, (ids) => ids.map((id) => document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-card[data-id="${id}"]`).length), [qa[0], K("FEAT-9")]);
+    assert.equal(held, true);
+    assert.deepEqual(twice, [1, 1]);
+    assert.equal(moves().length, sent1 + 1);
+    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "Doing", to: "Inbox", board: back.board("1"), before: K("IMP-6") });
+    assert.deepEqual(await column(p, "Inbox"), [K("FEAT-9"), K("IMP-6")]);
+    ok("live: Grace's move during my mouse drag waits for the drop, then applies once, with one move sent");
+
     await pick(p, "@" + GRACE.username);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "QA");
     await settle(p);

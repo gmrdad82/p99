@@ -211,7 +211,8 @@ function load(id) {
       B.id = String(d.board.id);
       try { sessionStorage.setItem("p99:board", B.id); } catch (x) {}
       B.data = d;
-      paint();
+      if (B.drag && !B.drag.keys) soon();
+      else paint();
     });
   }).catch((e) => {
     if (e && e.status === 401) return close();
@@ -453,7 +454,7 @@ function lift(x, y) {
 
 function measure(d) {
   const st = getComputedStyle(d.card.parentNode);
-  const pad = parseFloat(st.paddingTop) || 0;
+  const pad = parseFloat(st.paddingTop) || 0, padb = parseFloat(st.paddingBottom) || 0;
   d.gap = parseFloat(st.rowGap) || 0;
   d.s = d.card.getBoundingClientRect().height + d.gap;
   d.sl = B.cols.scrollLeft;
@@ -470,7 +471,7 @@ function measure(d) {
       if (e === d.card) { k = rows.length; continue; }
       rows.push({ e, y: e.offsetTop - (k >= 0 ? d.s : 0), h: e.offsetHeight, t: 0 });
     }
-    d.m.set(list, { list, col, count: col.querySelector(".p99-count"), left: c.left + d.sl, right: c.right + d.sl, top: c.top, bottom: c.bottom, ltop: r.top, lbottom: r.bottom, pad, scroll: list.scrollTop, max: list.scrollHeight - list.clientHeight, rows });
+    d.m.set(list, { list, col, count: col.querySelector(".p99-count"), left: c.left + d.sl, right: c.right + d.sl, top: c.top, bottom: c.bottom, ltop: r.top, lbottom: r.bottom, pad, padb, scroll: list.scrollTop, rows });
     if (k >= 0) { d.list = list; d.k = d.j = k; }
   }
 }
@@ -562,8 +563,6 @@ function cross(d, m, j) {
   m.rows.forEach((r, i) => { if (i >= j) nudge(r.e, -s, 0); });
   m.list.insertBefore(d.card, j < m.rows.length ? m.rows[j].e : null);
   nudge(d.card, dy, 0, o.left - m.left);
-  o.max -= s;
-  m.max += s;
   o.count.textContent = o.rows.length;
   m.count.textContent = m.rows.length + 1;
   d.list = m.list;
@@ -586,7 +585,8 @@ function roll(d) {
   for (const m of d.m.values()) {
     if (d.px < m.left - d.sl || d.px > m.right - d.sl) continue;
     const v = d.py < m.ltop + 48 ? d.py - m.ltop - 48 : d.py > m.lbottom - 48 ? d.py - m.lbottom + 48 : 0;
-    const to = Math.max(0, Math.min(m.max, m.scroll + v / 4));
+    const max = Math.max(0, top(d, m, m.rows.length) - d.gap + (m.list === d.list ? d.s : 0) + m.padb - (m.lbottom - m.ltop));
+    const to = Math.max(0, Math.min(max, m.scroll + v / 4));
     if (!v || to === m.scroll) continue;
     m.scroll = to;
     m.list.scrollTop = to;
@@ -668,7 +668,7 @@ function replay(d) {
   d.queue = [];
   for (const ev of q) {
     if (ev.key !== d.id) event(ev);
-    else if (ev.type !== "order" || String(ev.board) === B.id) soon();
+    else if (ev.type !== "order" || String(ev.board) === B.id) B.stale = true;
   }
 }
 
