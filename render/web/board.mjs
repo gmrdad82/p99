@@ -480,18 +480,17 @@ async function check(back) {
     assert.deepEqual(await column(p, "Done"), [done[0], K("TASK-3"), ...done.slice(1)]);
     ok("a drag that sweeps the bottom edge of a short column, then moves up, drops where the pointer is");
 
-    const qa = await column(p, "QA ready");
     const sent1 = moves().length;
     await drag(p, K("FEAT-9"), K("IMP-6"));
-    await back.other({ key: qa[0], from: "QA ready", to: "Done", board: "3" });
+    await back.other({ key: "BUG-14", from: "QA ready", to: "Done", board: "3" });
     await p.waitForTimeout(500);
-    const held = (await column(p, "QA ready")).includes(qa[0]);
+    const held = (await column(p, "QA ready")).includes(K("BUG-14"));
     await p.mouse.up();
     await settle(p);
-    await shown(p, inCol("Done", qa[0]));
+    await shown(p, inCol("Done", K("BUG-14")));
     await p.waitForTimeout(500);
     await settle(p);
-    const twice = await R(p, (ids) => ids.map((id) => document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-card[data-id="${id}"]`).length), [qa[0], K("FEAT-9")]);
+    const twice = await R(p, (ids) => ids.map((id) => document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-card[data-id="${id}"]`).length), [K("BUG-14"), K("FEAT-9")]);
     assert.equal(held, true);
     assert.deepEqual(twice, [1, 1]);
     assert.equal(moves().length, sent1 + 1);
