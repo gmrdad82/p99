@@ -421,8 +421,8 @@ function press(e) {
   B.drag = d;
   if (d.touch) d.timer = setTimeout(() => lift(d.x, d.y), 220);
   B.el.addEventListener("pointermove", move);
-  B.el.addEventListener("pointerup", release);
-  B.el.addEventListener("pointercancel", abort);
+  window.addEventListener("pointerup", release);
+  window.addEventListener("pointercancel", abort);
 }
 
 function lift(x, y) {
@@ -617,8 +617,8 @@ function resized() {
 
 function unbind(d) {
   B.el.removeEventListener("pointermove", move);
-  B.el.removeEventListener("pointerup", release);
-  B.el.removeEventListener("pointercancel", abort);
+  window.removeEventListener("pointerup", release);
+  window.removeEventListener("pointercancel", abort);
   B.cols.removeEventListener("scroll", scrolled, true);
   window.removeEventListener("resize", resized);
   if (d.raf) cancelAnimationFrame(d.raf);
@@ -631,18 +631,18 @@ function release(e) {
   clearTimeout(d.timer);
   if (d.raf) { cancelAnimationFrame(d.raf); tick(d); }
   unbind(d);
-  if (!d.up) { B.drag = null; return; }
+  if (!d.up) { B.drag = null; later(); return; }
   B.quiet = Date.now();
   settle(d);
   land(d, () => commit(d));
 }
 
-function abort() {
+function abort(e) {
   const d = B.drag;
-  if (!d) return;
+  if (!d || (e && e.pointerId !== d.pointer)) return;
   clearTimeout(d.timer);
   unbind(d);
-  if (!d.up) { B.drag = null; return; }
+  if (!d.up) { B.drag = null; later(); return; }
   cancel();
 }
 

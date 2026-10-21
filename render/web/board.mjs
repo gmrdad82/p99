@@ -498,6 +498,138 @@ async function check(back) {
     assert.deepEqual(await column(p, "Inbox"), [K("FEAT-9"), K("IMP-6")]);
     ok("live: Grace's move during my mouse drag waits for the drop, then applies once, with one move sent");
 
+    const gets = () => seen.filter((c) => c.method === "GET" && c.path.startsWith("/boards/"));
+    const got = () => p.waitForResponse((r) => r.request().method() === "GET" && /\/_p99\/api\/boards\/[^/]+$/.test(new URL(r.url()).pathname));
+    const once = (ids) => R(p, (xs) => xs.map((id) => document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-card[data-id="${id}"]`).length), ids);
+    const ghosted = () => R(p, () => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-ghost"));
+    const hold = async () => {
+      let open, came;
+      const gate = new Promise((r) => (open = r)), arrived = new Promise((r) => (came = r));
+      await p.route("**/_p99/api/boards/*", async (r) => { came(); await gate; return r.continue(); }, { times: 1 });
+      return { arrived, open };
+    };
+    const press = async (id) => {
+      const b = await p.locator(card(id)).boundingBox();
+      await p.mouse.move(b.x + b.width / 2, b.y + 20);
+      await p.mouse.down();
+    };
+
+    const sent2 = moves().length, mark = seen.length;
+    let early = -1;
+    await p.route("**/_p99/api/move", async (r) => {
+      await new Promise((w) => setTimeout(w, 600));
+      early = gets().filter((c) => seen.indexOf(c) >= mark).length;
+      return r.continue();
+    }, { times: 1 });
+    await drag(p, K("IMP-6"), K("FEAT-9"));
+    await back.other({ key: "IMP-6", from: "Inbox", to: "Inbox", board: "1", after: "FEAT-9" }, ADA);
+    await p.waitForTimeout(500);
+    const queued = await ghosted();
+    const posted = p.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/move"));
+    const dropAt = seen.length;
+    await p.mouse.up();
+    await posted;
+    assert.equal(early, 0);
+    await got();
+    await settle(p);
+    await p.waitForTimeout(400);
+    assert.equal(queued, true);
+    assert.equal(gets().filter((c) => seen.indexOf(c) >= dropAt).length, 1);
+    assert.equal(moves().length, sent2 + 1);
+    assert.deepEqual(lastMove(), { key: K("IMP-6"), from: "Inbox", to: "Inbox", board: back.board("1"), before: K("FEAT-9") });
+    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6"), K("FEAT-9")]);
+    ok("an order event about the card I'm dragging waits for the drop; its reload goes out after my move's POST, once");
+
+    const done1 = await column(p, "Done");
+    const dest = await p.locator(card(done1[0])).boundingBox();
+    const qa = await p.locator(card(K("BUG-11"))).boundingBox();
+    const sent3 = moves().length;
+    const h1 = await hold();
+    await back.other({ key: "Q-4", from: "Testing", to: "Done", board: "3" });
+    await h1.arrived;
+    await drag(p, K("FEAT-9"), K("BUG-11"));
+    const landed = got();
+    h1.open();
+    await landed;
+    await p.waitForTimeout(100);
+    const during = { qa: await column(p, "QA ready"), ghost: await ghosted(), q4: (await once([K("Q-4")]))[0] };
+    const x0 = qa.x + qa.width / 2, y0 = qa.y + 6, x1 = dest.x + dest.width / 2, y1 = dest.y + 6;
+    for (let i = 1; i <= 12; i++) {
+      await p.mouse.move(x0 + ((x1 - x0) * i) / 12, y0 + ((y1 - y0) * i) / 12);
+      await p.waitForTimeout(16);
+    }
+    await p.waitForTimeout(260);
+    const follows = (await column(p, "Done"))[0];
+    const upAt = seen.length;
+    await p.mouse.up();
+    await settle(p);
+    await shown(p, inCol("Done", K("Q-4")));
+    await settle(p);
+    const after = await column(p, "Done");
+    assert.deepEqual(during, { qa: [K("FEAT-9"), K("BUG-11")], ghost: true, q4: 0 });
+    assert.equal(follows, K("FEAT-9"));
+    assert.equal(moves().length, sent3 + 1);
+    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "Inbox", to: "Done", board: back.board("1"), before: done1[0] });
+    const postAt = seen.findIndex((c, i) => i >= upAt && c.method === "POST" && c.path === "/move");
+    assert.ok(postAt >= 0 && gets().some((c) => seen.indexOf(c) > postAt));
+    assert.ok(after.indexOf(K("FEAT-9")) >= 0 && after.indexOf(K("FEAT-9")) < after.indexOf(done1[0]));
+    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6")]);
+    assert.deepEqual(await column(p, "QA ready"), [K("BUG-11")]);
+    assert.deepEqual(await once([K("FEAT-9"), K("Q-4"), K("BUG-11")]), [1, 1, 1]);
+    ok("a board load that lands while I drag keeps the ghost and the slot under the pointer; it paints after the drop's POST");
+
+    const sent4 = moves().length;
+    const h2 = await hold();
+    await back.other({ key: "BUG-12", from: "Testing", to: "QA ready", board: "3" });
+    await h2.arrived;
+    await press(K("IMP-6"));
+    const landed2 = got();
+    h2.open();
+    await landed2;
+    await p.waitForTimeout(400);
+    const pressed = { bug12: (await once([K("BUG-12")]))[0], ghost: await ghosted() };
+    await p.mouse.up();
+    await shown(p, inCol("QA ready", K("BUG-12")));
+    await shutPanel(p);
+    assert.deepEqual(pressed, { bug12: 0, ghost: false });
+    assert.equal(moves().length, sent4);
+    assert.equal(await hidden(p), false);
+    ok("a board load that lands during a press that never lifts paints when the button comes up");
+
+    await back.other({ key: "BUG-12", from: "QA ready", to: "Testing", board: "3" });
+    await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("BUG-12"));
+    const h3 = await hold();
+    await back.other({ key: "BUG-12", from: "Testing", to: "Done", board: "3" });
+    await h3.arrived;
+    await press(K("IMP-6"));
+    const landed3 = got();
+    h3.open();
+    await landed3;
+    await p.waitForTimeout(400);
+    const cancelled = (await once([K("BUG-12")]))[0];
+    await R(p, (id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`).dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, composed: true, pointerId: 1, pointerType: "mouse" })), K("IMP-6"));
+    await shown(p, inCol("Done", K("BUG-12")));
+    await p.mouse.up();
+    await shutPanel(p);
+    assert.equal(cancelled, 0);
+    assert.equal(moves().length, sent4);
+    ok("a board load that lands during a press the browser cancels paints at the cancel");
+
+    await back.other({ key: "BUG-12", from: "Done", to: "Testing", board: "3" });
+    await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("BUG-12"));
+    await press(K("IMP-6"));
+    await p.mouse.move(6, 6);
+    await p.mouse.up();
+    const outside = { ghost: await ghosted(), hidden: await hidden(p) };
+    await back.other({ key: "BUG-12", from: "Testing", to: "QA ready", board: "3" });
+    await shown(p, inCol("QA ready", K("BUG-12")));
+    await settle(p);
+    await shutPanel(p);
+    assert.deepEqual(outside, { ghost: false, hidden: false });
+    assert.equal(moves().length, sent4);
+    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6")]);
+    ok("a press released outside the board ends there, so the next reload still paints");
+
     await pick(p, "@" + GRACE.username);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "QA");
     await settle(p);
