@@ -622,7 +622,7 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       "the backup step to end",
       () => unlessBusy(async () => {
         const row = open ? runRow("date = ?1 AND started_at = ?2", open.date, open.started_at) : runRow("started_at > ?1", newest);
-        if (!row || !(row.finished_at !== null || stepEnded(from, row, pageTexts(persist, row.date).filter((p) => p.exported_at > since)))) {
+        if (!row || !(row.finished_at !== null || stepEnded(from, row, pageTexts(persist, row.date).filter((p) => p.exported_at >= row.started_at && p.exported_at > since)))) {
           seen = null;
           same = 0;
           return null;
