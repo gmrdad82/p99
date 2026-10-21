@@ -12,6 +12,7 @@ import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
 import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
 import { brandChecks, hideableLinkChecks } from "./brand.mjs";
+import { licenceStories } from "./stories/licence.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
@@ -309,6 +310,7 @@ async function main() {
     base = `http://127.0.0.1:${port + 1}`;
     dev = await startDev(port + 1, [...vars, "LICENSE_LINK:hideable"], "test-dev-hideable.log");
     await hideableLinkChecks({ call, browse, mint, check, here, placement: PLACEMENT });
+    await licenceStories({ base, call, browse, mint, check, here, placement: PLACEMENT, root });
     console.log(`${passed} checks passed`);
   } finally {
     await dev?.stop();
