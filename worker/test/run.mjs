@@ -23,6 +23,7 @@ import { criticalChecks } from "./critical.mjs";
 import { coverWorker } from "./inspect.mjs";
 import { cardReadChecks } from "./cards-read.mjs";
 import { cardWriteChecks } from "./cards-write.mjs";
+import { needsChecks } from "./needs.mjs";
 import { markChecks } from "./marks.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
@@ -1249,6 +1250,7 @@ async function run() {
   await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });
   await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys, d1count });
   await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
+  await needsChecks({ call, browse, mint, check, issueBody, here, there, d1count });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
