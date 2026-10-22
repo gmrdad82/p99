@@ -23,6 +23,9 @@ pub struct Badge {
     now: Option<Instant>,
     drawn: usize,
     parts: Vec<Span>,
+    waiting: Rc<Cell<u64>>,
+    counted: u64,
+    wait: [Style; 2],
 }
 
 impl Badge {
@@ -38,6 +41,19 @@ impl Badge {
                 Style::new().fg(face),
             )
         };
+        let wait = if palette.mono {
+            let reversed = Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD);
+            [reversed, reversed]
+        } else {
+            let face = palette.accent.fg.unwrap_or(Color::Blue);
+            [
+                Style::new().fg(face),
+                Style::new()
+                    .fg(Color::White)
+                    .bg(face)
+                    .add_modifier(Modifier::BOLD),
+            ]
+        };
         let mut badge = Badge {
             word: state.label(),
             caps,
@@ -47,7 +63,10 @@ impl Badge {
             start: Rc::new(Cell::new(None)),
             now: None,
             drawn: usize::MAX,
-            parts: Vec::with_capacity(4),
+            parts: Vec::with_capacity(8),
+            waiting: Rc::new(Cell::new(0)),
+            counted: 0,
+            wait,
         };
         badge.draw(0);
         badge
@@ -64,7 +83,14 @@ impl Badge {
             now: None,
             drawn: 0,
             parts: Vec::new(),
+            waiting: Rc::new(Cell::new(0)),
+            counted: 0,
+            wait: [Style::new(); 2],
         }
+    }
+
+    pub fn counter(&self) -> Rc<Cell<u64>> {
+        Rc::clone(&self.waiting)
     }
 
     pub fn moment(&mut self, now: Instant) {
@@ -100,10 +126,12 @@ impl Badge {
     fn draw(&mut self, shown: usize) {
         let total = self.total();
         let shown = shown.min(total);
-        if shown == self.drawn {
+        let waiting = self.waiting.get();
+        if shown == self.drawn && waiting == self.counted {
             return;
         }
         self.drawn = shown;
+        self.counted = waiting;
         self.parts.clear();
         let mut left = shown;
         for (text, style) in self.pieces() {
@@ -122,6 +150,19 @@ impl Badge {
                 .nth(total - shown)
                 .map_or(RULE.len(), |(at, _)| at);
             self.parts.push((Cow::Borrowed(&RULE[..end]), self.rule));
+        }
+        if shown == total && waiting > 0 {
+            let [cap, pill] = self.wait;
+            let caps = if self.caps[0] == " " {
+                [" ", " "]
+            } else {
+                ["▐", "▌"]
+            };
+            self.parts.push((Cow::Borrowed(" "), Style::new()));
+            self.parts.push((Cow::Borrowed(caps[0]), cap));
+            self.parts
+                .push((Cow::Owned(format!("{waiting} waiting")), pill));
+            self.parts.push((Cow::Borrowed(caps[1]), cap));
         }
     }
 
@@ -244,6 +285,62 @@ mod tests {
         }
         assert_eq!(seen, 7);
         assert!(!badge.easing());
+    }
+
+    #[test]
+    fn the_waiting_count_shows_beside_the_pill_and_none_at_zero() {
+        let mut badge = settled(State::Studio, &palette());
+        let counter = badge.counter();
+        let now = Instant::now() + EASE * 4;
+        badge.moment(now);
+        assert_eq!(text(&badge), "▐Studio▌");
+        counter.set(1);
+        badge.moment(now);
+        assert_eq!(text(&badge), "▐Studio▌ ▐1 waiting▌");
+        let parts = badge.parts();
+        assert_eq!(parts[5].1.bg, palette().accent.fg);
+        assert!(parts[5].1.add_modifier.contains(Modifier::BOLD));
+        counter.set(12);
+        badge.moment(now);
+        assert_eq!(text(&badge), "▐Studio▌ ▐12 waiting▌");
+        counter.set(0);
+        badge.moment(now);
+        assert_eq!(text(&badge), "▐Studio▌");
+    }
+
+    #[test]
+    fn every_clone_shows_the_same_count_and_mono_reverses_it() {
+        let first = settled(State::Free, &palette().mono());
+        let mut other = first.clone();
+        first.counter().set(3);
+        other.moment(Instant::now() + EASE * 4);
+        assert_eq!(text(&other), " Free   3 waiting ");
+        assert!(other.parts()[5].1.add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn the_count_waits_until_the_pill_has_eased_in() {
+        let mut badge = Badge::new(State::Agency, &palette());
+        badge.counter().set(2);
+        let now = Instant::now();
+        badge.moment(now);
+        assert!(!text(&badge).contains("waiting"));
+        badge.moment(now + EASE);
+        assert_eq!(text(&badge), "▐Agency▌ ▐2 waiting▌");
+    }
+
+    #[test]
+    fn a_steady_count_allocates_nothing_per_frame() {
+        let mut badge = settled(State::Owner, &palette());
+        badge.counter().set(5);
+        let frame = Instant::now() + EASE * 4;
+        badge.moment(frame);
+        let before: Vec<_> = badge.parts().iter().map(|(t, _)| t.as_ptr()).collect();
+        for step in 0..500 {
+            badge.moment(frame + Duration::from_millis(step));
+        }
+        let after: Vec<_> = badge.parts().iter().map(|(t, _)| t.as_ptr()).collect();
+        assert_eq!(before, after);
     }
 
     #[test]

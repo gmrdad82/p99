@@ -5,7 +5,7 @@ use pito_tui::Wake;
 use crate::config::Host;
 use crate::wire::{Change, PageRef, Person};
 
-use super::super::deck::{Move, NONE};
+use super::super::deck::Move;
 use super::super::demo::NOW;
 use super::*;
 
@@ -206,24 +206,27 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 }
 
 #[test]
-fn the_sample_offers_a_card_its_lanes_and_a_plain_item_its_boards_labels() {
+fn the_sample_offers_a_card_and_a_plain_item_the_same_seven_lanes() {
     let source = Source::demo(Duration::ZERO);
-    let entries = source.inbox().expect("the sample reads").entries;
-    let card = entries
-        .iter()
-        .find(|e| e.summary.project.is_some() && e.summary.label.as_deref() == Some("Done"))
-        .expect("the sample has a done card");
-    let lanes = source
-        .labels(0, card.summary.project.is_some())
-        .expect("the sample has boards");
+    let lanes = [
+        "New",
+        "Planned",
+        "In progress",
+        "Needs you",
+        "Stuck",
+        "Landed",
+        "Done",
+    ];
+    assert_eq!(source.labels(0).expect("the sample has lanes"), lanes);
     assert_eq!(
-        lanes,
-        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+        source.labels(0).expect("the sample has lanes"),
+        lanes
     );
-    assert_eq!(
-        source.labels(0, false).expect("the sample has boards"),
-        ["Inbox", "Doing", "QA ready", "Done"]
-    );
+    let board = source.board(&[]).expect("the sample has a board");
+    assert_eq!(board.cards.len(), 28);
+    let (count, cards) = source.waiting().expect("the sample has cards waiting");
+    assert_eq!((count, cards.len()), (3, 3));
+    assert!(cards.iter().all(|(account, _)| *account == 0));
 }
 
 #[test]
@@ -325,9 +328,10 @@ fn a_broken_source_answers_every_read_and_write_with_why() {
     );
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
     assert_eq!(source.client(0, None).err().as_deref(), why);
-    assert_eq!(source.boards().err().as_deref(), why);
-    assert_eq!(source.board(None).err().as_deref(), why);
-    assert_eq!(source.labels(0, false).err().as_deref(), why);
+    assert_eq!(source.board(&[]).err().as_deref(), why);
+    assert_eq!(source.waiting().err().as_deref(), why);
+    assert_eq!(source.projects().err().as_deref(), why);
+    assert_eq!(source.labels(0).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(
         source.sample(|_| Ok(())).err().as_deref(),
@@ -361,10 +365,17 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
         why
     );
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
-    assert_eq!(source.labels(0, false).err().as_deref(), why);
+    assert_eq!(source.labels(0).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
-    assert_eq!(source.board(Some((0, 1))).err().as_deref(), why);
-    assert_eq!(source.boards().err().as_deref(), why);
+    assert_eq!(source.board(&[]).err().as_deref(), why);
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("ghost: no account is called ghost")
+    );
+    assert_eq!(
+        source.projects().err().as_deref(),
+        Some("ghost: no account is called ghost")
+    );
     assert_eq!(source.inbox().err().as_deref(), why);
     let (sender, _inbox) = channel();
     source.follow(&Waker::new(sender, 0));
@@ -380,14 +391,17 @@ fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
     assert!(source.hosts().is_empty());
     assert!(source.inbox().expect("nothing to read").entries.is_empty());
     assert!(source.codes().expect("nothing to read").is_empty());
-    assert!(source.boards().expect("nothing to read").is_empty());
-    assert_eq!(source.board(None).err().as_deref(), Some(NONE));
+    let board = source.board(&[]).expect("nothing to read");
+    assert!(board.cards.is_empty() && board.missing.is_empty());
+    assert_eq!(board.lanes.len(), 7);
+    assert_eq!(source.waiting().expect("nothing to read"), (0, Vec::new()));
+    assert!(source.projects().expect("nothing to read").is_empty());
     assert_eq!(
         source.client(0, None).err().as_deref(),
         Some("that account is gone")
     );
     assert_eq!(
-        source.labels(0, false).err().as_deref(),
+        source.labels(0).err().as_deref(),
         Some("that account is gone")
     );
     let (sender, _inbox) = channel();
@@ -541,5 +555,263 @@ fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
     assert_eq!(
         counted(12, 40, 1000, 50, true),
         ["12 of 40+ items", "only the newest 1000 are loaded"]
+    );
+}
+
+#[test]
+fn a_board_over_several_unreadable_accounts_still_draws_with_one_line_each() {
+    let source = ghost(&["ghost", "phantom"]);
+    let board = source.board(&[]).expect("the board draws with its lines");
+    assert_eq!(board.missing.len(), 2);
+    assert!(
+        board.missing[0].starts_with("ghost: "),
+        "{:?}",
+        board.missing
+    );
+    assert!(
+        board.missing[1].starts_with("phantom: "),
+        "{:?}",
+        board.missing
+    );
+    assert!(board.cards.is_empty());
+    assert_eq!(board.lanes.len(), 7);
+    assert!(source.waiting().is_err());
+}
+
+type Answer = fn(&str) -> (u16, &'static str);
+
+const ROUTELESS: (u16, &str) = (404, r#"{"message":"no such route"}"#);
+const LANES_JSON: &str = r#"{"lanes":[
+ {"word":"new","label":"New","closes":false},{"word":"planned","label":"Planned","closes":false},
+ {"word":"in-progress","label":"In progress","closes":false},{"word":"needs-you","label":"Needs you","closes":false},
+ {"word":"stuck","label":"Stuck","closes":false},{"word":"landed","label":"Landed","closes":false},
+ {"word":"done","label":"Done","closes":true}]}"#;
+const BOARD_CARD: &str = r#"{"key":"BUG-25","kind":"bug","project":"Storefront","status":"needs-you","label":"Needs you",
+ "lane":4,"title":"Waveform drifts after a cut","host":"shop.example.com","assignee":null,"order":"a0",
+ "changed_at":"2026-10-22T09:12:00.000Z","changed_by":null}"#;
+const WAITING_CARD: &str = r#"{"key":"BUG-25","kind":"bug","project":"Storefront","status":"needs-you","label":"Needs you",
+ "lane":4,"title":"Waveform drifts after a cut","host":"shop.example.com",
+ "reporter":{"name":"Ada Lovelace","username":"ada","agent":false,"via":null},
+ "created_at":"2026-10-22T08:00:00.000Z","changed_at":"2026-10-22T09:12:00.000Z","changed_by":null,"comments":0}"#;
+
+fn current(path: &str) -> (u16, &'static str) {
+    static BOARD: OnceLock<String> = OnceLock::new();
+    static WAITING: OnceLock<String> = OnceLock::new();
+    if path.starts_with("/v1/board") {
+        let board = BOARD.get_or_init(|| format!(r#"{{"board":{LANES_JSON},"cards":[{BOARD_CARD}]}}"#));
+        return (200, board.as_str());
+    }
+    if path.starts_with("/v1/cards/waiting") {
+        let waiting = WAITING.get_or_init(|| format!(r#"{{"count":2,"cards":[{WAITING_CARD}]}}"#));
+        return (200, waiting.as_str());
+    }
+    if path.starts_with("/v1/projects") {
+        return (200, r#"{"projects":[{"name":"Storefront","open":1,"done":0}]}"#);
+    }
+    if path.starts_with("/v1/labels") {
+        return (
+            200,
+            r#"{"labels":[{"id":1,"name":"New"},{"id":2,"name":"Needs you"},{"id":3,"name":"Done","closes":true}]}"#,
+        );
+    }
+    (404, r#"{"message":"no such route"}"#)
+}
+
+fn current_too(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/v1/projects") {
+        return (
+            200,
+            r#"{"projects":[{"name":"storefront","open":2,"done":0},{"name":"Mobile app","open":1,"done":1}]}"#,
+        );
+    }
+    current(path)
+}
+
+fn behind_named(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/health") {
+        return (200, r#"{"ok":true,"version":"1.9.2"}"#);
+    }
+    ROUTELESS
+}
+
+fn behind_nameless(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/health") {
+        return (200, r#"{"ok":true}"#);
+    }
+    ROUTELESS
+}
+
+fn before_waiting(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/v1/cards/waiting") {
+        return (404, r#"{"message":"no such card"}"#);
+    }
+    if path.starts_with("/health") {
+        return (200, r#"{"ok":true,"version":"1.8.0"}"#);
+    }
+    current(path)
+}
+
+fn broken(_: &str) -> (u16, &'static str) {
+    (500, r#"{"message":"the Worker broke"}"#)
+}
+
+fn not_owner(_: &str) -> (u16, &'static str) {
+    (403, r#"{"message":"not an owner"}"#)
+}
+
+fn serve(answer: Answer) -> String {
+    use std::io::{BufRead, BufReader, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let url = format!("http://{}/_p99", listener.local_addr().expect("an address"));
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let Ok(clone) = stream.try_clone() else { continue };
+            let mut reader = BufReader::new(clone);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_err() {
+                continue;
+            }
+            let path = line.split_whitespace().nth(1).unwrap_or_default().to_owned();
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).map_or(true, |n| n == 0) || header.trim().is_empty() {
+                    break;
+                }
+            }
+            let path = path.strip_prefix("/_p99").unwrap_or(&path);
+            let (status, reply) = answer(path);
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    url
+}
+
+fn workers(accounts: &[(&str, Answer)]) -> Source {
+    let mut toml = String::new();
+    for (name, answer) in accounts {
+        toml.push_str(&format!(
+            "[accounts.{name}]\naccount_id = \"a\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{}\"\n",
+            serve(*answer)
+        ));
+    }
+    let config: Config = toml::from_str(&toml).expect("the config parses");
+    Source::Live(Arc::new(Live {
+        config,
+        accounts: accounts.iter().map(|(name, _)| (*name).to_owned()).collect(),
+        holder: None,
+        agent: None,
+        clients: OnceLock::new(),
+        listeners: Mutex::new(Vec::new()),
+    }))
+}
+
+#[test]
+fn a_board_over_one_answering_and_one_routeless_account_shows_the_cards_and_one_line() {
+    let source = workers(&[("shop", current), ("old", behind_named)]);
+    let view = source.board(&[]).expect("one account answered");
+    let keys: Vec<(usize, &str)> = view.cards.iter().map(|c| (c.account, c.key.as_str())).collect();
+    assert_eq!(keys, [(0, "BUG-25")]);
+    assert_eq!(view.lanes.len(), 7);
+    assert_eq!(
+        view.missing,
+        ["old: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account old upgrades it"]
+    );
+}
+
+#[test]
+fn a_routeless_account_with_no_version_alone_gets_its_line_over_empty_lanes() {
+    let source = workers(&[("old", behind_nameless)]);
+    let view = source.board(&[]).expect("a routeless account is a line, not a failure");
+    assert!(view.cards.is_empty());
+    assert_eq!(view.lanes.len(), 7);
+    assert_eq!(view.missing.len(), 1);
+    assert!(
+        view.missing[0].starts_with("old: its Worker is an older P99, the board needs 1.10"),
+        "{:?}",
+        view.missing
+    );
+}
+
+#[test]
+fn a_routeless_account_beside_a_failing_one_shows_both_lines() {
+    let source = workers(&[("old", behind_named), ("down", broken)]);
+    let view = source.board(&[]).expect("two lines, no lone failure");
+    assert_eq!(view.missing.len(), 2);
+    assert!(view.missing[0].starts_with("old: its Worker is P99 1.9.2"), "{:?}", view.missing);
+    assert_eq!(view.missing[1], "down: the Worker broke (500)");
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("down: the Worker broke (500)")
+    );
+    assert_eq!(
+        source.projects().err().as_deref(),
+        Some("down: the Worker broke (500)")
+    );
+}
+
+#[test]
+fn one_failing_account_alone_is_an_error_not_a_board() {
+    let source = workers(&[("down", broken)]);
+    assert_eq!(source.board(&[]).err().as_deref(), Some("the Worker broke (500)"));
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("down: the Worker broke (500)")
+    );
+}
+
+#[test]
+fn the_count_comes_from_the_accounts_that_answer_and_skips_a_routeless_one() {
+    let source = workers(&[("shop", current), ("old", behind_named)]);
+    let (count, cards) = source.waiting().expect("one account answered");
+    assert_eq!(count, 2);
+    let keys: Vec<(usize, &str)> = cards.iter().map(|(a, c)| (*a, c.key.as_str())).collect();
+    assert_eq!(keys, [(0, "BUG-25")]);
+    let alone = workers(&[("old", behind_named)]);
+    assert_eq!(alone.waiting().expect("nothing answered, nothing failed").0, 0);
+}
+
+#[test]
+fn a_worker_older_than_the_waiting_route_is_named_with_its_version() {
+    let source = workers(&[("pre", before_waiting)]);
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("pre: its Worker is P99 1.8.0, the board needs 1.10 or later; p99 deploy --account pre upgrades it")
+    );
+    let beside = workers(&[("shop", current), ("pre", before_waiting)]);
+    assert_eq!(beside.waiting().expect("the newer account answered").0, 2);
+}
+
+#[test]
+fn a_user_account_is_told_it_is_not_an_owner() {
+    let source = workers(&[("mine", not_owner)]);
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("mine: not an owner (403)")
+    );
+    assert_eq!(source.board(&[]).err().as_deref(), Some("not an owner (403)"));
+}
+
+#[test]
+fn projects_merge_across_accounts_in_any_case_and_skip_a_routeless_one() {
+    let source = workers(&[("shop", current), ("blog", current_too), ("old", behind_named)]);
+    assert_eq!(
+        source.projects().expect("two accounts answered"),
+        ["Mobile app", "Storefront"]
+    );
+    let alone = workers(&[("old", behind_named)]);
+    assert_eq!(alone.projects().expect("nothing failed"), Vec::<String>::new());
+}
+
+#[test]
+fn the_move_to_list_reads_the_lane_names_from_labels() {
+    let source = workers(&[("shop", current)]);
+    assert_eq!(
+        source.labels(0).expect("the Worker lists its labels"),
+        ["New", "Needs you", "Done"]
     );
 }

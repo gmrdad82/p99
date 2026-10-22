@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use crate::wire::{self, Issue, Thread};
+use crate::card::{self, Lane};
+use crate::one_board::BoardCard;
+use crate::wire::{Issue, LaneCard, Owner, Thread};
 
 use super::super::deck::{
-    Board, BoardView, Boards, Card, Column, MOVED, Move, Moved, Person, sort,
+    BoardView, Card, LANES, MOVED, Move, Moved, WAITS, default_lanes, sort, wanted,
 };
-use super::{DAY, Demo, HOUR, MINUTE, NOW, iso};
+use super::{DAY, Demo, HOUR, MINUTE, NOW, iso, summary};
 
 pub(super) const ITEMS: [super::Item; 10] = [
     extra(
@@ -127,7 +129,7 @@ pub(super) const CARDS: [super::Item; 6] = [
     ),
     card(
         "bug",
-        "in-progress",
+        "needs-you",
         "Waveform drifts after a cut",
         true,
         29 * HOUR,
@@ -185,10 +187,6 @@ const fn card(
 
 pub(super) const FIRST_CARD: i64 = (super::ITEMS.len() + ITEMS.len() + 1) as i64;
 
-pub(super) fn is_card(issue: &Issue) -> bool {
-    issue.project.is_some()
-}
-
 #[allow(clippy::too_many_arguments)]
 const fn extra(
     kind: &'static str,
@@ -221,112 +219,66 @@ const fn extra(
     }
 }
 
-const SHOP: [(&str, bool); 4] = [
-    ("Inbox", false),
-    ("Doing", false),
-    ("QA ready", false),
-    ("Done", true),
-];
-
-const LANES: [(&str, bool); 6] = [
-    ("New", false),
-    ("Planned", false),
-    ("In progress", false),
-    ("Stuck", false),
-    ("Landed", false),
-    ("Done", true),
-];
-
-const CARDS_BOARD: i64 = 3;
-
-const QA: [(&str, bool); 3] = [("QA ready", false), ("Testing", false), ("Verified", true)];
-
-const LABELED: [(i64, &str); 2] = [(14, "Testing"), (21, "Verified")];
+pub(super) const PROJECTS: [&str; 2] = ["Storefront", "Mobile app"];
 
 const DIGITS: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 pub(super) struct Shelf {
-    boards: Vec<Board>,
-    orders: HashMap<(i64, String), String>,
+    orders: HashMap<String, String>,
 }
 
-fn board(id: i64, name: &str, owner: &str, mine: bool, columns: &[(&str, bool)]) -> Board {
-    Board {
-        id,
-        name: name.into(),
-        owner: Some(Person {
-            username: Some(owner.into()),
-        }),
-        mine,
-        cards: id == CARDS_BOARD,
-        columns: columns
-            .iter()
-            .map(|&(label, closes)| Column {
-                label: label.into(),
-                closes,
-            })
-            .collect(),
+pub(super) fn project_of(id: i64) -> Option<&'static str> {
+    match id - FIRST_CARD {
+        1 | 4 => Some(PROJECTS[1]),
+        at if at >= 0 => Some(PROJECTS[0]),
+        _ => None,
     }
 }
 
 pub(super) fn label_of(issue: &Issue) -> String {
-    LABELED
-        .iter()
-        .find(|(id, _)| *id == issue.id)
-        .map_or_else(|| status_label(&issue.status), |&(_, label)| label)
-        .to_owned()
+    status_label(&issue.status).to_owned()
 }
 
 pub(super) fn status_label(status: &str) -> &'static str {
-    match status {
-        "doing" => "Doing",
-        "review" => "QA ready",
-        "done" => "Done",
-        "new" => "New",
-        "planned" => "Planned",
-        "in-progress" => "In progress",
-        "stuck" => "Stuck",
-        "landed" => "Landed",
-        _ => "Inbox",
-    }
+    let word = match status {
+        "inbox" => "new",
+        "doing" => "in-progress",
+        "review" => "landed",
+        other => other,
+    };
+    LANES
+        .iter()
+        .find(|lane| lane.0.word() == word)
+        .map_or(LANES[0].1, |lane| lane.1)
+}
+
+fn lane_of(label: &str) -> Lane {
+    LANES
+        .iter()
+        .find(|lane| lane.1 == label)
+        .map_or(Lane::New, |lane| lane.0)
 }
 
 impl Shelf {
     pub(super) fn new(threads: &[Thread]) -> Shelf {
         let mut shelf = Shelf {
-            boards: vec![
-                board(1, "Shop", "ada.lovelace", true, &SHOP),
-                board(2, "QA", "grace.hopper", false, &QA),
-                board(CARDS_BOARD, "Cards", "ada.lovelace", true, &LANES),
-            ],
             orders: HashMap::new(),
         };
         for thread in threads {
-            let issue = &thread.issue;
-            shelf.append(&issue.key, issue.label.as_deref().unwrap_or_default());
+            shelf.append(&thread.issue.key);
         }
         shelf
     }
 
-    fn append(&mut self, key: &str, label: &str) {
-        let card = wire::item_number(key).is_some_and(|id| id >= FIRST_CARD);
-        for board in &self.boards {
-            if board.lane(label).is_none()
-                || (board.id == CARDS_BOARD) != card
-                || self.orders.contains_key(&(board.id, key.to_owned()))
-            {
-                continue;
-            }
-            let last = self
-                .orders
-                .iter()
-                .filter(|((id, _), _)| *id == board.id)
-                .map(|(_, order)| order.as_str())
-                .max()
-                .unwrap_or_default();
-            let order = between(last, None);
-            self.orders.insert((board.id, key.to_owned()), order);
-        }
+    fn append(&mut self, key: &str) {
+        let last = self
+            .orders
+            .values()
+            .map(String::as_str)
+            .max()
+            .unwrap_or_default();
+        let order = between(last, None);
+        self.orders.insert(key.to_owned(), order);
     }
 }
 
@@ -362,129 +314,157 @@ fn midpoint(a: &[u8], b: Option<&[u8]>, out: &mut Vec<u8>) {
 }
 
 impl Demo {
-    fn find_board(&self, id: i64) -> Result<&Board, String> {
-        self.shelf
-            .boards
-            .iter()
-            .find(|b| b.id == id)
-            .ok_or_else(|| format!("no board is called {id} (404)"))
-    }
-
-    pub fn boards(&self) -> Boards {
-        Boards {
-            boards: self.shelf.boards.clone(),
+    fn board_card(&self, issue: &Issue) -> BoardCard {
+        let label = issue.label.clone().unwrap_or_default();
+        BoardCard {
+            key: issue.key.clone(),
+            kind: issue.kind.clone(),
+            project: issue.project.clone(),
+            status: lane_of(&label),
+            label,
+            lane: None,
+            title: issue.title.clone(),
+            host: issue.host.clone().unwrap_or_default(),
+            assignee: issue.assignee.as_ref().map(|a| a.username.clone()),
+            order: self.shelf.orders.get(&issue.key).cloned(),
+            changed_at: issue.updated_at.clone(),
+            changed_by: None,
         }
     }
 
-    pub fn board(&self, id: Option<i64>) -> Result<BoardView, String> {
-        let board = self.find_board(id.unwrap_or(1))?.clone();
+    pub fn one_board(&self, projects: &[String]) -> BoardView {
         let cards = self
             .threads
             .iter()
             .map(|t| &t.issue)
-            .filter_map(|issue| {
-                let label = issue.label.clone().unwrap_or_default();
-                board.lane(&label)?;
-                if (board.id == CARDS_BOARD) != is_card(issue) {
-                    return None;
+            .filter(|issue| wanted(issue.project.as_deref(), projects))
+            .map(|issue| Card::new(0, self.board_card(issue)))
+            .collect();
+        let mut view = BoardView {
+            lanes: default_lanes(),
+            cards,
+            missing: Vec::new(),
+        };
+        sort(&mut view);
+        let mut place = (None, 0);
+        for card in &mut view.cards {
+            place = if place.0 == Some(card.status) {
+                (place.0, place.1 + 1)
+            } else {
+                (Some(card.status), 1)
+            };
+            card.lane = (card.status != Lane::Done).then_some(place.1);
+        }
+        view
+    }
+
+    pub fn waiting(&self) -> (u64, Vec<card::Card>) {
+        let mut cards: Vec<card::Card> = self
+            .threads
+            .iter()
+            .map(|t| &t.issue)
+            .filter(|issue| issue.project.is_some())
+            .map(|issue| (issue, self.board_card(issue)))
+            .filter(|(_, board)| WAITS.contains(&board.status))
+            .map(|(issue, board)| {
+                let reporter = summary(issue).reporter;
+                card::Card {
+                    key: board.key,
+                    kind: board.kind,
+                    project: board.project.unwrap_or_default(),
+                    status: board.status,
+                    label: board.label,
+                    lane: board.lane,
+                    title: board.title,
+                    host: board.host,
+                    reporter: card::Person {
+                        name: Some(reporter.name),
+                        username: None,
+                        agent: reporter.agent,
+                        via: reporter.via,
+                    },
+                    created_at: issue.created_at.clone(),
+                    changed_at: board.changed_at,
+                    changed_by: None,
+                    comments: issue.comments.max(0) as u64,
+                    links: Vec::new(),
                 }
-                Some(Card {
-                    key: issue.key.clone(),
-                    kind: issue.kind.clone(),
-                    title: issue.title.clone(),
-                    label,
-                    assignee: issue.assignee.as_ref().map(|a| Person {
-                        username: Some(a.username.clone()),
-                    }),
-                    order: self
-                        .shelf
-                        .orders
-                        .get(&(board.id, issue.key.clone()))
-                        .cloned(),
-                })
             })
             .collect();
-        let mut view = BoardView { board, cards };
-        sort(&mut view);
-        Ok(view)
+        cards.sort_by(|a, b| b.changed_at.cmp(&a.changed_at).then(b.key.cmp(&a.key)));
+        (cards.len() as u64, cards)
+    }
+
+    pub fn projects(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .threads
+            .iter()
+            .filter_map(|t| t.issue.project.clone())
+            .collect();
+        names.sort();
+        names.dedup();
+        names
     }
 
     pub fn shift(&mut self, request: &Move) -> Result<Moved, String> {
-        let card = self.find(&request.key).is_ok_and(|t| is_card(&t.issue));
-        let side: Vec<&Board> = self
-            .shelf
-            .boards
-            .iter()
-            .filter(|b| b.cards == card && (b.mine || card))
-            .collect();
-        let closes = side
-            .iter()
-            .flat_map(|b| &b.columns)
-            .find(|c| c.label == request.to)
-            .map(|c| c.closes)
-            .ok_or_else(|| format!("{} is not a label on your boards", request.to))?;
-        if let Some(id) = request.board {
-            let board = self.find_board(id)?;
-            if !board.mine {
-                return Err(format!(
-                    "this board is {}'s; only its owner moves its cards (403)",
-                    board.whose()
-                ));
-            }
-        }
-        let number = wire::item_number(&request.key)
-            .ok_or_else(|| format!("{} is not an item key", request.key))?;
-        let thread = self
-            .threads
-            .iter_mut()
-            .find(|t| t.issue.id == number)
-            .ok_or_else(|| format!("no item is called {}", request.key))?;
-        let issue = &mut thread.issue;
+        let to = default_lanes()
+            .into_iter()
+            .find(|c| c.word.word() == request.to || c.label.eq_ignore_ascii_case(&request.to))
+            .ok_or_else(|| format!("{} is not a lane (400)", request.to))?;
+        let issue = &mut self.find(&request.key)?.issue;
         if issue.label.as_deref() != Some(request.from.as_str()) {
             return Err(format!("{MOVED} (409)"));
         }
-        relabel(issue, &request.to, closes);
+        relabel(issue, &to.label, to.closes);
         let key = issue.key.clone();
-        if let Some(id) = request.board {
-            let view = self.board(Some(id))?;
-            let lane: Vec<&Card> = view
-                .cards
-                .iter()
-                .filter(|c| c.label == request.to && c.key != key)
-                .collect();
-            let at = |other: &Option<String>| {
-                other
-                    .as_ref()
-                    .and_then(|o| lane.iter().position(|c| c.key == *o))
-            };
-            let slot = at(&request.before)
-                .or_else(|| at(&request.after).map(|i| i + 1))
-                .unwrap_or(0);
-            let low = slot
-                .checked_sub(1)
-                .and_then(|i| lane.get(i))
-                .and_then(|c| c.order.as_deref())
-                .unwrap_or_default();
-            let order = between(low, lane.get(slot).and_then(|c| c.order.as_deref()));
-            self.shelf.orders.insert((id, key.clone()), order);
-        }
-        self.shelf.append(&key, &request.to);
-        let home = if card { CARDS_BOARD } else { 1 };
+        let view = self.one_board(&[]);
+        let lane: Vec<&Card> = view
+            .cards
+            .iter()
+            .filter(|c| c.status == to.word && c.key != key)
+            .collect();
+        let at = |other: &Option<String>| {
+            other
+                .as_ref()
+                .and_then(|o| lane.iter().position(|c| c.key == *o))
+        };
+        let slot = at(&request.before)
+            .or_else(|| at(&request.after).map(|i| i + 1))
+            .unwrap_or(0);
+        let low = slot
+            .checked_sub(1)
+            .and_then(|i| lane.get(i))
+            .and_then(|c| c.order.as_deref())
+            .unwrap_or_default();
+        let order = between(low, lane.get(slot).and_then(|c| c.order.as_deref()));
+        self.shelf.orders.insert(key.clone(), order);
         let card = self
-            .board(Some(request.board.unwrap_or(home)))?
+            .one_board(&[])
             .cards
             .into_iter()
             .find(|c| c.key == key)
             .ok_or_else(|| format!("no card is called {key}"))?;
-        Ok(Moved { card })
+        Ok(Moved {
+            card: LaneCard {
+                key: card.card.key,
+                kind: card.card.kind,
+                title: card.card.title,
+                label: card.card.label,
+                assignee: card.card.assignee.map(|username| Owner {
+                    username: Some(username),
+                }),
+                order: card.card.order,
+            },
+        })
     }
 }
 
 fn relabel(issue: &mut Issue, label: &str, closes: bool) {
     issue.label = Some(label.to_owned());
-    issue.status = match (closes, label) {
+    issue.status = match (closes, lane_of(label)) {
         (true, _) => "done",
-        (false, "Inbox") => "inbox",
+        (false, Lane::New) => "inbox",
+        (false, Lane::Landed) => "review",
         _ => "doing",
     }
     .to_owned();

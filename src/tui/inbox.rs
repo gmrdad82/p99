@@ -138,6 +138,7 @@ pub struct Inbox {
     told: bool,
     badge: Badge,
     opener: fn(&str) -> Result<(), String>,
+    projects: Vec<String>,
 }
 
 fn launch(url: &str) -> Result<(), String> {
@@ -182,6 +183,7 @@ impl Inbox {
             told: false,
             badge: Badge::off(),
             opener: launch,
+            projects: Vec::new(),
         }
     }
 
@@ -190,7 +192,22 @@ impl Inbox {
         self
     }
 
-    fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
+    pub(super) fn projects(&mut self, projects: &[String]) {
+        self.projects = projects.to_vec();
+        if self.entries.is_some() {
+            self.sift();
+        }
+    }
+
+    pub(super) fn filtering(&self) -> bool {
+        self.filter.active()
+    }
+
+    pub(super) fn choosing(&self) -> bool {
+        self.picking.is_some()
+    }
+
+    pub(super) fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
         if self.entries.is_none() {
             return;
         }
@@ -262,12 +279,14 @@ impl Inbox {
         let mut filter = std::mem::replace(&mut self.filter, Filter::new(""));
         let host = self.host.clone();
         let shown = self.shown;
+        let projects = &self.projects;
         let palette = &self.palette;
         let this = &*self;
         let keeps = |entry: &Entry, _: &str| {
             let item = &entry.summary;
             shown.keeps(closed(item.resolution.as_deref(), &item.stage))
                 && host.as_ref().is_none_or(|h| item.host.as_ref() == Some(h))
+                && super::deck::wanted(item.project.as_deref(), projects)
                 && hits(&entry.haystack, &words)
         };
         let all_hosts = self.host.is_none();
@@ -561,9 +580,8 @@ impl Inbox {
         let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
         };
-        let card = self.issue().is_some_and(|issue| issue.project.is_some());
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account, card)));
+        cx.detach(move || Msg::Labels(source.labels(account)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {
@@ -762,7 +780,7 @@ fn state(issue: &Issue) -> String {
 fn tone(palette: &Palette, label: &str, closed: bool) -> Style {
     if closed {
         palette.good
-    } else if label == "Inbox" || label == stage_word("received") {
+    } else if label == "Inbox" || label == "New" || label == stage_word("received") {
         palette.accent
     } else {
         palette.strong

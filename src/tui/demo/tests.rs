@@ -188,7 +188,7 @@ fn a_status_change_moves_the_label_logs_it_and_closes_or_reopens() {
     let reopened = demo.change("Q-10", &review).expect("the sample takes it");
     assert_eq!(reopened.resolution, None);
     assert_eq!(reopened.closed_at, None);
-    assert_eq!(reopened.label.as_deref(), Some("QA ready"));
+    assert_eq!(reopened.label.as_deref(), Some("Landed"));
     let events = demo.thread("Q-10").expect("the sample has it").events;
     let last = events.last().expect("an event");
     assert_eq!(last.kind, "status");

@@ -54,7 +54,7 @@ fn keys_drive_the_dump_to_the_board_and_into_a_thread() {
         "tui", "--demo", "--dump", "120x34", "--keys", "tab",
     ]));
     assert!(
-        board.contains("Shop") && board.contains("Doing 6"),
+        board.contains("New 8") && board.contains("In progress 6"),
         "{board}"
     );
     let thread = out(&p99(&[
@@ -216,4 +216,126 @@ fn a_capture_compares_equal_to_itself_and_differs_from_an_empty_folder() {
     let other = p99(&["tui", "--compare", empty.to_str().expect("a plain path")]);
     assert_eq!(other.status.code(), Some(1), "{}", out(&other));
     assert!(err(&other).starts_with("p99: "), "{}", err(&other));
+}
+
+fn dump(size: &str, keys: &str) -> String {
+    let mut args = vec!["tui", "--demo", "--dump", size];
+    if !keys.is_empty() {
+        args.extend(["--keys", keys]);
+    }
+    let run = p99(&args);
+    assert!(run.status.success(), "{}", err(&run));
+    out(&run)
+}
+
+#[test]
+fn the_board_tab_is_one_board_of_seven_lanes_at_80_and_120_columns() {
+    for (size, rows) in [("120x34", 34), ("80x24", 24)] {
+        let board = dump(size, "tab");
+        assert_eq!(board.lines().count(), rows, "{size}:\n{board}");
+        assert!(board.lines().all(|l| l.chars().count() <= 120), "{size}");
+        for key in [
+            "FEAT-9", "TASK-24", "IMP-5", "BUG-25", "BUG-26", "IMP-4", "BUG-1",
+        ] {
+            assert!(board.contains(key), "{size} {key}:\n{board}");
+        }
+        for gone in ["Shop", "QA ready", "b boards", "watching"] {
+            assert!(!board.contains(gone), "{size} {gone}:\n{board}");
+        }
+    }
+    let wide = dump("120x34", "tab");
+    for head in [
+        "New 8",
+        "Planned 1",
+        "In progress 6",
+        "Needs you 1",
+        "Stuck 1",
+        "Landed 4",
+        "Done 7",
+    ] {
+        assert!(wide.contains(head), "{head}:\n{wide}");
+    }
+    assert!(
+        wide.contains("28 items") && wide.contains("7/28 done"),
+        "{wide}"
+    );
+}
+
+#[test]
+fn the_waiting_badge_sits_in_the_header_at_80_and_120_columns() {
+    for size in ["120x34", "80x24"] {
+        for keys in ["", "tab"] {
+            let text = dump(size, keys);
+            let head: String = text.lines().take(3).collect::<Vec<_>>().join("\n");
+            assert!(head.contains("3 waiting"), "{size} {keys:?}:\n{text}");
+        }
+    }
+    let studio = out(&p99_with(
+        &["tui", "--demo", "--dump", "120x34"],
+        &[("P99_LICENSE_STATE", "studio")],
+    ));
+    let line = studio
+        .lines()
+        .find(|l| l.contains("3 waiting"))
+        .expect("the count is shown");
+    assert!(line.find("Studio") < line.find("3 waiting"), "{line}");
+}
+
+#[test]
+fn w_opens_the_needs_you_list_and_enter_its_first_card() {
+    for size in ["120x34", "80x24"] {
+        let list = dump(size, "w");
+        for said in ["Needs you · 3", "BUG-25", "BUG-26", "FEAT-27"] {
+            assert!(list.contains(said), "{size} {said}:\n{list}");
+        }
+    }
+    let thread = dump("120x34", "w enter");
+    assert!(
+        thread.contains("BUG-25  Waveform drifts after a cut"),
+        "{thread}"
+    );
+    let board = dump("120x34", "tab w");
+    assert!(board.contains("Needs you · 3"), "{board}");
+}
+
+#[test]
+fn p_narrows_the_inbox_and_the_board_to_the_projects_chosen() {
+    for size in ["120x34", "80x24"] {
+        let pick = dump(size, "p");
+        for said in ["Projects", "All projects", "Mobile app", "Storefront"] {
+            assert!(pick.contains(said), "{size} {said}:\n{pick}");
+        }
+    }
+    let one = dump("120x34", "p down enter esc");
+    assert!(one.contains("2 of 28 items"), "{one}");
+    assert!(one.contains("Mobile app"), "{one}");
+    assert!(!one.contains("BUG-11"), "{one}");
+    let several = dump("120x34", "p down enter down enter esc");
+    assert!(several.contains("5 of 28 items"), "{several}");
+    let board = dump("120x34", "p down enter esc tab");
+    assert!(board.contains("2 items"), "{board}");
+    assert!(
+        board.contains("TASK-24") && board.contains("FEAT-27"),
+        "{board}"
+    );
+    assert!(!board.contains("FEAT-9"), "{board}");
+    let cleared = dump("120x34", "p down enter esc esc");
+    assert!(cleared.contains("21 of 28 items"), "{cleared}");
+}
+
+#[test]
+fn the_waiting_badge_counts_down_as_cards_move_out_and_hides_at_zero() {
+    let needs = "tab l l l space l l l enter";
+    let stuck = format!("{needs} h h space l l enter");
+    let landed = format!("{stuck}{}", " h space l enter".repeat(4));
+    for size in ["120x34", "80x24"] {
+        for (keys, said) in [(needs, Some("2 waiting")), (stuck.as_str(), Some("1 waiting")), (landed.as_str(), None)] {
+            let text = dump(size, keys);
+            let head: String = text.lines().take(3).collect::<Vec<_>>().join("\n");
+            match said {
+                Some(said) => assert!(head.contains(said), "{size} {keys:?}:\n{text}"),
+                None => assert!(!head.contains("waiting"), "{size} {keys:?}:\n{text}"),
+            }
+        }
+    }
 }
