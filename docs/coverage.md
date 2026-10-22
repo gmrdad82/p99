@@ -199,8 +199,53 @@ JavaScript, the browser (`cd render/web && npm run coverage`, then the panel's f
 
 Every card route runs in the worker suite against wrangler dev. Among the checks are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 30 of 30.
 
+## w203 one board, 2026-10-22 (agent/board-i1, main b1d20d2 plus the one-board train)
+
+Rust: **91.59% of lines** (90.88% of regions, 90.63% of functions), up from 89.87% after the cards. 764 tests pass under `cargo llvm-cov nextest`, none ignored.
+
+| File | Lines covered | Lines | After the cards |
+|---|---|---|---|
+| src/one_board.rs | 100.00% | 371 | new |
+| src/fold.rs | 98.77% | 408 | new |
+| src/boards.rs | 97.98% | 198 | not listed |
+| src/cli/codes.rs | 99.15% | 234 | new |
+| src/cli/waiting.rs | 96.00% | 25 | new |
+| src/card.rs | 99.76% | 419 | 99.75% |
+| src/cli/card.rs | 98.43% | 446 | 98.19% |
+| src/cli.rs | 89.67% | 1191 | 89.46% |
+| src/client.rs | 91.08% | 706 | 88.18% |
+| src/migrate.rs | 94.74% | 1065 | not listed |
+| src/tui/board.rs | 97.76% | 1070 | not listed |
+| src/tui/codes.rs | 97.49% | 279 | not listed |
+| src/tui/deck.rs | 99.73% | 368 | 97.17% |
+| src/tui/projects.rs | 96.82% | 157 | new |
+| src/tui/waiting.rs | 92.89% | 422 | new |
+| src/tui/source.rs | 97.25% | 400 | 97.45% |
+| src/tui/demo/boards.rs | 85.32% | 293 | 85.67% |
+| src/wire.rs | 92.71% | 329 | 93.31% |
+
+JavaScript, the Worker: the worker suite passes 305 checks with none known red, and the 38 unit tests pass. **94.42% of lines** of worker/src, against 94.60% after the cards: the old per-person board code left boards.js (310 lines now, 658 before), and src/cards-write.js reads 92.08% of 303 (97.08% of 343).
+
+| File | Lines covered | Lines | After the cards |
+|---|---|---|---|
+| src/one-board.js | 100.00% | 225 | new |
+| src/needs-you.js | 100.00% | 51 | new |
+| src/codes-delete.js | 100.00% | 22 | new |
+| src/roles.js | 100.00% | 12 | new |
+| src/boards.js | 98.06% | 310 | 99.24% |
+| src/cards-read.js | 98.36% | 365 | 98.27% |
+| src/cards-write.js | 92.08% | 303 | 97.08% |
+| src/labels.js | 100.00% | 24 | 100.00% |
+| src/worker.js | 95.68% | 3168 | 95.50% |
+| **total** | **94.42%** | 6843 | 94.60% |
+
+JavaScript, the browser (`cd render/web && npm run coverage`, then the filter story under the same hook): **81.21% of lines** of worker/src/web, up from 81.05%. src/web/board.js is at 92.80% of 792 (91.32% of 887) and src/web/panel.js at 89.48% of 1,986 (89.32% of 1,976); the loader by bytes is at 95.29% (94.93%). In that pass every check passed: capture, manage, mobile, search and swap, the widget stories 258 of 258, the board stories 62 of 62, the board against the Worker 28 of 28, and the filter story.
+
+The one-board migration 0016 runs in the worker suite over seeded node:sqlite databases (the fold checks) and once more over a database the 1.10.0 Worker itself wrote: two Owners' boards with custom columns and a six-lane Cards board, 12 items and 3 cards. It moved 10 items (Doing to In progress, Review to Landed, a custom first column to New, a custom closing column to Done keeping its resolution, every other custom column to In progress), kept 5 in their lanes, archived the 4 old boards and 7 old labels, wrote one migrated `label` event per moved item, and a second run changed nothing. The plan's promises, end to end with the release binary against wrangler dev, pass 41 of 41: `p99 board`, the deprecated `boards`, `move --to <word|name>`, `cards --waiting`, `invites delete`, `invite --owner`, the role words, and the TUI `--dump` with seven lanes and the badge.
+
 ## Uncovered critical paths, first in line
 
+- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the TUI's waiting list when its accounts fail in turn (src/tui/waiting.rs, 93%), and the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
 - Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and import (42%).
 - Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
 - delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.

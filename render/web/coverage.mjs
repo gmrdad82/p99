@@ -98,6 +98,7 @@ export function fold(dir, readText = (name) => readFileSync(join(web, name), "ut
   for (const file of existsSync(dir) ? readdirSync(dir).sort() : []) {
     if (!file.endsWith(".json")) continue;
     for (const entry of JSON.parse(readFileSync(join(dir, file), "utf8"))) {
+      if (typeof entry.source !== "string") continue;
       const parts = servedParts(entry.url, entry.source);
       if (parts.length === 0) continue;
       const counts = offsetCounts(entry.source, entry.functions);

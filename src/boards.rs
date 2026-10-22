@@ -17,7 +17,7 @@ pub struct MoveArgs {
     #[arg(
         long,
         value_name = "lane",
-        help = "a lane's word (new, planned, in-progress, needs-you, stuck, landed, done) or its name"
+        help = "a lane's word (`new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed`, `done`) or its name"
     )]
     pub to: String,
     #[arg(

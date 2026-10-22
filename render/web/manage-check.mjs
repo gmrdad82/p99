@@ -212,6 +212,15 @@ try {
         value: input.value,
       };
     }, sel);
+  const listed = async (p, s, ready, ms = 10000) => {
+    const t0 = Date.now();
+    let l = await listbox(p, s);
+    while (!ready(l) && Date.now() - t0 < ms) {
+      await p.waitForTimeout(50);
+      l = await listbox(p, s);
+    }
+    return l;
+  };
   const hidden = (p, name) => p.evaluate((n) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-manage [name=${n}]`).value, name);
   const pickers = { assignee: ".p99-picker:nth-of-type(1)", duplicate: ".p99-picker:nth-of-type(2)" };
   const sel = (k) => `.p99-manage ${pickers[k]}`;
@@ -223,12 +232,10 @@ try {
     await toManage(p);
 
     await hit(`${sel("assignee")} [role=combobox]`);
-    await p.waitForTimeout(400);
-    let l = await listbox(p, sel("assignee"));
+    let l = await listed(p, sel("assignee"), (l) => l.open && l.items.some((t) => t.includes("@grace.hopper")));
     check(`${label}: the assignee picker opens with Unassigned and the people (${l.items.join(" | ")})`, l.open && l.items[0] === "Unassigned" && l.items.some((t) => t.includes("@grace.hopper")) && !l.items.some((t) => t.includes("@example.com")) && l.fits);
     await p.keyboard.type("hop");
-    await p.waitForTimeout(200);
-    l = await listbox(p, sel("assignee"));
+    l = await listed(p, sel("assignee"), (l) => l.items.length === 1);
     check(`${label}:   typing filters it to Grace, first one active`, l.items.length === 1 && /grace/.test(l.active || ""));
     await p.keyboard.press("Enter");
     check(`${label}:   Enter picks her`, (await hidden(p, "assignee")) === "grace.hopper" && (await listbox(p, sel("assignee"))).value === "@grace.hopper" && !(await listbox(p, sel("assignee"))).open);
@@ -238,12 +245,10 @@ try {
     check(`${label}:   a ${touch ? "tap" : "click"} picks Linus`, (await hidden(p, "assignee")) === "linus.park");
 
     await hit(`${sel("duplicate")} [role=combobox]`);
-    await p.waitForTimeout(500);
-    l = await listbox(p, sel("duplicate"));
+    l = await listed(p, sel("duplicate"), (l) => l.open && l.items.length >= 4);
     check(`${label}: the duplicate picker lists this site's items, newest first, never the item itself (${l.items.length})`, l.open && l.items.length >= 4 && !l.items.some((t) => t.startsWith(main.key)) && l.items[0].startsWith(cart.key) && l.fits);
     await p.keyboard.type("badge");
-    await p.waitForTimeout(700);
-    l = await listbox(p, sel("duplicate"));
+    l = await listed(p, sel("duplicate"), (l) => l.items.length === 1);
     check(`${label}:   typing words searches (${l.items.join(" | ")})`, l.items.length === 1 && l.items[0].startsWith(cart.key));
     await p.keyboard.press("ArrowDown");
     await p.keyboard.press("ArrowUp");

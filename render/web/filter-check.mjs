@@ -203,7 +203,8 @@ try {
     asked.length = 0;
     await source(p, "");
     await choose(p, "site");
-    s = await settled(p, (s) => s.view === "site" && s.keys.length > 0);
+    await p.locator(S("[data-scope=all]")).click();
+    s = await settled(p, (s) => s.view === "site" && s.keys.includes(NEAR));
     check(`Only this website lists everything on this host, plain items and cards alike, with today's tabs and filters (${s.keys})`, s.tabs && s.filters && [byAgent, byPerson, NEAR].every((k) => s.keys.includes(k)));
     check(`Only this website reads the item list, never /cards (${asked.join(" ")})`, !asked.some((a) => a.startsWith("/_p99/api/cards")));
 

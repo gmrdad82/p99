@@ -1128,8 +1128,9 @@ try {
       said("plain", { name: "Alan Turing", email: "alan@example.com" }),
     ];
     await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}`, async (route) => {
-      if (route.request().method() !== "GET") return route.fallback();
-      const res = await route.fetch();
+      const r = route.request();
+      if (r.method() !== "GET") return route.fallback();
+      const res = await route.fetch({ url: r.url().replace(`http://${HOST}`, `http://127.0.0.1:${PORT}`), headers: { ...r.headers(), host: HOST } });
       const j = await res.json();
       j.comments = (j.comments || []).concat(extra);
       await route.fulfill({ response: res, json: j });

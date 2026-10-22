@@ -70,6 +70,23 @@ test("folding counts a file's lines once across pages, and drops lines a check a
   }
 });
 
+test("a dump entry without its source is skipped, never a crash, and the rest still counts", () => {
+  const dir = scratch();
+  try {
+    const texts = { "panel.js": "a();\nb();\n" };
+    const seen = { url: "http://127.0.0.1:1/_p99/panel.js", source: texts["panel.js"], functions: whole(texts["panel.js"]) };
+    writeFileSync(join(dir, "1-0.json"), JSON.stringify([{ url: "http://127.0.0.1:1/_p99/capture.js", functions: [] }, { url: "http://127.0.0.1:1/_p99/panel.js", source: null, functions: [] }, seen]));
+    const files = fold(dir, (name) => texts[name]);
+    assert.deepEqual([...files.keys()], [join(web, "panel.js")]);
+    assert.deepEqual([...files.get(join(web, "panel.js"))], [
+      [1, true],
+      [2, true],
+    ]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("the browser table lists the loader, panel, board, shot, avatar and app even when no check loaded them", () => {
   const dir = scratch();
   rmSync(dir, { recursive: true, force: true });
