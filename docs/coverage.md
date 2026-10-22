@@ -139,6 +139,6 @@ What is left in the CLI: delete's confirmation on a terminal (the tests have no 
 ## Uncovered critical paths, first in line
 
 - Setup's interactive walk (setup.rs, 27%), migrate (34%) and import (42%).
-- Secrets: vault.rs at 54%; storing a new secret in 1Password, which setup does, has no test.
+- Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
 - delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
 - The Worker, the loader, the panel and the board (JavaScript): not measured yet; the worker suite and the browser checks exercise them heavily without numbers.
