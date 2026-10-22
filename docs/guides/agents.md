@@ -1,11 +1,11 @@
 ---
 title: Let agents work the inbox
-description: Let a coding agent read and answer items as you, marked with an asterisk everywhere it acts, using --agent or P99_AGENT and the JSON output.
+description: Let a coding agent read and answer items as you, marked with 🤖 everywhere it acts, using --agent or P99_AGENT and the JSON output.
 sidebar:
   order: 5
 ---
 
-An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same account key. What it writes is marked: its items, comments and changes read as your name with an asterisk, `Ada Lovelace*`, in the TUI, the CLI, the panel on the site (with the hint "AI" on the asterisk) and in mail. So everyone can tell what you wrote from what an agent wrote for you.
+An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same account key. What it writes is marked: its items, comments and changes read as your name with 🤖, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site and in mail. So everyone can tell what you wrote from what an agent wrote for you.
 
 ## Mark an agent's commands
 
@@ -14,23 +14,24 @@ Any one of these marks the commands:
 | How | Marks |
 | --- | --- |
 | `--agent` | one command |
-| `P99_AGENT=1` in the environment (any value but empty or `0`) | every command of that shell or process |
+| `--agent=<label>` | one command, with a label that says which agent (the `=` is needed) |
+| `P99_AGENT=<label>` in the environment | every command of that shell or process, with the label; `1` or `true` marks with no label, empty or `0` marks nothing |
 | `agent = true` in the config's `[me]` table | every command; `P99_AGENT=0` turns it off for one shell |
 | `agent = true` in `[accounts.<name>.me]` | every command on that account; `P99_AGENT=0` turns it off for one shell |
 
-Give the agent `P99_AGENT=1` in the environment it runs in, so it can't forget the flag:
+`--agent=<label>` wins over `P99_AGENT`, and a bare `--agent` keeps `P99_AGENT`'s label. A label has up to 80 characters (longer ones are cut, control characters dropped) and shows in the thread's details, so you can tell which agent did what. Give the agent `P99_AGENT` in the environment it runs in, so it can't forget the flag:
 
 ```sh
-export P99_AGENT=1
+export P99_AGENT=reviewer
 p99 comment BUG-8 "Found it: the search field remounts on each keystroke."
 ```
 
 ```text
-2026-10-12 12:00 Ada Lovelace*
+2026-10-12 12:00 Ada Lovelace 🤖
 Found it: the search field remounts on each keystroke.
 ```
 
-Only the CLI's and the TUI's signed requests carry the mark; the browser panel never does. The mark is kept on every item, comment and event, and in an import.
+Only the CLI's and the TUI's signed requests carry the mark; the browser panel never does. The mark and its label are kept on every item, comment and event, and in an import. Agents can also keep a plan of work as cards: see [the cards guide](cards.md).
 
 ## Read and answer as JSON
 

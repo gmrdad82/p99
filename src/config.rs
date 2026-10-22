@@ -444,12 +444,27 @@ fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<Strin
 }
 
 pub fn agent(flag: &Option<Option<String>>, me: &Me) -> (bool, Option<String>) {
-    if flag.is_some() {
-        return (true, None);
-    }
-    match env::var("P99_AGENT") {
-        Ok(value) if !value.trim().is_empty() => (value.trim() != "0", None),
-        _ => (me.agent, None),
+    agent_from(flag, env::var("P99_AGENT").ok().as_deref(), me)
+}
+
+pub fn agent_from(
+    flag: &Option<Option<String>>,
+    variable: Option<&str>,
+    me: &Me,
+) -> (bool, Option<String>) {
+    let from_env = match variable.map(str::trim) {
+        None | Some("" | "0") => None,
+        Some(word) if word.eq_ignore_ascii_case("false") => None,
+        Some(word) if word == "1" || word.eq_ignore_ascii_case("true") => Some(None),
+        Some(label) => Some(crate::card::via(label)),
+    };
+    match flag {
+        Some(Some(label)) => (true, crate::card::via(label).or(from_env.flatten())),
+        Some(None) => (true, from_env.flatten()),
+        None => match from_env {
+            Some(label) => (true, label),
+            None => (me.agent, None),
+        },
     }
 }
 
@@ -1042,5 +1057,74 @@ mod tests {
         let config = Config::load_from(&dir.join("config.toml")).unwrap();
         assert!(config.accounts.is_empty() && config.hosts.is_empty());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    fn marked(
+        flag: Option<Option<&str>>,
+        variable: Option<&str>,
+        me: bool,
+    ) -> (bool, Option<String>) {
+        let flag = flag.map(|f| f.map(str::to_owned));
+        let me = Me {
+            agent: me,
+            ..Me::default()
+        };
+        agent_from(&flag, variable, &me)
+    }
+
+    #[test]
+    fn the_agent_flag_and_p99_agent_mark_with_or_without_a_label() {
+        assert_eq!(marked(None, None, false), (false, None));
+        assert_eq!(marked(None, None, true), (true, None));
+        assert_eq!(marked(Some(None), None, false), (true, None));
+        assert_eq!(
+            marked(Some(Some("pci")), None, false),
+            (true, Some("pci".into()))
+        );
+        assert_eq!(
+            marked(None, Some("pci·splicer"), false),
+            (true, Some("pci·splicer".into()))
+        );
+        assert_eq!(marked(None, Some("1"), false), (true, None));
+        assert_eq!(marked(None, Some("true"), false), (true, None));
+        assert_eq!(marked(None, Some("TRUE"), false), (true, None));
+        assert_eq!(marked(None, Some(""), true), (true, None));
+        assert_eq!(marked(None, Some("  "), false), (false, None));
+        assert_eq!(marked(None, Some("0"), false), (false, None));
+        assert_eq!(marked(None, Some("false"), false), (false, None));
+    }
+
+    #[test]
+    fn the_flag_label_wins_and_a_bare_flag_keeps_p99_agents_label() {
+        assert_eq!(
+            marked(Some(Some("cli")), Some("env"), false),
+            (true, Some("cli".into()))
+        );
+        assert_eq!(
+            marked(Some(None), Some("env"), false),
+            (true, Some("env".into()))
+        );
+        assert_eq!(marked(Some(None), Some("0"), false), (true, None));
+        assert_eq!(
+            marked(Some(Some("")), Some("env"), false),
+            (true, Some("env".into()))
+        );
+        assert_eq!(
+            marked(Some(Some("x")), Some("0"), true),
+            (true, Some("x".into()))
+        );
+    }
+
+    #[test]
+    fn a_label_is_cleaned_trimmed_and_cut_at_eighty_characters() {
+        let long = "é".repeat(100);
+        let (agent, via) = marked(Some(Some(&long)), None, false);
+        assert!(agent);
+        assert_eq!(via.as_deref().map(|v| v.chars().count()), Some(80));
+        assert_eq!(
+            marked(Some(Some(" a\u{1}b\u{202e} ")), None, false),
+            (true, Some("ab".into()))
+        );
+        assert_eq!(marked(None, Some("\u{7}"), false), (true, None));
     }
 }

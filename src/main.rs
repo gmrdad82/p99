@@ -1,7 +1,6 @@
 mod app;
 mod boards;
 mod bundle;
-#[allow(dead_code)]
 mod card;
 mod cli;
 mod client;
