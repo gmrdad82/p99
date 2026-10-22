@@ -99,6 +99,12 @@ pub struct Summary {
     pub label: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
@@ -178,6 +184,12 @@ pub struct Issue {
     pub label: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
     #[serde(default, deserialize_with = "lenient")]

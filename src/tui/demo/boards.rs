@@ -186,7 +186,7 @@ const fn card(
 pub(super) const FIRST_CARD: i64 = (super::ITEMS.len() + ITEMS.len() + 1) as i64;
 
 pub(super) fn is_card(issue: &Issue) -> bool {
-    issue.id >= FIRST_CARD
+    issue.project.is_some()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -410,8 +410,14 @@ impl Demo {
     }
 
     pub fn shift(&mut self, request: &Move) -> Result<Moved, String> {
-        let mine: Vec<&Board> = self.shelf.boards.iter().filter(|b| b.mine).collect();
-        let closes = mine
+        let card = self.find(&request.key).is_ok_and(|t| is_card(&t.issue));
+        let side: Vec<&Board> = self
+            .shelf
+            .boards
+            .iter()
+            .filter(|b| b.cards == card && (b.mine || card))
+            .collect();
+        let closes = side
             .iter()
             .flat_map(|b| &b.columns)
             .find(|c| c.label == request.to)

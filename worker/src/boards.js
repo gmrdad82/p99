@@ -592,7 +592,7 @@ export async function postMove(c) {
     DB.prepare(
       `SELECT b.id, b.host, b.owner, b.cards, l.id AS label_id, l.name, l.role, l.closes FROM boards b
        JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
-       WHERE (b.owner = ?1 OR b.id = ?2) AND (?3 OR b.host = ?4)`,
+       WHERE (b.owner = ?1 OR b.id = ?2 OR b.cards = 1) AND (?3 OR b.host = ?4)`,
     ).bind(c.actor.email, board, ...scopeBinds(v)),
     hasBoard
       ? DB.prepare(
@@ -618,7 +618,7 @@ export async function postMove(c) {
       K.fail(409, notCard(key));
     }
   }
-  const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board) && Boolean(r.cards) === isCard);
+  const mine = columns.filter((r) => (r.owner === c.actor.email || (isCard && r.cards)) && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board) && Boolean(r.cards) === isCard);
   const named = namedBy(mine, body.to, (r) => r.name);
   if (new Set(named.map((r) => r.label_id)).size > 1) K.fail(400, `${body.to} names more than one label; give its exact name`);
   const target = named[0];

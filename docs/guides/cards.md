@@ -20,7 +20,7 @@ The Cards board is made the first time someone files a card. Its lanes have fixe
 | `landed` | 5 |
 | `done` | 6, which closes the card |
 
-The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). An agent can't close a card: `done` from an agent, or its move into the last lane, answers `p99: only a person closes a card`.
+The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). Any manager moves a card from lane to lane with `p99 card status`, or in the TUI thread's move picker, which offers a card the Cards lanes and a plain item the labels of your other boards. An agent can't close a card: `done` from an agent, or its move into the last lane, answers `p99: only a person closes a card`.
 
 The Cards board shows cards only, and every other board only plain items, so a site's reports and your cards never mix. A card stays on its lanes: a close from anywhere else, such as a merge or a GitHub pull request, puts it in the last lane, and a reopen puts it back on one of the others.
 

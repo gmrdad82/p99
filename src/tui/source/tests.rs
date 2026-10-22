@@ -206,6 +206,27 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 }
 
 #[test]
+fn the_sample_offers_a_card_its_lanes_and_a_plain_item_its_boards_labels() {
+    let source = Source::demo(Duration::ZERO);
+    let entries = source.inbox().expect("the sample reads");
+    let card = entries
+        .iter()
+        .find(|e| e.summary.project.is_some() && e.summary.label.as_deref() == Some("Done"))
+        .expect("the sample has a done card");
+    let lanes = source
+        .labels(0, card.summary.project.is_some())
+        .expect("the sample has boards");
+    assert_eq!(
+        lanes,
+        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+    );
+    assert_eq!(
+        source.labels(0, false).expect("the sample has boards"),
+        ["Inbox", "Doing", "QA ready", "Done"]
+    );
+}
+
+#[test]
 fn the_sample_inbox_comes_newest_first_and_codes_newest_first() {
     let source = Source::demo(Duration::ZERO);
     let entries = source.inbox().expect("the sample reads").entries;
@@ -306,7 +327,7 @@ fn a_broken_source_answers_every_read_and_write_with_why() {
     assert_eq!(source.client(0, None).err().as_deref(), why);
     assert_eq!(source.boards().err().as_deref(), why);
     assert_eq!(source.board(None).err().as_deref(), why);
-    assert_eq!(source.labels(0, "Inbox").err().as_deref(), why);
+    assert_eq!(source.labels(0, false).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(
         source.sample(|_| Ok(())).err().as_deref(),
@@ -340,7 +361,7 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
         why
     );
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
-    assert_eq!(source.labels(0, "Inbox").err().as_deref(), why);
+    assert_eq!(source.labels(0, false).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(source.board(Some((0, 1))).err().as_deref(), why);
     assert_eq!(source.boards().err().as_deref(), why);
@@ -366,7 +387,7 @@ fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
         Some("that account is gone")
     );
     assert_eq!(
-        source.labels(0, "Inbox").err().as_deref(),
+        source.labels(0, false).err().as_deref(),
         Some("that account is gone")
     );
     let (sender, _inbox) = channel();

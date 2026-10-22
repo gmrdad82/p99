@@ -26,12 +26,12 @@ impl Board {
     }
 }
 
-pub fn offered(boards: &[Board], current: &str) -> Vec<String> {
-    let mine = || boards.iter().filter(|b| b.mine);
-    let card = mine().any(|b| b.cards && b.lane(current).is_some())
-        && !mine().any(|b| !b.cards && b.lane(current).is_some());
+pub fn offered(boards: &[Board], card: bool) -> Vec<String> {
     let mut labels: Vec<String> = Vec::new();
-    for column in mine().filter(|b| b.cards == card).flat_map(|b| &b.columns) {
+    let side = boards
+        .iter()
+        .filter(|b| b.cards == card && (b.mine || card));
+    for column in side.flat_map(|b| &b.columns) {
         if !labels.contains(&column.label) {
             labels.push(column.label.clone());
         }
@@ -167,13 +167,13 @@ impl Source {
         }
     }
 
-    pub fn labels(&self, account: usize, current: &str) -> Result<Vec<String>, String> {
+    pub fn labels(&self, account: usize, card: bool) -> Result<Vec<String>, String> {
         let boards = match self {
             Source::Demo(..) => self.sample(|demo| Ok(demo.boards()))?,
             Source::Live(_) => self.client(account, None)?.lanes()?,
             Source::Broken(why) => return Err(why.clone()),
         };
-        Ok(offered(&boards.boards, current))
+        Ok(offered(&boards.boards, card))
     }
 
     pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {

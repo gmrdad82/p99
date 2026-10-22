@@ -812,6 +812,7 @@ function summaryOf(row, c, lc) {
     stage: stageOf(row),
     label: c.manager ? row.label_name : null,
     resolution: row.resolution ?? null,
+    project: c.manager ? (row.project ?? null) : null,
     title: row.title,
     host: row.host,
     env: row.origin_env,
@@ -1601,7 +1602,7 @@ async function listIssues(c) {
   const limit = limitText === null ? DEFAULT_LIST_LIMIT : Number(limitText);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST_LIMIT) fail(400, `limit must be 1 to ${MAX_LIST_LIMIT}`);
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
-  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.title, i.host, i.origin_env, i.page_url, i.page_path,
+  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.project, i.title, i.host, i.origin_env, i.page_url, i.page_path,
       i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, i.assignee, i.created_at, i.updated_at,
       i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, ${LABEL_COLUMNS},
       ${assigneeColumn()}, ${activity} > COALESCE(r.read_at, '') AS unread

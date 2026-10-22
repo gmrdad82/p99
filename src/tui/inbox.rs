@@ -561,9 +561,9 @@ impl Inbox {
         let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
         };
-        let current = self.issue().map(issue_label).unwrap_or_default();
+        let card = self.issue().is_some_and(|issue| issue.project.is_some());
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account, &current)));
+        cx.detach(move || Msg::Labels(source.labels(account, card)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {

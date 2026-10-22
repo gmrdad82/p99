@@ -270,6 +270,35 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await read()).status, "in-progress");
   });
 
+  await check("an item says its project to a manager; a done card moves back by its lane's label for any manager, never onto a plain label", async () => {
+    const key = (await file({ title: "Reopened by its label" })).json.card.key;
+    const done = await doneName();
+    const doing = (await call("GET", "/_p99/v1/labels", { actor: ada })).json.labels[1].name;
+    const other = owner.email === ada.email ? { email: "grace@example.com", name: "Grace Hopper", agent: false } : ada;
+    assert.equal((await status(key, "done")).status, 200);
+    assert.equal((await issue(key)).issue.project, "Splicer");
+    const listed = (await call("GET", `/_p99/v1/issues?scope=all&host=${here}&status=any&q=${key}`, { actor: ada })).json.issues;
+    assert.deepEqual(listed.map((i) => [i.key, i.project]), [[key, "Splicer"]]);
+    const item = await plain("A plain item says no project");
+    assert.equal((await issue(item)).issue.project, null);
+    const toPlain = await call("POST", "/_p99/v1/move", { actor: other, body: { key, from: done, to: doing } });
+    assert.equal(toPlain.status, 400);
+    assert.equal(toPlain.json.message, `${doing} is not a label on your boards`);
+    assert.equal((await issue(key)).issue.label, done);
+    const reopened = await call("POST", "/_p99/v1/move", { actor: other, body: { key, from: done, to: "Landed" } });
+    assert.equal(reopened.status, 200, JSON.stringify(reopened.json));
+    const card = (await call("GET", `/_p99/v1/cards/${key}`, { actor: ada })).json.card;
+    assert.deepEqual([card.status, card.label], ["landed", "Landed"]);
+    const agentClose = await call("POST", "/_p99/v1/move", { actor: { ...other, agent: true, via: "pci" }, body: { key, from: "Landed", to: done } });
+    assert.equal(agentClose.status, 403);
+    assert.equal(agentClose.json.message, PERSON_CLOSES);
+    const onBoard = await call("POST", "/_p99/v1/move", { actor: other, body: { key, from: "Landed", to: "Stuck", board: board.id } });
+    assert.equal(onBoard.status, 403);
+    const plainOntoLane = await call("POST", "/_p99/v1/move", { actor: other, body: { key: item, from: await inboxName(), to: "Stuck" } });
+    assert.equal(plainOntoLane.status, 400);
+    assert.equal(plainOntoLane.json.message, "Stuck is not a label on your boards");
+  });
+
   await check("a status note is a comment in the same write; its client_uid replays it once", async () => {
     const key = (await file({ title: "Stuck with a reason" })).json.card.key;
     const uid = randomUUID();

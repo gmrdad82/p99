@@ -542,7 +542,12 @@ pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result
         );
         return Ok(());
     }
-    let issue: crate::wire::Issue = ask(&client, "PATCH", &pq, Some(body))?;
+    let answer: Value = ask(&client, "PATCH", &pq, Some(body))?;
+    if answer.get("project").is_none() {
+        return Err(crate::card::NOT_YET.to_owned());
+    }
+    let issue: crate::wire::Issue =
+        serde_json::from_value(answer).map_err(|e| format!("unexpected answer: {e}"))?;
     if global.json {
         return print_json(&issue);
     }

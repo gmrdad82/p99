@@ -238,7 +238,7 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"card":made})
         }
         ("PATCH", "/v1/issues/12") => {
-            json!({"id":12,"key":"BUG-12","kind":"bug","title":"Broken","status":"open","stage":"inbox"})
+            json!({"id":12,"key":"BUG-12","kind":"bug","title":"Broken","status":"open","stage":"inbox","project":null,"comments":0})
         }
         _ => return (404, r#"{"message":"no such route"}"#.into()),
     };
@@ -521,14 +521,16 @@ fn an_old_worker_says_deploy_on_every_card_command() {
         );
     }
     let patch = Worker::start(old_issue_patch);
-    refused(
-        &run(
-            &patch,
-            "old_worker",
-            &["edit", "BUG-12", "--project", "Splicer"],
-        ),
-        "this Worker has no cards yet; run p99 deploy",
-    );
+    for args in [
+        vec!["edit", "BUG-12", "--project", "Splicer"],
+        vec!["edit", "BUG-12", "--no-project"],
+        vec!["edit", "BUG-12", "--no-project", "--json"],
+    ] {
+        refused(
+            &run(&patch, "old_worker", &args),
+            "this Worker has no cards yet; run p99 deploy",
+        );
+    }
 }
 
 #[test]
@@ -1028,7 +1030,7 @@ fn a_comment_on_an_item_that_is_not_a_card_is_refused() {
 
 #[test]
 fn edit_no_project_prints_the_items_summary_typed() {
-    let worker = Worker::start(old_issue_patch);
+    let worker = Worker::start(answers);
     let back = json_of(&run(
         &worker,
         "no_project",
