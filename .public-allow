@@ -60,10 +60,6 @@ commit/8d51052cc978:tests/cli_vault.rs:68 an assertion message naming the vault 
 commit/8d51052cc978:tests/cli_vault.rs:119 the tests check the error that names the secret tool, as waived at its current line
 commit/8d51052cc978:tests/cli_vault.rs:136 the tests check the notice that names the secret tool, as waived at its current line
 commit/8d51052cc978:tests/cli_vault.rs:141 the tests check the error that names the secret tool, as waived at its current line
-src/config.rs:428 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:434 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:435 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:465 a fake vault reference in the config tests that a reference is no inline secret
 commit/07fdf97a2cfe:tests/stories_deploy.rs:1279 the deploy story's fake config reference, made neutral in a later commit (pci 2631)
 commit/ea55d653924a:tests/stories_deploy.rs:1279 the deploy story's fake config reference as the story train merged it, made neutral in a later commit (pci 2631)
 commit/dfca0352d62d:tests/stories_deploy.rs:1279 the deploy story's fake vault reference on agent/deploy, made neutral in a later commit (pci 2631)
@@ -76,3 +72,21 @@ commit/8d51052cc978:tests/cli_admin.rs:911 the tests check the p99 link error th
 commit/8d51052cc978:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
 commit/bc73ea7941c0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
 commit/6045d3de82ac:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
+src/config.rs:574 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:580 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:581 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:611 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:447 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+src/config.rs:466 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+tests/cli_key.rs:215 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+commit/39f553cef5bb:src/config.rs:487 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/39f553cef5bb:src/config.rs:493 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/39f553cef5bb:src/config.rs:494 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/39f553cef5bb:src/config.rs:524 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/39f553cef5bb:src/config.rs:425 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/39f553cef5bb:src/config.rs:445 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/39f553cef5bb:tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/39f553cef5bb:tests/cli_key.rs:176 an assertion message naming the vault tool, respelled in a later commit
+commit/39f553cef5bb:docs/config.md:65 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
+commit/39f553cef5bb:8 the P99_KEY commit message cites the request it answers
