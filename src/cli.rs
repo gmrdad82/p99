@@ -101,7 +101,11 @@ pub enum Command {
         about = "post a site's new items, comments, status changes and shipped fixes to Slack or Discord"
     )]
     Hooks(crate::hooks::HooksArgs),
-    #[command(about = "link a host to a GitHub repository, and open GitHub issues for items")]
+    #[command(
+        about = "link a host to a GitHub repository, and open GitHub issues for items",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
     Github(crate::github::GithubArgs),
     #[command(about = "list the labels, the columns of every board; rename one")]
     Labels(crate::boards::LabelsArgs),
@@ -1312,11 +1316,12 @@ fn print_thread(thread: &Thread) {
 }
 
 fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String> {
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let thread = match demo(global) {
         Some(mut d) => d.thread(&key_of(&args.key)?)?,
-        None => client_for(config, global, args.host.as_deref())?
+        None => client_for(config, global, host.as_deref())?
             .0
-            .with_host(args.host.as_deref())
+            .with_host(host.as_deref())
             .thread(&key_of(&args.key)?)?,
     };
     if global.json {

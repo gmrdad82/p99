@@ -293,6 +293,9 @@ pub fn check_sender(key: &str, from: &str) -> Result<Option<String>, String> {
         .map_err(|e| format!("Resend: {e}"))?;
     let status = response.status().as_u16();
     let body: Value = response.body_mut().read_json().unwrap_or(Value::Null);
+    if (200..300).contains(&status) && !body["data"].is_array() {
+        return Err("Resend's answer for its domains could not be read".to_owned());
+    }
     match domain_verdict(status, &body, &domain) {
         Domain::Verified => Ok(None),
         Domain::SendingOnly => Ok(Some(SENDING_ONLY.to_owned())),

@@ -494,10 +494,16 @@ fn whole(
         message: format!("Cloudflare {path}: {error}"),
     })?;
     let status = response.status().as_u16();
-    let body: Value = response
-        .body_mut()
-        .read_json()
-        .unwrap_or_else(|_| json!({ "success": false }));
+    let read: Option<Value> = response.body_mut().read_json().ok();
+    let bare = path.split('?').next().unwrap_or(path);
+    if (200..300).contains(&status) && read.is_none() {
+        return Err(ApiError {
+            status,
+            codes: Vec::new(),
+            message: format!("Cloudflare {bare}: the answer could not be read"),
+        });
+    }
+    let body = read.unwrap_or_else(|| json!({ "success": false }));
     if (200..300).contains(&status) && body["success"] != Value::Bool(false) {
         return Ok(body);
     }
@@ -515,10 +521,7 @@ fn whole(
     Err(ApiError {
         status,
         codes,
-        message: format!(
-            "Cloudflare {}: {said}",
-            path.split('?').next().unwrap_or(path)
-        ),
+        message: format!("Cloudflare {bare}: {said}"),
     })
 }
 
