@@ -91,7 +91,7 @@ function publish(ev) {
 }
 
 function between(lo, hi) { return String(((lo == null ? 0 : Number(lo)) + (hi == null ? 1 : Number(hi))) / 2); }
-function move(body) {
+function move(body, word = false) {
   const it = items.find((i) => i.key === body.key);
   if (!it) return [404, { message: "no such item" }];
   if (it.label.toLowerCase() !== String(body.from).toLowerCase()) return [409, { error: "moved", message: "this card moved; refreshed" }];
@@ -99,7 +99,7 @@ function move(body) {
   if (!lane) return [400, { message: "to is not a lane" }];
   const from = it.label;
   it.label = lane.label;
-  if (from !== lane.label) publish({ type: "label", key: it.key, from, to: lane.label, host: it.host });
+  if (from !== lane.label) publish({ type: "label", key: it.key, from, to: word ? lane.word : lane.label, host: it.host });
   const peers = items.filter((i) => i !== it && i.label === lane.label).map((i) => ({ key: i.key, order: orders.get(i.key) || "0.5" })).sort((x, y) => (x.order < y.order ? -1 : 1));
   const spot = body.before ? peers.findIndex((x) => x.key === body.before) : body.after ? peers.findIndex((x) => x.key === body.after) + 1 : 0;
   const order = between(spot > 0 ? peers[spot - 1].order : null, spot < peers.length ? peers[spot].order : null);
@@ -169,7 +169,7 @@ export function stub() {
     name: "stub",
     code: CODE,
     key: (id) => id,
-    other: async (body) => move(body),
+    other: async (body, word = false) => move(body, word),
     drop: () => { for (const s of sockets) s.destroy(); },
     open: () => sockets.size,
     close: () => server.close(),
@@ -214,13 +214,15 @@ async function worker() {
   const on = `?host=${HOST}`;
   await signed("PUT", "/envs/production", { kind: "release", position: 1, notify: false });
   await signed("PUT", `/hosts/${HOST}`, { env: "production", config: { theme: { accent: "#b5621e" } } });
-  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true });
-  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: true });
-  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST], manager: true });
+  await signed("PUT", `/hosts/${ELSEWHERE}`, { env: "production", config: {} });
+  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST, ELSEWHERE], manager: true });
+  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, ELSEWHERE], manager: true });
+  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST, ELSEWHERE], manager: true });
   const keys = new Map();
   let uid = 0;
-  for (const it of items.filter((i) => i.host === HOST)) {
-    const made = await signed("POST", `/issues${on}`, { client_uid: `00000000-0000-4000-8000-${String(++uid).padStart(12, "0")}`, kind: it.kind, title: it.title, body: "", page: { url: `https://${HOST}/checkout`, path: "/checkout", title: "Checkout" }, context: {}, marks: [] }, it.reporter);
+  for (const it of items) {
+    const on = `?host=${it.host}`;
+    const made = await signed("POST", `/issues${on}`, { client_uid: `00000000-0000-4000-8000-${String(++uid).padStart(12, "0")}`, kind: it.kind, title: it.title, body: "", page: { url: `https://${it.host}/checkout`, path: "/checkout", title: "Checkout" }, context: {}, marks: [] }, it.reporter);
     keys.set(it.key, made.key);
     if (it.assignee) await signed("PATCH", `/issues/${made.key}${on}`, { assignee: it.assignee.username });
     if (it.project) await signed("PATCH", `/issues/${made.key}${on}`, { project: it.project });
@@ -287,6 +289,7 @@ export function launch() {
 export async function board(browser, back, opts = {}) {
   const ctx = await browser.newContext({ viewport: opts.view || VIEW, deviceScaleFactor: 1, colorScheme: opts.scheme || process.env.P99_SCHEME || "light", reducedMotion: opts.motion || "no-preference", hasTouch: !!opts.touch, isMobile: !!opts.touch });
   await ctx.addInitScript(openShadow);
+  if (opts.pick) await ctx.addInitScript((v) => localStorage.setItem("p99:pick", v), JSON.stringify(opts.pick));
   const p = await ctx.newPage();
   const errors = [];
   const seen = [];
@@ -847,6 +850,20 @@ async function check(back) {
     await quiet.p.mouse.up();
     assert.deepEqual(running, []);
     ok("with reduced motion nothing animates");
+    await quiet.ctx.close();
+
+    const cardsOf = (b) => R(b.p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card"), (e) => e.dataset.id));
+    const boardRead = (b) => b.seen.filter((c) => c.method === "GET" && c.path === "/board").at(-1)?.query ?? null;
+    const every = await board(browser, back);
+    assert.ok((await cardsOf(every)).includes(K("BUG-31")), `All shows ${ELSEWHERE}'s BUG-31`);
+    assert.equal(boardRead(every), "");
+    await every.ctx.close();
+    const site = await board(browser, back, { pick: { view: "site", projects: [], source: "" } });
+    const here = await cardsOf(site);
+    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
+    assert.equal(boardRead(site), `?host=${HOST}`);
+    await site.ctx.close();
+    ok(`All shows every host's cards; Only this website asks /board?host=${HOST} and the answer keeps that host alone`);
 
     for (const [size, view] of SIZES) {
       for (const scheme of ["light", "dark"]) {

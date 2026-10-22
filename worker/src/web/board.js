@@ -162,10 +162,12 @@ function show() {
   listen();
 }
 
+function query() { return typeof B.ctx.query === "function" ? B.ctx.query() : ""; }
 function path() {
-  const q = typeof B.ctx.query === "function" ? B.ctx.query() : "";
+  const q = query();
   return "/board" + (q ? "?" + q : "");
 }
+function elsewhere(ev) { return !!ev.host && ev.host !== (B.ctx.host || location.hostname) && (!!B.ctx.host || new URLSearchParams(query()).has("host")); }
 
 function load() {
   const seq = ++B.seq;
@@ -174,6 +176,7 @@ function load() {
     if (seq !== B.seq || !B.open) return;
     if (!d || !d.board || !Array.isArray(d.board.lanes)) {
       if (!B.data) blank(t("load_failed"), () => load());
+      else note(t("load_failed"));
       return;
     }
     B.data = { board: d.board, cards: Array.isArray(d.cards) ? d.cards : [] };
@@ -296,7 +299,7 @@ function counts() {
 
 function cards() { return Array.from(B.cols.querySelectorAll(".p99-card")); }
 function columnOf(e) { return e.closest(".p99-col"); }
-function column(name) { return Array.from(B.cols.children).find((c) => same(c.dataset.label, name)) || null; }
+function column(name) { return Array.from(B.cols.children).find((c) => same(c.dataset.label, name) || same(c.dataset.word, name)) || null; }
 function find(id) { return cards().find((e) => e.dataset.id === id) || null; }
 function label(e) { return e.getAttribute("aria-label") || e.dataset.id; }
 
@@ -817,7 +820,7 @@ function later() {
 
 function event(ev) {
   if (!ev || !B.data) return;
-  if (ev.host && ev.host !== (B.ctx.host || location.hostname)) return;
+  if (elsewhere(ev)) return;
   if (B.drag && B.drag.up && !B.drag.keys) return void B.drag.queue.push(ev);
   if (ev.type === "label") return filtered() ? soon() : relabel(ev.key, ev.to);
   if (ev.type === "order") return ev.rebalanced ? soon() : reorder(ev.key, ev.order);
@@ -844,7 +847,7 @@ function relabel(id, to) {
   const col = column(to);
   if (!e) return col ? soon() : undefined;
   if (!col) return gone(id);
-  e.dataset.label = to;
+  e.dataset.label = col.dataset.label;
   const list = col.querySelector(".p99-cards");
   if (e.parentNode === list) return;
   flip(() => list.insertBefore(e, slotFor(list, e, e.dataset.order)), TRAVEL, 260);

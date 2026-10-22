@@ -76,7 +76,7 @@ const CARDS = [
   card("FEAT-903", "Splicer", "new", "New", HOST, person("Ada Lovelace", false)),
 ];
 let NEAR = "FEAT-903";
-const WAITING = { cards: [] };
+const WAITING = { cards: [], fail: false };
 const PROJECTS = [{ name: "Manfred", open: 1, done: 0 }, { name: "Splicer", open: 2, done: 0 }];
 
 function cardsAnswer(url) {
@@ -143,6 +143,9 @@ try {
   const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false })).secret;
   const byAgent = (await file("An agent filed this", { ...ADA, agent: true, via: "pci" })).key;
   const byPerson = (await file("A person filed this", GRACE)).key;
+  const filed = (await must("GET", `/issues/${byPerson}?host=${HOST}`)).issue.label;
+  await must("POST", `/move?host=${HOST}`, { key: byPerson, from: filed, to: "landed" });
+  const plainLanded = (await must("GET", `/issues/${byPerson}?host=${HOST}`)).issue.label;
   NEAR = (await must("POST", `/cards?host=${HOST}`, { client_uid: randomUUID(), project: "Splicer", title: "Splicer: a card on this website", host: HOST })).card.key;
   CARDS[2] = card(NEAR, "Splicer", "new", "New", HOST, person("Ada Lovelace", false));
 
@@ -165,6 +168,7 @@ try {
     });
     await p.route((url) => url.pathname === "/_p99/api/cards/waiting", (r) => {
       asked.push(new URL(r.request().url()).pathname);
+      if (WAITING.fail) return r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "the database is busy" }) });
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ count: WAITING.cards.length, cards: WAITING.cards }) });
     });
     await p.route((url) => url.pathname === "/_p99/api/projects", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: PROJECTS }) }));
@@ -233,6 +237,20 @@ try {
     s = await settled(p, (s) => s.source === "human" && s.keys.length === 1);
     check(`People on Needs you keeps the cards a person changed last (${s.keys})`, s.keys.join() === "FEAT-902");
     await source(p, "");
+    WAITING.fail = true;
+    await choose(p, "all");
+    await settled(p, (s) => s.view === "all");
+    await choose(p, "needs");
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results .p99-failed"), null, { timeout: 8000 }).catch(() => {});
+    const broke = await p.evaluate(() => {
+      const r = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results");
+      return { error: r.querySelector(".p99-error")?.textContent ?? null, role: r.querySelector(".p99-error")?.getAttribute("role") ?? null, retry: !!r.querySelector(".p99-retry"), keys: r.querySelectorAll(".p99-key").length };
+    });
+    check(`a failing /cards/waiting under Needs you says why with Retry, and lists nothing stale (${JSON.stringify(broke)})`, broke.error === "the database is busy" && broke.role === "alert" && broke.retry && broke.keys === 0);
+    WAITING.fail = false;
+    await p.locator(S(".p99-results .p99-retry")).click();
+    s = await settled(p, (s) => s.view === "needs" && s.keys.length === 2);
+    check(`Retry reads /cards/waiting again and lists it (${s.keys})`, s.keys.join() === "FEAT-901,FEAT-902");
     WAITING.cards = [];
     await choose(p, "all");
     await settled(p, (s) => s.view === "all");
@@ -307,7 +325,8 @@ try {
         note: r.querySelector(".p99-board-filter")?.hidden === false ? r.querySelector(".p99-board-filter").textContent : null,
       };
     });
-    check(`under Landed the one board shows no plain item and says so (${JSON.stringify(landed)})`, landed.cards.length === 0 && /Landed/i.test(landed.note || ""));
+    check(`the seed has plain ${byPerson} in Landed, so the next check can fail (${plainLanded})`, /^landed$/i.test(plainLanded || ""));
+    check(`under Landed the one board shows no plain item, ${byPerson} included, and says so (${JSON.stringify(landed)})`, !landed.cards.includes(byPerson) && landed.cards.length === 0 && /Landed/i.test(landed.note || ""));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", "{not json"));
     await p.close();

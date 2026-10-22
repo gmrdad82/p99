@@ -91,10 +91,10 @@ try {
 
   const views = [
     { name: "Only this website", pick: { view: "site", projects: [], source: "" }, query: `host=${HOST}`, note: "showing Only this website" },
-    { name: "Projects with Manfred picked", pick: { view: "projects", projects: ["Manfred"], source: "" }, query: "project=Manfred", note: "showing Manfred" },
+    { name: "Projects with Manfred picked", pick: { view: "projects", projects: ["Manfred"], source: "" }, query: "project=Manfred", note: "showing Manfred", cardsOnly: true },
     { name: "Projects with none picked", pick: { view: "projects", projects: [], source: "" }, query: "", note: "showing Projects", cardsOnly: true },
-    { name: "Needs you", pick: { view: "needs", projects: [], source: "" }, query: "status=needs-you&status=stuck&status=landed", note: "showing Needs you" },
-    { name: "Landed, waiting for your check", pick: { view: "landed", projects: [], source: "" }, query: "status=landed", note: "showing Landed, waiting for your check" },
+    { name: "Needs you", pick: { view: "needs", projects: [], source: "" }, query: "status=needs-you&status=stuck&status=landed", note: "showing Needs you", cardsOnly: true, plain: ["BUG-9", "Q-4"] },
+    { name: "Landed, waiting for your check", pick: { view: "landed", projects: [], source: "" }, query: "status=landed", note: "showing Landed, waiting for your check", cardsOnly: true, plain: ["BUG-9", "Q-4"] },
     { name: "Agents", pick: { view: "all", projects: [], source: "agent" }, query: "source=agent", note: "showing Agents" },
     { name: "Projects and People", pick: { view: "projects", projects: ["Splicer", "Manfred"], source: "human" }, query: "project=Splicer&project=Manfred&source=human", note: "showing Splicer, Manfred · People", cardsOnly: true },
   ];
@@ -108,6 +108,10 @@ try {
       check(`${v.name}: the query is ${v.query || "empty"} (${sent})`, sent === new URLSearchParams(v.query).toString());
       const want = oneBoard(new URLSearchParams(v.query)).cards.filter((c) => !v.cardsOnly || c.project).map((c) => c.key);
       check(`${v.name}: the board shows ${want.length} cards (${s.cards.length})`, sameSet(s.cards, want));
+      for (const k of v.plain || []) {
+        check(`${v.name}: the seed has plain ${k} in that filter, so the next check can fail`, keys(v.query).includes(k));
+        check(`${v.name}: plain ${k} stays off the board, as it stays off the list`, !s.cards.includes(k));
+      }
       check(`${v.name}: the lanes stay seven whatever the filter (${s.lanes.length})`, s.lanes.length === LANES.length);
       check(`${v.name}: the head says "${v.note}" (${s.note})`, s.note === v.note);
       await ctx.close();
@@ -131,13 +135,13 @@ try {
 
   await story("changing the filter in the panel changes what the next board shows", async () => {
     const { ctx, p, asked } = await page(browser, back.code);
-    await p.locator("p99-root .p99-panel.is-open .p99-pick select[name=view]").selectOption("landed");
+    await p.locator("p99-root .p99-panel.is-open .p99-pick select[name=view]").selectOption("needs");
     await p.waitForTimeout(200);
     await openBoard(p);
     const s = await shown(p);
     const sent = String(boardAsks(asked).at(-1)?.query ?? "");
-    check(`picking Landed then Board asks status=landed (${sent})`, sent === "status=landed");
-    check(`and only the Landed lane has cards (${JSON.stringify(s.byLane)})`, Object.entries(s.byLane).every(([w, c]) => (w === "landed") === c.length > 0));
+    check(`picking Needs you then Board asks the three waiting lanes (${sent})`, sent === "status=needs-you&status=stuck&status=landed");
+    check(`and only the Stuck lane has a card, BUG-31, the one card waiting (${JSON.stringify(s.byLane)})`, Object.entries(s.byLane).every(([w, c]) => (w === "stuck") === c.length > 0) && s.byLane.stuck.join() === "BUG-31");
     await ctx.close();
   });
 
@@ -198,12 +202,82 @@ try {
     await openBoard(p);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
     const before = boardAsks(asked).length;
-    await back.other({ key: "BUG-14", from: "New", to: "landed" });
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-col[data-word=landed] .p99-card[data-id="BUG-14"]'), null, { timeout: 10000 });
-    check(`BUG-14 came in through a reload with the same filter (${boardAsks(asked).length - before} more, ${String(boardAsks(asked).at(-1).query)})`, boardAsks(asked).length > before && String(boardAsks(asked).at(-1).query) === "status=landed");
-    await back.other({ key: "BUG-14", from: "Landed", to: "stuck" });
-    await p.waitForFunction(() => !document.querySelector("p99-root").shadowRoot.querySelector('.p99-card[data-id="BUG-14"]'), null, { timeout: 10000 });
-    check("BUG-14 left when it moved out of Landed", true);
+    await back.other({ key: "TASK-3", from: "In progress", to: "landed" });
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-col[data-word=landed] .p99-card[data-id="TASK-3"]'), null, { timeout: 10000 });
+    check(`TASK-3 came in through a reload with the same filter (${boardAsks(asked).length - before} more, ${String(boardAsks(asked).at(-1).query)})`, boardAsks(asked).length > before && String(boardAsks(asked).at(-1).query) === "status=landed");
+    await back.other({ key: "TASK-3", from: "Landed", to: "stuck" });
+    await p.waitForFunction(() => !document.querySelector("p99-root").shadowRoot.querySelector('.p99-card[data-id="TASK-3"]'), null, { timeout: 10000 });
+    check("TASK-3 left when it moved out of Landed", true);
+    await ctx.close();
+  });
+
+  await story("an empty lane keeps its drop target: under Agents the keyboard drops TASK-3 into a lane that had nothing", async () => {
+    const { ctx, p, asked } = await page(browser, back.code, { pick: { view: "all", projects: [], source: "agent" } });
+    await openBoard(p);
+    const s = await shown(p);
+    const from = s.lanes.findIndex((w) => s.byLane[w].includes("TASK-3"));
+    const to = from > 0 ? from - 1 : from + 1;
+    const word = s.lanes[to];
+    const target = await R(p, (w) => { const r = document.querySelector(`p99-root`).shadowRoot.querySelector(`.p99-col[data-word="${w}"] .p99-cards`); const b = r && r.getBoundingClientRect(); return b ? { w: b.width, h: b.height, scale: getComputedStyle(r).scale, n: r.children.length } : null; }, word);
+    check(`the empty ${word} lane's list has a box and no scale (${JSON.stringify(target)})`, from >= 0 && target && target.n === 0 && target.w > 0 && target.h > 0 && target.scale !== "0");
+    await p.locator('p99-root .p99-card[data-id="TASK-3"]').focus();
+    await p.keyboard.press("Space");
+    await p.keyboard.press(to < from ? "ArrowLeft" : "ArrowRight");
+    await p.keyboard.press("Enter");
+    await p.waitForTimeout(400);
+    const move = asked.filter((a) => a.method === "POST" && a.path === "/move").at(-1)?.body;
+    const after = await shown(p);
+    check(`the move goes to ${word} and TASK-3 sits there (${JSON.stringify(move)}; ${after.byLane[word]})`, move && move.key === "TASK-3" && move.to === word && after.byLane[word].includes("TASK-3"));
+    await ctx.close();
+  });
+
+  await story("a live label event that names the lane by its word moves the card there, never off the board", async () => {
+    const { ctx, p } = await page(browser, back.code);
+    await openBoard(p);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
+    await back.other({ key: "IMP-6", from: "New", to: "planned" }, true);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-col[data-word=planned] .p99-card[data-id="IMP-6"]'), null, { timeout: 10000 }).catch(() => {});
+    const s = await shown(p);
+    const label = await R(p, () => document.querySelector("p99-root").shadowRoot.querySelector('.p99-card[data-id="IMP-6"]')?.dataset.label ?? null);
+    check(`IMP-6 sits in Planned and carries the lane's name (${s.byLane.planned.includes("IMP-6")}, ${label})`, s.byLane.planned.includes("IMP-6") && label === "Planned");
+    await ctx.close();
+  });
+
+  await story("a reload that answers without lanes keeps the painted board and says it couldn't load", async () => {
+    let n = 0;
+    const { ctx, p, errors } = await page(browser, back.code, { pick: { view: "landed", projects: [], source: "" }, route: (p) => p.route((u) => u.pathname === "/_p99/api/board", (r) => (n++ === 0 ? r.continue() : r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ board: {}, cards: null }) }))) });
+    await openBoard(p);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
+    await back.other({ key: "Q-4", from: "Landed", to: "stuck" });
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board-note"), null, { timeout: 10000 }).catch(() => {});
+    const s = await R(p, () => { const r = document.querySelector("p99-root").shadowRoot; return { lanes: r.querySelectorAll(".p99-col[data-label]").length, note: r.querySelector(".p99-board-note")?.textContent ?? null }; });
+    check(`the seven lanes stay and the note says so (${n} reads, ${JSON.stringify(s)}; ${errors})`, n >= 2 && s.lanes === 7 && s.note === "Couldn't load the board." && errors.length === 0);
+    await back.other({ key: "Q-4", from: "Stuck", to: "landed" });
+    await ctx.close();
+  });
+
+  await story(`under Only this website a live move on ${ELSEWHERE} is ignored: no reload, its card never shows`, async () => {
+    const { ctx, p, asked } = await page(browser, back.code, { pick: { view: "site", projects: [], source: "" } });
+    await openBoard(p);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
+    const before = boardAsks(asked).length;
+    await back.other({ key: "BUG-31", from: "Stuck", to: "landed" });
+    await p.waitForTimeout(600);
+    const s = await shown(p);
+    check(`no /board reload and no BUG-31 (${boardAsks(asked).length - before} more, ${s.cards.includes("BUG-31")})`, boardAsks(asked).length === before && !s.cards.includes("BUG-31"));
+    await back.other({ key: "BUG-31", from: "Landed", to: "stuck" });
+    await ctx.close();
+  });
+
+  await story(`under All a live move on ${ELSEWHERE} moves that host's card too, since All shows every host`, async () => {
+    const { ctx, p } = await page(browser, back.code);
+    await openBoard(p);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
+    const before = await shown(p);
+    await back.other({ key: "BUG-31", from: "Stuck", to: "landed" });
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector('.p99-col[data-word=landed] .p99-card[data-id="BUG-31"]'), null, { timeout: 10000 }).catch(() => {});
+    const after = await shown(p);
+    check(`BUG-31 went from Stuck to Landed live (${before.byLane.stuck.includes("BUG-31")} → ${after.byLane.landed.includes("BUG-31")})`, before.byLane.stuck.includes("BUG-31") && after.byLane.landed.includes("BUG-31"));
     await ctx.close();
   });
 } finally {

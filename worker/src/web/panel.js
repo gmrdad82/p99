@@ -18,6 +18,7 @@ const PICK_KEY = "p99:pick";
 const VIEWS = ["all", "site", "projects", "needs", "landed"];
 const CARD_VIEWS = ["projects", "needs", "landed"];
 const WAITING = ["needs-you", "stuck", "landed"];
+const LANE_NAMES = ["new", "planned", "in progress", "needs you", "stuck", "landed", "done"];
 const SOURCES = ["", "human", "agent"];
 const MAX_PICKED = 50;
 const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
@@ -476,7 +477,7 @@ function openBoard() {
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
   const p = picked();
-  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, query: () => boardQuery(picked()), keep: p.view === "projects" ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function pickWord() {
   const p = picked();
@@ -1355,8 +1356,9 @@ function moveTo(i) {
     const seen = new Set([i.label.toLowerCase()]);
     const more = [];
     let shut = null;
-    for (const l of (r && r.labels) || []) {
-      if (!l || typeof l.name !== "string") continue;
+    const at = (l) => { const n = LANE_NAMES.indexOf(l.name.toLowerCase()); return n < 0 ? LANE_NAMES.length : n; };
+    const labels = ((r && r.labels) || []).filter((l) => l && typeof l.name === "string").sort((a, b) => at(a) - at(b));
+    for (const l of labels) {
       if (!shut && l.closes) shut = l.name;
       if (seen.has(l.name.toLowerCase())) continue;
       seen.add(l.name.toLowerCase());

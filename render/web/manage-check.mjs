@@ -257,7 +257,7 @@ try {
 
     const moves = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-manage .p99-move-to option"), (o) => o.value));
     const drop = await p.evaluate(() => { const o = document.querySelector("p99-root").shadowRoot.querySelector(".p99-manage .p99-move-to option:last-child"); return o && o.dataset.drop; });
-    check(`${label}: Move to lists the seven lanes from /labels, the item's own first, and ends with Drop (${moves.join(" | ")})`, moves[0] === "New" && ["Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"].every((l) => moves.includes(l)) && drop === "Done");
+    check(`${label}: Move to lists the seven lanes in lane order, the item's own first, and ends with Drop (${moves.join(" | ")})`, moves.join("|") === "New|Planned|In progress|Needs you|Stuck|Landed|Done|" && drop === "Done");
     const gone = await p.evaluate(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-tag-pick, .p99-manage [name=priority], .p99-manage [name=status]"));
     check(`${label}: no labels picker, Priority or Status select in Manage`, gone);
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });
