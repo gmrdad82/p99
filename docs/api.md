@@ -178,7 +178,7 @@ Every reporter of a merged item follows the target: it shows in their "mine" lis
 
 The rows go in one D1 batch, which is one transaction: a failure part-way leaves the item whole. The same batch records every file's bucket key in `deletions`; the files are then removed from R2, up to 1,000 keys a call, and each key is struck off once its object is gone. A key whose removal fails stays in `deletions`, and the cron trigger retries it every 15 minutes until it goes, so no file is left behind; a file still uploading when the item went is removed once more 15 minutes later. `retrying` counts the files still waiting.
 
-Items merged into the deleted one lose their `duplicate_of`; a closed duplicate goes back to Inbox, open (a status event on it, and a live `label`), so its report is triaged again. Keys are never handed out again: an item's number comes from SQLite's `AUTOINCREMENT`, which never reuses one. Chat hooks and GitHub get nothing, and no one is mailed. The fixed feed reads the current rows, so a deleted item drops out of it. The weekly backups in the bucket keep the item until they age out, eight weeks later.
+Items merged into the deleted one lose their `duplicate_of`; a closed duplicate goes back to Inbox, open (a status event on it, and a live `label`), so its report is triaged again. Keys are never handed out again, after a restore included: an item's number comes from SQLite's `AUTOINCREMENT`, which never reuses one, and the backups keep its counter. Chat hooks and GitHub get nothing, and no one is mailed. The fixed feed reads the current rows, so a deleted item drops out of it. The weekly backups in the bucket keep the item until they age out, eight weeks later.
 
 ## Environments and landings
 
@@ -215,6 +215,8 @@ The host's secrets are Worker secrets named after the first 16 hex digits of the
 ## Backups
 
 The cron trigger (`*/15 * * * *`) runs a weekly backup of every table into the bucket under `backups/<date>/`, in steps small enough for one invocation, keeping eight. A deleted item stays in the backups taken before its delete until they age out; P99 never edits a backup.
+
+A backup is one cut, taken when its run starts: rows written after that moment, such as an item filed while the run pages, its comments, files and events, wait for the next run, so no row in a backup points at one the backup lacks. The labels, boards and their columns are paged after everything that points at them, as they stand then. Each page is `<table>-<page>.json` (`exported_at`, `table`, `page`, `rows`); a second run on the same date replaces the first whole, removing any page the first left, and only then counts as finished. The last table, `sqlite_sequence`, holds the key counters: a restore writes it after every other table, replacing each counter, so a key used before, a deleted item's included, is never handed out again.
 
 ## Schema
 

@@ -10,6 +10,7 @@ import { deleteChecks } from "./delete.mjs";
 import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
 import { migrateChecks } from "./migrate.mjs";
+import { backupChecks } from "./backup.mjs";
 import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
 import { brandChecks, hideableLinkChecks } from "./brand.mjs";
 import { widgetStories } from "./stories/widget.mjs";
@@ -1218,6 +1219,7 @@ async function run() {
   await safetyStories({ base, call, browse, mint, check, red, issueBody, here, there, keys, root, wrangler, work });
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
+  await backupChecks({ check, root });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await widgetStories({ base, call, browse, mint, check, red, issueBody, here, there, state, wrangler, root });
   await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });

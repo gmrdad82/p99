@@ -574,6 +574,7 @@ function restore(persist, pages) {
     for (const table of new Set(pages.map((p) => p.table))) db.exec(`DELETE FROM "${table}"`);
     for (const p of pages) {
       for (const { _rowid, ...row } of p.rows) {
+        if (p.table === "sqlite_sequence") db.prepare("DELETE FROM sqlite_sequence WHERE name = ?").run(row.name);
         const names = Object.keys(row);
         db.prepare(`INSERT INTO "${p.table}" (${names.map((n) => `"${n}"`).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`).run(
           ...names.map((n) => row[n]),
@@ -743,7 +744,7 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       const tables = schemaTables(db);
       return {
         tables,
-        snapshot: dump(db, tables),
+        snapshot: dump(db, [...tables, "sqlite_sequence"]),
         runs: db.prepare("SELECT date FROM backup_runs ORDER BY date").all().map((r) => r.date),
         hashes: db.prepare("SELECT hash FROM codes").all().map((r) => r.hash),
       };
@@ -843,7 +844,7 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       if (busy || now.running.rows.comments === undefined || now.running.rows.events !== undefined) return;
       const late = await signed("POST", `/_p99/v1/issues?host=${NEAR}`, { body: issueBody({ title: "Filed while the backup runs" }) });
       assert.equal(late.status, 201, late.text);
-      busy = late.json.key;
+      busy = late.json;
     });
     const folder = backupPages(persist, second.date);
     await worker.stop();
@@ -854,14 +855,16 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
 
     later.push([
       "[safety] after a restore, a deleted item's key is never handed out again",
-      "a restore hands a deleted item's key to the next item filed",
+      null,
       async () => {
         assert.ok(after.json.id > doomed.json.id, `${after.json.key} reuses the deleted ${doomed.json.key}`);
+        const kept = pages.filter((p) => p.table === "sqlite_sequence").flatMap((p) => p.rows);
+        assert.equal(kept.find((r) => r.name === "items")?.seq, doomed.json.id);
       },
     ]);
     later.push([
       "[safety] a second run on the same date leaves no page of the first behind for a restore to mix in",
-      "a second backup run on one date leaves the first run's pages beside its own",
+      null,
       async () => {
         if (second.date !== first.date) throw harness(`the two runs fell on ${first.date} and ${second.date}: the story crossed 00:00 UTC and proves nothing`);
         assert.deepEqual(stale, []);
@@ -870,10 +873,14 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
     ]);
     later.push([
       "[safety] a backup taken while reporters keep filing restores with no row pointing at one it lacks",
-      "a backup taken while items are filed restores rows that point at rows it lacks",
+      null,
       async () => {
         assert.ok(busy, "no step ended between the comments and the events");
         assert.deepEqual(torn, []);
+        const rowsOf = (table) => fresh.filter((p) => p.table === table).flatMap((p) => p.rows);
+        assert.equal(rowsOf("items").some((r) => r.id === busy.id), false, `${busy.key} was filed after the cut`);
+        assert.equal(rowsOf("events").some((r) => r.item_id === busy.id), false);
+        assert.ok(rowsOf("sqlite_sequence").find((r) => r.name === "items").seq >= busy.id, "the next key stays past the one filed during the run");
       },
     ]);
   } finally {
