@@ -242,7 +242,13 @@ try {
     l = await listbox(p, sel("duplicate"));
     check(`${label}: the duplicate picker lists this site's items, newest first, never the item itself (${l.items.length})`, l.open && l.items.length >= 4 && !l.items.some((t) => t.startsWith(main.key)) && l.items[0].startsWith(cart.key) && l.fits);
     await p.keyboard.type("badge");
-    await p.waitForTimeout(700);
+    await p
+      .waitForFunction((s) => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const lb = r.getElementById(r.querySelector(s + " [role=combobox]").getAttribute("aria-controls"));
+        return lb.querySelectorAll("[role=option]:not([aria-disabled])").length === 1;
+      }, sel("duplicate"), { timeout: 5000 })
+      .catch(() => {});
     l = await listbox(p, sel("duplicate"));
     check(`${label}:   typing words searches (${l.items.join(" | ")})`, l.items.length === 1 && l.items[0].startsWith(cart.key));
     await p.keyboard.press("ArrowDown");
