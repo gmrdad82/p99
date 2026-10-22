@@ -14,7 +14,9 @@
     "search-check": "node search-check.mjs",
     "pitomd": "node pitomd.mjs",
     "badges": "node badges.mjs",
-    "stories-widget": "node stories-widget.mjs"
+    "stories-widget": "node stories-widget.mjs",
+    "coverage": "node coverage.mjs",
+    "test:unit": "node --test coverage.test.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"
