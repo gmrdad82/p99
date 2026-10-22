@@ -1,3 +1,5 @@
+import { namedBy } from "./text.js";
+
 let fail, requireManager;
 
 export function bindLabels(helpers) {
@@ -15,11 +17,14 @@ export function refuseGone(body) {
   }
 }
 
-export function labelFilters(c, params, q, where) {
+export async function labelFilters(c, params, q, where) {
   if (params.has("priority")) fail(400, GONE.priority);
   const wanted = params.getAll("label");
   if (wanted.length === 0) return;
   requireManager(c);
   if (wanted.length > 1) fail(400, "an item has one label; ask for one");
-  where.push(`i.label_id = (SELECT id FROM labels WHERE name = ${q.bind(wanted[0])})`);
+  const asked = wanted[0].trim().replace(/\s+/g, " ");
+  const { results } = await c.env.DB.prepare("SELECT id, name FROM labels").all();
+  const ids = namedBy(results, asked, (l) => l.name).map((l) => q.bind(l.id));
+  where.push(ids.length > 0 ? `i.label_id IN (${ids.join(", ")})` : "0");
 }

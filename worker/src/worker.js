@@ -8,7 +8,9 @@ import {
   LABEL_JOIN,
   START_LABEL,
   closeItem,
+  publisher,
   redeemTicket,
+  liveSockets,
   reopenItem,
   stageOf,
   statusOf,
@@ -23,10 +25,12 @@ import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGi
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
+import { backupStep } from "./backup.js";
 import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
+import { chars, fold, isChars, searchMatch } from "./text.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -64,6 +68,7 @@ const MAX_JSON_BYTES = 256 * 1024;
 const MAX_BUILD_BYTES = 1024 * 1024;
 const MAX_TITLE_CHARS = 200;
 const MAX_BODY_CHARS = 20000;
+const MAX_QUERY_CHARS = 200;
 const MAX_CONTEXT_BYTES = 64 * 1024;
 const MAX_CONFIG_BYTES = 32 * 1024;
 const MAX_MARKS = 10;
@@ -125,44 +130,6 @@ const FILE_SIGNATURES = {
   "application/vnd.ms-excel": (h) => startsWith(h, OLE),
   "application/vnd.ms-powerpoint": (h) => startsWith(h, OLE),
 };
-
-const BACKUP_PREFIX = "backups/";
-const BACKUP_TABLES = [
-  {
-    name: "items",
-    size: "length(title) + length(body) + length(context_json) + length(marks_json) + length(reporter_json) + length(page_url) + 500",
-  },
-  { name: "comments", size: "length(body) + 300" },
-  { name: "attachments", size: "length(name) + 400" },
-  { name: "events", size: "length(detail_json) + 200" },
-  { name: "reads", size: "150" },
-  { name: "builds", size: "200" },
-  { name: "build_items", size: "length(subject) + 150" },
-  { name: "landings", size: "150" },
-  { name: "hosts", size: "length(config_json) + 200" },
-  { name: "envs", size: "100" },
-  { name: "codes", size: "length(hosts_json) + 500" },
-  { name: "boards", size: "length(name) + 200" },
-  { name: "board_columns", size: "50" },
-  { name: "board_positions", size: "length(key) + 50" },
-  { name: "hooks", size: "length(url_sealed) + length(events_json) + 200" },
-  { name: "github", size: "length(repo) + 200" },
-  { name: "github_links", size: "length(repo) + coalesce(length(url), 0) + 200" },
-  { name: "labels", size: "length(name) + 100" },
-  { name: "item_labels", size: "50" },
-  { name: "mail", size: "length(COALESCE(sender, '')) + length(COALESCE(note, '')) + 100" },
-  { name: "mail_optouts", size: "length(email) + 100" },
-  { name: "people", size: "length(email) + length(username) + 100" },
-];
-const BACKUP_PAGE_ROWS = 1000;
-const BACKUP_PAGE_BYTES = 128 * 1024;
-const BACKUP_STEP_PAGES = 6;
-const BACKUP_STEP_BYTES = 512 * 1024;
-const BACKUP_RETAIN_DATES = 8;
-const BACKUP_WEEKDAY = 1;
-const BACKUP_HOUR = 3;
-const USAGE_RETAIN_DAYS = 7;
-const BRANCH_BUILD_RETAIN_DAYS = 30;
 
 const JS_TYPE = "text/javascript; charset=utf-8";
 const CAPTURE_SOURCE = `const ms = (() => {\nvar exports = {}, module = {};\n${captureVendor}\nreturn exports;\n})();\n${shotSource}`;
@@ -690,13 +657,6 @@ function eventStatement(c, itemId, actorEmail, kind, detail, internal = false) {
   ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c));
 }
 
-function fold(text) {
-  return String(text ?? "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-}
-
 function searchText(title, body) {
   return fold(`${title} ${body ?? ""}`);
 }
@@ -1016,6 +976,15 @@ async function flushPushes(c) {
   }
 }
 
+async function codesRevoked(env) {
+  if (!env.HUB) return;
+  try {
+    await hubOf(env).revoked();
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+  }
+}
+
 async function openStream(c) {
   if (!c.env.HUB) fail(404, "this Worker has no push yet; run p99 deploy");
   if ((c.request.headers.get("upgrade") || "").toLowerCase() !== "websocket") fail(400, "the stream takes a WebSocket upgrade");
@@ -1025,24 +994,29 @@ async function openStream(c) {
 }
 
 export class P99Hub extends DurableObject {
+  #publish;
+
   constructor(ctx, env) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    this.#publish = publisher(env.DB, () => this.#sockets());
   }
 
   async fetch(request) {
     if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") return new Response(null, { status: 400 });
     const url = new URL(request.url);
     let hosts = url.searchParams.has("host") ? [url.searchParams.get("host")] : null;
+    let code = null;
     if (url.searchParams.has("ticket")) {
-      const redeemed = await redeemTicket(this.ctx.storage, url);
+      const redeemed = await redeemTicket(this.ctx.storage, url, this.env.DB);
       if (!redeemed) return errorResponse(401, "the stream ticket is unknown, used or expired");
       hosts = redeemed.hosts;
+      code = redeemed.code;
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ hosts });
+    server.serializeAttachment({ hosts, code });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1050,18 +1024,16 @@ export class P99Hub extends DurableObject {
     await storeTicket(this.ctx.storage, hash, entry);
   }
 
+  async revoked() {
+    await liveSockets(this.env.DB, this.#sockets());
+  }
+
+  #sockets() {
+    return this.ctx.getWebSockets().map((socket) => [socket, socket.deserializeAttachment() || {}]);
+  }
+
   async publish(events) {
-    const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
-    for (const socket of this.ctx.getWebSockets()) {
-      const seen = socket.deserializeAttachment() || {};
-      const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
-      for (const [hosts, every, line] of lines) {
-        if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
-        try {
-          socket.send(line);
-        } catch {}
-      }
-    }
+    await this.#publish(events);
   }
 
   async webSocketMessage() {}
@@ -1245,7 +1217,7 @@ function validMarks(marks) {
 function validTitle(value) {
   if (typeof value !== "string") return null;
   const title = clean(value).replace(/\s+/g, " ").trim();
-  return title.length >= 1 && title.length <= MAX_TITLE_CHARS ? title : null;
+  return isChars(title, 1, MAX_TITLE_CHARS) ? title : null;
 }
 
 function validStringMap(value, unsafe) {
@@ -1578,7 +1550,7 @@ async function listIssues(c) {
   }
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
-  labelFilters(c, params, q, where);
+  await labelFilters(c, params, q, where);
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1595,13 +1567,17 @@ async function listIssues(c) {
     where.push(`i.kind = ${q.bind(kind)}`);
   }
   const text = (params.get("q") || "").trim();
-  if (text.length > 200) fail(400, "q must be at most 200 characters");
+  if (chars(text) > MAX_QUERY_CHARS) fail(400, `q must be at most ${MAX_QUERY_CHARS} characters`);
   if (text.length > 0) {
-    const like = q.bind(`%${fold(text).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
-    const match = `i.search_text LIKE ${like} ESCAPE '\\'`;
+    const match = searchMatch("i.search_text", text, (v) => q.bind(v));
     const id = parseKey(text);
     where.push(id !== null ? `(i.id = ${q.bind(id)} OR ${match})` : `(${match})`);
   }
+  const counting = {
+    sql: `SELECT COUNT(*) AS n FROM items i ${LABEL_JOIN} LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    binds: [...q.binds],
+  };
   const cursor = params.get("cursor");
   if (cursor) {
     const after = parseKey(cursor);
@@ -1626,10 +1602,13 @@ async function listIssues(c) {
   const ids = page.map((row) => row.id);
   const extra = page.length > 0 ? await c.env.DB.batch(landingStatements(c.env, ids)) : [];
   const lc = page.length > 0 ? landingContext(extra.slice(0, 3), c.dir) : emptyLandingContext(c.dir);
-  return json(200, {
+  const more = results.length > limit;
+  const answer = {
     issues: page.map((row) => summaryOf(row, c, lc)),
-    next_cursor: results.length > limit ? String(page[page.length - 1].id) : null,
-  });
+    next_cursor: more ? String(page[page.length - 1].id) : null,
+  };
+  if (!cursor) answer.total = more ? (await c.env.DB.prepare(counting.sql).bind(...counting.binds).first()).n : page.length;
+  return json(200, answer);
 }
 
 function creationTarget(c, body) {
@@ -1661,7 +1640,7 @@ async function createIssue(c) {
   const title = validTitle(body.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const text = clean(body.body ?? "");
-  if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+  if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const page = validPage(body.page);
   if (!page) fail(400, "page must have an http(s) url, a path starting with / and a title");
   const context = body.context ?? {};
@@ -1923,7 +1902,7 @@ async function patchIssue(c, rawKey) {
   if (has("body")) {
     if (!c.manager && !(reporter && fresh)) fail(403, "only a manager, or the reporter while the item is new, may change the details");
     const text = clean(body.body);
-    if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+    if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
   }
   if (has("kind")) {
@@ -2014,7 +1993,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(existing, c, await commentAttachmentIds(c, row.id, existing.id)));
   }
   const text = clean(body.body);
-  if (typeof text !== "string" || text.trim().length === 0 || text.length > MAX_BODY_CHARS) {
+  if (typeof text !== "string" || text.trim().length === 0 || !isChars(text, 0, MAX_BODY_CHARS)) {
     fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
   }
   const internal = body.internal === true;
@@ -2588,6 +2567,7 @@ async function revokeCode(c, rawId) {
     .first();
   codeCache.clear();
   if (!row) fail(404, "no such code");
+  await codesRevoked(c.env);
   return json(200, codeOf(row));
 }
 
@@ -2607,100 +2587,6 @@ async function backupStatus(c) {
     last: view(results.find((r) => r.finished_at !== null)) || null,
     running: view(results.find((r) => r.finished_at === null)) || null,
   });
-}
-
-function backupDue(last, nowDate) {
-  if (!last) return true;
-  const days = (nowDate.getTime() - Date.parse(last.started_at)) / 86400000;
-  if (days >= 8) return true;
-  return (
-    nowDate.getUTCDay() === BACKUP_WEEKDAY &&
-    nowDate.getUTCHours() >= BACKUP_HOUR &&
-    last.date !== nowDate.toISOString().slice(0, 10)
-  );
-}
-
-async function backupStep(env) {
-  const { DB } = env;
-  const nowDate = new Date();
-  const now = nowDate.toISOString();
-  let run = await DB.prepare("SELECT * FROM backup_runs WHERE finished_at IS NULL ORDER BY date DESC LIMIT 1").first();
-  if (!run) {
-    const last = await DB.prepare("SELECT date, started_at FROM backup_runs ORDER BY date DESC LIMIT 1").first();
-    if (!backupDue(last, nowDate)) return;
-    const date = now.slice(0, 10);
-    const branchCutoff = new Date(nowDate.getTime() - BRANCH_BUILD_RETAIN_DAYS * 86400000).toISOString();
-    const stale = `SELECT env, branch FROM builds WHERE branch <> 'main' AND announced_at < ?1
-      AND env IN (SELECT name FROM envs WHERE kind = 'development')`;
-    await DB.batch([
-      DB.prepare("INSERT OR REPLACE INTO backup_runs (date, started_at) VALUES (?1, ?2)").bind(date, now),
-      DB.prepare("DELETE FROM usage WHERE day < ?1").bind(
-        new Date(nowDate.getTime() - USAGE_RETAIN_DAYS * 86400000).toISOString().slice(0, 10),
-      ),
-      DB.prepare(`DELETE FROM build_items WHERE (env, branch) IN (${stale})`).bind(branchCutoff),
-      DB.prepare(`DELETE FROM builds WHERE (env, branch) IN (${stale})`).bind(branchCutoff),
-    ]);
-    run = await DB.prepare("SELECT * FROM backup_runs WHERE date = ?1").bind(date).first();
-  }
-  const rows = parseJson(run.rows_json, {});
-  let { table_index: tableIndex, after_rowid: afterRowid, page, pages } = run;
-  let written = 0;
-  for (let step = 0; step < BACKUP_STEP_PAGES && written < BACKUP_STEP_BYTES && tableIndex < BACKUP_TABLES.length; step++) {
-    const table = BACKUP_TABLES[tableIndex];
-    const { results } = await DB.prepare(
-      `SELECT rowid AS _rowid, * FROM ${table.name} WHERE rowid > ?1 AND rowid <= (
-         SELECT max(r) FROM (
-           SELECT rowid AS r, sum(${table.size}) OVER (ORDER BY rowid ROWS UNBOUNDED PRECEDING) AS running
-           FROM ${table.name} WHERE rowid > ?1 ORDER BY rowid LIMIT ?2
-         ) WHERE running <= ?3 OR r = (SELECT min(rowid) FROM ${table.name} WHERE rowid > ?1)
-       ) ORDER BY rowid`,
-    )
-      .bind(afterRowid, BACKUP_PAGE_ROWS, BACKUP_PAGE_BYTES)
-      .all();
-    if (results.length > 0 || page === 0) {
-      page += 1;
-      const text = JSON.stringify({ exported_at: now, table: table.name, page, rows: results });
-      await env.BUCKET.put(`${BACKUP_PREFIX}${run.date}/${table.name}-${String(page).padStart(4, "0")}.json`, text, {
-        httpMetadata: { contentType: "application/json" },
-      });
-      written += text.length;
-      pages += 1;
-      rows[table.name] = (rows[table.name] || 0) + results.length;
-    }
-    if (results.length === 0) {
-      tableIndex += 1;
-      afterRowid = 0;
-      page = 0;
-    } else {
-      afterRowid = results[results.length - 1]._rowid;
-    }
-    const finished = tableIndex >= BACKUP_TABLES.length;
-    await DB.prepare(
-      `UPDATE backup_runs SET table_index = ?2, after_rowid = ?3, page = ?4, pages = ?5, rows_json = ?6, finished_at = ?7
-       WHERE date = ?1`,
-    )
-      .bind(run.date, tableIndex, afterRowid, page, pages, JSON.stringify(rows), finished ? new Date().toISOString() : null)
-      .run();
-    if (finished) {
-      await pruneBackups(env);
-      console.log(`backup ${run.date} finished: ${pages} pages`);
-    }
-  }
-}
-
-async function pruneBackups(env) {
-  const { results } = await env.DB.prepare("SELECT date FROM backup_runs ORDER BY date DESC").all();
-  const doomed = results.slice(BACKUP_RETAIN_DATES).map((r) => r.date);
-  for (const date of doomed) {
-    let cursor;
-    do {
-      const listed = await env.BUCKET.list({ prefix: `${BACKUP_PREFIX}${date}/`, cursor });
-      const keys = listed.objects.map((o) => o.key);
-      if (keys.length > 0) await env.BUCKET.delete(keys);
-      cursor = listed.truncated ? listed.cursor : undefined;
-    } while (cursor);
-    await env.DB.prepare("DELETE FROM backup_runs WHERE date = ?1").bind(date).run();
-  }
 }
 
 const IMPORT_TYPES = ["item", "comment", "attachment", "event", "landing", "read", "manager"];
@@ -2787,7 +2673,7 @@ function importItem(r, host) {
   const title = validTitle(r.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const body = clean(r.body ?? "");
-  if (!isText(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+  if (!isChars(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const env = r.env ?? host.env;
   if (!isEnvName(env)) fail(400, "env must name an environment");
   const context = r.context ?? {};
@@ -2833,7 +2719,7 @@ function importRecord(r, host) {
   if (r.type === "comment") {
     const uid = importUid(r.uid);
     const body = clean(r.body);
-    if (typeof body !== "string" || body.trim().length === 0 || body.length > MAX_BODY_CHARS) {
+    if (typeof body !== "string" || body.trim().length === 0 || !isChars(body, 0, MAX_BODY_CHARS)) {
       fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
     }
     return {
@@ -3352,6 +3238,7 @@ useLinkKit({
   codeOf,
   fail,
   forgetCodes: () => codeCache.clear(),
+  codesRevoked,
   isEmail,
   isUid,
   json,

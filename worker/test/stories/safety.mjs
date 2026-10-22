@@ -13,7 +13,7 @@ const GRACE = { email: "grace@example.com", name: "Grace Hopper", agent: true };
 const NEAR = "127.0.0.1";
 const FAR = "localhost";
 const SCHEDULED = "/__scheduled?cron=*%2F15+*+*+*+*";
-const LEFT_OUT = ["app_sessions", "app_tries", "backup_runs", "code_devices", "deletions", "github_deliveries", "usage"];
+const LEFT_OUT = ["app_sessions", "app_tries", "backup_runs", "github_deliveries", "usage"];
 const OLD_RUNS = ["2025-01-06", "2025-01-13", "2025-01-20", "2025-01-27", "2025-02-03", "2025-02-10", "2025-02-17", "2025-02-24"];
 const BACKUP_STEP_PAGES = 6;
 const BACKUP_STEP_BYTES = 512 * 1024;
@@ -111,11 +111,13 @@ async function until(what, fn, ms = 10000) {
 
 function socketOf(url, heard, headers) {
   const socket = headers ? new WebSocket(url, { headers }) : new WebSocket(url);
-  const state = { socket, closed: false };
+  const state = {
+    socket,
+    get closed() {
+      return socket.readyState >= WebSocket.CLOSING;
+    },
+  };
   socket.addEventListener("message", (message) => heard.push(JSON.parse(message.data)));
-  socket.addEventListener("close", () => {
-    state.closed = true;
-  });
   return new Promise((resolve) => {
     socket.addEventListener("open", () => resolve(state));
     socket.addEventListener("error", () => resolve(null));
@@ -388,7 +390,7 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
 
   await backupStories({ check, issueBody, keys, root, wrangler, work, later });
 
-  await red("[safety] a stream ticket handed out before its code was revoked opens nothing", "a revoked manager's unexpired stream ticket still opens the live board", async () => {
+  await check("[safety] a stream ticket handed out before its code was revoked opens nothing", async () => {
     const boss = await mint("Karen Spärck Jones", "karen.safety@example.com", [here], true);
     const kept = await mint("Mary Jackson", "mary.ticket.safety@example.com", [here], true);
     const [ticket, control] = await Promise.all([panel(here, "POST", "/stream-ticket", boss.secret), panel(here, "POST", "/stream-ticket", kept.secret)]);
@@ -401,22 +403,57 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
     if (reference) reference.socket.close();
     if (!reference) throw harness("the run outlived the ticket's TTL: an unrevoked manager's ticket fetched at the same moment no longer opens");
     assert.equal(opened, null, "a revoked manager's ticket still opened the live board");
+    const again = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${ticket.json.ticket}`, []);
+    if (again) again.socket.close();
+    assert.equal(again, null, "a refused ticket opened on a second try");
+    const fresh = await panel(here, "POST", "/stream-ticket", boss.secret);
+    assert.equal(fresh.status, 401, "a revoked manager was handed a new stream ticket");
   });
 
-  await red("[safety] an open live board stops hearing the moment its code is revoked", "a live board opened before its code was revoked keeps hearing new items", async () => {
+  await check("[safety] an open live board stops hearing the moment its code is revoked, and only that board", async () => {
     const boss = await mint("Annie Easley", "annie.safety@example.com", [here], true);
+    const peer = await mint("Dorothy Vaughan", "dorothy.safety@example.com", [here], true);
     const heard = [];
+    const kept = [];
     const control = [];
     const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", boss.secret)).json.ticket}`, heard);
+    const other = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", peer.secret)).json.ticket}`, kept);
     const watch = await signedSocket(port, keys.p99, `/_p99/v1/stream?host=${here}`, control);
-    assert.ok(board && watch, "both streams open");
+    assert.ok(board && other && watch, "the three streams open");
+    const before = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed before the revoke" }) })).json.key;
+    await until("the board hears the item filed before the revoke", () => heard.some((e) => e.key === before));
     assert.equal((await call("POST", `/_p99/v1/codes/${boss.code.id}/revoke`)).status, 200);
+    await until("the revoked board closes", () => board.closed, 10000);
     const after = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed after the revoke" }) })).json.key;
     await until("the control stream hears the item", () => control.some((e) => e.key === after));
-    await until("the revoked board hears it or closes", () => board.closed || heard.some((e) => e.key === after), 3000).catch(() => null);
+    await until("the other manager's board hears the item", () => kept.some((e) => e.key === after));
+    assert.equal(other.closed, false, "a revoke closed another manager's board");
     board.socket.close();
+    other.socket.close();
     watch.socket.close();
     assert.equal(heard.some((e) => e.key === after), false, "a revoked manager's open board heard an item filed after the revoke");
+  });
+
+  await check("[safety] a relink closes the old code's open board and its unused ticket, and the new code's board hears", async () => {
+    const boss = await mint("Katherine Johnson", "katherine.safety@example.com", [here], true);
+    const heard = [];
+    const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", boss.secret)).json.ticket}`, heard);
+    const spare = await panel(here, "POST", "/stream-ticket", boss.secret);
+    assert.ok(board, "the board opens");
+    assert.equal(spare.status, 201, spare.text);
+    const relinked = await call("POST", `/_p99/v1/codes/${boss.code.id}/relink`, { body: {} });
+    assert.equal(relinked.status, 201, relinked.text);
+    await until("the old code's board closes", () => board.closed, 10000);
+    const stale = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${spare.json.ticket}`, []);
+    if (stale) stale.socket.close();
+    assert.equal(stale, null, "the old code's unused ticket opened after the relink");
+    const now = [];
+    const fresh = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", relinked.json.secret)).json.ticket}`, now);
+    assert.ok(fresh, "the new code's board opens");
+    const after = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed after the relink" }) })).json.key;
+    await until("the new code's board hears the item", () => now.some((e) => e.key === after));
+    fresh.socket.close();
+    assert.equal(heard.some((e) => e.key === after), false, "the old code's board heard an item filed after the relink");
   });
 
   for (const [name, bug, fn] of later) await (bug ? red(name, bug, fn) : check(name, fn));
@@ -587,6 +624,7 @@ function restore(persist, pages) {
     for (const table of new Set(pages.map((p) => p.table))) db.exec(`DELETE FROM "${table}"`);
     for (const p of pages) {
       for (const { _rowid, ...row } of p.rows) {
+        if (p.table === "sqlite_sequence") db.prepare("DELETE FROM sqlite_sequence WHERE name = ?").run(row.name);
         const names = Object.keys(row);
         db.prepare(`INSERT INTO "${p.table}" (${names.map((n) => `"${n}"`).join(", ")}) VALUES (${names.map(() => "?").join(", ")})`).run(
           ...names.map((n) => row[n]),
@@ -756,7 +794,7 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       const tables = schemaTables(db);
       return {
         tables,
-        snapshot: dump(db, tables),
+        snapshot: dump(db, [...tables, "sqlite_sequence"]),
         runs: db.prepare("SELECT date FROM backup_runs ORDER BY date").all().map((r) => r.date),
         hashes: db.prepare("SELECT hash FROM codes").all().map((r) => r.hash),
       };
@@ -856,7 +894,7 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       if (busy || now.running.rows.comments === undefined || now.running.rows.events !== undefined) return;
       const late = await signed("POST", `/_p99/v1/issues?host=${NEAR}`, { body: issueBody({ title: "Filed while the backup runs" }) });
       assert.equal(late.status, 201, late.text);
-      busy = late.json.key;
+      busy = late.json;
     });
     const folder = backupPages(persist, second.date);
     await worker.stop();
@@ -867,14 +905,16 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
 
     later.push([
       "[safety] after a restore, a deleted item's key is never handed out again",
-      "a restore hands a deleted item's key to the next item filed",
+      null,
       async () => {
         assert.ok(after.json.id > doomed.json.id, `${after.json.key} reuses the deleted ${doomed.json.key}`);
+        const kept = pages.filter((p) => p.table === "sqlite_sequence").flatMap((p) => p.rows);
+        assert.equal(kept.find((r) => r.name === "items")?.seq, doomed.json.id);
       },
     ]);
     later.push([
       "[safety] a second run on the same date leaves no page of the first behind for a restore to mix in",
-      "a second backup run on one date leaves the first run's pages beside its own",
+      null,
       async () => {
         if (second.date !== first.date) throw harness(`the two runs fell on ${first.date} and ${second.date}: the story crossed 00:00 UTC and proves nothing`);
         assert.deepEqual(stale, []);
@@ -883,10 +923,14 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
     ]);
     later.push([
       "[safety] a backup taken while reporters keep filing restores with no row pointing at one it lacks",
-      "a backup taken while items are filed restores rows that point at rows it lacks",
+      null,
       async () => {
         assert.ok(busy, "no step ended between the comments and the events");
         assert.deepEqual(torn, []);
+        const rowsOf = (table) => fresh.filter((p) => p.table === table).flatMap((p) => p.rows);
+        assert.equal(rowsOf("items").some((r) => r.id === busy.id), false, `${busy.key} was filed after the cut`);
+        assert.equal(rowsOf("events").some((r) => r.item_id === busy.id), false);
+        assert.ok(rowsOf("sqlite_sequence").find((r) => r.name === "items").seq >= busy.id, "the next key stays past the one filed during the run");
       },
     ]);
   } finally {

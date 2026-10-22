@@ -15,7 +15,7 @@ const ACCESS: &str = "access-secret-Ub4Ne8Rk2Xo6";
 const LICENSE: &str = "p99-licence-Vz5Mi3Qa7Ld9";
 const HOOK: &str = "https://hooks.slack.com/services/T0EXAMPLE/B0EXAMPLE/Xy7Kp3Wm9QrTe2";
 
-const SHIPPED: [&str; 13] = [
+const SHIPPED: [&str; 14] = [
     "0001_p99.sql",
     "0002_code_uid.sql",
     "0003_code_totp.sql",
@@ -29,6 +29,7 @@ const SHIPPED: [&str; 13] = [
     "0011_lanes.sql",
     "0012_people.sql",
     "0013_app.sql",
+    "0014_backup_cut.sql",
 ];
 
 #[derive(Debug, Clone)]
@@ -765,8 +766,8 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
 }
 
 #[test]
-fn an_account_already_at_0013_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
-    let h = home("at-0013", &plain_config(), live(&SHIPPED, v19_rows()));
+fn an_account_already_at_0014_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
+    let h = home("at-0014", &plain_config(), live(&SHIPPED, v19_rows()));
 
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
@@ -1065,16 +1066,13 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
     assert_eq!(report["migrations"]["accepted"], hash);
     assert_eq!(
         report["migrations"]["applied"],
-        json!(["0011_lanes.sql", "0012_people.sql", "0013_app.sql"])
+        json!(names(&SHIPPED[10..]))
     );
     assert_eq!(
         report["migrations"]["already"],
         json!(names(&SHIPPED[..10]))
     );
-    assert_eq!(
-        h.inserted(),
-        names(&["0011_lanes.sql", "0012_people.sql", "0013_app.sql"])
-    );
+    assert_eq!(h.inserted(), names(&SHIPPED[10..]));
     assert_eq!(h.applied(), names(&SHIPPED));
     let calls = h.calls();
     let last = calls
@@ -1090,7 +1088,7 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
 }
 
 #[test]
-fn a_1_7_account_with_its_hash_gets_0004_to_0013_in_order() {
+fn a_1_7_account_with_its_hash_gets_0004_to_0014_in_order() {
     let mut cf = live(&SHIPPED[..3], v17_rows());
     cf.tag = None;
     let h = home("accept-17", &plain_config(), cf);
@@ -1303,7 +1301,6 @@ fn the_token_from_the_environment_wins_trimmed_and_1password_is_never_needed() {
 }
 
 #[test]
-#[ignore = "red until fixed: a config.toml parse error quotes the broken line, token included"]
 fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     let broken = plain_config().replace(
         &format!("token = \"{TOKEN}\""),
@@ -1315,6 +1312,12 @@ fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     assert!(out.stderr.starts_with("p99: "), "{}", out.stderr);
     assert!(h.calls().is_empty());
     never_shows_a_secret(&[&out], &[]);
+    assert!(out.stderr.contains("line 5, key token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("the value is not shown"),
+        "{}",
+        out.stderr
+    );
 
     let unquoted = plain_config().replace(
         &format!("resend_key = \"{RESEND}\""),
@@ -1325,6 +1328,23 @@ fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     assert_eq!(plan.code, Some(1));
     assert!(h.calls().is_empty());
     never_shows_a_secret(&[&plan], &[]);
+    assert!(plan.stderr.contains("key resend_key"), "{}", plan.stderr);
+
+    let doubled = plain_config().replace(
+        &format!("token = \"{TOKEN}\"\n"),
+        &format!("token = \"{TOKEN}\" key = \"{KEY}\"\n"),
+    );
+    let h = home("broken-double", &doubled, live(&SHIPPED, Vec::new()));
+    let out = h.run(&["deploy"]);
+    assert_eq!(out.code, Some(1));
+    assert!(h.calls().is_empty());
+    never_shows_a_secret(&[&out], &[]);
+    assert!(out.stderr.contains("line 5, key token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("the value is not shown"),
+        "{}",
+        out.stderr
+    );
 }
 
 #[cfg(unix)]

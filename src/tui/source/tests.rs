@@ -207,7 +207,7 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 #[test]
 fn the_sample_inbox_comes_newest_first_and_codes_newest_first() {
     let source = Source::demo(Duration::ZERO);
-    let entries = source.inbox().expect("the sample reads");
+    let entries = source.inbox().expect("the sample reads").entries;
     assert_eq!(entries.len(), 22);
     assert!(entries.windows(2).all(|pair| {
         let (a, b) = (&pair[0].summary, &pair[1].summary);
@@ -356,7 +356,7 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
 fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
     let source = ghost(&[]);
     assert!(source.hosts().is_empty());
-    assert!(source.inbox().expect("nothing to read").is_empty());
+    assert!(source.inbox().expect("nothing to read").entries.is_empty());
     assert!(source.codes().expect("nothing to read").is_empty());
     assert!(source.boards().expect("nothing to read").is_empty());
     assert_eq!(source.board(None).err().as_deref(), Some(NONE));
@@ -489,4 +489,35 @@ fn the_inbox_follows_a_live_source_once_however_often_it_rereads() {
         panic!("a live source");
     };
     assert_eq!(live.listeners.lock().expect("whole").len(), 1);
+}
+
+#[test]
+fn unseen_counts_what_the_worker_holds_beyond_the_loaded_items() {
+    assert_eq!(unseen(Some(1050), 1000), 50);
+    assert_eq!(unseen(Some(1000), 1000), 0);
+    assert_eq!(unseen(Some(3), 5), 0);
+    assert_eq!(unseen(None, 1000), 0);
+    assert_eq!(unseen(Some(u64::MAX), 0), usize::MAX);
+}
+
+#[test]
+fn counted_is_plain_when_everything_is_loaded() {
+    assert_eq!(counted(3, 7, 7, 0, false), ["3 of 7 items"]);
+    assert_eq!(counted(0, 0, 0, 0, true), ["0 of 0 items"]);
+}
+
+#[test]
+fn counted_adds_the_unloaded_items_and_says_only_the_newest_are_loaded() {
+    assert_eq!(
+        counted(1000, 1000, 1000, 50, false),
+        ["1000 of 1050 items", "only the newest 1000 are loaded"]
+    );
+}
+
+#[test]
+fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
+    assert_eq!(
+        counted(12, 40, 1000, 50, true),
+        ["12 of 40+ items", "only the newest 1000 are loaded"]
+    );
 }

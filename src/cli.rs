@@ -288,8 +288,13 @@ pub struct ListArgs {
     pub query: Option<String>,
     #[arg(long, value_name = "name", help = "only items with this label")]
     pub label: Option<String>,
-    #[arg(long, default_value_t = 50, help = "at most this many items")]
-    pub limit: usize,
+    #[arg(
+        long,
+        default_value_t = 50,
+        value_parser = clap::value_parser!(u64).range(1..),
+        help = "at most this many items in all"
+    )]
+    pub limit: u64,
 }
 
 #[derive(Debug, clap::Args)]
@@ -1111,7 +1116,7 @@ fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
         .filter(wanted)
         .collect();
     found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
-    found.truncate(args.limit);
+    found.truncate(args.limit as usize);
     Some(found)
 }
 
@@ -1139,13 +1144,14 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     };
     let scope = if args.mine { "mine" } else { "all" };
     let agent = global.agent;
+    let limit = args.limit as usize;
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
     for account in &accounts {
         let client = Client::among(config, account, holder.as_deref(), agent)?;
         let mut cursor: Option<String> = None;
         let mut taken = 0;
-        while taken < args.limit {
+        while taken < limit {
             let query = ListQuery {
                 scope: scope.to_owned(),
                 path: None,
@@ -1155,23 +1161,31 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 cursor: cursor.clone(),
                 host: host.clone(),
                 label: args.label.iter().cloned().collect(),
-                limit: (args.limit - taken).min(100) as i64,
+                limit: (limit - taken).min(100) as i64,
             };
             let page = client.list(&query)?;
+            if page.issues.is_empty() {
+                cursor = None;
+                break;
+            }
             taken += page.issues.len();
             found.extend(page.issues);
             cursor = page.next_cursor;
             if cursor.is_none() {
                 break;
             }
-            more = taken >= args.limit;
         }
-        if cursor.is_none() {
-            more = false;
-        }
+        more |= cursor.is_some();
     }
-    found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    more |= newest(&mut found, limit);
     listed(found, more, global)
+}
+
+fn newest(found: &mut Vec<Summary>, limit: usize) -> bool {
+    found.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let cut = found.len() > limit;
+    found.truncate(limit);
+    cut
 }
 
 fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String> {
@@ -1619,9 +1633,10 @@ fn announce(config: &Config, global: &Global, args: &AnnounceArgs) -> Result<(),
 
 #[cfg(test)]
 mod tests {
-    use super::{key_of, pitomd_link};
+    use super::{ListArgs, Summary, key_of, newest, pitomd_link};
     use crate::config::Host;
     use crate::license::State;
+    use clap::Parser;
 
     const REFUSED: &str = "Only an Agency or Owner key hides the 'by PITO.MD' link";
 
@@ -1674,5 +1689,69 @@ mod tests {
         for raw in ["", "BUG-", "BUG-x", "12abc", "-3", "../x"] {
             assert!(key_of(raw).is_err(), "{raw}");
         }
+    }
+
+    #[derive(Parser)]
+    struct Listing {
+        #[command(flatten)]
+        list: ListArgs,
+    }
+
+    fn limit(args: &[&str]) -> Result<u64, clap::Error> {
+        Listing::try_parse_from(std::iter::once("list").chain(args.iter().copied()))
+            .map(|l| l.list.limit)
+    }
+
+    fn item(key: &str, updated_at: &str) -> Summary {
+        Summary {
+            key: key.to_owned(),
+            updated_at: updated_at.to_owned(),
+            ..Summary::default()
+        }
+    }
+
+    #[test]
+    fn a_limit_is_fifty_by_default_and_any_count_from_one() {
+        assert_eq!(limit(&[]).unwrap(), 50);
+        assert_eq!(limit(&["--limit", "1"]).unwrap(), 1);
+        assert_eq!(limit(&["--limit", "520"]).unwrap(), 520);
+    }
+
+    #[test]
+    fn a_limit_of_zero_or_less_or_no_number_is_clap_s_own_error() {
+        for bad in ["0", "-1", "three", ""] {
+            let error = limit(&["--limit", bad]).unwrap_err();
+            assert_eq!(error.exit_code(), 2, "{bad}");
+        }
+        let zero = limit(&["--limit", "0"]).unwrap_err().to_string();
+        assert!(
+            zero.starts_with("error: invalid value '0' for '--limit"),
+            "{zero}"
+        );
+    }
+
+    #[test]
+    fn newest_keeps_the_most_recent_across_accounts_and_says_when_it_cut() {
+        let mut found = vec![
+            item("BUG-1", "2026-10-01"),
+            item("BUG-101", "2026-10-05"),
+            item("BUG-2", "2026-10-03"),
+            item("BUG-102", "2026-10-02"),
+            item("BUG-3", "2026-10-04"),
+        ];
+        assert!(newest(&mut found, 3));
+        let keys: Vec<&str> = found.iter().map(|s| s.key.as_str()).collect();
+        assert_eq!(keys, ["BUG-101", "BUG-3", "BUG-2"]);
+    }
+
+    #[test]
+    fn newest_keeps_everything_at_or_under_the_limit() {
+        let mut found = vec![item("BUG-1", "2026-10-01"), item("BUG-2", "2026-10-02")];
+        assert!(!newest(&mut found, 2));
+        assert_eq!(found.len(), 2);
+        assert!(!newest(&mut found, 50));
+        assert_eq!(found[0].key, "BUG-2");
+        let mut none: Vec<Summary> = Vec::new();
+        assert!(!newest(&mut none, 1));
     }
 }

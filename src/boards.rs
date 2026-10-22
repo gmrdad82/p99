@@ -3,7 +3,7 @@ use std::io::{BufRead, IsTerminal, Write};
 use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
-use crate::wire::{BoardSpec, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
+use crate::wire::{BoardSpec, Issue, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
@@ -104,6 +104,28 @@ fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
 }
 
+pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
+    if same(now, to) {
+        format!("{key} moved to {now} meanwhile; nothing left to move")
+    } else {
+        format!("{key} moved to {now} meanwhile; run it again to move it from there")
+    }
+}
+
+pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
+    if !error.ends_with("(409)") {
+        return error;
+    }
+    match client.thread(key).map(|thread| thread.issue) {
+        Ok(Issue {
+            key,
+            label: Some(now),
+            ..
+        }) => meanwhile(&key, &now, to),
+        _ => error,
+    }
+}
+
 pub fn label_move(
     config: &Config,
     global: &Global,
@@ -118,12 +140,14 @@ pub fn label_move(
         .issue
         .label
         .ok_or_else(|| format!("{key} shows no label; only a manager moves items"))?;
-    let moved = client.move_to(&MoveTo {
-        key: key.clone(),
-        from,
-        to: to.to_owned(),
-        ..MoveTo::default()
-    })?;
+    let moved = client
+        .move_to(&MoveTo {
+            key: key.clone(),
+            from,
+            to: to.to_owned(),
+            ..MoveTo::default()
+        })
+        .map_err(|error| raced(&client, &key, to, error))?;
     if global.json {
         return print_json(&moved);
     }
@@ -147,14 +171,16 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
         .iter()
         .find(|b| b.mine && b.columns.iter().any(|c| same(&c.label, &args.to)))
         .ok_or_else(|| format!("none of your boards has a {} column", args.to))?;
-    let moved = client.move_to(&MoveTo {
-        key,
-        from,
-        to: args.to.clone(),
-        board: Some(board.id),
-        before: args.before.as_deref().map(crate::cli::key_of).transpose()?,
-        after: args.after.as_deref().map(crate::cli::key_of).transpose()?,
-    })?;
+    let moved = client
+        .move_to(&MoveTo {
+            key: key.clone(),
+            from,
+            to: args.to.clone(),
+            board: Some(board.id),
+            before: args.before.as_deref().map(crate::cli::key_of).transpose()?,
+            after: args.after.as_deref().map(crate::cli::key_of).transpose()?,
+        })
+        .map_err(|error| raced(&client, &key, &args.to, error))?;
     if global.json {
         return print_json(&moved);
     }
@@ -420,6 +446,18 @@ pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn meanwhile_says_where_the_card_is_now_and_what_to_do() {
+        assert_eq!(
+            meanwhile("BUG-12", "Review", "Doing"),
+            "BUG-12 moved to Review meanwhile; run it again to move it from there"
+        );
+        assert_eq!(
+            meanwhile("BUG-12", "review", "Review"),
+            "BUG-12 moved to review meanwhile; nothing left to move"
+        );
+    }
 
     #[test]
     fn closes_marks_only_the_named_columns_and_refuses_a_stray() {

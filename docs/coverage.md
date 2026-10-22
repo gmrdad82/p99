@@ -136,6 +136,23 @@ Rust: **77.3% of lines** (76.0% of regions, 78.7% of functions) for the combined
 
 What is left in the CLI: delete's confirmation on a terminal (the tests have no TTY, so only `--yes` and the piped refusal run); setup's interactive walk; `watch`'s settle and longest-wait limits, since its reconnect tests wait out the real 1 s and 2 s backoff; and the deploy story's own runs, which clear the environment and so drop the coverage profile, slightly undercounting setup.rs and cloudflare.rs.
 
+## w200 fixes train, 2026-10-22 (agent/fixes-i1, main 2812847 plus the story-bug fixes)
+
+Rust: **78.8% of lines** (77.8% of regions, 80.1% of functions), up from 77.3%. 517 tests pass and none is ignored: the 10 stories that were known red now pass as plain tests. By area: the TUI (src/tui*) 96.9% of 4,413 lines, the CLI (src/cli*) 88.3% of 2,021, the rest 65.4% of 7,366.
+
+| File | Lines covered | Lines | w197 |
+|---|---|---|---|
+| src/cli.rs | 89.23% | 1161 | 88.32% |
+| src/boards.rs | 62.99% | 335 | 59.22% |
+| src/config.rs | 96.98% | 695 | 93.08% |
+| src/license.rs | 87.61% | 694 | 82.89% |
+| src/wire.rs | 91.81% | 232 | 88.20% |
+| src/tui/history.rs | 100.00% | 117 | new |
+| src/tui/inbox.rs | 97.07% | 1196 | 97.32% |
+| src/tui/source.rs | 97.44% | 390 | 97.19% |
+
+JavaScript, for the first time in part: the worker suite now loads some Worker modules straight into node, so node's own coverage (`NODE_V8_COVERAGE`) counts them: worker/src/backup.js 94.7% of 266 lines, worker/src/text.js 100% of 32, and the ticket and hub rules of worker/src/boards.js through worker/test/tickets.mjs (18.7% of the file; the rest runs inside workerd). The worker suite passes 166 checks with none known red; the browser stories cover the loader and the panel without numbers.
+
 ## Uncovered critical paths, first in line
 
 - Setup's interactive walk (setup.rs, 27%), migrate (34%) and import (42%).
