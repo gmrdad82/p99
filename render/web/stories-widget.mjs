@@ -820,11 +820,15 @@ try {
     await ctx.route((u) => u.pathname === "/_p99/panel.js", (route) => (aborted++ ? route.fallback() : route.abort("connectionreset")));
     const p = await ctx.newPage();
     const errors = [];
+    let failedImports = 0;
     p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    p.on("requestfailed", (r) => {
+      if (new URL(r.url()).pathname === "/_p99/panel.js") failedImports++;
+    });
     await p.goto(`${PAGE}#p99=${code}`);
     await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
     await p.locator("p99-root >> .w .f").hover();
-    await until("the aborted panel import", () => aborted >= 1);
+    await until("the aborted panel import", () => aborted >= 1 && failedImports >= 1);
     await frames(p);
     await frames(p);
     await openForm(p);
