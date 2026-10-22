@@ -11,3 +11,4 @@ node_modules/
 /prompts
 /pito-app.toml
 /dev
+*.profraw

@@ -469,8 +469,9 @@ impl Demo {
             self.shelf.orders.insert((id, key.clone()), order);
         }
         self.shelf.append(&key, &request.to);
+        let home = if card { CARDS_BOARD } else { 1 };
         let card = self
-            .board(Some(request.board.unwrap_or(1)))?
+            .board(Some(request.board.unwrap_or(home)))?
             .cards
             .into_iter()
             .find(|c| c.key == key)
