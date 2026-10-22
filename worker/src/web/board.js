@@ -64,7 +64,7 @@ const CSS = `
 @media (hover:hover){.p99-board .p99-x:hover{background:color-mix(in srgb,var(--p99-ink) 8%,transparent);color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
 .p99-cols{--n:4;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(240px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
-.p99-col{--p99-tone:var(--p99-status-in-review);display:flex;flex-direction:column;min-height:0;border-radius:var(--p99-radius-md);background:color-mix(in srgb,var(--p99-ink) 6%,transparent);box-shadow:inset 0 2px 4px rgba(12,26,43,.22),inset 0 -1px 0 rgba(255,255,255,.25);transition:background var(--p99-motion-base) var(--p99-ease-in-out),box-shadow var(--p99-motion-base) var(--p99-ease-in-out)}
+.p99-col{--p99-tone:var(--p99-status-in-review);display:flex;flex-direction:column;min-height:0;contain:layout paint;border-radius:var(--p99-radius-md);background:color-mix(in srgb,var(--p99-ink) 6%,transparent);box-shadow:inset 0 2px 4px rgba(12,26,43,.22),inset 0 -1px 0 rgba(255,255,255,.25);transition:background var(--p99-motion-base) var(--p99-ease-in-out),box-shadow var(--p99-motion-base) var(--p99-ease-in-out)}
 .p99-col:first-child{--p99-tone:var(--p99-accent-ink)}
 .p99-col:nth-child(3),.p99-col:nth-child(5){--p99-tone:var(--p99-status-warning)}
 .p99-col[data-closes]{--p99-tone:var(--p99-status-validated)}
@@ -72,9 +72,9 @@ const CSS = `
 .p99-col-head h3{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
 .p99-count{padding:0 var(--p99-space-sm);border-radius:var(--p99-radius-full);background:var(--p99-raised);color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1.6 var(--p99-font-text)}
 .p99-col.is-target{background:color-mix(in srgb,var(--p99-accent) 10%,color-mix(in srgb,var(--p99-ink) 6%,transparent));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--p99-accent) 55%,transparent),inset 0 2px 4px rgba(12,26,43,.22)}
-.p99-cards{flex:1;min-height:48px;margin:0;padding:var(--p99-space-xs) var(--p99-space-md) var(--p99-space-md);list-style:none;display:flex;flex-direction:column;gap:var(--p99-space-sm);overflow-y:auto;overscroll-behavior:contain}
+.p99-cards{position:relative;flex:1;min-height:48px;margin:0;padding:var(--p99-space-xs) var(--p99-space-md) var(--p99-space-md);list-style:none;display:flex;flex-direction:column;gap:var(--p99-space-sm);overflow-y:auto;overscroll-behavior:contain}
 .p99-cards:empty::after{content:attr(data-empty);padding:var(--p99-space-lg) 0;color:var(--p99-muted);font-size:var(--p99-text-sm);text-align:center}
-.p99-card{position:relative;display:grid;gap:var(--p99-space-sm);padding:var(--p99-space-md);border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 2px rgba(12,26,43,.18);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:border-color var(--p99-motion-hover-out) var(--p99-ease-in-out),box-shadow var(--p99-motion-hover-out) var(--p99-ease-in-out),scale var(--p99-motion-base) var(--p99-ease-enter)}
+.p99-card{position:relative;contain:layout paint;display:grid;gap:var(--p99-space-sm);padding:var(--p99-space-md);border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 2px rgba(12,26,43,.18);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:border-color var(--p99-motion-hover-out) var(--p99-ease-in-out),box-shadow var(--p99-motion-hover-out) var(--p99-ease-in-out),scale var(--p99-motion-base) var(--p99-ease-enter)}
 .p99-board[data-mine=false] .p99-card{cursor:pointer;user-select:auto;-webkit-user-select:auto}
 @media (hover:hover){.p99-card:hover{border-color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-card:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
@@ -211,7 +211,8 @@ function load(id) {
       B.id = String(d.board.id);
       try { sessionStorage.setItem("p99:board", B.id); } catch (x) {}
       B.data = d;
-      paint();
+      if (B.drag && !B.drag.keys) soon();
+      else paint();
     });
   }).catch((e) => {
     if (e && e.status === 401) return close();
@@ -383,13 +384,13 @@ function roam(e) {
   if (n) n.focus({ preventScroll: false });
 }
 
-function flip(change, easing, ms) {
-  const list = cards();
+function flip(change, easing, ms, scope) {
+  const list = scope || cards();
   const from = new Map(list.map((e) => [e, e.getBoundingClientRect()]));
   for (const e of list) for (const a of e.getAnimations()) if (a.id === "p99-flip") a.cancel();
   change();
   if (still.matches) return;
-  for (const e of cards()) {
+  for (const e of scope || cards()) {
     const a = from.get(e);
     if (!a) {
       e.animate([{ opacity: 0, scale: "0.96" }, { opacity: 1, scale: "1" }], { duration: ms || 220, easing: ARRIVE }).id = "p99-flip";
@@ -401,6 +402,8 @@ function flip(change, easing, ms) {
     e.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "none" }], { duration: ms || 220, easing: easing || TRAVEL }).id = "p99-flip";
   }
 }
+
+function kin(a, b) { return Array.from(a.children).concat(b && b !== a ? Array.from(b.children) : []); }
 
 function slot(list, y, skip) {
   for (const e of list.children) {
@@ -414,18 +417,20 @@ function slot(list, y, skip) {
 function press(e) {
   const c = e.button === 0 && !B.drag && mine() && e.target.closest(".p99-card");
   if (!c || e.target.closest("a, button")) return;
-  const d = { card: c, id: c.dataset.id, x: e.clientX, y: e.clientY, pointer: e.pointerId, touch: e.pointerType === "touch", up: false, ghost: null, home: [c.parentNode, c.nextSibling], timer: 0 };
+  const d = { card: c, id: c.dataset.id, x: e.clientX, y: e.clientY, px: e.clientX, py: e.clientY, pointer: e.pointerId, touch: e.pointerType === "touch", up: false, ghost: null, home: [c.parentNode, c.nextSibling], timer: 0, raf: 0, m: null, over: null, queue: [] };
   B.drag = d;
   if (d.touch) d.timer = setTimeout(() => lift(d.x, d.y), 220);
   B.el.addEventListener("pointermove", move);
-  B.el.addEventListener("pointerup", release);
-  B.el.addEventListener("pointercancel", abort);
+  window.addEventListener("pointerup", release, true);
+  window.addEventListener("pointercancel", abort, true);
 }
 
 function lift(x, y) {
   const d = B.drag;
   if (!d || d.up) return;
   d.up = true;
+  d.focus = B.root.activeElement === d.card;
+  if (d.focus) B.el.focus({ preventScroll: true });
   const r = d.card.getBoundingClientRect();
   d.dx = x - r.left;
   d.dy = y - r.top;
@@ -441,9 +446,36 @@ function lift(x, y) {
   B.root.append(g);
   d.ghost = g;
   d.card.classList.add("is-placeholder");
+  measure(d);
+  B.cols.addEventListener("scroll", scrolled, true);
+  window.addEventListener("resize", resized);
   if (!still.matches) g.animate([{ scale: "1", rotate: "0deg" }, { scale: "1.04", rotate: "-1.5deg" }], { duration: 160, easing: ARRIVE, fill: "forwards" });
   announce("lifted", d.card);
   if (navigator.vibrate && d.touch) navigator.vibrate(8);
+}
+
+function measure(d) {
+  const st = getComputedStyle(d.card.parentNode);
+  const pad = parseFloat(st.paddingTop) || 0, padb = parseFloat(st.paddingBottom) || 0;
+  d.gap = parseFloat(st.rowGap) || 0;
+  d.s = d.card.offsetHeight + d.gap;
+  d.sl = B.cols.scrollLeft;
+  d.view = B.cols.getBoundingClientRect();
+  d.ct = 0;
+  d.m = new Map();
+  for (const col of B.cols.children) {
+    const list = col.querySelector(".p99-cards");
+    if (!list) continue;
+    const c = col.getBoundingClientRect(), r = list.getBoundingClientRect();
+    const rows = [];
+    let k = -1;
+    for (const e of list.children) {
+      if (e === d.card) { k = rows.length; continue; }
+      rows.push({ e, y: e.offsetTop - (k >= 0 ? d.s : 0), h: e.offsetHeight, t: 0 });
+    }
+    d.m.set(list, { list, col, count: col.querySelector(".p99-count"), left: c.left + d.sl, right: c.right + d.sl, top: c.top, bottom: c.bottom, ltop: r.top, lbottom: r.bottom, pad, padb, scroll: list.scrollTop, rows });
+    if (k >= 0) { d.list = list; d.k = d.j = k; }
+  }
 }
 
 function move(e) {
@@ -453,79 +485,179 @@ function move(e) {
     const far = Math.hypot(e.clientX - d.x, e.clientY - d.y);
     if (d.touch) { if (far > 8) abort(); return; }
     if (far < 5) return;
-    lift(d.x, d.y);
   }
   d.px = e.clientX;
   d.py = e.clientY;
-  d.ghost.style.translate = (e.clientX - d.dx) + "px " + (e.clientY - d.dy) + "px";
-  hover(e.clientX, e.clientY);
-  scrolling();
+  frame(d);
 }
 
-function hover(x, y) {
+function frame(d) {
+  if (!d.raf) d.raf = requestAnimationFrame(() => tick(d));
+}
+
+function tick(d) {
+  d.raf = 0;
+  if (B.drag !== d) return;
+  if (!d.up) lift(d.x, d.y);
+  if (!d.m) measure(d);
+  d.ghost.style.translate = (d.px - d.dx) + "px " + (d.py - d.dy) + "px";
+  const rolling = roll(d);
+  hover(d);
+  if (rolling) frame(d);
+}
+
+function top(d, m, j) {
+  const r = m.rows, n = r.length;
+  return j < n ? r[j].y : n ? r[n - 1].y + r[n - 1].h + d.gap : m.pad;
+}
+
+function pick(d, m, y, at) {
+  const r = m.rows;
+  for (let i = 0; i < r.length; i++) if (y < r[i].y + (i >= at ? d.s : 0) + r[i].h / 2) return i;
+  return r.length;
+}
+
+function hover(d) {
+  const x = d.px + d.sl, v = d.view;
+  let m = null;
+  if (d.px >= v.left && d.px <= v.right && d.py >= v.top && d.py <= v.bottom) {
+    for (const o of d.m.values()) if (x >= o.left && x <= o.right && d.py >= o.top && d.py <= o.bottom) { m = o; break; }
+  }
+  const col = m && m.col;
+  if (col !== d.over) {
+    if (d.over) d.over.classList.remove("is-target");
+    if (col) col.classList.add("is-target");
+    d.over = col;
+  }
+  if (!m) return;
+  const y = d.py - m.ltop + m.scroll;
+  if (m.list !== d.list) return cross(d, m, pick(d, m, y, m.rows.length));
+  const j = pick(d, m, y, d.j);
+  if (j !== d.j) place(d, m, j);
+}
+
+function nudge(e, was, now, dx) {
+  e.style.translate = now ? "0 " + now + "px" : "";
+  if (still.matches || (was === now && !dx)) return;
+  e.animate([{ translate: (dx || 0) + "px " + (was - now) + "px" }, { translate: "0 0" }], { duration: 200, easing: TRAVEL, composite: "add" }).id = "p99-shift";
+}
+
+function place(d, m, j) {
+  const s = d.s, k = d.k;
+  m.rows.forEach((o, i) => {
+    const t = (i >= j ? s : 0) - (i >= k ? s : 0);
+    if (t !== o.t) { nudge(o.e, o.t, t); o.t = t; }
+  });
+  const was = d.ct;
+  d.j = j;
+  d.ct = top(d, m, j) - top(d, m, k);
+  nudge(d.card, was, d.ct);
+}
+
+function cross(d, m, j) {
+  const o = d.m.get(d.list), s = d.s;
+  const dy = o.ltop - o.scroll + top(d, o, d.j) - (m.ltop - m.scroll + top(d, m, j));
+  o.rows.forEach((r, i) => {
+    const was = i >= d.j ? s : 0;
+    if (was || r.t) nudge(r.e, was, 0);
+    r.t = 0;
+  });
+  m.rows.forEach((r, i) => { if (i >= j) nudge(r.e, -s, 0); });
+  m.list.insertBefore(d.card, j < m.rows.length ? m.rows[j].e : null);
+  nudge(d.card, dy, 0, o.left - m.left);
+  o.count.textContent = o.rows.length;
+  m.count.textContent = m.rows.length + 1;
+  d.list = m.list;
+  d.k = d.j = j;
+  d.ct = 0;
+}
+
+function settle(d) {
+  if (!d.m) return;
+  const m = d.m.get(d.list);
+  if (d.j !== d.k) d.list.insertBefore(d.card, d.j < m.rows.length ? m.rows[d.j].e : null);
+  for (const r of m.rows) if (r.t) { r.e.style.translate = ""; r.t = 0; }
+  d.card.style.translate = "";
+  d.k = d.j;
+  d.ct = 0;
+}
+
+function roll(d) {
+  let on = false;
+  for (const m of d.m.values()) {
+    if (d.px < m.left - d.sl || d.px > m.right - d.sl) continue;
+    const v = d.py < m.ltop + 48 ? d.py - m.ltop - 48 : d.py > m.lbottom - 48 ? d.py - m.lbottom + 48 : 0;
+    const max = Math.max(0, top(d, m, m.rows.length) - d.gap + (m.list === d.list ? d.s : 0) + m.padb - (m.lbottom - m.ltop));
+    const to = Math.max(0, Math.min(max, m.scroll + v / 4));
+    if (!v || to === m.scroll) continue;
+    m.scroll = to;
+    m.list.scrollTop = to;
+    on = true;
+  }
+  return on;
+}
+
+function scrolled(e) {
   const d = B.drag;
-  const hit = B.root.elementFromPoint(x, y);
-  const col = hit && hit.closest && hit.closest(".p99-col");
-  for (const c of B.cols.children) c.classList.toggle("is-target", c === col);
-  if (!col || !B.cols.contains(col)) return;
-  const list = col.querySelector(".p99-cards");
-  const before = slot(list, y, d.card);
-  if (d.card.parentNode === list && (before === d.card.nextSibling || before === d.card)) return;
-  flip(() => list.insertBefore(d.card, before), TRAVEL, 200);
-  counts();
+  if (!d || !d.m) return;
+  if (e.target === B.cols) d.sl = B.cols.scrollLeft;
+  else {
+    const m = d.m.get(e.target);
+    if (!m) return;
+    m.scroll = e.target.scrollTop;
+  }
+  frame(d);
 }
 
-function scrolling() {
+function resized() {
   const d = B.drag;
-  if (!d || d.scroll) return;
-  const step = () => {
-    d.scroll = 0;
-    if (B.drag !== d || !d.up) return;
-    let moved = false;
-    for (const list of B.cols.querySelectorAll(".p99-cards")) {
-      const r = list.getBoundingClientRect();
-      if (d.px < r.left || d.px > r.right) continue;
-      const v = d.py < r.top + 48 ? -(r.top + 48 - d.py) : d.py > r.bottom - 48 ? d.py - (r.bottom - 48) : 0;
-      if (v) { list.scrollTop += v / 4; moved = true; }
-    }
-    if (moved) { hover(d.px, d.py); d.scroll = requestAnimationFrame(step); }
-  };
-  d.scroll = requestAnimationFrame(step);
+  if (!d || !d.m) return;
+  settle(d);
+  d.m = null;
+  frame(d);
 }
 
-function unbind() {
+function unbind(d) {
   B.el.removeEventListener("pointermove", move);
-  B.el.removeEventListener("pointerup", release);
-  B.el.removeEventListener("pointercancel", abort);
+  window.removeEventListener("pointerup", release, true);
+  window.removeEventListener("pointercancel", abort, true);
+  B.cols.removeEventListener("scroll", scrolled, true);
+  window.removeEventListener("resize", resized);
+  if (d.raf) cancelAnimationFrame(d.raf);
+  d.raf = 0;
 }
 
 function release(e) {
   const d = B.drag;
   if (!d || e.pointerId !== d.pointer) return;
   clearTimeout(d.timer);
-  unbind();
-  if (!d.up) { B.drag = null; return; }
+  if (d.raf) { cancelAnimationFrame(d.raf); tick(d); }
+  unbind(d);
+  if (!d.up) { B.drag = null; later(); return; }
   B.quiet = Date.now();
+  settle(d);
   land(d, () => commit(d));
 }
 
-function abort() {
+function abort(e) {
   const d = B.drag;
-  if (!d) return;
+  if (!d || (e && e.pointerId !== d.pointer)) return;
   clearTimeout(d.timer);
-  unbind();
-  if (!d.up) { B.drag = null; return; }
+  unbind(d);
+  if (!d.up) { B.drag = null; later(); return; }
   cancel();
 }
 
 function land(d, then) {
-  if (d.scroll) cancelAnimationFrame(d.scroll);
-  for (const c of B.cols.children) c.classList.remove("is-target");
+  if (d.over) d.over.classList.remove("is-target");
+  d.over = null;
   const g = d.ghost;
   const finish = () => {
     if (g) g.remove();
     d.card.classList.remove("is-placeholder", "is-lifted");
     if (B.drag === d) B.drag = null;
+    if (d.focus && d.card.isConnected) d.card.focus({ preventScroll: true });
+    replay(d);
     then();
   };
   if (!g || still.matches) return finish();
@@ -534,11 +666,21 @@ function land(d, then) {
   a.onfinish = a.oncancel = finish;
 }
 
+function replay(d) {
+  const q = d.queue;
+  d.queue = [];
+  for (const ev of q) {
+    if (ev.key !== d.id) event(ev);
+    else if (ev.type !== "order" || String(ev.board) === B.id) B.stale = true;
+  }
+}
+
 function cancel() {
   const d = B.drag;
   if (!d) return;
+  settle(d);
   const [list, next] = d.home;
-  flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220);
+  flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220, kin(list, d.card.parentNode));
   counts();
   land(d, () => { announce("cancelled", d.card); later(); });
 }
@@ -655,13 +797,13 @@ function shift(dx, dy) {
   if (dy) {
     const to = dy < 0 ? c.previousElementSibling : c.nextElementSibling;
     if (!to) return;
-    flip(() => list.insertBefore(c, dy < 0 ? to : to.nextSibling), TRAVEL, 200);
+    flip(() => list.insertBefore(c, dy < 0 ? to : to.nextSibling), TRAVEL, 200, Array.from(list.children));
   } else {
     const col = dx < 0 ? columnOf(c).previousElementSibling : columnOf(c).nextElementSibling;
     if (!col) return;
     const into = col.querySelector(".p99-cards");
     const y = c.getBoundingClientRect().top;
-    flip(() => into.insertBefore(c, slot(into, y + 1, c)), TRAVEL, 220);
+    flip(() => into.insertBefore(c, slot(into, y + 1, c)), TRAVEL, 220, kin(list, into));
     counts();
   }
   c.focus({ preventScroll: true });
@@ -682,7 +824,7 @@ function undo() {
   const d = B.drag;
   const [list, next] = d.home;
   d.card.classList.remove("is-lifted");
-  flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220);
+  flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220, kin(list, d.card.parentNode));
   counts();
   B.drag = null;
   d.card.focus({ preventScroll: true });
@@ -763,6 +905,7 @@ function later() {
 function event(ev) {
   if (!ev || !B.data) return;
   if (ev.host && ev.host !== (B.ctx.host || location.hostname)) return;
+  if (B.drag && B.drag.up && !B.drag.keys) return void B.drag.queue.push(ev);
   if (ev.type === "label") return relabel(ev.key, ev.to);
   if (ev.type === "order") return String(ev.board) !== B.id ? undefined : ev.rebalanced ? soon() : reorder(ev.key, ev.order);
   if (ev.type === "delete") return gone(ev.key);
