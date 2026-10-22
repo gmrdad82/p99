@@ -44,7 +44,8 @@ generateNKeysBetween from rocicorp's fractional-indexing 3.2.0
 9e55f979db216df7d20e2be17fbe185d881e3c90, src/index.js): its base-62 digits,
 its integer and fraction parts and its midpoint rule. That code is dedicated to
 the public domain under CC0 1.0 Universal and asks for no notice; it is credited
-here all the same.
+here all the same. worker/test/order.test.mjs checks the port against that
+project's own test vectors (src/index.test.js, same commit).
 The TUI's sample boards (p99 tui --demo, src/tui/demo/boards.rs) port its
 midpoint rule alone, from the same file and commit, to order their cards.
 

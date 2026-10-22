@@ -19,4 +19,5 @@ fi
 cargo build --release
 bin/budget
 (cd worker && npm ci --no-fund --no-audit && npm test)
+node --test render/web/coverage.test.mjs
 echo "gate: green"

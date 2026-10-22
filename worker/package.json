@@ -7,8 +7,10 @@
   "license": "AGPL-3.0-only",
   "scripts": {
     "dev": "wrangler dev --local",
-    "test": "node test/run.mjs",
-    "test:csp": "node test/csp.mjs"
+    "test": "node --test test/*.test.mjs && node test/run.mjs",
+    "test:csp": "node test/csp.mjs",
+    "coverage": "node test/coverage.mjs",
+    "test:unit": "node --test test/*.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.145.0"
