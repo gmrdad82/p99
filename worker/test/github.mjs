@@ -71,13 +71,13 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     (await call("POST", `/_p99/v1/issues?host=${host}`, { body: issueBody({ title }) })).json;
   const open = (key) => call("POST", `/_p99/v1/issues/${key}/github`);
   const threadOf = async (key, host) => (await call("GET", `/_p99/v1/issues/${key}?host=${host}`)).json.issue;
-  const deliver = async (payload) => {
+  const deliver = async (payload, event = "pull_request") => {
     const bytes = Buffer.from(JSON.stringify(payload));
     const response = await fetch(`http://localhost:${port}/_p99/v1/github`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-github-event": "pull_request",
+        "x-github-event": event,
         "x-github-delivery": randomUUID(),
         "x-hub-signature-256": `sha256=${createHmac("sha256", HOOK_SECRET).update(bytes).digest("hex")}`,
       },
@@ -283,6 +283,37 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
       assert.equal(gh.seen.length, 1, JSON.stringify(answer));
       assert.equal((await threadOf(item.key, there)).closed_at, null);
     }
+  });
+
+  await check("closing the GitHub issue P99 opened marks its item fixed once; any other close or issue leaves it open", async () => {
+    reset();
+    assert.equal((await link(there)).status, 200);
+    const item = await fileOn(there, "The receipt shows the old address");
+    gh.answers.set(`POST /repos/${REPO}/issues`, { status: 201, body: { number: 91, html_url: `https://github.com/${REPO}/issues/91` } });
+    assert.equal((await open(item.key)).status, 201);
+    const closed = (number, more = {}) => ({ action: "closed", repository: { full_name: REPO }, issue: { number, state_reason: "completed", ...more } });
+    for (const payload of [
+      closed(91, { state_reason: "not_planned" }),
+      closed(91, { pull_request: { url: "https://example.com/pull/91" } }),
+      { ...closed(91), action: "edited" },
+      closed(92),
+      { ...closed(91), issue: { number: "91" } },
+      { ...closed(91), repository: { full_name: "acme/elsewhere" } },
+    ]) {
+      const quiet = await deliver(payload, "issues");
+      assert.equal(quiet.status, 204, JSON.stringify(payload));
+      assert.equal((await threadOf(item.key, there)).closed_at, null, JSON.stringify(payload));
+    }
+    const fixed = await deliver(closed(91, { state_reason: null }), "issues");
+    assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
+    assert.deepEqual(fixed.json, { linked: [], changed: [item.key] });
+    const thread = await threadOf(item.key, there);
+    assert.ok(thread.closed_at);
+    const again = await deliver(closed(91), "issues");
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    assert.deepEqual(again.json, { linked: [], changed: [] });
+    assert.equal((await threadOf(item.key, there)).closed_at, thread.closed_at);
+    assert.equal((await deliver(closed(91), "push")).status, 204);
   });
 
   await check("unlinking removes the webhook with the host's token when it can and names the secrets to delete", async () => {
