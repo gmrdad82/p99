@@ -16,6 +16,7 @@
     "pitomd": "node pitomd.mjs",
     "badges": "node badges.mjs",
     "stories-widget": "node stories-widget.mjs",
+    "stories-board": "node stories-board.mjs",
     "coverage": "node coverage.mjs",
     "test:unit": "node --test coverage.test.mjs"
   },

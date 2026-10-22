@@ -14,7 +14,7 @@ const WORDS = {
   none: "No spaces yet. Ask the person who invited you for a P99 link.",
   open_one: "1 open",
   open_many: "{n} open",
-  manager: "Manager",
+  manager: "Owner",
   profile: "Profile",
   back: "Spaces",
   username: "Username",

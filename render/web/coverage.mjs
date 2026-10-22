@@ -9,7 +9,7 @@ const repo = resolve(here, "../..");
 const worker = join(repo, "worker");
 const web = join(worker, "src", "web");
 
-export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "board.mjs"];
+export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "stories-board.mjs", "board.mjs"];
 export const ARGS = { "board.mjs": ["check", "--worker"] };
 export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "app.js"];
 const SERVED = new Set(SHOWN);

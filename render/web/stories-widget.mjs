@@ -1211,6 +1211,78 @@ try {
     await ctx.close();
   });
 
+  const meWith = (counts, manager) => ({ name: ADA.name, email: ADA.email, username: "ada", manager, role: manager ? "owner" : "user", host: HOST, env: "production", version: "dev", counts, theme: {}, strings: {}, link: true, license: "free" });
+  const dotPage = async (answers, motion = "no-preference") => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: motion });
+    await ctx.addInitScript(openShadow);
+    let n = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(answers[Math.min(n++, answers.length - 1)]) }));
+    const p = await ctx.newPage();
+    await p.goto(`${PAGE}#p99=${code}`);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the first /me", () => n >= 1);
+    await frames(p);
+    return { ctx, p, asked: () => n };
+  };
+  const dot = (p) => p.evaluate(() => {
+    const r = document.querySelector("p99-root").shadowRoot;
+    const q = r.querySelector(".w .b:not(.f)");
+    const n = q && q.querySelector(".n");
+    const cs = n && getComputedStyle(n);
+    return {
+      menu: !!q && !q.hidden,
+      text: n ? n.textContent : null,
+      accent: !!n && n.classList.contains("u"),
+      scale: cs ? cs.scale : null,
+      easing: cs ? cs.transitionTimingFunction : null,
+      duration: cs ? cs.transitionDuration : null,
+      onPlus: !!r.querySelector(".w .f .n"),
+    };
+  });
+  const owner = (waiting, unread, page) => meWith({ mine_open: 1, mine_unread: unread, page_open: page, waiting }, true);
+  const visitor = (unread, page, open = 1) => meWith({ mine_open: open, mine_unread: unread, page_open: page, waiting: null }, false);
+
+  for (const [name, me, want] of [
+    ["an Owner with cards waiting sees their count on the ⋯ button first, in the accent, never on the +", owner(3, 2, 7), { menu: true, text: "3", accent: true, onPlus: false }],
+    ["an Owner's waiting count counts before their unread and the page's items, however small", owner(1, 9, 9), { menu: true, text: "1", accent: true, onPlus: false }],
+    ["an Owner with nothing waiting sees today's unread count, in the accent", owner(0, 4, 5), { menu: true, text: "4", accent: true, onPlus: false }],
+    ["an Owner with nothing waiting and nothing unread sees the page's open items, plain", owner(0, 0, 5), { menu: true, text: "5", accent: false, onPlus: false }],
+    ["an Owner with nothing at all keeps the ⋯ button and no dot", owner(0, 0, 0), { menu: true, text: "", accent: false, onPlus: false }],
+    ["more than 99 waiting shows 99+", owner(120, 0, 0), { menu: true, text: "99+", accent: true, onPlus: false }],
+    ["a visitor's dot is unchanged: their unread first, in the accent", visitor(2, 6), { menu: true, text: "2", accent: true, onPlus: false }],
+    ["a visitor with no unread sees the page's open items, plain", visitor(0, 6), { menu: true, text: "6", accent: false, onPlus: false }],
+    ["a visitor's waiting stays null, so nothing new shows when they have nothing", visitor(0, 0, 0), { menu: false, text: "", accent: false, onPlus: false }],
+  ]) {
+    await story(`the dot: ${name}`, async () => {
+      const { ctx, p } = await dotPage([me]);
+      const d = await dot(p);
+      const got = { menu: d.menu, text: d.text, accent: d.accent, onPlus: d.onPlus };
+      check(`${name} (${JSON.stringify(got)})`, JSON.stringify(got) === JSON.stringify(want));
+      if (d.menu) check(`the dot is ${want.text ? "full size" : "scaled to nothing"} when it ${want.text ? "counts" : "has nothing"} (${d.scale})`, want.text ? d.scale === "none" || d.scale === "1" : d.scale === "0");
+      await ctx.close();
+    });
+  }
+
+  await story("the dot grows in eased, never linear, when something starts waiting after a page change", async () => {
+    const { ctx, p, asked } = await dotPage([owner(0, 0, 0), owner(2, 0, 0)]);
+    const before = await dot(p);
+    check(`no dot at first (${JSON.stringify(before)})`, before.menu && before.text === "" && before.scale === "0");
+    check(`its transition is eased over 0.3s (${before.easing}, ${before.duration})`, before.easing !== "linear" && !/linear/.test(before.easing) && before.duration === "0.3s");
+    await p.evaluate(() => {
+      history.pushState(null, "", "/checkout/review");
+      document.body.append(document.createElement("i"));
+    });
+    await until("the second /me", () => asked() >= 2);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n")?.textContent === "2");
+    const growing = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().map((a) => ({ property: a.transitionProperty, easing: a.effect.getTiming().easing, state: a.playState })));
+    const scale = growing.find((a) => a.property === "scale");
+    check(`the 2 grows in through a scale transition that eases (${JSON.stringify(growing)})`, !!scale && scale.easing !== "linear");
+    await until("the transition's end", async () => (await dot(p)).scale !== "0" && (await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().length)) === 0, 3000);
+    const after = await dot(p);
+    check(`then it sits at full size in the accent (${JSON.stringify(after)})`, after.text === "2" && after.accent && (after.scale === "none" || after.scale === "1"));
+    await ctx.close();
+  });
+
   await browser.close();
 } catch (e) {
   console.error(e);
