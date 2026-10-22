@@ -148,6 +148,7 @@ const WORDS = {
   too_many_files: "An item holds up to 30 files.",
   file_type: "P99 takes images, PDFs, text, CSV, JSON, zip and office files.",
   title_needed: "Add a title.",
+  too_long: "That's over {n} characters; shorten it to send.",
   sending: "Sending…",
   uploading: "Uploading {name}… {pct}%",
   upload_failed: "“{name}” didn't upload; try again.",
@@ -934,6 +935,7 @@ function submitComment(form, key) {
   const body = form.elements.body.value.trim();
   const files = form.p99Files || [];
   if (!body && !files.length) return form.elements.body.focus();
+  if (over(body, 20000)) return refuse(form, form.elements.body, 20000);
   form.p99Busy = true;
   form.p99Uid = form.p99Uid || uid();
   const send = form.querySelector("button[type=submit]");
@@ -941,7 +943,7 @@ function submitComment(form, key) {
   status(form, say("sending"));
   const internal = form.elements.internal ? form.elements.internal.checked : false;
   const made = form.p99Comment ? Promise.resolve(form.p99Comment) : retrying(() =>
-    call("POST", "/issues/" + enc(key) + "/comments", JSON.stringify({ client_uid: form.p99Uid, body: cut(body, 20000), internal })));
+    call("POST", "/issues/" + enc(key) + "/comments", JSON.stringify({ client_uid: form.p99Uid, body, internal })));
   made.then((res) => {
     form.p99Comment = res;
     const items = files.map((f) => ({ uid: f.uid, role: "file", name: f.file.name || "file", blob: f.file, comment: res.id, done: f.done, dead: f.dead, err: f.err, ref: f }));
@@ -1000,7 +1002,7 @@ function combo(o) {
       mark(q && list.length ? 0 : -1);
     }, (e) => {
       clearTimeout(slow);
-      note(problem(e));
+      note(loadProblem(e));
     });
   };
   const pick = (k) => {
@@ -1266,7 +1268,11 @@ function refusal(x) {
 function here() {
   return { origin: location.origin, path: location.pathname, title: document.title.slice(0, 300) };
 }
-function cut(s, n) { return s.length <= n ? s : Array.from(s).slice(0, n).join(""); }
+function over(s, n) { return s.length > n && Array.from(s).length > n; }
+function refuse(form, field, n) {
+  status(form, say("too_long", { n: n.toLocaleString("en") }));
+  field.focus();
+}
 function bytes(v) { return new TextEncoder().encode(JSON.stringify(v)).length; }
 function lib() {
   if (!S.lib) {
@@ -1682,6 +1688,8 @@ function submitNew(form) {
     form.elements.title.focus();
     return;
   }
+  if (over(title, 200)) return refuse(form, form.elements.title, 200);
+  if (over(form.elements.body.value, 20000)) return refuse(form, form.elements.body, 20000);
   const send = form.querySelector("button[type=submit]");
   d.busy = true;
   send.disabled = true;
@@ -1693,8 +1701,8 @@ function submitNew(form) {
         const body = fit({
           client_uid: d.uid,
           kind: kind ? kind.value : "bug",
-          title: cut(title, 200),
-          body: cut(form.elements.body.value, 20000),
+          title,
+          body: form.elements.body.value,
           page: { url: d.at.origin + d.at.path, path: d.at.path.slice(0, 512), title: d.at.title },
           context,
           marks: JSON.parse(JSON.stringify(d.marks.map((m) => m.mark)))
@@ -1717,7 +1725,7 @@ function submitNew(form) {
         d.dispose();
         if (S.draft !== d) return;
         S.draft = null;
-        if (S.open && S.view === "new") item(res.key);
+        if (S.view === "new") item(res.key);
       });
   }).catch((e) => {
     d.busy = false;

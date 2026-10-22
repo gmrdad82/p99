@@ -590,7 +590,9 @@ export async function postMove(c) {
     if (on[0].host !== null && on[0].host !== row.host) K.fail(404, "no such board");
   }
   const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board));
-  const target = namedBy(mine, body.to, (r) => r.name)[0];
+  const named = namedBy(mine, body.to, (r) => r.name);
+  if (new Set(named.map((r) => r.label_id)).size > 1) K.fail(400, `${body.to} names more than one label; give its exact name`);
+  const target = named[0];
   if (!target) K.fail(400, hasBoard ? `${body.to} is not a column of that board` : `${body.to} is not a label on your boards`);
   if (!sawLabel(row, body.from, columns)) K.fail(409, MOVED, "moved");
   const to = { id: target.label_id, name: target.name, role: target.role, closes: target.closes };
@@ -687,6 +689,15 @@ export async function fanOut(DB, sockets, events) {
       } catch {}
     }
   }
+}
+
+export function publisher(DB, sockets) {
+  let tail = Promise.resolve();
+  return (events) => {
+    const run = tail.then(() => fanOut(DB, sockets(), events));
+    tail = run.catch(() => {});
+    return run;
+  };
 }
 
 export async function redeemTicket(storage, url, DB) {

@@ -137,9 +137,17 @@ pub struct Tag {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LabelEdit {
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub add: Vec<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub remove: Vec<String>,
 }
 
@@ -211,7 +219,11 @@ pub struct Issue {
     pub labels: Vec<Tag>,
     #[serde(default, deserialize_with = "lenient")]
     pub github: Vec<GithubLink>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub merged: Vec<Merged>,
 }
 
@@ -344,7 +356,11 @@ pub struct Thread {
     pub attachments: Vec<Attachment>,
     #[serde(default, deserialize_with = "lenient")]
     pub events: Vec<Event>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub people: Vec<Member>,
 }
 
@@ -482,7 +498,11 @@ pub fn content_type(name: &str) -> Option<&'static str> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewIssue {
     pub client_uid: String,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub host: Option<String>,
     pub kind: String,
     pub title: String,
@@ -525,21 +545,49 @@ pub struct Member {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Change {
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub status: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub resolution: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<Option<String>>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub duplicate_of: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub title: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub body: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub labels: Option<LabelEdit>,
 }
 
@@ -668,35 +716,71 @@ pub struct NewCode {
     pub hosts: Vec<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub totp: bool,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub mail: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Minted {
     pub code: Code,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub secret: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub links: Vec<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub totp_key: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub totp: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub mail: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub revoked: Option<Code>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Relink {
     pub client_uid: String,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub new_totp: bool,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub mail: bool,
 }
 
@@ -712,7 +796,11 @@ pub struct Build {
     pub branch: String,
     pub version: String,
     pub dirty: bool,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub env: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub items: Vec<BuildItem>,
@@ -808,11 +896,23 @@ pub struct MoveTo {
     pub key: String,
     pub from: String,
     pub to: String,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub board: Option<i64>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub before: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub after: Option<String>,
 }
 
@@ -824,15 +924,27 @@ pub struct MovedCard {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaneSpec {
     pub label: String,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub closes: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BoardSpec {
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub name: Option<String>,
-    #[serde(default, deserialize_with = "lenient", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub columns: Option<Vec<LaneSpec>>,
 }
 

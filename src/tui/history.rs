@@ -158,4 +158,15 @@ mod tests {
         assert_eq!(what("mail", &json!({"to": "ada@example.com"})), "mail");
         assert_eq!(what("title", &json!({"from": "Old"})), "title");
     }
+
+    #[test]
+    fn history_values_read_as_words() {
+        assert_eq!(plain("status", &json!("review")), "Review");
+        assert_eq!(plain("status", &json!("in_progress")), "In progress");
+        assert_eq!(plain("status", &json!("resolved")), "Fixed");
+        assert_eq!(plain("kind", &json!("feature")), "Idea");
+        assert_eq!(plain("label", &json!("qa_ready")), "qa ready");
+        assert_eq!(plain("assignee", &json!(null)), "nobody");
+        assert_eq!(plain("position", &json!(3)), "3");
+    }
 }

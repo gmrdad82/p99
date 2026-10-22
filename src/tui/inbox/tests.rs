@@ -2,6 +2,7 @@ use pito_tui::dump;
 use pito_tui::ratatui::style::Modifier;
 use serde_json::json;
 
+use crate::tui::source::Loaded;
 use crate::wire::{GithubLink, Merged};
 
 use super::super::demo::{Demo, NOW};
@@ -177,7 +178,7 @@ fn a_filter_with_no_match_says_how_to_clear_it() {
 #[test]
 fn an_empty_inbox_says_where_reports_land() {
     let mut app = run(sample());
-    let text = app.event(INBOX, Msg::Inbox(Ok(Vec::new())));
+    let text = app.event(INBOX, Msg::Inbox(Ok(Loaded::default())));
     assert!(
         text.contains("No items yet. Reports from your sites land here."),
         "{text}"
@@ -224,10 +225,17 @@ fn nothing_open_here_points_to_the_closed_items() {
     let closed: Vec<Entry> = sample()
         .inbox()
         .expect("the sample reads")
+        .entries
         .into_iter()
         .filter(|entry| entry.summary.resolution.is_some())
         .collect();
-    let text = app.event(INBOX, Msg::Inbox(Ok(closed)));
+    let text = app.event(
+        INBOX,
+        Msg::Inbox(Ok(Loaded {
+            entries: closed,
+            unloaded: 0,
+        })),
+    );
     assert!(
         text.contains("Nothing open here. s shows closed."),
         "{text}"
@@ -1011,17 +1019,6 @@ fn the_state_word_names_the_label_and_any_resolution_but_fixed() {
         state(&issue(Some("QA ready"), "received", None)),
         "QA ready"
     );
-}
-
-#[test]
-fn history_values_read_as_words() {
-    assert_eq!(plain("status", &json!("review")), "Review");
-    assert_eq!(plain("status", &json!("in_progress")), "In progress");
-    assert_eq!(plain("status", &json!("resolved")), "Fixed");
-    assert_eq!(plain("kind", &json!("feature")), "Idea");
-    assert_eq!(plain("label", &json!("qa_ready")), "qa ready");
-    assert_eq!(plain("assignee", &json!(null)), "nobody");
-    assert_eq!(plain("position", &json!(3)), "3");
 }
 
 #[test]

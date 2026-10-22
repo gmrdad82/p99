@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fanOut, liveCodes, liveSockets, redeemTicket, storeTicket } from "../src/boards.js";
+import { fanOut, liveCodes, liveSockets, publisher, redeemTicket, storeTicket } from "../src/boards.js";
 
 function fakeDB({ live = [], broken = false } = {}) {
   const queries = [];
@@ -188,5 +188,55 @@ export async function ticketChecks({ check }) {
     assert.deepEqual(there.sent.map((e) => e.key ?? e.type), ["P-4", "labels"]);
     assert.deepEqual(all.sent.map((e) => e.key ?? e.type), ["P-3", "P-4", "labels"]);
     assert.equal(all.sent[1].hosts, undefined, "the hosts list leaked into the event");
+  });
+
+  await check("[tickets] publishes reach every socket in call order even when the first one's D1 read answers last", async () => {
+    const DB = fakeDB({ live: [3] });
+    const all = DB.prepare;
+    let release;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    DB.prepare = (sql) => {
+      const statement = all(sql);
+      return {
+        bind(...args) {
+          const bound = statement.bind(...args);
+          return {
+            async all() {
+              if (calls++ === 0) await held;
+              return bound.all();
+            },
+          };
+        },
+      };
+    };
+    const board = fakeSocket({ hosts: null, code: 3 });
+    const peer = fakeSocket({ hosts: null, code: 3 });
+    const publish = publisher(DB, () => pairs(board, peer));
+    const first = publish([{ type: "order", host: "example.com", key: "P-5", to: "B" }]);
+    const second = publish([{ type: "order", host: "example.com", key: "P-5", to: "C" }]);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(board.sent, [], "the second batch went out while the first one's read was pending");
+    release();
+    await Promise.all([first, second]);
+    assert.deepEqual(board.sent.map((e) => e.to), ["B", "C"]);
+    assert.deepEqual(peer.sent.map((e) => e.to), ["B", "C"]);
+  });
+
+  await check("[tickets] a publish that fails never stalls the ones after it", async () => {
+    const key = fakeSocket({ hosts: null, code: null });
+    let broken = true;
+    const publish = publisher(fakeDB(), () => {
+      if (broken) {
+        broken = false;
+        throw new Error("the hub lost its sockets");
+      }
+      return pairs(key);
+    });
+    await assert.rejects(publish([{ type: "item", host: "example.com", key: "P-6" }]), /lost its sockets/);
+    await publish([{ type: "item", host: "example.com", key: "P-7" }]);
+    assert.deepEqual(key.sent.map((e) => e.key), ["P-7"]);
   });
 }

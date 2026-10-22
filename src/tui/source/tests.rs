@@ -207,7 +207,7 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 #[test]
 fn the_sample_inbox_comes_newest_first_and_codes_newest_first() {
     let source = Source::demo(Duration::ZERO);
-    let entries = source.inbox().expect("the sample reads");
+    let entries = source.inbox().expect("the sample reads").entries;
     assert_eq!(entries.len(), 22);
     assert!(entries.windows(2).all(|pair| {
         let (a, b) = (&pair[0].summary, &pair[1].summary);
@@ -356,7 +356,7 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
 fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
     let source = ghost(&[]);
     assert!(source.hosts().is_empty());
-    assert!(source.inbox().expect("nothing to read").is_empty());
+    assert!(source.inbox().expect("nothing to read").entries.is_empty());
     assert!(source.codes().expect("nothing to read").is_empty());
     assert!(source.boards().expect("nothing to read").is_empty());
     assert_eq!(source.board(None).err().as_deref(), Some(NONE));

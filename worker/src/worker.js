@@ -8,8 +8,8 @@ import {
   LABEL_JOIN,
   START_LABEL,
   closeItem,
+  publisher,
   redeemTicket,
-  fanOut,
   liveSockets,
   reopenItem,
   stageOf,
@@ -994,9 +994,12 @@ async function openStream(c) {
 }
 
 export class P99Hub extends DurableObject {
+  #publish;
+
   constructor(ctx, env) {
     super(ctx, env);
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    this.#publish = publisher(env.DB, () => this.#sockets());
   }
 
   async fetch(request) {
@@ -1030,7 +1033,7 @@ export class P99Hub extends DurableObject {
   }
 
   async publish(events) {
-    await fanOut(this.env.DB, this.#sockets(), events);
+    await this.#publish(events);
   }
 
   async webSocketMessage() {}

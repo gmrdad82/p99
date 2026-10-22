@@ -618,6 +618,9 @@ mod tests {
         ));
         hides(&message, &[SECRET]);
         assert!(message.starts_with("config.toml: line "), "{message}");
+        let message = broken(&account_with(&format!("token = [\n\"{SECRET}\" x\n]")));
+        hides(&message, &[SECRET]);
+        assert!(message.starts_with("config.toml: line 4"), "{message}");
     }
 
     #[test]
@@ -730,7 +733,10 @@ mod tests {
         let mut keys = Vec::new();
         named_keys(&value, "", &mut keys);
         for key in &keys {
-            assert!(KNOWN_KEYS.contains(&key.as_str()), "{key} is not in KNOWN_KEYS");
+            assert!(
+                KNOWN_KEYS.contains(&key.as_str()),
+                "{key} is not in KNOWN_KEYS"
+            );
             let credential = ["token", "key", "secret", "code", "license", "password"]
                 .iter()
                 .any(|word| key.contains(word));
@@ -741,7 +747,10 @@ mod tests {
             );
         }
         for key in SECRET_KEYS.iter().chain(KNOWN_KEYS.iter()) {
-            assert!(keys.iter().any(|k| k == key), "{key} is listed but never written");
+            assert!(
+                keys.iter().any(|k| k == key),
+                "{key} is listed but never written"
+            );
         }
     }
 

@@ -470,5 +470,11 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     assert.equal((await ada.get(key)).json.issue.label, "Révisé");
     assert.equal((await ada.move({ key, from: "RÉVISÉ", to: "revise", board: id })).status, 200);
     assert.equal((await ada.get(key)).json.issue.label, "revise");
+    for (const move of [{ key, from: "revise", to: "RÉVISÉ" }, { key, from: "revise", to: "RÉVISÉ", board: id }]) {
+      const both = await ada.move(move);
+      assert.equal(both.status, 400, JSON.stringify(both.json));
+      assert.match(both.json.message, /RÉVISÉ names more than one label; give its exact name/);
+      assert.equal((await ada.get(key)).json.issue.label, "revise");
+    }
   });
 }

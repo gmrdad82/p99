@@ -518,8 +518,12 @@ try {
     await ctx.close();
   });
 
-  await story("a visitor's title of 200 emoji is filed whole, and a longer one is cut at 200 characters without breaking an emoji", async () => {
+  await story("a visitor's title of 200 emoji is filed whole, and a longer title or body is refused in the form, never sent cut", async () => {
     const { ctx, p, errors } = await visit();
+    const posts = [];
+    p.on("request", (r) => {
+      if (isPost(r.url(), r.method())) posts.push(r.url());
+    });
     const head = `[${RUN}] `;
     const typed = async (title) => {
       await openForm(p);
@@ -536,13 +540,28 @@ try {
     check(`the 200-emoji title arrives whole (${filed.length})`, filed.includes(whole));
     await p.locator(S(".p99-x")).click();
     await until("the panel to close", async () => !(await panelOpen(p)));
+    const sent = posts.length;
     const long = `${head}${"🎉".repeat(194)}`;
     check("the field takes more than 200 characters of emoji", (await typed(long)) === long);
     await p.locator(SEND).click();
-    await thread(p);
-    const cut = `${head}${"🎉".repeat(200 - [...head].length)}`;
-    const titles = (await must("GET", `/issues?scope=all&host=${HOST}&q=${RUN}`)).issues.map((i) => i.title);
-    check("the longer title is cut to 200 characters, every emoji whole", titles.includes(cut) && titles.every((t) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(t)));
+    await waitStatus(p, /over 200 characters/);
+    check(`the status says the title is over 200 characters ("${await statusLine(p)}")`, /over 200 characters/.test(await statusLine(p)));
+    check(`nothing is sent (${posts.length - sent} sends)`, posts.length === sent);
+    check("the title keeps every character typed", (await p.locator(TITLE).inputValue()) === long);
+    check("the title field has the focus", await p.locator(TITLE).evaluate((n) => n.getRootNode().activeElement === n));
+    const ascii = `${head}${"t".repeat(201 - head.length)}`;
+    await p.locator(TITLE).fill(ascii);
+    await p.locator(SEND).click();
+    check(`a 201-letter title is refused too (${posts.length - sent} sends)`, /over 200 characters/.test(await statusLine(p)) && posts.length === sent);
+    const BODY = S(".p99-new textarea[name=body]");
+    await p.locator(TITLE).fill(tag("A long body"));
+    const body = "b".repeat(20001);
+    await p.locator(BODY).fill(body);
+    await p.locator(SEND).click();
+    await waitStatus(p, /over 20,000 characters/);
+    check(`a 20,001-letter body is refused in the form (${posts.length - sent} sends)`, posts.length === sent);
+    check("the body keeps every character typed", (await p.locator(BODY).inputValue()) === body);
+    check("the body field has the focus", await p.locator(BODY).evaluate((n) => n.getRootNode().activeElement === n));
     check(`no script error on the page (${errors.join(" | ")})`, errors.length === 0);
     await ctx.close();
   });
@@ -608,6 +627,39 @@ try {
     await refresh;
     await frames(p);
     check("the panel stays shut", !(await panelOpen(p)));
+    check(`no thread was loaded (${gets.length})`, gets.length === 0);
+    check("the report arrived", (await found(title)).length === 1);
+    await ctx.close();
+  });
+
+  await story("switching to Your items while a report uploads keeps the list when the upload finishes", async () => {
+    const { ctx, p } = await visit();
+    const uploading = gate();
+    let held = 0;
+    const gets = [];
+    await p.route((u) => /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(u.pathname), async (route) => {
+      held++;
+      await uploading.opened;
+      await route.fallback();
+    });
+    p.on("request", (r) => {
+      if (isItemGet(r.url(), r.method())) gets.push(r.url());
+    });
+    await openForm(p);
+    await shotReady(p);
+    const title = tag("Sent, then Your items opened");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await until("the held upload", () => held >= 1);
+    await p.locator("p99-root >> .w .b:not(.f)").click();
+    await p.locator(S("[data-view=list]")).waitFor({ timeout: 20000 });
+    const refresh = p.waitForRequest((r) => new URL(r.url()).pathname === "/_p99/api/me", { timeout: 20000 });
+    uploading.open();
+    await refresh;
+    await frames(p);
+    check("the panel stays open", await panelOpen(p));
+    check("the list stays on screen", await p.locator(S("[data-view=list]")).isVisible());
+    check("no thread opened over it", !(await p.locator(S("[data-view=item]")).isVisible()));
     check(`no thread was loaded (${gets.length})`, gets.length === 0);
     check("the report arrived", (await found(title)).length === 1);
     await ctx.close();
@@ -681,6 +733,24 @@ try {
   };
   const stored = async (item, body) => (await must("GET", `/issues/${item.key}?host=${HOST}`)).comments.filter((c) => c.body === body);
 
+  await story("a comment of 20,000 letters is stored whole, and one of 20,001 is refused in the form, never sent cut", async () => {
+    const { ctx, p, item, posts } = await threadFor(tag("A thread with a long comment"));
+    const field = p.locator(`${COMMENT} textarea[name=body]`);
+    const over = `${tag("Over")} ${"c".repeat(20001)}`.slice(0, 20001);
+    await field.fill(over);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.waitForFunction(() => /over 20,000 characters/.test(document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open [data-view=item] .p99-comment-form .p99-status-line")?.textContent || ""), null, { timeout: 20000 });
+    check(`the comment is refused before it is sent (${posts.length} sends)`, posts.length === 0);
+    check("the comment keeps every character typed", (await field.inputValue()) === over);
+    check("nothing is stored", (await stored(item, over)).length === 0);
+    const whole = over.slice(0, 20000);
+    await field.fill(whole);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.locator(S(".p99-comment .p99-body")).first().waitFor({ timeout: 20000 });
+    check(`the 20,000-letter comment is stored whole (${posts.length} sends)`, posts.length === 1 && (await stored(item, whole)).length === 1);
+    await ctx.close();
+  });
+
   await story("a comment at the daily limit is told at once, keeps its words, and offers no Retry", async () => {
     const { ctx, p, item, posts } = await threadFor(tag("A thread at the day's comments"));
     await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, (route) =>
@@ -738,6 +808,34 @@ try {
     const [item] = await found(title);
     const t = item ? await must("GET", `/issues/${item.key}?host=${HOST}`) : { issue: { context: {} } };
     const own = (t.issue.context.errors || []).filter((m) => /fetch|network/i.test(m));
+    check(`the report carries no error of P99's own (${own.join(" | ")})`, item && own.length === 0);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a panel that fails to load on hover never shows up in the site's page errors, and the click loads it", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    let aborted = 0;
+    await ctx.route((u) => u.pathname === "/_p99/panel.js", (route) => (aborted++ ? route.fallback() : route.abort("connectionreset")));
+    const p = await ctx.newPage();
+    const errors = [];
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    await p.goto(`${PAGE}#p99=${code}`);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await p.locator("p99-root >> .w .f").hover();
+    await until("the aborted panel import", () => aborted >= 1);
+    await frames(p);
+    await frames(p);
+    await openForm(p);
+    await shotReady(p);
+    const title = tag("Filed after a panel that failed on hover");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await thread(p);
+    const [item] = await found(title);
+    const t = item ? await must("GET", `/issues/${item.key}?host=${HOST}`) : { issue: { context: {} } };
+    const own = (t.issue.context.errors || []).filter((m) => /panel\.js|imported module|_p99/i.test(m));
     check(`the report carries no error of P99's own (${own.join(" | ")})`, item && own.length === 0);
     check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
     await ctx.close();
