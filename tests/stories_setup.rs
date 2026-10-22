@@ -26,7 +26,7 @@ struct Cloud {
     worker: bool,
     bindings: Vec<Value>,
     tag: Option<String>,
-    others: Vec<(&'static str, Vec<Value>)>,
+    others: Vec<(String, Vec<Value>)>,
     secrets: Vec<(String, String)>,
     databases: Vec<(String, String)>,
     buckets: Vec<String>,
@@ -168,10 +168,16 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
             Reply::cf(json!({}))
         }
         ("PUT", ["accounts", _, "workers", "scripts", _, "schedules"]) => Reply::cf(json!({})),
-        ("PUT", ["accounts", _, "workers", "scripts", _]) => {
+        ("PUT", ["accounts", _, "workers", "scripts", name]) => {
             let meta = metadata(&req.text());
-            cf.worker = true;
-            cf.bindings = meta["bindings"].as_array().cloned().unwrap_or_default();
+            let bindings = meta["bindings"].as_array().cloned().unwrap_or_default();
+            if *name == "p99" {
+                cf.worker = true;
+                cf.bindings = bindings;
+            } else {
+                cf.others.retain(|(n, _)| n != name);
+                cf.others.push(((*name).to_owned(), bindings));
+            }
             let keeps = meta["keep_bindings"]
                 .as_array()
                 .is_some_and(|k| k.iter().any(|t| t == "secret_text"));
@@ -254,7 +260,7 @@ fn shipped() -> Vec<String> {
 fn fresh() -> Cloud {
     Cloud {
         accounts: vec![("acc1", "Example")],
-        others: vec![("shop-www", vec![rate("1001")])],
+        others: vec![("shop-www".into(), vec![rate("1001")])],
         ..Default::default()
     }
 }
@@ -946,7 +952,12 @@ fn a_worker_of_the_same_name_on_another_database_is_left_alone() {
             .len(),
         1
     );
-    assert_eq!(cf.lock().unwrap().binding("DB")["database_id"], "db-made");
+    assert!(h.stub.calls("PUT", UPLOAD).is_empty());
+    let state = cf.lock().unwrap();
+    assert_eq!(state.binding("DB")["database_id"], "db-other");
+    let (_, site) = state.others.iter().find(|(n, _)| n == "p99-site").unwrap();
+    let db = site.iter().find(|b| b["name"] == "DB").unwrap();
+    assert_eq!(db["database_id"], "db-made");
 }
 
 #[test]
@@ -1102,7 +1113,7 @@ fn a_cloudflare_5xx_on_the_upload_leaves_the_running_worker_and_its_secrets_as_t
     out.refused("Cloudflare /accounts/acc1/workers/scripts/p99: HTTP 502");
     let state = cf.lock().unwrap();
     assert_eq!(state.binding("VERSION")["text"], "1.9.0");
-    assert!(state.secret("CODE_PEPPER").is_none());
+    assert_eq!(state.secrets, live().secrets);
     assert!(state.routes.is_empty());
     drop(state);
     assert!(

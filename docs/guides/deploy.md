@@ -73,7 +73,7 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
+   Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
 On an account already past 0011, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). 0011 keeps them untouched and unused, and no migration drops them.
 

@@ -195,10 +195,15 @@ fn canonical(value: &Value, out: &mut String) {
 }
 
 fn select(cf: &Cloudflare, account: &Account, sql: &str) -> Result<Vec<Value>, String> {
+    reads(sql)?;
+    Ok(cf.query(&account.account_id, &account.database_id, sql, &[])?)
+}
+
+fn reads(sql: &str) -> Result<(), String> {
     if !sql.starts_with("SELECT ") || sql.contains(';') {
         return Err("the plan only reads, one SELECT at a time".into());
     }
-    Ok(cf.query(&account.account_id, &account.database_id, sql, &[])?)
+    Ok(())
 }
 
 fn text(row: &Value, key: &str) -> String {
@@ -1150,8 +1155,6 @@ mod tests {
 
     #[test]
     fn the_plan_reads_one_select_and_nothing_else() {
-        let cf = Cloudflare::new("unused");
-        let account = Account::default();
         for sql in [
             "DELETE FROM items",
             "select 1",
@@ -1159,11 +1162,12 @@ mod tests {
             " SELECT 1",
         ] {
             assert_eq!(
-                select(&cf, &account, sql),
+                reads(sql),
                 Err("the plan only reads, one SELECT at a time".into()),
                 "{sql}"
             );
         }
+        assert_eq!(reads("SELECT name FROM d1_migrations ORDER BY id"), Ok(()));
     }
 
     #[test]

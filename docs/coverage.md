@@ -162,7 +162,7 @@ Rust: **89.0% of lines** (88.2% of regions, 88.1% of functions), up from 78.8%. 
 | File | Lines covered | Lines | before |
 |---|---|---|---|
 | src/setup.rs | 82.55% | 1639 | 27.18% |
-| src/migrate.rs | 94.29% | 1050 | 34.29% |
+| src/migrate.rs | 94.40% | 1053 | 34.29% |
 | src/cloudflare.rs | 97.78% | 541 | 86.51% |
 
 ## Uncovered critical paths, first in line
