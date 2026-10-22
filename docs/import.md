@@ -31,7 +31,7 @@ bundle/
 | `read` | `item`, `email`, `at` |
 | `manager` | `email` |
 
-`via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported items land on the host's home board, each at the top of its column, so the last line of a column in the bundle sits highest.
+`via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported items land in the one board's lanes by their status (`inbox` in `New`, `doing` in `In progress`, `review` in `Landed`, `done` in `Done`) with no place of their own, so each sits at the top of its lane, newest first.
 
 A `manager` line imports nothing. It names an Owner: P99's Owners are people with an Owner code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every Owner in the bundle who has neither yet, with the `p99 invite --owner` line to mint one.
 
