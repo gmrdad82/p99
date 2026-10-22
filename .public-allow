@@ -106,3 +106,11 @@ commit/a9dc97c53b70:tests/stories_deploy.rs:1291 a fake op reference in the depl
 commit/d35d781105cf:tests/stories_deploy.rs:1291 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1289
 commit/d35d781105cf:docs/config.md:65 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
 commit/d35d781105cf:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
+commit/92d8760206f0:docs/config.md:65 the documented secret-reference feature, as waived at its current line
+commit/92d8760206f0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
+commit/92d8760206f0:tests/stories_deploy.rs:1291 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1291
+commit/de0451409135:src/config.rs:447 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/de0451409135:src/config.rs:466 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/de0451409135:src/config.rs:574 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/de0451409135:src/config.rs:580 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/de0451409135:src/config.rs:581 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
