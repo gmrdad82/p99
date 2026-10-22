@@ -716,8 +716,8 @@ try {
 
   const COMMENT = S("[data-view=item] .p99-comment-form");
   const commentLine = (p) => p.locator(`${COMMENT} .p99-status-line`).textContent();
-  const threadFor = async (title) => {
-    const { ctx, p } = await visit();
+  const threadFor = async (title, as) => {
+    const { ctx, p } = await visit({ as });
     await openForm(p);
     await shotReady(p);
     await write(p, title);
@@ -772,7 +772,7 @@ try {
   });
 
   await story("a comment slowed once by the per-minute limit is retried quietly and stored once", async () => {
-    const { ctx, p, item, posts } = await threadFor(tag("A thread slowed by the per-minute limit"));
+    const { ctx, p, item, posts } = await threadFor(tag("A thread slowed by the per-minute limit"), await mint("Grace Hopper", "grace.slowed@example.com"));
     let refused = 0;
     await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, async (route) => {
       if (route.request().method() !== "POST" || refused++) return route.fallback();
