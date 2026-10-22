@@ -409,13 +409,9 @@ mod tests {
         ] {
             assert!(!failed(open(&url, &[header])).is_empty());
         }
-        listener.set_nonblocking(true).unwrap();
-        assert_eq!(
-            listener.accept().map(drop).unwrap_err().kind(),
-            io::ErrorKind::WouldBlock
-        );
-        let _probe = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
-        assert!(listener.accept().is_ok());
+        let probe = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (_, peer) = listener.accept().unwrap();
+        assert_eq!(peer, probe.local_addr().unwrap());
     }
 
     #[test]
