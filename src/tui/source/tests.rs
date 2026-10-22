@@ -419,7 +419,7 @@ fn a_reconnect_asks_for_one_full_reread_and_a_drop_waits_quietly() {
 }
 
 #[test]
-fn a_fake_stream_with_drops_and_reconnects_reaches_the_inbox_in_order() {
+fn a_fake_stream_with_drops_and_reconnects_reaches_the_listener_in_order() {
     let (listeners, inbox) = listening();
     let comment = r#"{"type":"comment","key":"BUG-4"}"#;
     let script = [
@@ -476,4 +476,16 @@ fn a_poisoned_listener_list_stops_the_stream() {
     })
     .join();
     assert!(!relay(&listeners, 0, Heard::Open { again: true }));
+}
+
+#[test]
+fn the_inbox_follows_a_live_source_once_however_often_it_rereads() {
+    let source = ghost(&[]);
+    let mut app = super::super::tests::run(source.clone());
+    app.press("r");
+    app.press("r");
+    let Source::Live(live) = &source else {
+        panic!("a live source");
+    };
+    assert_eq!(live.listeners.lock().expect("whole").len(), 1);
 }

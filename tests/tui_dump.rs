@@ -82,6 +82,7 @@ fn a_dump_while_loading_shows_no_items_yet() {
     let text = out(&run);
     assert!(!text.contains("16 of 22 items"), "{text}");
     assert!(!text.contains("BUG-11"), "{text}");
+    assert!(text.contains("Reading the inbox…"), "{text}");
 }
 
 #[test]
@@ -122,6 +123,16 @@ fn a_size_or_key_that_does_not_parse_is_refused_like_clap() {
         err(&size)
     );
     assert!(out(&size).is_empty());
+    assert!(
+        err(&size).starts_with("error: invalid value 'wide' for '--dump"),
+        "{}",
+        err(&size)
+    );
+    assert!(
+        err(&size).ends_with("\n\nFor more information, try '--help'.\n"),
+        "{}",
+        err(&size)
+    );
     let key = p99(&["tui", "--demo", "--dump", "80x24", "--keys", "ctrl+ab"]);
     assert_eq!(key.status.code(), Some(2));
     assert!(
@@ -129,6 +140,17 @@ fn a_size_or_key_that_does_not_parse_is_refused_like_clap() {
         "{}",
         err(&key)
     );
+    assert!(
+        err(&key).starts_with("error: invalid value 'ctrl+ab' for '--keys"),
+        "{}",
+        err(&key)
+    );
+    assert!(
+        err(&key).ends_with("\n\nFor more information, try '--help'.\n"),
+        "{}",
+        err(&key)
+    );
+    assert!(out(&key).is_empty());
 }
 
 #[test]

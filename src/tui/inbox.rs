@@ -136,6 +136,23 @@ pub struct Inbox {
     again: bool,
     told: bool,
     badge: Badge,
+    opener: fn(&str) -> Result<(), String>,
+}
+
+fn launch(url: &str) -> Result<(), String> {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    Command::new(opener)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(drop)
+        .map_err(|error| format!("{opener}: {error}"))
 }
 
 impl Inbox {
@@ -162,6 +179,7 @@ impl Inbox {
             again: false,
             told: false,
             badge: Badge::off(),
+            opener: launch,
         }
     }
 
@@ -577,20 +595,9 @@ impl Inbox {
             cx.say("This item has no page to open.", Tone::Alert);
             return;
         }
-        let opener = if cfg!(target_os = "macos") {
-            "open"
-        } else {
-            "xdg-open"
-        };
-        let spawned = Command::new(opener)
-            .arg(&url)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-        match spawned {
-            Ok(_) => cx.say(format!("Opened {url}"), Tone::Muted),
-            Err(error) => cx.say(format!("{opener}: {error}"), Tone::Alert),
+        match (self.opener)(&url) {
+            Ok(()) => cx.say(format!("Opened {url}"), Tone::Muted),
+            Err(error) => cx.say(error, Tone::Alert),
         }
     }
 

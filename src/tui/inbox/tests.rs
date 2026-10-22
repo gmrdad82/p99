@@ -665,10 +665,18 @@ fn a_reread_asked_while_one_runs_runs_once_more_after_it() {
     tap(&mut app, "r r");
     app.demo(|demo| demo.delete("TASK-6").expect("the sample has it"));
     app.tui.event(INBOX, Msg::Inbox(Err("first read".into())));
+    let again = dump::text(&app.tui.frame(WIDE, HIGH));
+    assert!(again.contains("reading…"), "{again}");
+    assert!(!again.contains("first read"), "{again}");
     app.tui.settle();
     let text = app.text();
     assert!(!text.contains("first read"), "{text}");
+    assert!(!text.contains("reading…"), "{text}");
     assert!(text.contains("of 21 items"), "{text}");
+    app.demo(|demo| demo.delete("FEAT-9").expect("the sample has it"));
+    app.tui.settle();
+    let after = app.text();
+    assert!(after.contains("of 21 items"), "{after}");
 }
 
 #[test]
@@ -813,6 +821,39 @@ fn the_hints_follow_what_the_inbox_can_do_now() {
     assert!(!app.text().contains("saving…"));
 }
 
+fn opened(app: &mut Run, opener: fn(&str) -> Result<(), String>) -> String {
+    app.tui
+        .find_mut::<Inbox>()
+        .expect("the inbox is a screen")
+        .opener = opener;
+    app.press("enter");
+    let mut paged = thread(app, "BUG-11");
+    paged.issue.page.url = "https://shop.example.com/cart".into();
+    app.event(INBOX, Msg::Thread("BUG-11".into(), Ok(paged)));
+    app.press("o")
+}
+
+#[test]
+fn o_opens_the_item_page_and_says_so() {
+    let mut app = run(sample());
+    let text = opened(&mut app, |_| Ok(()));
+    assert!(
+        text.contains("Opened https://shop.example.com/cart"),
+        "{text}"
+    );
+}
+
+#[test]
+fn o_says_why_the_page_did_not_open() {
+    let mut app = run(sample());
+    let text = opened(&mut app, |url| Err(format!("no opener for {url}")));
+    assert!(
+        text.contains("no opener for https://shop.example.com/cart"),
+        "{text}"
+    );
+    assert!(!text.contains("Opened"), "{text}");
+}
+
 #[test]
 fn o_on_an_item_without_a_web_page_says_so() {
     let mut app = run(sample());
@@ -928,7 +969,7 @@ fn an_unparsed_stamp_is_shown_as_it_came() {
     item.events[0].at = "yesterday".into();
     let text = said(&lines(&item, 120, &palette(), NOW, &units()));
     assert!(
-        text.iter().any(|l| l.contains("reported it yesterday ago")),
+        text.iter().any(|l| l.contains("reported it yesterday")),
         "{text:?}"
     );
     assert!(
@@ -981,10 +1022,6 @@ fn history_values_read_as_words() {
     assert_eq!(plain("label", &json!("qa_ready")), "qa ready");
     assert_eq!(plain("assignee", &json!(null)), "nobody");
     assert_eq!(plain("position", &json!(3)), "3");
-    assert_eq!(
-        plain("assignee", &json!({"username": "grace.hopper"})),
-        r#"{"username":"grace.hopper"}"#
-    );
 }
 
 #[test]

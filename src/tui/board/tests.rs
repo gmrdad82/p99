@@ -447,7 +447,7 @@ fn a_late_read_of_another_board_is_ignored() {
 }
 
 #[test]
-fn esc_while_the_board_loads_stops_waiting_and_r_reads_it() {
+fn esc_while_the_board_loads_stops_waiting_a_late_result_still_shows_and_r_reads_it() {
     let mut app = waiting(sample());
     app.tui.go(BOARD);
     assert_eq!(
@@ -460,8 +460,13 @@ fn esc_while_the_board_loads_stops_waiting_and_r_reads_it() {
         stopped.contains("Stopped waiting for the board."),
         "{stopped}"
     );
+    app.tui.settle();
+    let late = app.text();
+    assert!(late.contains("Inbox 7"), "{late}");
+    assert!(!late.contains("Stopped waiting"), "{late}");
+    app.demo(|demo| demo.delete("TASK-22").expect("the sample has it"));
     let read = app.press("r");
-    assert!(read.contains("Inbox 7"), "{read}");
+    assert!(read.contains("Inbox 6"), "{read}");
 }
 
 #[test]
@@ -495,12 +500,29 @@ fn live_label_and_order_events_move_cards_in_place_and_keep_the_selection() {
         json!({"type": "order", "board": 1, "key": "TASK-22", "order": "0", "host": "shop.example.com"}),
     );
     assert_eq!(lane(&app, "Inbox")[0], "TASK-22");
+    let before = lane(&app, "Inbox");
+    let last = before.last().expect("the inbox has cards").clone();
+    assert_ne!(before[0], last);
     heard(
         &mut app,
         0,
-        json!({"type": "order", "board": "2", "key": "Q-10", "order": "0", "host": "shop.example.com"}),
+        json!({"type": "order", "board": "2", "key": last, "order": "!", "host": "shop.example.com"}),
     );
-    assert_eq!(lane(&app, "Inbox")[1], "Q-10");
+    heard(
+        &mut app,
+        0,
+        json!({"type": "order", "board": 2, "key": last, "order": "!", "host": "shop.example.com"}),
+    );
+    assert_eq!(lane(&app, "Inbox"), before);
+    heard(
+        &mut app,
+        0,
+        json!({"type": "order", "board": "1", "key": last, "order": "!", "host": "shop.example.com"}),
+    );
+    let after = lane(&app, "Inbox");
+    assert_eq!(after[0], last);
+    assert_eq!(after[1], "TASK-22");
+    assert_eq!(after.len(), before.len());
     heard(&mut app, 0, json!({"type": "delete", "key": "Q-10"}));
     assert!(!lane(&app, "Inbox").contains(&"Q-10".to_owned()));
     heard(&mut app, 1, json!({"type": "delete", "key": "BUG-11"}));
