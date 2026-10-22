@@ -115,3 +115,8 @@ commit/de0451409135:src/config.rs:574 a fake vault reference in the config tests
 commit/de0451409135:src/config.rs:580 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/de0451409135:src/config.rs:581 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/de0451409135:src/config.rs:611 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/b3a11043339a:tests/stories_deploy.rs:1289 a fake op reference in the deploy story, as waived at its current line
+commit/e8c75e971d87:docs/guides/invite.md:62 the invite guide explains the code's secret-reference form, as waived at its current line
+commit/e8c75e971d87:docs/guides/invite.md:124 the invite guide names the password managers that take the authenticator setup, as waived at its current line
+commit/ebc7177998f3:docs/guides/invite.md:62 the invite guide explains the code's secret-reference form, as waived at its current line
+commit/ebc7177998f3:docs/guides/invite.md:124 the invite guide names the password managers that take the authenticator setup, as waived at its current line
