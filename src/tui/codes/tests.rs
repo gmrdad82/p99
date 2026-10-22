@@ -72,7 +72,10 @@ fn a_revoked_code_reads_bad_an_active_one_good_and_a_manager_in_the_accent() {
     let fg = |at: (u16, u16)| Some(buffer[at].fg);
     assert_eq!(fg(spot(&buffer, "…3fpd", "revoked")), app.palette.bad.fg);
     assert_eq!(fg(spot(&buffer, "…m9xa", "active")), app.palette.good.fg);
-    assert_eq!(fg(spot(&buffer, "…7k2q", "manager")), app.palette.accent.fg);
+    assert_eq!(
+        fg(spot(&buffer, "Ada Lovelace", "manager")),
+        app.palette.accent.fg
+    );
     assert_eq!(
         fg(spot(&buffer, "3 active", "3 active")),
         app.palette.good.fg

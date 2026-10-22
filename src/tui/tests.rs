@@ -241,6 +241,7 @@ fn the_licence_badge_eases_in_beside_the_status_and_then_holds() {
 #[test]
 fn the_badge_follows_the_screen_it_sits_on() {
     let mut app = run_as(sample(), State::Agency);
+    app.text();
     app.advance(Duration::from_secs(1));
     let board = app.go(BOARD);
     assert!(board.contains("Agency"), "{board}");

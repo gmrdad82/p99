@@ -21,6 +21,7 @@ fn board(app: &Run) -> &Board {
 
 fn shown() -> Run {
     let mut app = run(sample());
+    app.text();
     app.advance(Duration::from_secs(1));
     app.go(BOARD);
     app
@@ -85,7 +86,9 @@ fn card(key: &str, label: &str, who: Option<&str>) -> Card {
 }
 
 fn rows(buffer: &Buffer) -> Vec<String> {
-    dump::text(buffer).lines().map(str::to_owned).collect()
+    let mut rows: Vec<String> = dump::text(buffer).lines().map(str::to_owned).collect();
+    rows.resize(buffer.area.height as usize, String::new());
+    rows
 }
 
 #[test]
@@ -768,11 +771,15 @@ fn a_short_window_scrolls_a_long_lane_and_marks_what_is_above_and_below() {
     assert!(line(&top, "Inbox 7").contains('↓'), "{top}");
     assert!(!line(&top, "Inbox 7").contains('↑'), "{top}");
     tap(&mut app, "G");
+    short(&mut app);
+    app.tui.advance(SLIDE);
     let bottom = short(&mut app);
     assert!(bottom.contains(" TASK-22 "), "{bottom}");
     assert!(!bottom.contains(" FEAT-9 "), "{bottom}");
     assert!(line(&bottom, "Inbox 7").contains('↑'), "{bottom}");
     tap(&mut app, "g");
+    short(&mut app);
+    app.tui.advance(SLIDE);
     assert!(short(&mut app).contains(" FEAT-9 "));
 }
 
