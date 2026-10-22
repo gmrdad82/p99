@@ -6,6 +6,7 @@ const SLOW_MS = 4000;
 const GIVE_UP_MS = 20000;
 const BUSY_S = [1, 2, 4, 8];
 const BUSY_EVERY_S = 30;
+const BUSY_GIVE_UP_MS = 10000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const PITOMD = "https://pitomd.com";
 const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
@@ -171,6 +172,8 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 const dark = matchMedia("(prefers-color-scheme: dark)");
 
 export function open(opts) {
+  const v = opts.view;
+  if (typeof v === "number" && v && v !== 401 && v !== 403 && v !== 428 && (!busyView(v) || S.open)) return Promise.resolve();
   if (opts.space && opts.root !== root) {
     S.assets = null;
     S.list = null;
@@ -182,15 +185,13 @@ export function open(opts) {
   o.host = o.root.host;
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
-  if (opts.view === 401 || opts.view === 403) return Promise.resolve(gone());
-  if (typeof opts.view === "number" && opts.view && opts.view !== 428 && !busyView(opts.view)) return Promise.resolve();
-  const was = S.open;
+  if (v === 401 || v === 403) return Promise.resolve(gone());
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list" && !opts.space) return close();
   return ready.then(() => {
     show();
     const go = () => {
-      if (busyView(opts.view)) { if (!was) busy(); }
+      if (busyView(v)) { if (!S.view) busy(); }
       else if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
       else fileFlow();
@@ -358,7 +359,7 @@ function download(a) {
 }
 
 function ensure() {
-  if (S.assets) return S.assets;
+  if (S.assets) return me || busyView(o.view) ? S.assets : S.assets.then(() => me || call("GET", "/me?path=" + enc(location.pathname)).then(adopt, () => {}));
   root = o.root;
   const css = fetch("/_p99/p99.css?v=" + V).then((r) => (r.ok ? r.text() : "")).catch(() => "");
   const self = me || busyView(o.view) ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
@@ -624,7 +625,11 @@ function busy() {
     attempt();
   };
   const attempt = () =>
-    call("GET", "/me?path=" + enc(location.pathname)).then(signedIn, (e) => {
+    call("GET", "/me?path=" + enc(location.pathname), null, null, AbortSignal.timeout(BUSY_GIVE_UP_MS)).then((m) => live() && signedIn(m), (e) => {
+      if (e && e.status === 428) {
+        if (S.open && S.verify) verify(() => (me ? signedIn(me) : busy()));
+        return;
+      }
       if (!live()) return;
       if (e && e.status === 403) {
         close(true);
@@ -632,7 +637,7 @@ function busy() {
         return;
       }
       if (e && e.status && !busyView(e.status)) {
-        if (e.status !== 428) failure(e);
+        failure(e);
         return;
       }
       n++;
@@ -640,18 +645,21 @@ function busy() {
       tell();
       step();
     });
-  const signedIn = (m) => {
-    if (!live()) return;
-    me = m;
-    try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
-    rehead();
-    try { sessionStorage.setItem("p99:code", JSON.stringify([o.code + location.pathname + ((Date.now() / 6e4) | 0), m])); } catch (x) {}
-    if (o.refresh) o.refresh(1);
-    close(true);
-  };
   mount(view, title);
   tell();
   step();
+}
+function signedIn(m) {
+  adopt(m);
+  close(true);
+}
+function adopt(m) {
+  me = m;
+  try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
+  rehead();
+  if (o.space) return;
+  try { sessionStorage.setItem("p99:code", JSON.stringify([o.code + location.pathname + ((Date.now() / 6e4) | 0), m])); } catch (x) {}
+  if (o.refresh) o.refresh(1);
 }
 function mount(view, focus) {
   if (S.verify && !view.classList.contains("p99-verify")) return;
