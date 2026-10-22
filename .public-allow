@@ -146,6 +146,12 @@ commit/c6b43b0f738c:tests/cli_key.rs:16 a fake vault reference in the tests that
 commit/c6b43b0f738c:tests/cli_key.rs:231 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to, as waived at tests/cli_key.rs:268
 tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the vault tool
 tests/cli_vault.rs:252 the tests check the error that names the tool P99 reads secrets through
+commit/55235d328f98:tests/cli_vault.rs:18 a fake vault reference in the tests of the secret-reference feature, as waived at its current line
+commit/55235d328f98:tests/cli_vault.rs:119 the tests check the error that names the tool P99 reads secrets through, as waived at its current line
+commit/55235d328f98:tests/cli_vault.rs:136 the tests check the notice that names the tool P99 reads the key through, as waived at its current line
+commit/55235d328f98:tests/cli_vault.rs:141 the tests check the error that names the tool P99 reads secrets through, as waived at its current line
+commit/55235d328f98:tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the vault tool, as waived at its current line
+commit/55235d328f98:tests/cli_vault.rs:242 the tests check the error that names the tool P99 reads secrets through, as waived at tests/cli_vault.rs:252
 tests/stories_setup.rs:1315 a fake vault reference the setup story's fake op answers for the stored token
 tests/stories_setup.rs:1316 a fake vault reference the setup story's fake op answers for the stored key
 tests/stories_setup.rs:1342 a fake vault reference the setup story reads the stored key back through
