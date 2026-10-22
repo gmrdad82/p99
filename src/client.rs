@@ -10,9 +10,9 @@ use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
-    Attachment, BoardSpec, Build, Change, Code, Comment, Download, EnvEntry, HostEntry,
-    ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards, LanePage,
-    ListQuery, Member, Minted, MoveTo, MovedCard, NewCode, NewIssue, Thread,
+    Attachment, Build, Change, Code, Comment, Download, EnvEntry, HostEntry, ImportFinish,
+    ImportReport, Issue, IssueList, LabelEntry, LaneBoards, LanePage, ListQuery, Member, Minted,
+    MoveTo, MovedCard, NewCode, NewIssue, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -162,19 +162,23 @@ impl Client {
         )
     }
 
-    pub fn one_board(
+    pub fn one_board<T: DeserializeOwned>(
         &self,
         q: &crate::one_board::BoardQuery,
-    ) -> Result<crate::one_board::OneBoard, String> {
+    ) -> Result<T, String> {
         self.json(
             "GET",
-            &self.scoped(&format!("/v1/board{}", crate::one_board::query(q))),
+            &format!("/v1/board{}", crate::one_board::query(q)),
             None,
         )
     }
 
-    pub fn old_boards(&self) -> Result<crate::one_board::OldBoards, String> {
-        self.json("GET", &self.scoped("/v1/boards"), None)
+    pub fn old_boards(&self) -> Result<Value, String> {
+        let raw: Value = self.json("GET", &self.scoped("/v1/boards"), None)?;
+        if raw.get("deprecated").is_none() {
+            return Err(crate::one_board::OLD_WORKER.to_owned());
+        }
+        Ok(raw)
     }
 
     pub fn waiting(&self) -> Result<crate::one_board::Waiting, String> {
@@ -187,16 +191,6 @@ impl Client {
 
     pub fn lane(&self, id: i64) -> Result<LanePage, String> {
         self.json("GET", &self.scoped(&format!("/v1/boards/{id}")), None)
-    }
-
-    pub fn add_lane_board(&self, spec: &BoardSpec) -> Result<LaneBoard, String> {
-        let body = serde_json::to_value(spec).map_err(|e| e.to_string())?;
-        self.json("POST", &self.scoped("/v1/boards"), Some(body))
-    }
-
-    pub fn set_lane_board(&self, id: i64, spec: &BoardSpec) -> Result<LaneBoard, String> {
-        let body = serde_json::to_value(spec).map_err(|e| e.to_string())?;
-        self.json("PUT", &self.scoped(&format!("/v1/boards/{id}")), Some(body))
     }
 
     pub fn move_to(&self, request: &MoveTo) -> Result<MovedCard, String> {

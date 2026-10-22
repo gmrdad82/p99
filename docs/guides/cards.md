@@ -1,34 +1,49 @@
 ---
 title: Keep a plan as cards
-description: File cards in projects, move them through six lanes and link them to requests and commits, from the CLI, as a person or an agent.
+description: File cards in projects, move them through the seven lanes of the one board and link them to requests and commits, from the CLI, as a person or an agent.
 sidebar:
   order: 10
 ---
 
-A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the six lanes of the account's Cards board, and link them to what moved them: a request id, a commit, a tag or a URL. Only managers see cards; a site's visitors never do.
+A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the seven lanes of the account's one board, and link them to what moved them: a request id, a commit, a tag or a URL. Only Owners see cards; Users, the people with a code for a site, never do.
 
 ## The lanes
 
-The Cards board is made the first time someone files a card. Its lanes have fixed status words, by position:
+Each account has one board, and its lanes are the only statuses. Their words are fixed, by position:
 
 | Word | Lane |
 | --- | --- |
 | `new` | 1, where a new card goes |
 | `planned` | 2 |
 | `in-progress` | 3 |
-| `stuck` | 4 |
-| `landed` | 5 |
-| `done` | 6, which closes the card |
+| `needs-you` | 4, Needs you: a person has to look |
+| `stuck` | 5 |
+| `landed` | 6 |
+| `done` | 7, which closes the card |
 
-The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). Any manager moves a card from lane to lane with `p99 card status`, or in the TUI thread's move picker, which offers a card the Cards lanes and a plain item the labels of your other boards. An agent can't close a card: `p99 card status <KEY> done` from an agent answers `p99: only a person closes a card`, and its `p99 move` into the last lane answers `p99: only a person closes a card (403)`.
+`needs you`, with the space, is the same word as `needs-you`. Any other word is clap's `invalid value` error, exit 2, listing the seven.
 
-The Cards board shows cards only, and every other board only plain items, so a site's reports and your cards never mix. A card stays on its lanes: a close from anywhere else, such as a merge or a GitHub pull request, puts it in the last lane, and a reopen puts it back on one of the others.
+Any Owner may rename the lanes (`p99 labels rename needs-you "Waiting on me"`); the words keep naming them by position. A card's priority is its place in its lane, one order for the whole account, which any Owner changes (`p99 move FEAT-41 --to stuck --before FEAT-40`). Any Owner moves a card from lane to lane with `p99 card status`, `p99 move`, or in the TUI. An agent can't close a card: `p99 card status <KEY> done` from an agent answers `p99: only a person closes a card`, and its `p99 move` into the last lane answers `p99: only a person closes a card (403)`.
+
+The one board shows plain items and cards alike; a filter narrows it (`p99 board --project Splicer`, `--host`). A close from anywhere else, such as a merge or a GitHub pull request, puts an item in the last lane, and a reopen puts it back on one of the others.
+
+## Needs you
+
+Anyone but a User may put a card in `needs-you`, an agent included; `--note` says what to look at in the same write:
+
+```sh
+p99 --agent=pci card status FEAT-41 needs-you --note "Look at the export clip: https://example.com/clip"
+```
+
+The card leaves Needs you by itself, back to the lane it came from, when a person (not an agent) comments on it, and whenever anyone sets its status. `p99 cards --waiting` lists what waits on a person, the cards in `needs-you`, `stuck` and `landed`, newest change first; its text output starts with the count (`3 cards wait on you`, or `nothing waits on you`). `--waiting` takes no other filter. A Worker deployed before Needs you answers `p99: this Worker has no Needs you list yet; run p99 deploy`.
 
 ## Commands
 
 ```sh
 p99 card new --project Splicer --title "Export keeps every audio track" --body -
 p99 cards --project Splicer --status stuck --since 6h
+p99 cards --waiting
+p99 board --project Splicer
 p99 card show FEAT-41
 p99 card status FEAT-41 stuck --note "Waiting on the mixer"
 p99 card comment FEAT-41 "Found it." --internal
@@ -43,13 +58,14 @@ p99 edit BUG-12 --no-project
 - `p99 card status` moves the card to the top of that lane; a card already there keeps its place. `--note` adds a comment in the same write.
 - `card new --body`, `card comment`'s text and `card status --note` take `-` to read standard input.
 - A project name has 1 to 40 characters and is matched without regard to case; the first spelling used is kept.
-- `p99 edit --project` turns any item into a card in lane `new`, and `--no-project` turns it back into a plain item, in Inbox; on an item that is no card it says `<KEY> is not a card` and changes nothing.
+- `p99 edit --project` turns any item into a card in lane `new`, and `--no-project` turns it back into a plain item, which stays in its lane; on an item that is no card it says `<KEY> is not a card` and changes nothing.
+- `p99 board` prints the one board: each lane as `Name (count)`, then its cards with their project. [Work the inbox](inbox.md#the-one-board) has the rest.
 
 In text, an agent's action reads as the person's name with 🤖 (`Ada Lovelace 🤖`), with its label after `via` in `p99 card show`. Mark an agent as [the agents guide](agents.md) says.
 
 ## JSON
 
-With `--json`, standard output carries one JSON document: `{"cards":[…],"next_cursor":…}` for `p99 cards`, `{"card":…,"comments":[…],"events":[…]}` for `p99 card show`, `{"card":…}` for `card new`, `card status` (with `"comment"` after `--note`) and `edit --project`, `{"key","comment"}` for `card comment`, `{"key","link"}` for `card link` and `{"projects":[{"name","open","done"}]}` for `p99 projects`. A card carries `key`, `kind`, `project`, `status` (the word), `label` (the lane's name), `lane` (its place among the cards you can see, `null` when done), `title`, `host`, `reporter`, `created_at`, `changed_at`, `changed_by`, `comments` and `links`. People are `{"name","username","agent","via"}`; e-mails never appear.
+With `--json`, standard output carries one JSON document: `{"cards":[…],"next_cursor":…}` for `p99 cards`, `{"count":n,"cards":[…]}` for `p99 cards --waiting`, `{"board":{"lanes":[{"word","label","closes"}]},"cards":[…]}` for `p99 board`, `{"card":…,"comments":[…],"events":[…]}` for `p99 card show`, `{"card":…}` for `card new`, `card status` (with `"comment"` after `--note`) and `edit --project`, `{"key","comment"}` for `card comment`, `{"key","link"}` for `card link` and `{"projects":[{"name","open","done"}]}` for `p99 projects`. A card carries `key`, `kind`, `project`, `status` (the word), `label` (the lane's name), `lane` (its place among the cards you can see, `null` when done), `title`, `host`, `reporter`, `created_at`, `changed_at`, `changed_by`, `comments` and `links`. People are `{"name","username","agent","via"}`; e-mails never appear.
 
 ## Errors
 
