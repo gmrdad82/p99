@@ -42,7 +42,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `GET /_p99/api/files/{id}` | its reporter or a manager | the file, `Content-Disposition: attachment` |
 | `GET /_p99/api/labels`, `PATCH …/labels/{id}`, `GET /_p99/api/boards`, `POST`, `GET /_p99/api/boards/{id}`, `PUT`, `DELETE`, `POST /_p99/api/move` | managers | as the signed API, over this host's boards; a code that holds every listed host reaches every board, as the key does |
 | `POST /_p99/api/stream-ticket` | managers | 201 `{"ticket":"<48 hex>","expires_in":60}`: a ticket for one WebSocket, used once, within 60 seconds |
-| `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket answers 401 |
+| `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket, or one whose code was revoked or relinked since, answers 401; an open stream closes with 4001 the moment its code is revoked or relinked |
 | `POST /_p99/api/merge` | managers | as the signed API |
 | `GET /_p99/api/people` | managers | `{"people":[{"username","manager"}]}`: the people with a live code for this host and the e-mails in `MANAGERS`, by username; never an e-mail, a code, a hint or a host list |
 | `PATCH /_p99/api/me` | any code | `{"username"}`, nothing else; 200 `{"username"}`, 409 when it is taken or too close to someone's: changes the code's own person only ([usernames](#usernames)) |

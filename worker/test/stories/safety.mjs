@@ -387,7 +387,7 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
 
   await backupStories({ check, issueBody, keys, root, wrangler, work, later });
 
-  await red("[safety] a stream ticket handed out before its code was revoked opens nothing", "a revoked manager's unexpired stream ticket still opens the live board", async () => {
+  await check("[safety] a stream ticket handed out before its code was revoked opens nothing", async () => {
     const boss = await mint("Karen Spärck Jones", "karen.safety@example.com", [here], true);
     const kept = await mint("Mary Jackson", "mary.ticket.safety@example.com", [here], true);
     const [ticket, control] = await Promise.all([panel(here, "POST", "/stream-ticket", boss.secret), panel(here, "POST", "/stream-ticket", kept.secret)]);
@@ -400,22 +400,57 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
     if (reference) reference.socket.close();
     if (!reference) throw harness("the run outlived the ticket's TTL: an unrevoked manager's ticket fetched at the same moment no longer opens");
     assert.equal(opened, null, "a revoked manager's ticket still opened the live board");
+    const again = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${ticket.json.ticket}`, []);
+    if (again) again.socket.close();
+    assert.equal(again, null, "a refused ticket opened on a second try");
+    const fresh = await panel(here, "POST", "/stream-ticket", boss.secret);
+    assert.equal(fresh.status, 401, "a revoked manager was handed a new stream ticket");
   });
 
-  await red("[safety] an open live board stops hearing the moment its code is revoked", "a live board opened before its code was revoked keeps hearing new items", async () => {
+  await check("[safety] an open live board stops hearing the moment its code is revoked, and only that board", async () => {
     const boss = await mint("Annie Easley", "annie.safety@example.com", [here], true);
+    const peer = await mint("Dorothy Vaughan", "dorothy.safety@example.com", [here], true);
     const heard = [];
+    const kept = [];
     const control = [];
     const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", boss.secret)).json.ticket}`, heard);
+    const other = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", peer.secret)).json.ticket}`, kept);
     const watch = await signedSocket(port, keys.p99, `/_p99/v1/stream?host=${here}`, control);
-    assert.ok(board && watch, "both streams open");
+    assert.ok(board && other && watch, "the three streams open");
+    const before = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed before the revoke" }) })).json.key;
+    await until("the board hears the item filed before the revoke", () => heard.some((e) => e.key === before));
     assert.equal((await call("POST", `/_p99/v1/codes/${boss.code.id}/revoke`)).status, 200);
+    await until("the revoked board closes", () => board.closed, 10000);
     const after = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed after the revoke" }) })).json.key;
     await until("the control stream hears the item", () => control.some((e) => e.key === after));
-    await until("the revoked board hears it or closes", () => board.closed || heard.some((e) => e.key === after), 3000).catch(() => null);
+    await until("the other manager's board hears the item", () => kept.some((e) => e.key === after));
+    assert.equal(other.closed, false, "a revoke closed another manager's board");
     board.socket.close();
+    other.socket.close();
     watch.socket.close();
     assert.equal(heard.some((e) => e.key === after), false, "a revoked manager's open board heard an item filed after the revoke");
+  });
+
+  await check("[safety] a relink closes the old code's open board and its unused ticket, and the new code's board hears", async () => {
+    const boss = await mint("Katherine Johnson", "katherine.safety@example.com", [here], true);
+    const heard = [];
+    const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", boss.secret)).json.ticket}`, heard);
+    const spare = await panel(here, "POST", "/stream-ticket", boss.secret);
+    assert.ok(board, "the board opens");
+    assert.equal(spare.status, 201, spare.text);
+    const relinked = await call("POST", `/_p99/v1/codes/${boss.code.id}/relink`, { body: {} });
+    assert.equal(relinked.status, 201, relinked.text);
+    await until("the old code's board closes", () => board.closed, 10000);
+    const stale = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${spare.json.ticket}`, []);
+    if (stale) stale.socket.close();
+    assert.equal(stale, null, "the old code's unused ticket opened after the relink");
+    const now = [];
+    const fresh = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${(await panel(here, "POST", "/stream-ticket", relinked.json.secret)).json.ticket}`, now);
+    assert.ok(fresh, "the new code's board opens");
+    const after = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed after the relink" }) })).json.key;
+    await until("the new code's board hears the item", () => now.some((e) => e.key === after));
+    fresh.socket.close();
+    assert.equal(heard.some((e) => e.key === after), false, "the old code's board heard an item filed after the relink");
   });
 
   for (const [name, bug, fn] of later) await (bug ? red(name, bug, fn) : check(name, fn));

@@ -20,7 +20,7 @@ The P99 page is the account's own address (`p99 app` prints it), where a person 
 ## Cross-site requests
 
 - Every request to the page's API carries the header `X-P99-App: 1`, which another site can't send without a CORS preflight the Worker never grants, and every state change must come with an `Origin` equal to the page's own. With a `SameSite=Strict` cookie that is enough, so there are no CSRF tokens.
-- The live board's WebSocket can't carry a header; it uses the same one-time, 30-second ticket as on the sites, minted through the API above.
+- The live board's WebSocket can't carry a header; it uses the same one-time, 30-second ticket as on the sites, minted through the API above. A ticket whose code is revoked or relinked opens nothing, and a board already open closes at once and hears nothing more.
 
 ## Content-Security-Policy and headers
 

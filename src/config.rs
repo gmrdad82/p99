@@ -176,7 +176,7 @@ impl Config {
             Err(error) => return Err(format!("{}: {error}", file.display())),
         };
         let config: Config =
-            toml::from_str(&text).map_err(|error| format!("{}: {error}", file.display()))?;
+            toml::from_str(&text).map_err(|error| parse_error(file, &text, &error))?;
         if config.has_inline_secret() && world_readable(file) {
             return Err(format!(
                 "{} holds a secret and others can read it; run chmod 600 on it",
@@ -283,6 +283,114 @@ impl Config {
     }
 }
 
+const SECRET_KEYS: [&str; 6] = [
+    "token",
+    "key",
+    "resend_key",
+    "access_client_secret",
+    "code",
+    "license",
+];
+
+const KNOWN_KEYS: [&str; 34] = [
+    "default_account",
+    "license",
+    "me",
+    "accounts",
+    "hosts",
+    "name",
+    "email",
+    "agent",
+    "account_id",
+    "token",
+    "worker",
+    "database",
+    "database_id",
+    "bucket",
+    "key",
+    "url",
+    "app",
+    "resend_key",
+    "mail_from",
+    "access_client_id",
+    "access_client_secret",
+    "code",
+    "account",
+    "env",
+    "theme",
+    "strings",
+    "corner",
+    "offset",
+    "above",
+    "off",
+    "feed",
+    "link",
+    "x",
+    "y",
+];
+
+fn keys_on(line: &str) -> Vec<String> {
+    let part = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '"' || c == '\'';
+    line.match_indices('=')
+        .filter_map(|(at, _)| {
+            let before = line[..at].trim_end();
+            let start = before
+                .char_indices()
+                .rev()
+                .find(|(_, c)| !part(*c))
+                .map_or(0, |(i, c)| i + c.len_utf8());
+            let name = before[start..].trim_matches(|c| c == '"' || c == '\'');
+            (!name.is_empty()).then(|| name.to_owned())
+        })
+        .collect()
+}
+
+fn secret_values(text: &str) -> Vec<&str> {
+    text.lines()
+        .filter(|line| {
+            keys_on(line)
+                .iter()
+                .any(|k| SECRET_KEYS.contains(&k.as_str()))
+        })
+        .flat_map(|line| {
+            line.split(|c: char| c == '=' || c == '"' || c == '\'' || c == ',' || c.is_whitespace())
+        })
+        .filter(|part| part.len() >= 4 && !SECRET_KEYS.contains(part))
+        .collect()
+}
+
+fn parse_error(file: &Path, text: &str, error: &toml::de::Error) -> String {
+    let message = error.message().trim();
+    let leaks = secret_values(text)
+        .iter()
+        .any(|value| message.contains(value));
+    let Some(span) = error.span() else {
+        return if leaks {
+            format!("{}: not valid TOML", file.display())
+        } else {
+            format!("{}: {message}", file.display())
+        };
+    };
+    let at = span.start.min(text.len());
+    let number = text.as_bytes()[..at]
+        .iter()
+        .filter(|b| **b == b'\n')
+        .count()
+        + 1;
+    let line = text.lines().nth(number - 1).unwrap_or("");
+    let keys = keys_on(line);
+    let secret = keys.iter().any(|k| SECRET_KEYS.contains(&k.as_str()));
+    let place = match keys.first().filter(|k| KNOWN_KEYS.contains(&k.as_str())) {
+        Some(key) => format!("{}: line {number}, key {key}", file.display()),
+        None => format!("{}: line {number}", file.display()),
+    };
+    if secret || leaks {
+        format!("{place}: not valid TOML; the value is not shown")
+    } else {
+        format!("{place}: {message}")
+    }
+}
+
 pub fn secret(value: &str) -> Result<String, String> {
     crate::vault::read(value)
 }
@@ -334,6 +442,174 @@ fn open_private(file: &Path) -> std::io::Result<fs::File> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SECRET: &str = "s3cr3t-Vq8Lm2Xw7Rk4";
+    const OTHER: &str = "s3cr3t-Hd5Tz1Pc9Ny6";
+
+    fn broken(text: &str) -> String {
+        let error = toml::from_str::<Config>(text)
+            .err()
+            .expect("the text is broken");
+        parse_error(Path::new("config.toml"), text, &error)
+    }
+
+    fn account_with(line: &str) -> String {
+        format!("[accounts.main]\naccount_id = \"a\"\n{line}\ndatabase_id = \"d\"\n")
+    }
+
+    fn hides(message: &str, secrets: &[&str]) {
+        for secret in secrets {
+            assert!(
+                !message.contains(secret),
+                "a secret reached the error: {message}"
+            );
+            assert!(
+                !message.contains(&secret[..10]),
+                "part of a secret reached the error: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_broken_line_of_every_secret_key_names_line_and_key_never_the_value() {
+        for key in ["token", "key", "resend_key", "access_client_secret", "code"] {
+            for line in [
+                format!("{key} = \"{SECRET}"),
+                format!("{key} = {SECRET}"),
+                format!("{key} = \"{SECRET}\" x"),
+                format!("{key} = 12{SECRET}"),
+            ] {
+                let message = broken(&account_with(&line));
+                hides(&message, &[SECRET]);
+                assert!(
+                    message.starts_with(&format!("config.toml: line 3, key {key}: ")),
+                    "{line}: {message}"
+                );
+                assert!(message.ends_with("the value is not shown"), "{message}");
+            }
+        }
+        for line in [
+            format!("license = \"{SECRET}"),
+            format!("license = {SECRET}"),
+        ] {
+            let message = broken(&format!("{line}\n\n{}", account_with("token = \"\"")));
+            hides(&message, &[SECRET]);
+            assert_eq!(
+                message,
+                "config.toml: line 1, key license: not valid TOML; the value is not shown"
+            );
+        }
+    }
+
+    #[test]
+    fn a_secret_of_the_wrong_type_is_not_quoted_back() {
+        let message = broken(&account_with(&format!("token = [\"{SECRET}\"]")));
+        hides(&message, &[SECRET]);
+        assert!(
+            message.starts_with("config.toml: line 3, key token: "),
+            "{message}"
+        );
+        let message = broken(&account_with("token = true"));
+        assert!(
+            message.starts_with("config.toml: line 3, key token: "),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_broken_line_with_two_values_hides_both_whichever_comes_first() {
+        for line in [
+            format!("token = \"{SECRET}\" key = \"{OTHER}\""),
+            format!("key = \"{OTHER}\" token = \"{SECRET}"),
+            format!("worker = \"p99\" token = \"{SECRET}\""),
+            format!("worker = \"p99\", resend_key = {SECRET}"),
+            format!("me = {{ name = \"Ada Lovelace\" }} key = \"{OTHER}\" token = {SECRET}"),
+        ] {
+            let message = broken(&account_with(&line));
+            hides(&message, &[SECRET, OTHER]);
+            assert!(
+                message.starts_with("config.toml: line 3, key "),
+                "{line}: {message}"
+            );
+            assert!(
+                message.ends_with("the value is not shown"),
+                "{line}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn dotted_and_inline_secret_keys_are_hidden_too() {
+        let message = broken(&format!(
+            "accounts.main.account_id = \"a\"\naccounts.main.token = \"{SECRET}\n"
+        ));
+        hides(&message, &[SECRET]);
+        assert!(
+            message.starts_with("config.toml: line 2, key token: "),
+            "{message}"
+        );
+        let message = broken(&format!(
+            "[accounts.main]\naccount_id = \"a\"\nme = {{ name = \"Ada Lovelace\", token = {SECRET} }}\n"
+        ));
+        hides(&message, &[SECRET]);
+        assert!(
+            message.starts_with("config.toml: line 3, key me: "),
+            "{message}"
+        );
+        assert!(message.ends_with("the value is not shown"), "{message}");
+    }
+
+    #[test]
+    fn a_secret_pasted_alone_on_a_line_is_never_named_as_a_key() {
+        let message = broken(&format!("{}{SECRET}\n", account_with("token = \"\"")));
+        hides(&message, &[SECRET]);
+        assert!(message.starts_with("config.toml: line 5"), "{message}");
+        let message = broken(&format!("{}{SECRET} = \n", account_with("token = \"\"")));
+        hides(&message, &[SECRET]);
+        assert!(message.starts_with("config.toml: line 5"), "{message}");
+    }
+
+    #[test]
+    fn an_unterminated_multiline_secret_never_reaches_the_error() {
+        let message = broken(&format!(
+            "{}[hosts.\"example.com\"]\naccount = \"main\"\n",
+            account_with(&format!("token = \"\"\"{SECRET}"))
+        ));
+        hides(&message, &[SECRET]);
+        assert!(message.starts_with("config.toml: line "), "{message}");
+    }
+
+    #[test]
+    fn a_broken_plain_line_keeps_its_line_key_and_reason() {
+        let message = broken("[hosts.\"example.com\"]\naccount = \"main\"\nfeed = maybe\n");
+        assert!(
+            message.starts_with("config.toml: line 3, key feed: "),
+            "{message}"
+        );
+        assert!(!message.contains("not shown"), "{message}");
+        let message = broken("[accounts.main]\ntoken = \"\"\n");
+        assert!(message.starts_with("config.toml: line "), "{message}");
+        assert!(message.contains("account_id"), "{message}");
+        assert!(!message.contains("not shown"), "{message}");
+    }
+
+    #[test]
+    fn keys_on_reads_every_key_of_a_line_and_survives_any_text() {
+        assert_eq!(keys_on("token = \"a=b\" key = 1"), ["token", "a", "key"]);
+        assert_eq!(keys_on("accounts.main.token = 1"), ["token"]);
+        assert_eq!(keys_on("\"token\" = 1"), ["token"]);
+        assert!(keys_on("é=ü = 1").is_empty());
+        assert_eq!(keys_on("ünï_key = 1"), ["_key"]);
+        assert!(keys_on("no equals here").is_empty());
+        assert!(keys_on("= 1").is_empty());
+    }
+
+    #[test]
+    fn a_config_that_parses_still_loads() {
+        let config: Config =
+            toml::from_str(&account_with(&format!("token = \"{SECRET}\""))).unwrap();
+        assert_eq!(config.accounts["main"].token, SECRET);
+    }
 
     #[test]
     fn bases_put_the_target_then_production_first() {

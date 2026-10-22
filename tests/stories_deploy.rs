@@ -1303,7 +1303,6 @@ fn the_token_from_the_environment_wins_trimmed_and_1password_is_never_needed() {
 }
 
 #[test]
-#[ignore = "red until fixed: a config.toml parse error quotes the broken line, token included"]
 fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     let broken = plain_config().replace(
         &format!("token = \"{TOKEN}\""),
@@ -1325,6 +1324,23 @@ fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     assert_eq!(plan.code, Some(1));
     assert!(h.calls().is_empty());
     never_shows_a_secret(&[&plan], &[]);
+    assert!(plan.stderr.contains("key resend_key"), "{}", plan.stderr);
+
+    let doubled = plain_config().replace(
+        &format!("token = \"{TOKEN}\"\n"),
+        &format!("token = \"{TOKEN}\" key = \"{KEY}\"\n"),
+    );
+    let h = home("broken-double", &doubled, live(&SHIPPED, Vec::new()));
+    let out = h.run(&["deploy"]);
+    assert_eq!(out.code, Some(1));
+    assert!(h.calls().is_empty());
+    never_shows_a_secret(&[&out], &[]);
+    assert!(out.stderr.contains("line 5, key token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("the value is not shown"),
+        "{}",
+        out.stderr
+    );
 }
 
 #[cfg(unix)]
