@@ -112,6 +112,8 @@ export async function importChecks({ call, check, here, there }) {
     const label = thread.json.events.find((e) => e.kind === "label");
     assert.ok(label, JSON.stringify(thread.json.events));
     assert.deepEqual([label.agent, label.via], [true, "pci"]);
+    assert.equal(label.actor, "grace@example.com");
+    assert.deepEqual(label.detail, { label: "Café" });
     const status = thread.json.events.filter((e) => e.kind === "status" && e.at.startsWith("2025-05-01T10:00:00"));
     assert.equal(status.length, 1, JSON.stringify(thread.json.events));
   });
@@ -156,6 +158,10 @@ export async function importChecks({ call, check, here, there }) {
       [{ kind: "task" }, 400, "record 1 (item): a task is keyed TASK-<number>"],
       [{ status: "triaged" }, 400, "record 1 (item): status is not known"],
       [{ title: "  " }, 400, "record 1 (item): title must be 1 to 200 characters"],
+      [{ title: "t".repeat(201) }, 400, "record 1 (item): title must be 1 to 200 characters"],
+      [{ body: "b".repeat(20001) }, 400, "record 1 (item): body must be at most 20000 characters"],
+      [{ status: "done", resolution: "wontfix" }, 400, "record 1 (item): status is not known"],
+      [{ reporter: { ...ADA, agent: true, via: 42 } }, 400, "record 1 (item): reporter.via must be a string"],
       [{ env: "Prod!" }, 400, "record 1 (item): env must name an environment"],
       [{ context: [] }, 400, "record 1 (item): context must be an object"],
       [{ context: { big: "x".repeat(64 * 1024) } }, 413, "record 1 (item): context is larger than 64 KB"],
@@ -169,12 +175,16 @@ export async function importChecks({ call, check, here, there }) {
       [{ duplicate_of: "BUG-x" }, 400, "record 1 (item): duplicate_of must be a key such as BUG-3"],
       [{ page: "https://example.com/" }, 400, "record 1 (item): page must be an object"],
       [{ page: { url: "ftp://example.com/", path: "/", title: "" } }, 400, "record 1 (item): page must have an http(s) url, a path starting with / and a title of at most 300 characters"],
+      [{ page: { url: "https://example.com/", path: "/", title: "p".repeat(301) } }, 400, "record 1 (item): page must have an http(s) url, a path starting with / and a title of at most 300 characters"],
     ];
     for (const [overrides, status, message] of shapes) {
       const said = await post([item("BUG-9804", overrides)]);
       assert.equal(said.status, status, `${JSON.stringify(overrides).slice(0, 120)} -> ${JSON.stringify(said.json)}`);
       assert.equal(said.json.message, message);
     }
+    const huge = await post([item("BUG-9804", { body: "x".repeat(4 * 1024 * 1024) })]);
+    assert.equal(huge.status, 413, JSON.stringify(huge.json));
+    assert.equal(huge.json.message, "the body is larger than 4194304 bytes");
     const ok = await post([item("BUG-9804", { page: { url: "https://example.com/menu?x=1" } })]);
     assert.equal(ok.status, 200, JSON.stringify(ok.json));
   });
@@ -327,8 +337,16 @@ export async function importChecks({ call, check, here, there }) {
     }
     const wrongType = await put("imp-a-1", ok, { type: "application/x-unknown" });
     assert.equal(wrongType.status, 400, JSON.stringify(wrongType.json));
+    assert.equal(wrongType.json.message, "P99 takes images, PDFs, text, CSV, JSON, zip and office files, not application/x-unknown");
     const notImage = await put("imp-a-1", { ...ok, role: "screenshot" });
     assert.equal(notImage.status, 400, JSON.stringify(notImage.json));
+    assert.equal(notImage.json.message, "a screenshot must be a WebP, PNG or JPEG image, not text/plain");
+    const empty = await put("imp-a-1", ok, { raw: Buffer.alloc(0) });
+    assert.equal(empty.status, 400, JSON.stringify(empty.json));
+    assert.equal(empty.json.message, "the file is empty");
+    const big = await put("imp-a-1", ok, { raw: Buffer.alloc(20 * 1024 * 1024 + 1, 0x61) });
+    assert.equal(big.status, 413, JSON.stringify(big.json));
+    assert.equal(big.json.message, "a file may be at most 20 MB");
     const thread = await call("GET", `/_p99/v1/issues/BUG-9810?host=${here}`);
     assert.deepEqual(thread.json.attachments, []);
   });
@@ -349,6 +367,24 @@ export async function importChecks({ call, check, here, there }) {
     const thread = await call("GET", `/_p99/v1/issues/BUG-9810?host=${here}`);
     assert.equal(thread.json.attachments.length, 1, JSON.stringify(thread.json.attachments));
     assert.equal(thread.json.attachments[0].name, "café.txt");
+    assert.equal(thread.json.attachments[0].created_at, "2025-05-02T08:00:00.000Z");
     assert.equal(thread.json.issue.attachments, 1);
+  });
+
+  await check("import attachment: an item holds at most 30 files, and the 31st is refused with nothing kept", async () => {
+    const made = await post([item("BUG-9812")], { dry: false });
+    assert.equal(made.status, 200, JSON.stringify(made.json));
+    for (let n = 1; n <= 30; n++) {
+      const said = await put(`imp-cap-${n}`, { item: "BUG-9812", name: `receipt-${n}.txt` });
+      assert.equal(said.status, 201, `${n} -> ${JSON.stringify(said.json)}`);
+    }
+    const over = await put("imp-cap-31", { item: "BUG-9812", name: "receipt-31.txt" });
+    assert.equal(over.status, 409, JSON.stringify(over.json));
+    assert.equal(over.json.message, "an item holds at most 30 files");
+    const again = await put("imp-cap-30", { item: "BUG-9812", name: "receipt-30.txt" });
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    const thread = await call("GET", `/_p99/v1/issues/BUG-9812?host=${here}`);
+    assert.equal(thread.json.attachments.length, 30);
+    assert.ok(!thread.json.attachments.some((a) => a.client_uid === "imp-cap-31"));
   });
 }

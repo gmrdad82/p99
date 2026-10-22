@@ -34,6 +34,9 @@ struct Ledger {
     calls: BTreeMap<&'static str, usize>,
     trouble: Option<(&'static str, usize, Fault)>,
     finish_conflicts: Vec<Value>,
+    finish_answers: Vec<Value>,
+    extra_upload: Vec<String>,
+    vanish: Option<std::path::PathBuf>,
 }
 
 type Shared = Arc<Mutex<Ledger>>;
@@ -86,6 +89,7 @@ fn worker(ledger: &Shared, req: &Req) -> Reply {
                 }),
             )
         }
+        _ if !l.finish_answers.is_empty() => Reply::ok(l.finish_answers[n - 1].clone()),
         _ => {
             let body = req.json();
             let items = body["items"].as_array().map_or(0, Vec::len);
@@ -107,6 +111,9 @@ fn records(l: &mut Ledger, req: &Req) -> Reply {
     let mut counts: BTreeMap<String, Value> = BTreeMap::new();
     let mut upload = Vec::new();
     let mut managers = Vec::new();
+    if let Some(path) = l.vanish.take() {
+        std::fs::remove_file(path).unwrap();
+    }
     for r in records {
         let kind = r["type"].as_str().unwrap_or("").to_owned();
         let tally = counts
@@ -170,6 +177,7 @@ fn records(l: &mut Ledger, req: &Req) -> Reply {
             }
         }
     }
+    upload.extend(l.extra_upload.iter().cloned());
     Reply::ok(json!({"dry_run": dry, "counts": counts, "upload": upload, "managers": managers}))
 }
 
@@ -252,6 +260,14 @@ fn receipt(uid: &str) -> Value {
     })
 }
 
+fn price_mark() -> Value {
+    json!({
+        "rect": {"x": 40, "y": 120, "w": 220, "h": 48},
+        "viewport": {"w": 1280, "h": 800, "scroll_x": 0, "scroll_y": 0, "dpr": 1},
+        "elements": [{"selector": "#price", "label": "Price", "text": "12,50 €", "box": {"x": 44, "y": 124, "w": 80, "h": 20}}],
+    })
+}
+
 fn full(h: &Home) -> Vec<Value> {
     let lines = vec![
         json!({"type": "manager", "email": "emmy@example.com"}),
@@ -260,7 +276,7 @@ fn full(h: &Home) -> Vec<Value> {
             "body": "The crème brûlée costs 12,50 € on the menu and 13 € at checkout.", "status": "resolved",
             "duplicate_of": null, "reporter": ada(), "assignee": "grace@example.com", "env": "production",
             "page": {"url": "https://shop.example.com/menu", "path": "/menu", "title": "Menu"}, "context": {},
-            "marks": [], "created_at": "2025-03-01T10:00:00Z", "updated_at": "2025-03-04T08:00:00Z",
+            "marks": [price_mark()], "created_at": "2025-03-01T10:00:00Z", "updated_at": "2025-03-04T08:00:00Z",
             "closed_at": "2025-03-04T08:00:00Z",
         }),
         json!({
@@ -371,6 +387,7 @@ fn an_import_sends_each_type_in_order_keeps_keys_and_text_and_uploads_every_file
     assert_eq!(zone.body, ZONE);
     assert_eq!(zone.param("role"), Some("region"));
     assert_eq!(zone.param("mark"), Some("0"));
+    assert_eq!(posts[0].json()[0]["marks"], json!([price_mark()]));
     assert_eq!(zone.param("name"), Some("zone.png"));
     assert_eq!(zone.param("internal"), Some("1"));
     assert_eq!(zone.param("comment"), None);
@@ -754,4 +771,166 @@ fn import_without_a_host_is_a_usage_error() {
     h.p99(&["import", "bundle"])
         .clap("the following required arguments were not provided");
     assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn more_than_5000_items_finish_in_chunks_with_the_duplicates_once_and_the_answers_summed() {
+    let (h, _) = home("import-finish-chunks", |l| {
+        l.finish_answers = vec![
+            json!({"recounted": 5000, "duplicates": {"linked": 1, "conflicts": [{"ref": "5001", "reason": "duplicate_of names no item 9999"}]}}),
+            json!({"recounted": 1, "duplicates": {"linked": 2, "conflicts": [{"ref": "77", "reason": "no item 77 on shop.example.com"}]}}),
+        ];
+    });
+    let mut lines: Vec<Value> = (1..=5000)
+        .map(|n| item(&format!("BUG-{n}"), "Many"))
+        .collect();
+    let mut dup = item("BUG-5001", "Copy");
+    dup["duplicate_of"] = json!("BUG-1");
+    lines.push(dup);
+    bundle(&h, &lines);
+    let out = import(&h, &[]);
+    out.refused("2 records were left as they are; see the conflicts");
+    assert_eq!(h.stub.calls("POST", "/_p99/v1/import").len(), 26);
+    let finishes = h.stub.calls("POST", "/_p99/v1/import/finish");
+    assert_eq!(finishes.len(), 2);
+    let first = finishes[0].json();
+    let second = finishes[1].json();
+    assert_eq!(first["items"].as_array().unwrap().len(), 5000);
+    assert_eq!(first["items"][0], "BUG-1");
+    assert_eq!(first["items"][4999], "BUG-5000");
+    assert_eq!(second["items"], json!(["BUG-5001"]));
+    assert_eq!(
+        first["duplicates"],
+        json!([{"item": "BUG-5001", "duplicate_of": "BUG-1"}])
+    );
+    assert_eq!(second["duplicates"], json!([]));
+    let lines = out.lines();
+    assert!(
+        lines.contains(&"  items recounted: 5001, duplicates linked: 3"),
+        "{}",
+        out.stdout
+    );
+    let at = lines
+        .iter()
+        .position(|l| *l == "conflicts:")
+        .expect("a conflicts block");
+    assert_eq!(
+        lines[at + 1..],
+        [
+            "  duplicate_of 5001: duplicate_of names no item 9999",
+            "  duplicate_of 77: no item 77 on shop.example.com",
+        ]
+    );
+}
+
+#[test]
+fn json_with_conflicts_prints_the_summary_and_still_exits_1() {
+    let (h, _) = home("import-json-conflicts", |l| {
+        l.items.insert("BUG-7".to_owned(), "Old title".to_owned());
+    });
+    bundle(&h, &[item("BUG-7", "New title")]);
+    let out = import(&h, &["--json"]);
+    out.refused("1 records were left as they are; see the conflicts");
+    let summary: Value = serde_json::from_str(&out.stdout).unwrap();
+    assert_eq!(summary["counts"]["item"]["new"], 0);
+    assert_eq!(
+        summary["counts"]["item"]["conflicts"],
+        json!([{"ref": "BUG-7", "reason": "BUG-7 already exists with the title \"Old title\""}])
+    );
+    assert_eq!(summary["finish"]["recounted"], 1);
+    assert!(!out.stdout.contains("conflicts:\n"), "{}", out.stdout);
+}
+
+#[test]
+fn a_dry_run_in_json_has_no_finish_and_no_uploads() {
+    let (h, _) = home("import-dry-json", |_| {});
+    full(&h);
+    let out = import(&h, &["--dry-run", "--json"]);
+    out.ok();
+    let summary = out.json();
+    assert_eq!(summary["dry_run"], true);
+    assert_eq!(summary["records"], 10);
+    assert_eq!(summary["uploaded"], 0);
+    assert_eq!(summary["finish"], Value::Null);
+    assert_eq!(summary["counts"]["attachment"]["new"], 2);
+    assert!(h.stub.under("PUT", "/_p99/v1/import/").is_empty());
+    assert!(h.stub.calls("POST", "/_p99/v1/import/finish").is_empty());
+}
+
+#[test]
+fn a_finish_the_worker_refuses_keeps_its_words_and_status() {
+    let (h, ledger) = home("import-finish-409", |l| {
+        l.trouble = Some((
+            "finish",
+            1,
+            Fault::Status(400, Some("items must list at most 5000 keys")),
+        ));
+    });
+    bundle(&h, &[item("BUG-7", "One")]);
+    let out = import(&h, &[]);
+    out.refused("items must list at most 5000 keys (400)");
+    assert_eq!(out.lines(), ["item: 1 of 1 sent"]);
+    assert_eq!(ledger.lock().unwrap().items.len(), 1);
+}
+
+#[test]
+fn a_finish_answered_5xx_stops_with_its_status() {
+    let (h, _) = home("import-finish-502", |l| {
+        l.trouble = Some(("finish", 1, Fault::Status(502, None)));
+    });
+    bundle(&h, &[item("BUG-7", "One")]);
+    import(&h, &[]).refused("the Worker answered 502");
+}
+
+#[test]
+fn an_upload_uid_the_bundle_does_not_hold_is_skipped_and_not_counted() {
+    let (h, _) = home("import-extra-upload", |l| {
+        l.extra_upload = vec!["f-unknown".to_owned()];
+    });
+    bundle(
+        &h,
+        &[
+            item("BUG-7", "One"),
+            comment("BUG-7", "c-41", "Seen."),
+            receipt("f-12"),
+        ],
+    );
+    write(&h, "files/receipt.png", PNG);
+    let out = import(&h, &[]);
+    out.ok();
+    assert!(
+        out.lines().contains(&"  files uploaded: 1"),
+        "{}",
+        out.stdout
+    );
+    let puts = h.stub.under("PUT", "/_p99/v1/import/attachments/");
+    assert_eq!(puts.len(), 1);
+    assert_eq!(puts[0].tail("/_p99/v1/import/attachments/"), "f-12");
+}
+
+#[test]
+fn a_file_gone_after_the_check_names_its_line_and_path_and_never_finishes() {
+    let (h, ledger) = home("import-file-gone", |_| {});
+    let path = h.dir.join("bundle").join("files").join("receipt.png");
+    bundle(
+        &h,
+        &[
+            item("BUG-7", "One"),
+            comment("BUG-7", "c-41", "Seen."),
+            receipt("f-12"),
+        ],
+    );
+    write(&h, "files/receipt.png", PNG);
+    ledger.lock().unwrap().vanish = Some(path.clone());
+    let out = import(&h, &[]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    let said = format!("p99: {}: ", shown("files/receipt.png"));
+    assert!(
+        out.stderr.lines().any(|l| l.starts_with(&said)),
+        "{}",
+        out.stderr
+    );
+    assert!(!path.exists());
+    assert!(h.stub.under("PUT", "/_p99/v1/import/").is_empty());
+    assert!(h.stub.calls("POST", "/_p99/v1/import/finish").is_empty());
 }

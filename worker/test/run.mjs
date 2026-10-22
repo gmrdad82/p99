@@ -166,8 +166,9 @@ async function call(method, path, { actor = grace, body, raw, type, keyId = "p99
   if (tamper === "sig") auth = auth.slice(0, -1) + (auth.endsWith("0") ? "1" : "0");
   const headers = { "x-p99-key-id": keyId, "x-p99-auth": auth, "x-content-sha256": hash };
   if (actorText) headers["x-p99-actor"] = actorText;
-  if (bytes.length > 0) headers["content-type"] = type ?? "application/json";
-  const response = await fetch(base + path, { method, headers, body: bytes.length > 0 ? bytes : undefined });
+  const sent = bytes.length > 0 || type !== undefined;
+  if (sent) headers["content-type"] = type ?? "application/json";
+  const response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
   return { status: response.status, json: await jsonOf(response), response };
 }
 

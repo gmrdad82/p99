@@ -1228,6 +1228,23 @@ mod tests {
                 r#"{{"type":"comment","item":"BUG-7","uid":"{uid}","author":{{"email":"g@example.com"}},"body":"x","created_at":"2025-03-02"}}"#
             )
         };
+        let attachment = |uid: &str| {
+            format!(
+                r#"{{"type":"attachment","item":"BUG-7","uid":"{uid}","content_type":"text/plain","file":"Cargo.toml"}}"#
+            )
+        };
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let shared = [comment("c-1"), attachment("c-1")].join("\n");
+        let records = validate(&shared, dir).unwrap();
+        assert_eq!(
+            records.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            ["comment", "attachment"]
+        );
+        let twice = [comment("c-1"), attachment("c-1"), attachment("c-1")].join("\n");
+        assert_eq!(
+            validate(&twice, dir).unwrap_err(),
+            ["line 3: attachment: uid c-1 is already used on line 2"]
+        );
         let text = [comment("c-1"), comment("c-2"), comment("c-1")].join("\n");
         assert_eq!(
             validate(&text, Path::new("bundle")).unwrap_err(),
