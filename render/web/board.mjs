@@ -630,6 +630,30 @@ async function check(back) {
     assert.deepEqual(await column(p, "Inbox"), [K("IMP-6")]);
     ok("a press released outside the board ends there, so the next reload still paints");
 
+    await R(p, () => { self.__stop = (e) => e.stopPropagation(); document.addEventListener("pointerup", self.__stop); });
+    const sent5 = moves().length;
+    await drag(p, K("IMP-6"), K("BUG-11"));
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await settle(p);
+    const pair = async (a, b) => { const c = await column(p, "QA ready"); return c.indexOf(a) >= 0 && c.indexOf(b) === c.indexOf(a) + 1; };
+    const hosted = { ghost: await ghosted(), qa: await pair(K("IMP-6"), K("BUG-11")), first: lastMove() };
+    await shutPanel(p);
+    await drag(p, K("BUG-11"), K("IMP-6"));
+    await p.waitForTimeout(260);
+    const relifted = await ghosted();
+    await p.mouse.up();
+    await settle(p);
+    await shutPanel(p);
+    await R(p, () => document.removeEventListener("pointerup", self.__stop));
+    assert.deepEqual(hosted, { ghost: false, qa: true, first: { key: K("IMP-6"), from: "Inbox", to: "QA ready", board: back.board("1"), before: K("BUG-11") } });
+    assert.equal(relifted, true);
+    assert.equal(moves().length, sent5 + 2);
+    assert.deepEqual(lastMove(), { key: K("BUG-11"), from: "QA ready", to: "QA ready", board: back.board("1"), before: K("IMP-6") });
+    assert.equal(await pair(K("BUG-11"), K("IMP-6")), true);
+    assert.equal(await ghosted(), false);
+    ok("a host page that stops pointerup on its document still lets my drop land, and the next press lifts");
+
     await pick(p, "@" + GRACE.username);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "QA");
     await settle(p);

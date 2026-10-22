@@ -421,8 +421,8 @@ function press(e) {
   B.drag = d;
   if (d.touch) d.timer = setTimeout(() => lift(d.x, d.y), 220);
   B.el.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", release);
-  window.addEventListener("pointercancel", abort);
+  window.addEventListener("pointerup", release, true);
+  window.addEventListener("pointercancel", abort, true);
 }
 
 function lift(x, y) {
@@ -617,8 +617,8 @@ function resized() {
 
 function unbind(d) {
   B.el.removeEventListener("pointermove", move);
-  window.removeEventListener("pointerup", release);
-  window.removeEventListener("pointercancel", abort);
+  window.removeEventListener("pointerup", release, true);
+  window.removeEventListener("pointercancel", abort, true);
   B.cols.removeEventListener("scroll", scrolled, true);
   window.removeEventListener("resize", resized);
   if (d.raf) cancelAnimationFrame(d.raf);
