@@ -345,7 +345,8 @@ try {
     await p.locator(SEND).click();
     await p.locator(RETRY).waitFor({ timeout: 20000 });
     const said = (await statusLine(p)).replace(/\s*Retry$/, "");
-    red(`the visitor reads P99's own words, not the browser's ("${said}")`, "a network failure shows the browser's own wording, not P99's", said === FAILED);
+    check(`the visitor reads P99's own words, not the browser's ("${said}")`, said === FAILED);
+    check(`the send was tried again before giving up (${uids.length} sends)`, uids.length === 4);
     check(`the Worker stored it once and answered the repeats with the same item (${answers.map((a) => a.status).join(",")})`, answers[0]?.status === 201 && answers.slice(1).every((a) => a.status === 200 && a.key === answers[0].key));
     losing = false;
     await p.locator(RETRY).click();
@@ -385,7 +386,7 @@ try {
     check("Send works again", !(await p.locator(SEND).isDisabled()));
     check("no Retry is offered for a limit that holds all day", !(await p.locator(RETRY).isVisible()));
     check("nothing is filed", (await found(title)).length === 0);
-    red(`it is told at once, not after hidden retries (${uids.length} sends, ${took} ms)`, "a daily-limit 429 is retried as if it were transient", uids.length === 1);
+    check(`it is told at once, not after hidden retries (${uids.length} sends, ${took} ms)`, uids.length === 1);
     await ctx.close();
   });
 
@@ -459,7 +460,7 @@ try {
         const t = await must("GET", `/issues/${items[0].key}?host=${HOST}`);
         check(`${how}: with its screenshot`, t.attachments.some((a) => a.role === "screenshot"));
         const own = (t.issue.context.errors || []).filter((m) => /insecure|quota/i.test(m));
-        red(`${how}: the report doesn't blame the site for P99's own storage error (${own.join(" | ")})`, "the loader's own sessionStorage error lands in the report's page errors", own.length === 0);
+        check(`${how}: the report doesn't blame the site for P99's own storage error (${own.join(" | ")})`, own.length === 0);
       }
       check(`${how}: the code left the address bar`, !(await p.evaluate(() => location.href)).includes(code));
       check(`${how}: no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
@@ -575,8 +576,170 @@ try {
     await refresh;
     await frames(p);
     const still = await p.locator(TITLE).count() === 1 && (await p.locator(TITLE).inputValue()) === second;
-    red(`the second draft is still on screen with its title (${gets.length} thread loads)`, "an upload finishing after the panel closed opens its thread over the new draft", still);
+    check(`the second draft is still on screen with its title (${gets.length} thread loads)`, still);
+    check("no thread was loaded over it", gets.length === 0);
     check("the first report arrived whole", (await found(first)).length === 1);
+    await ctx.close();
+  });
+
+  await story("closing the panel while a report uploads leaves it shut when the upload finishes", async () => {
+    const { ctx, p } = await visit();
+    const uploading = gate();
+    let held = 0;
+    const gets = [];
+    await p.route((u) => /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(u.pathname), async (route) => {
+      held++;
+      await uploading.opened;
+      await route.fallback();
+    });
+    p.on("request", (r) => {
+      if (isItemGet(r.url(), r.method())) gets.push(r.url());
+    });
+    await openForm(p);
+    await shotReady(p);
+    const title = tag("Sent, then the panel closed");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await until("the held upload", () => held >= 1);
+    await p.locator(S(".p99-x")).click();
+    await until("the panel to close", async () => !(await panelOpen(p)));
+    const refresh = p.waitForRequest((r) => new URL(r.url()).pathname === "/_p99/api/me", { timeout: 20000 });
+    uploading.open();
+    await refresh;
+    await frames(p);
+    check("the panel stays shut", !(await panelOpen(p)));
+    check(`no thread was loaded (${gets.length})`, gets.length === 0);
+    check("the report arrived", (await found(title)).length === 1);
+    await ctx.close();
+  });
+
+  for (const [why, status, body] of [
+    ["the per-minute limit", 429, { error: "rate_limited", message: "too many requests with this code; try again in a minute" }],
+    ["a server hiccup", 503, { error: "internal", message: "something went wrong" }],
+  ]) {
+    await story(`a send slowed once by ${why} is retried quietly and files one item`, async () => {
+      const { ctx, p } = await visit();
+      const uids = [];
+      let refused = 0;
+      await p.route((u) => u.pathname === "/_p99/api/issues", async (route) => {
+        const r = route.request();
+        if (r.method() !== "POST") return route.fallback();
+        uids.push(JSON.parse(r.postData()).client_uid);
+        if (refused++) return route.fallback();
+        await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+      });
+      await openForm(p);
+      await shotReady(p);
+      const title = tag(`Slowed by ${why}`);
+      await write(p, title);
+      await p.locator(SEND).click();
+      await thread(p);
+      check(`${why}: sent twice with one id (${uids.length} sends, ${new Set(uids).size} ids)`, uids.length === 2 && new Set(uids).size === 1);
+      check(`${why}: one item arrived (${(await found(title)).length})`, (await found(title)).length === 1);
+      await ctx.close();
+    });
+  }
+
+  await story("a screenshot refused by the daily file limit is named at once, not retried, and the item stays filed", async () => {
+    const { ctx, p } = await visit();
+    const puts = [];
+    await p.route((u) => /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(u.pathname), async (route) => {
+      puts.push(route.request().url());
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "today's limit of 100 MB of files is reached" }) });
+    });
+    await openForm(p);
+    await shotReady(p);
+    const title = tag("Over the day's files");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await waitStatus(p, /didn't upload/);
+    check(`each upload was tried once (${puts.length})`, puts.length >= 1 && new Set(puts).size === puts.length);
+    check("the status names the screenshot", /screen\.(webp|jpg|png)/.test(await statusLine(p)));
+    check(`the status names the daily file limit ("${await statusLine(p)}")`, /today's limit of 100 MB of files/.test(await statusLine(p)));
+    check("the visitor isn't told to try again against a limit that holds all day", !/try again/i.test(await statusLine(p)));
+    check("no Retry is offered for a limit that holds all day", !(await p.locator(RETRY).isVisible()));
+    check("the item is filed", (await found(title)).length === 1);
+    await ctx.close();
+  });
+
+  const COMMENT = S("[data-view=item] .p99-comment-form");
+  const commentLine = (p) => p.locator(`${COMMENT} .p99-status-line`).textContent();
+  const threadFor = async (title) => {
+    const { ctx, p } = await visit();
+    await openForm(p);
+    await shotReady(p);
+    await write(p, title);
+    await p.locator(SEND).click();
+    await thread(p);
+    const [item] = await found(title);
+    if (!item) throw new Error(`the item "${title}" was never filed`);
+    const posts = [];
+    p.on("request", (r) => {
+      if (r.method() === "POST" && new URL(r.url()).pathname === `/_p99/api/issues/${item.key}/comments`) posts.push(JSON.parse(r.postData() || "{}").client_uid);
+    });
+    return { ctx, p, item, posts };
+  };
+  const stored = async (item, body) => (await must("GET", `/issues/${item.key}?host=${HOST}`)).comments.filter((c) => c.body === body);
+
+  await story("a comment at the daily limit is told at once, keeps its words, and offers no Retry", async () => {
+    const { ctx, p, item, posts } = await threadFor(tag("A thread at the day's comments"));
+    await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, (route) =>
+      route.request().method() !== "POST"
+        ? route.fallback()
+        : route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "today's limit of 200 comments is reached" }) }),
+    );
+    const body = tag("One comment too many");
+    await p.locator(`${COMMENT} textarea[name=body]`).fill(body);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.waitForFunction(() => /today's limit of 200 comments/.test(document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open [data-view=item] .p99-comment-form .p99-status-line")?.textContent || ""), null, { timeout: 20000 });
+    check("the comment's status line names the limit", /today's limit of 200 comments/.test(await commentLine(p)));
+    check(`it is told at once, not after hidden retries (${posts.length} sends)`, posts.length === 1);
+    check("no Retry is offered for a limit that holds all day", !(await p.locator(`${COMMENT} .p99-retry`).isVisible()));
+    check("the comment's words are kept", (await p.locator(`${COMMENT} textarea[name=body]`).inputValue()) === body);
+    check("Send works again", !(await p.locator(`${COMMENT} button[type=submit]`).isDisabled()));
+    check("nothing is stored", (await stored(item, body)).length === 0);
+    await ctx.close();
+  });
+
+  await story("a comment slowed once by the per-minute limit is retried quietly and stored once", async () => {
+    const { ctx, p, item, posts } = await threadFor(tag("A thread slowed by the per-minute limit"));
+    let refused = 0;
+    await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, async (route) => {
+      if (route.request().method() !== "POST" || refused++) return route.fallback();
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "too many requests with this code; try again in a minute" }) });
+    });
+    const body = tag("Slowed, then sent");
+    await p.locator(`${COMMENT} textarea[name=body]`).fill(body);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.locator(S(".p99-comment .p99-body"), { hasText: body }).first().waitFor({ timeout: 20000 });
+    check(`sent twice with one id (${posts.length} sends, ${new Set(posts).size} ids)`, posts.length === 2 && new Set(posts).size === 1);
+    check(`one comment is stored (${(await stored(item, body)).length})`, (await stored(item, body)).length === 1);
+    check("no Retry was left on screen", !(await p.locator(`${COMMENT} .p99-retry`).isVisible()));
+    await ctx.close();
+  });
+
+  await story("a lost connection to P99 on arrival never shows up in the site's page errors", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    let dropped = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => (dropped++ ? route.fallback() : route.abort("connectionreset")));
+    const p = await ctx.newPage();
+    const errors = [];
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    await p.goto(`${PAGE}#p99=${code}`);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the dropped /me", () => dropped >= 1);
+    await openForm(p);
+    await shotReady(p);
+    const title = tag("Filed after a dropped /me");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await thread(p);
+    const [item] = await found(title);
+    const t = item ? await must("GET", `/issues/${item.key}?host=${HOST}`) : { issue: { context: {} } };
+    const own = (t.issue.context.errors || []).filter((m) => /fetch|network/i.test(m));
+    check(`the report carries no error of P99's own (${own.join(" | ")})`, item && own.length === 0);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
     await ctx.close();
   });
 

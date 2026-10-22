@@ -185,14 +185,14 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     const over = await browse("POST", "/issues", hedy.secret, issueBody({ title: "One too many" }));
     assert.equal(over.status, 429, JSON.stringify(over.json));
     assert.equal(over.json.error, "rate_limited");
-    assert.match(over.json.message, /today's limit of 30 items/);
+    assert.match(over.json.message, /^today's limit of 30 items/);
     assert.equal(rows("items", "reporter_email = 'hedy@example.com'"), 1);
     assert.equal(used("hedy@example.com", "issues"), 30);
 
     seedUsage("hedy@example.com", "bytes", MAX_BYTES_A_DAY - 8);
     const bigger = await attach(hedy.secret, filed.json.key, { name: "sixteen.txt", body: Buffer.from("sixteen bytes!!\n") });
     assert.equal(bigger.status, 429, JSON.stringify(bigger.json));
-    assert.match(bigger.json.message, /100 MB of files/);
+    assert.match(bigger.json.message, /^today's limit of 100 MB of files/);
     const exact = await attach(hedy.secret, filed.json.key, { name: "eight.txt", body: Buffer.from("8 bytes\n") });
     assert.equal(exact.status, 201, JSON.stringify(exact.json));
     assert.equal(used("hedy@example.com", "bytes"), MAX_BYTES_A_DAY);
@@ -210,6 +210,7 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     assert.ok(slowed, "300 requests in a burst were never slowed");
     assert.equal(slowed.json.error, "rate_limited");
     assert.match(slowed.json.message, /minute/);
+    assert.doesNotMatch(slowed.json.message, /^today's limit/);
     assert.equal((await browse("GET", "/me", mary.secret)).status, 200);
   });
 

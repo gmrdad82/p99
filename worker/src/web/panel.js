@@ -151,6 +151,7 @@ const WORDS = {
   sending: "Sending…",
   uploading: "Uploading {name}… {pct}%",
   upload_failed: "“{name}” didn't upload; try again.",
+  upload_refused: "“{name}” didn't upload: {why}.",
   filed: "Sent as {key}. Replies show up here.",
   sent_partial: "{key} was sent, but some files didn't upload; you can add them again from the item."
 };
@@ -299,14 +300,15 @@ function retrying(fn) {
   let attempt = 0;
   const go = () =>
     fn().catch((e) => {
-      const transient = !e.status || e.status >= 500 || e.status === 429 || e.status === 408;
-      if (!transient || attempt >= 3) throw e;
+      if (!transient(e) || attempt >= 3) throw e;
       attempt++;
       return wait(600 * Math.pow(2, attempt - 1)).then(go);
     });
   return go();
 }
-function problem(e) { return navigator.onLine ? (e && e.message) || say("failed") : say("offline"); }
+function daily(e) { return !!e && e.status === 429 && /^today's limit\b/.test(e.message || ""); }
+function transient(e) { return !e || !e.status || e.status >= 500 || e.status === 408 || (e.status === 429 && !daily(e)); }
+function problem(e) { return !navigator.onLine ? say("offline") : (e && e.status && e.message) || say("failed"); }
 function loadProblem(e) { return e && e.status ? problem(e) : navigator.onLine ? say("load_failed") : say("offline"); }
 
 function blobOf(id) {
@@ -942,9 +944,9 @@ function submitComment(form, key) {
     call("POST", "/issues/" + enc(key) + "/comments", JSON.stringify({ client_uid: form.p99Uid, body: cut(body, 20000), internal })));
   made.then((res) => {
     form.p99Comment = res;
-    const items = files.map((f) => ({ uid: f.uid, role: "file", name: f.file.name || "file", blob: f.file, comment: res.id, done: f.done, dead: f.dead, ref: f }));
+    const items = files.map((f) => ({ uid: f.uid, role: "file", name: f.file.name || "file", blob: f.file, comment: res.id, done: f.done, dead: f.dead, err: f.err, ref: f }));
     return uploadAll(key, items, form).then((failed) => {
-      items.forEach((it) => { it.ref.done = it.done; it.ref.dead = it.dead; });
+      items.forEach((it) => { it.ref.done = it.done; it.ref.dead = it.dead; it.ref.err = it.err; });
       form.p99Busy = false;
       if (failed.length) {
         send.disabled = false;
@@ -956,7 +958,7 @@ function submitComment(form, key) {
   }).catch((e) => {
     form.p99Busy = false;
     send.disabled = false;
-    status(form, problem(e), !e.status || e.status >= 500 ? () => submitComment(form, key) : null);
+    status(form, problem(e), transient(e) ? () => submitComment(form, key) : null);
   });
 }
 function options(list, word, current) {
@@ -1249,13 +1251,16 @@ function uploadAll(key, items, form) {
     if (it.done || it.dead) return;
     status(form, say("uploading", { name: it.name, pct: 0 }));
     return put(key, it, form).then(() => { it.done = true; }, (e) => {
-      if (e.status >= 400 && e.status < 500 && e.status !== 408 && e.status !== 429) it.dead = true;
+      if (!transient(e)) { it.dead = true; it.err = e; }
       failed.push(it);
     });
   }), Promise.resolve()).then(() => failed);
 }
 function refused(failed) {
-  return failed.filter((x) => x.dead).map((x) => " " + say("upload_failed", { name: x.name })).join("");
+  return failed.filter((x) => x.dead).map((x) => " " + refusal(x)).join("");
+}
+function refusal(x) {
+  return daily(x.err) ? say("upload_refused", { name: x.name, why: x.err.message.replace(/\.$/, "") }) : say("upload_failed", { name: x.name });
 }
 
 function here() {
@@ -1710,13 +1715,14 @@ function submitNew(form) {
           return;
         }
         d.dispose();
-        if (S.draft === d) S.draft = null;
-        item(res.key);
+        if (S.draft !== d) return;
+        S.draft = null;
+        if (S.open && S.view === "new") item(res.key);
       });
   }).catch((e) => {
     d.busy = false;
     send.disabled = false;
-    status(form, problem(e), !e.status || e.status >= 500 ? () => submitNew(form) : null);
+    status(form, problem(e), transient(e) ? () => submitNew(form) : null);
   });
 }
 function ext(b) { return b.type === "image/webp" ? "webp" : b.type === "image/png" ? "png" : "jpg"; }
