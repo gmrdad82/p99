@@ -68,6 +68,12 @@ pub fn hits(haystack: &str, words: &[String]) -> bool {
     words.iter().all(|word| haystack.contains(word.as_str()))
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct Loaded {
+    pub entries: Vec<Entry>,
+    pub unloaded: usize,
+}
+
 #[derive(Clone)]
 pub enum Source {
     Demo(Arc<Mutex<Demo>>, Duration),
@@ -180,19 +186,22 @@ impl Source {
         }
     }
 
-    pub fn inbox(&self) -> Result<Vec<Entry>, String> {
-        let mut entries = match self {
-            Source::Demo(..) => self.sample(|demo| Ok(demo.list()))?,
+    pub fn inbox(&self) -> Result<Loaded, String> {
+        let mut loaded = match self {
+            Source::Demo(..) => Loaded {
+                entries: self.sample(|demo| Ok(demo.list()))?,
+                unloaded: 0,
+            },
             Source::Live(live) => live.inbox()?,
             Source::Broken(why) => return Err(why.clone()),
         };
-        entries.sort_by(|a, b| {
+        loaded.entries.sort_by(|a, b| {
             b.summary
                 .updated_at
                 .cmp(&a.summary.updated_at)
                 .then(b.summary.id.cmp(&a.summary.id))
         });
-        Ok(entries)
+        Ok(loaded)
     }
 
     pub fn thread(&self, account: usize, host: Option<&str>, key: &str) -> Result<Thread, String> {
@@ -329,9 +338,10 @@ impl Live {
             .ok_or_else(|| "that account is gone".to_owned())
     }
 
-    fn inbox(&self) -> Result<Vec<Entry>, String> {
-        let mut entries = Vec::new();
+    fn inbox(&self) -> Result<Loaded, String> {
+        let (mut entries, mut unloaded) = (Vec::new(), 0);
         for (account, client) in self.clients()?.iter().enumerate() {
+            let (start, mut total) = (entries.len(), None);
             let mut cursor = None;
             loop {
                 let query = ListQuery {
@@ -345,6 +355,7 @@ impl Live {
                 let page = client
                     .list(&query)
                     .map_err(|why| format!("{}: {why}", self.accounts[account]))?;
+                total = total.or(page.total);
                 entries.extend(
                     page.issues
                         .into_iter()
@@ -355,9 +366,36 @@ impl Live {
                     _ => break,
                 }
             }
+            unloaded += unseen(total, entries.len() - start);
         }
-        Ok(entries)
+        Ok(Loaded { entries, unloaded })
     }
+}
+
+pub fn unseen(total: Option<u64>, loaded: usize) -> usize {
+    total.map_or(0, |total| {
+        usize::try_from(total)
+            .unwrap_or(usize::MAX)
+            .saturating_sub(loaded)
+    })
+}
+
+pub fn counted(
+    shown: usize,
+    in_scope: usize,
+    loaded: usize,
+    unloaded: usize,
+    one_host: bool,
+) -> Vec<String> {
+    if unloaded == 0 {
+        return vec![format!("{shown} of {in_scope} items")];
+    }
+    let all = if one_host {
+        format!("{shown} of {in_scope}+ items")
+    } else {
+        format!("{shown} of {} items", in_scope + unloaded)
+    };
+    vec![all, format!("only the newest {loaded} are loaded")]
 }
 
 pub fn merged_hosts(known: Vec<String>, entries: &[Entry]) -> Vec<String> {
@@ -423,4 +461,40 @@ fn civil(days: i64) -> (i64, i64, i64) {
     };
     let year = of_cycle + era * 400 + i64::from(month <= 2);
     (year, month, day)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unseen_counts_what_the_worker_holds_beyond_the_loaded_items() {
+        assert_eq!(unseen(Some(1050), 1000), 50);
+        assert_eq!(unseen(Some(1000), 1000), 0);
+        assert_eq!(unseen(Some(3), 5), 0);
+        assert_eq!(unseen(None, 1000), 0);
+        assert_eq!(unseen(Some(u64::MAX), 0), usize::MAX);
+    }
+
+    #[test]
+    fn counted_is_plain_when_everything_is_loaded() {
+        assert_eq!(counted(3, 7, 7, 0, false), ["3 of 7 items"]);
+        assert_eq!(counted(0, 0, 0, 0, true), ["0 of 0 items"]);
+    }
+
+    #[test]
+    fn counted_adds_the_unloaded_items_and_says_only_the_newest_are_loaded() {
+        assert_eq!(
+            counted(1000, 1000, 1000, 50, false),
+            ["1000 of 1050 items", "only the newest 1000 are loaded"]
+        );
+    }
+
+    #[test]
+    fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
+        assert_eq!(
+            counted(12, 40, 1000, 50, true),
+            ["12 of 40+ items", "only the newest 1000 are loaded"]
+        );
+    }
 }

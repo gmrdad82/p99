@@ -1602,6 +1602,11 @@ async function listIssues(c) {
     const id = parseKey(text);
     where.push(id !== null ? `(i.id = ${q.bind(id)} OR ${match})` : `(${match})`);
   }
+  const counting = {
+    sql: `SELECT COUNT(*) AS n FROM items i ${LABEL_JOIN} LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}`,
+    binds: [...q.binds],
+  };
   const cursor = params.get("cursor");
   if (cursor) {
     const after = parseKey(cursor);
@@ -1626,10 +1631,13 @@ async function listIssues(c) {
   const ids = page.map((row) => row.id);
   const extra = page.length > 0 ? await c.env.DB.batch(landingStatements(c.env, ids)) : [];
   const lc = page.length > 0 ? landingContext(extra.slice(0, 3), c.dir) : emptyLandingContext(c.dir);
-  return json(200, {
+  const more = results.length > limit;
+  const answer = {
     issues: page.map((row) => summaryOf(row, c, lc)),
-    next_cursor: results.length > limit ? String(page[page.length - 1].id) : null,
-  });
+    next_cursor: more ? String(page[page.length - 1].id) : null,
+  };
+  if (!cursor) answer.total = more ? (await c.env.DB.prepare(counting.sql).bind(...counting.binds).first()).n : page.length;
+  return json(200, answer);
 }
 
 function creationTarget(c, body) {

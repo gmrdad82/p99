@@ -13,12 +13,12 @@ use pito_tui::ratatui::{
 };
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Pick, Screen, Turn, message, text};
 
-use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, stage_word, status_word};
+use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, stage_word};
 
 use super::Msg;
 use super::badge::Badge;
 use super::deck::Move;
-use super::source::{Entry, Source, hits, merged_hosts, person, unix, words};
+use super::source::{Entry, Source, counted, hits, merged_hosts, person, unix, words};
 
 const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
@@ -128,6 +128,7 @@ pub struct Inbox {
     host: Option<String>,
     shown: Shown,
     counts: (usize, usize),
+    unloaded: usize,
     now: i64,
     picking: Option<Picking>,
     open: Option<Open>,
@@ -155,6 +156,7 @@ impl Inbox {
             host: None,
             shown: Shown::Open,
             counts: (0, 0),
+            unloaded: 0,
             picking: None,
             open: None,
             following: false,
@@ -977,16 +979,7 @@ fn lines(
     if !thread.events.is_empty() {
         out.push(Line::styled("Events", palette.strong));
         for event in &thread.events {
-            let detail = &event.detail;
-            let what = match (detail.get("from"), detail.get("to")) {
-                (Some(from), Some(to)) => format!(
-                    "{} {} → {}",
-                    event.kind,
-                    plain(&event.kind, from),
-                    plain(&event.kind, to)
-                ),
-                _ => event.kind.replace('_', " "),
-            };
+            let what = super::history::what(&event.kind, &event.detail);
             let by = event
                 .actor_name
                 .as_deref()
@@ -1002,19 +995,6 @@ fn lines(
         }
     }
     out
-}
-
-fn plain(kind: &str, value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::Null => "nobody".into(),
-        serde_json::Value::String(s) if kind == "status" => match stage_word(s) {
-            word if word != s => word.to_owned(),
-            _ => status_word(s).to_owned(),
-        },
-        serde_json::Value::String(s) if kind == "kind" => kind_word(s).to_owned(),
-        serde_json::Value::String(s) => s.replace('_', " "),
-        other => other.to_string(),
-    }
 }
 
 impl Screen<Msg> for Inbox {
@@ -1069,7 +1049,9 @@ impl Screen<Msg> for Inbox {
                 let refreshed = std::mem::take(&mut self.refreshing);
                 let told = refreshed && !self.again && std::mem::take(&mut self.told);
                 match result {
-                    Ok(entries) => {
+                    Ok(loaded) => {
+                        let (entries, unloaded) = (loaded.entries, loaded.unloaded);
+                        self.unloaded = unloaded;
                         let kept = self
                             .filter
                             .current()
@@ -1185,7 +1167,14 @@ impl Screen<Msg> for Inbox {
                         self.sift();
                         self.read_thread(cx);
                     }
-                    Err(error) => cx.say(error, Tone::Alert),
+                    Err(error) => {
+                        let moved = matches!(open.asked, Asked::Label);
+                        cx.say(error, Tone::Alert);
+                        if moved {
+                            self.read_thread(cx);
+                            self.refresh(cx);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -1435,7 +1424,16 @@ impl Screen<Msg> for Inbox {
         let (in_scope, unread) = self.counts;
         let shown = self.filter.shown().len();
         let mut facts = vec![(self.shown.word().to_owned(), self.palette.strong)];
-        facts.push((format!("{shown} of {in_scope} items"), Style::new()));
+        let loaded = self.entries.as_ref().map_or(0, Vec::len);
+        let words = counted(shown, in_scope, loaded, self.unloaded, self.host.is_some());
+        for (at, word) in words.into_iter().enumerate() {
+            let style = if at == 0 {
+                Style::new()
+            } else {
+                self.palette.muted
+            };
+            facts.push((word, style));
+        }
         if unread > 0 {
             facts.push((format!("{unread} unread"), self.palette.accent));
         }

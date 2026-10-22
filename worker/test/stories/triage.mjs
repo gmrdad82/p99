@@ -209,10 +209,15 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     for (let page = 0; page < 20; page++) {
       const answer = await ada.list(`q=many%20card${cursor ? `&cursor=${cursor}` : ""}`);
       seen.push(...keysOf(answer));
+      assert.equal(answer.json.total, cursor ? undefined : MANY, "only the first page counts every match");
       cursor = answer.json.next_cursor;
       if (!cursor) break;
     }
     assert.equal(seen.length, MANY);
+    const one = await ada.list(`q=many%20card%20${MANY}`);
+    assert.deepEqual([one.json.total, keysOf(one).length], [1, 1], "a single page counts what it holds");
+    const none = await ada.list("q=zzz-no-such-card");
+    assert.equal(none.json.total, 0);
     assert.equal(new Set(seen).size, MANY, "an item showed on two pages");
     const ids = seen.map((k) => Number(k.split("-")[1]));
     assert.deepEqual(ids, [...ids].sort((a, b) => b - a));

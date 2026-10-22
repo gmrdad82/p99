@@ -5,6 +5,8 @@ pub use crate::wire::{
     LanePage as BoardView, MoveTo as Move, MovedCard as Moved, Owner as Person,
 };
 
+use crate::boards::raced;
+
 use super::source::Source;
 
 pub const MOVED: &str = "this card moved; refreshed";
@@ -175,7 +177,12 @@ impl Source {
     pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.shift(request)),
-            Source::Live(_) => self.client(account, None)?.move_to(request),
+            Source::Live(_) => {
+                let client = self.client(account, None)?;
+                client
+                    .move_to(request)
+                    .map_err(|error| raced(&client, &request.key, &request.to, error))
+            }
             Source::Broken(why) => Err(why.clone()),
         }
     }

@@ -319,6 +319,8 @@ pub struct IssueList {
     pub issues: Vec<Summary>,
     #[serde(default)]
     pub next_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

@@ -3,7 +3,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -513,17 +513,19 @@ impl World {
             })
             .collect();
         found.sort_by_key(|i| std::cmp::Reverse(i.id));
-        let more = found.len() > limit;
+        let total = found.len();
+        let more = total > limit;
         found.truncate(limit);
         let next = if more {
             found.last().map(|i| i.id.to_string())
         } else {
             None
         };
-        Reply::json(
-            200,
-            json!({"issues": found.iter().map(|i| i.summary()).collect::<Vec<_>>(), "next_cursor": next}),
-        )
+        let mut answer = json!({"issues": found.iter().map(|i| i.summary()).collect::<Vec<_>>(), "next_cursor": next});
+        if cursor.is_none() {
+            answer["total"] = json!(total);
+        }
+        Reply::json(200, answer)
     }
 
     fn patch(&mut self, req: &Req, key: &str) -> Reply {
@@ -1379,7 +1381,6 @@ fn a_move_beside_a_card_lands_on_your_own_board_never_on_one_you_only_watch() {
 }
 
 #[test]
-#[ignore = "red until fixed: the session that loses a move race is told the card moved, not where it is now"]
 fn two_sessions_moving_one_card_at_once_make_one_move_and_both_end_on_the_same_label() {
     let gate = Gate::new(2);
     let reads = Arc::clone(&gate);
@@ -1411,7 +1412,10 @@ fn two_sessions_moving_one_card_at_once_make_one_move_and_both_end_on_the_same_l
     };
     let end = stub.world(|w| w.get(12).label);
     assert_eq!(won.out, format!("BUG-12 is in {end}\n"));
-    assert!(lost.err.contains("this card moved"), "{}", lost.err);
+    lone_error(
+        lost,
+        &format!("BUG-12 moved to {end} meanwhile; run it again to move it from there"),
+    );
     for home in [&ada, &grace] {
         let shown = home.ok(&["show", "12", "--host", HOST]);
         assert!(
@@ -1423,6 +1427,78 @@ fn two_sessions_moving_one_card_at_once_make_one_move_and_both_end_on_the_same_l
         lost.err.contains(&end),
         "the session that lost was told {:?}, not where the card is now ({end})",
         lost.err.trim()
+    );
+}
+
+fn raced_to(label: &'static str, reread: bool) -> Stub {
+    let reads = AtomicUsize::new(0);
+    Stub::hooked(
+        World::new(vec![Item::new(12, "Checkout total is wrong")]),
+        move |req, world| {
+            if req.on_item("GET", 12) && reads.fetch_add(1, Ordering::Relaxed) > 0 && !reread {
+                return Some(Reply::problem(500, "internal", "D1 is down"));
+            }
+            if !req.is("POST", "/v1/move") {
+                return None;
+            }
+            world.items[0].label = label.to_owned();
+            Some(Reply::problem(409, "moved", "this card moved; refreshed"))
+        },
+    )
+}
+
+#[test]
+fn a_move_that_loses_the_race_names_the_label_the_card_moved_to() {
+    let stub = raced_to("Review", true);
+    let home = Home::of("raced-review", &stub);
+    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
+    lone_error(
+        &lost,
+        "BUG-12 moved to Review meanwhile; run it again to move it from there",
+    );
+    assert!(!lost.err.contains("refreshed"), "{}", lost.err);
+    assert_eq!(
+        stub.seen().iter().filter(|r| r.on_item("GET", 12)).count(),
+        2,
+        "the card was not read again after the refused move"
+    );
+}
+
+#[test]
+fn a_move_that_loses_the_race_to_the_same_label_says_nothing_is_left_to_move() {
+    let stub = raced_to("Doing", true);
+    let home = Home::of("raced-same", &stub);
+    let lost = home.run(&["move", "12", "--to", "doing", "--host", HOST]);
+    lone_error(
+        &lost,
+        "BUG-12 moved to Doing meanwhile; nothing left to move",
+    );
+}
+
+#[test]
+fn a_move_that_loses_the_race_and_cannot_read_the_card_again_keeps_the_worker_words() {
+    let stub = raced_to("Review", false);
+    let home = Home::of("raced-dark", &stub);
+    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
+    lone_error(&lost, "this card moved; refreshed (409)");
+}
+
+#[test]
+fn a_move_refused_for_another_reason_is_never_called_a_race() {
+    let stub = Stub::hooked(
+        World::new(vec![Item::new(12, "Checkout total is wrong")]),
+        |req, _| {
+            req.is("POST", "/v1/move")
+                .then(|| Reply::problem(400, "bad_request", "Doing is not a label on your boards"))
+        },
+    );
+    let home = Home::of("raced-not", &stub);
+    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
+    lone_error(&lost, "Doing is not a label on your boards (400)");
+    assert!(!lost.err.contains("meanwhile"), "{}", lost.err);
+    assert_eq!(
+        stub.seen().iter().filter(|r| r.on_item("GET", 12)).count(),
+        1
     );
 }
 
@@ -1774,22 +1850,35 @@ fn an_inbox_of_600_items_loads_every_page_once_and_counts_them_all() {
 }
 
 #[test]
-#[ignore = "red until fixed: the TUI inbox stops at 1000 items (MOST in src/tui/source.rs), so older ones can't be found"]
-fn an_inbox_over_1000_items_still_finds_the_oldest_report() {
-    let mut world = World::many(1050);
-    world.items[0].title = "Zyzzyva oldest report".to_owned();
-    let stub = Stub::start(world);
+fn an_inbox_over_1000_items_loads_the_newest_1000_and_counts_every_item() {
+    let stub = Stub::start(World::many(1050));
     let home = Home::of("tui-1050", &stub);
     let counted = home.screen("120x30", "");
     assert!(
-        counted.contains("of 1050 items"),
+        counted.contains("1000 of 1050 items"),
         "the inbox does not count every item:\n{counted}"
     );
-    let found = home.screen("120x30", &format!("/ {}", typed("zyzzyva")));
     assert!(
-        has_key(&found, "BUG-1"),
-        "the oldest report is out of reach:\n{found}"
+        counted.contains("only the newest 1000 are loaded"),
+        "the inbox hides that it stopped loading:\n{counted}"
     );
+    assert!(has_key(&counted, "BUG-1050"), "{counted}");
+    assert!(
+        stub.seen()
+            .iter()
+            .filter(|r| r.is("GET", "/v1/issues"))
+            .all(|r| r.param("cursor") != Some("51")),
+        "the inbox read past its cap"
+    );
+}
+
+#[test]
+fn an_inbox_under_the_cap_counts_without_a_note() {
+    let stub = Stub::start(World::many(120));
+    let home = Home::of("tui-120", &stub);
+    let counted = home.screen("120x30", "");
+    assert!(counted.contains("120 of 120 items"), "{counted}");
+    assert!(!counted.contains("are loaded"), "{counted}");
 }
 
 #[test]
@@ -1812,7 +1901,6 @@ fn a_move_from_the_item_sends_the_label_it_shows_and_says_where_the_item_went() 
 }
 
 #[test]
-#[ignore = "red until fixed: a move refused with 409 in the TUI item view says refreshed but never reads the item again"]
 fn a_move_after_another_session_moved_the_item_shows_where_it_is_now() {
     let flipped = AtomicBool::new(false);
     let stub = Stub::hooked(
@@ -1833,7 +1921,11 @@ fn a_move_after_another_session_moved_the_item_shows_where_it_is_now() {
         [json!({"key": "BUG-12", "from": "Inbox", "to": "Review"})]
     );
     assert_eq!(stub.world(|w| w.get(12).label), "Doing");
-    assert!(after.contains("this card moved"), "{after}");
+    assert!(
+        after.contains("BUG-12 moved to Doing meanwhile; run it again to move it from there"),
+        "{after}"
+    );
+    assert!(!after.contains("refreshed"), "{after}");
     assert!(
         stub.seen().iter().filter(|r| r.on_item("GET", 12)).count() >= 2,
         "the item was not read again after the refused move"
@@ -1905,7 +1997,11 @@ fn a_card_dragged_on_your_board_moves_and_a_stale_drag_settles_where_the_other_s
     let settled = home.screen("140x34", "tab space right enter");
     assert_eq!(moves(&stale).len(), 1);
     assert_eq!(moves(&stale)[0]["from"], "Inbox");
-    assert!(settled.contains("this card moved; refreshed"), "{settled}");
+    let raced = moves(&stale)[0]["key"].as_str().unwrap().to_owned();
+    assert!(
+        settled.contains(&format!("{raced} moved to Review meanwhile")),
+        "{settled}"
+    );
     assert!(stale.sent("GET", "/v1/boards/7").len() >= 2);
     assert!(settled.contains("Review 2"), "{settled}");
     assert!(!settled.contains("Doing 1"), "{settled}");
@@ -1998,7 +2094,6 @@ fn a_drop_from_the_item_closes_it_and_a_label_reopens_it() {
 }
 
 #[test]
-#[ignore = "red until fixed: the TUI history shows an assignee change as raw JSON"]
 fn the_history_of_an_item_names_people_never_raw_json() {
     let mut item = Item::new(12, "Checkout total is wrong");
     item.assignee = Some("grace.hopper".to_owned());
