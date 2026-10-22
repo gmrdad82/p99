@@ -1,0 +1,430 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { decodeMappings, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
+import { collect, ownsFile, problems, report, workerFiles } from "./coverage.mjs";
+import { V8_FLAGS, coverWorker, matchScripts, v8Flags } from "./inspect.mjs";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const fn = (...ranges) => ({ functionName: "", isBlockCoverage: true, ranges: ranges.map(([startOffset, endOffset, count]) => ({ startOffset, endOffset, count })) });
+
+function scratch() {
+  mkdirSync(join(root, ".wrangler"), { recursive: true });
+  return mkdtempSync(join(root, ".wrangler", "coverage-test-"));
+}
+
+test("VLQ mappings decode to absolute columns, sources and lines, with relative fields carried across lines", () => {
+  assert.deepEqual(decodeMappings("AAAA;AACA,EAAE"), [[[0, 0, 0, 0]], [[0, 0, 1, 0], [2, 0, 1, 2]]]);
+  assert.deepEqual(decodeMappings("gBAAA"), [[[16, 0, 0, 0]]]);
+  assert.deepEqual(decodeMappings("D"), [[[-1]]]);
+  assert.deepEqual(decodeMappings(";;"), [[], [], []]);
+  assert.deepEqual(decodeMappings("AACA;AADA"), [[[0, 0, 1, 0]], [[0, 0, 0, 0]]]);
+});
+
+test("broken VLQ is an error, never a silent zero", () => {
+  assert.throws(() => decodeMappings("A!AA"), /bad base64 VLQ digit/);
+  assert.throws(() => decodeMappings("g"), /mid-digit/);
+});
+
+test("the innermost range decides an offset's count", () => {
+  const counts = offsetCounts("abcdefghij", [fn([0, 10, 1], [2, 5, 0], [3, 4, 7])]);
+  assert.deepEqual([...counts.slice(0, 10)], [1, 1, 0, 7, 0, 1, 1, 1, 1, 1]);
+});
+
+test("a loaded script's top level counts as run even when the counter started late, and only then", () => {
+  const late = offsetCounts("abcdef", [fn([0, 6, 0]), fn([2, 4, 0])], { loaded: true });
+  assert.equal(late[0], 1);
+  assert.equal(late[2], 0);
+  const cold = offsetCounts("abcdef", [fn([0, 6, 0]), fn([2, 4, 0])]);
+  assert.equal(cold[0], 0);
+  const warm = offsetCounts("abcdef", [fn([0, 6, 0]), fn([2, 4, 3])]);
+  assert.equal(warm[0], 1);
+  assert.equal(warm[3], 3);
+  const inner = offsetCounts("abcdef", [fn([1, 6, 0])], { loaded: true });
+  assert.equal(inner[1], 0);
+});
+
+test("plain lines skip blank lines and read each line at its first non-space character", () => {
+  const source = "a();\n\n  b();\n\t\nc();";
+  const at = source.indexOf("b");
+  const counts = offsetCounts(source, [fn([0, source.length, 1], [at, at + 4, 0])]);
+  assert.deepEqual([...plainLines(source, counts)], [
+    [1, true],
+    [3, false],
+    [5, true],
+  ]);
+  assert.deepEqual(lineStarts("x\ny\n"), [0, 2, 4]);
+});
+
+test("plain lines can number a slice of a served file from its own first line", () => {
+  const source = "vendor();\nvendor();\nown();\nmore();";
+  const counts = offsetCounts(source, [fn([0, source.length, 1])]);
+  assert.deepEqual([...plainLines(source, counts, 2)], [
+    [1, true],
+    [2, true],
+  ]);
+  assert.deepEqual([...plainLines(source, counts, 1, 2)], [[1, true]]);
+});
+
+test("mapped lines land on the original file and line, and a line is covered when any of its segments ran", () => {
+  const source = "one();two();\nthree();";
+  const counts = offsetCounts(source, [fn([0, source.length, 1], [13, 21, 0])]);
+  const map = { version: 3, sources: ["../src/a.js", "pkg:skip"], mappings: "AAAA,MAAM;AACA,MCAA" };
+  const files = mappedLines(source, counts, map, "/r/tmp");
+  assert.deepEqual([...files.keys()], [resolve("/r/src/a.js")]);
+  assert.deepEqual([...files.get(resolve("/r/src/a.js"))], [
+    [1, true],
+    [2, false],
+  ]);
+});
+
+test("a segment past the generated text or without a source maps nothing", () => {
+  const files = mappedLines("x();", new Float64Array(5).fill(1), { sources: ["a.js"], mappings: "AAAA;AACA;AACA" }, "/r");
+  assert.deepEqual([...files.get(resolve("/r/a.js"))], [[1, true]]);
+  assert.equal(mappedLines("x();", new Float64Array(5), { sources: ["a.js"], mappings: "A" }, "/r").size, 0);
+});
+
+test("merging keeps a line covered once any run covered it", () => {
+  const files = new Map();
+  mergeLines(files, "a.js", new Map([[1, false], [2, true]]));
+  mergeLines(files, "a.js", new Map([[1, true], [2, false], [3, false]]));
+  assert.deepEqual([...files.get("a.js")], [
+    [1, true],
+    [2, true],
+    [3, false],
+  ]);
+});
+
+test("a source map is read inline, from beside the script, by name under the search folder, or not at all", () => {
+  const map = { version: 3, sources: ["a.js"], mappings: "AAAA" };
+  const inline = `x();\n//# sourceMappingURL=data:application/json;base64,${Buffer.from(JSON.stringify(map)).toString("base64")}\n`;
+  assert.deepEqual(sourceMapOf({ url: "worker.js", source: inline }, null).map, map);
+  const dir = scratch();
+  try {
+    const nested = join(dir, "dev-1");
+    mkdirSync(nested, { recursive: true });
+    writeFileSync(join(nested, "bundle.js.map"), JSON.stringify(map));
+    const beside = sourceMapOf({ url: pathToFileURL(join(nested, "bundle.js")).href, source: "x();\n//# sourceMappingURL=bundle.js.map" }, null);
+    assert.equal(beside.dir, nested);
+    const named = sourceMapOf({ url: "bundle.js", sourceMapURL: "bundle.js.map", source: "x();" }, dir);
+    assert.equal(named.dir, nested);
+    assert.equal(sourceMapOf({ url: "bundle.js", sourceMapURL: "gone.js.map", source: "" }, dir), null);
+    assert.equal(sourceMapOf({ url: "bundle.js", source: "x();" }, dir), null);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the table lists every file once, sorted, with unloaded files at 0% and a line-weighted total", () => {
+  const files = new Map([[join("/r", "src", "b.js"), new Map([[1, true], [2, false], [3, true], [4, true]])]]);
+  const list = rows(files, "/r", [{ name: "src/a.js", text: "a();\n\nb();" }, { name: "src/b.js", text: "ignored" }]);
+  assert.deepEqual(list, [
+    { file: "src/a.js", covered: 0, lines: 2, pct: 0 },
+    { file: "src/b.js", covered: 3, lines: 4, pct: 75 },
+  ]);
+  assert.equal(
+    table(list),
+    ["| File | Lines covered | Lines |", "|---|---|---|", "| src/a.js | 0.00% | 2 |", "| src/b.js | 75.00% | 4 |", "| **total** | **50.00%** | 6 |"].join("\n"),
+  );
+  assert.match(table([]), /\*\*0\.00%\*\* \| 0 \|$/);
+});
+
+test("the Worker report owns worker/src's modules, never the browser files under web/ or anything outside", () => {
+  assert.equal(ownsFile(join(root, "src", "worker.js")), true);
+  assert.equal(ownsFile(join(root, "src", "web", "panel.js")), false);
+  assert.equal(ownsFile(join(root, "test", "run.mjs")), false);
+  assert.equal(ownsFile(join(root, "src", "worker.css")), false);
+  const files = workerFiles();
+  assert.ok(files.includes(join(root, "src", "worker.js")));
+  assert.equal(files.some((f) => f.includes(`${join("src", "web")}`)), false);
+});
+
+test("a run's workerd and node dumps fold into one row per worker/src file", () => {
+  const dir = scratch();
+  try {
+    const tries = join(root, "src", "tries.js");
+    const text = readFileSync(tries, "utf8");
+    const guard = text.indexOf("if (!ip");
+    const body = text.indexOf("const [head");
+    const generated = `${text}\nexport const panel = "x";\n`;
+    const map = {
+      version: 3,
+      sources: ["../../src/tries.js", "../../src/web/panel.js", "../../../elsewhere.js"],
+      mappings: "AAAA;AACA;;;;;;;AAAA,ECAA,ACAA",
+    };
+    writeFileSync(
+      join(dir, "worker-1.json"),
+      JSON.stringify({
+        kind: "workerd",
+        loaded: true,
+        scripts: [{ url: "bundle.js", source: generated, functions: [fn([0, generated.length, 0]), fn([guard, generated.length - 30, 0])], map, mapDir: join(root, ".wrangler", "tmp") }],
+      }),
+    );
+    mkdirSync(join(dir, "node"));
+    writeFileSync(
+      join(dir, "node", "coverage-1.json"),
+      JSON.stringify({
+        result: [
+          { url: pathToFileURL(tries).href, functions: [fn([0, text.length, 1], [body, text.length, 0])] },
+          { url: "node:fs", functions: [fn([0, 10, 1])] },
+          { url: pathToFileURL(join(root, "test", "run.mjs")).href, functions: [fn([0, 10, 1])] },
+        ],
+      }),
+    );
+    const files = collect(dir, { searchDir: dir });
+    assert.deepEqual([...files.keys()], [tries]);
+    const lines = files.get(tries);
+    assert.deepEqual([...lines], [[1, true], [2, true]]);
+    const shown = report(dir);
+    assert.match(shown, /^\| src\/tries\.js \| 100\.00% \| 2 \|$/m);
+    assert.match(shown, /^\| src\/worker\.js \| 0\.00% \| \d+ \|$/m);
+    assert.equal(shown.includes("web/"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("node's hits count only on the lines a bundle mapped, and a file only node loaded keeps every non-blank line", () => {
+  const dir = scratch();
+  try {
+    const tries = join(root, "src", "tries.js");
+    const text = readFileSync(tries, "utf8");
+    mkdirSync(join(dir, "node"));
+    writeFileSync(join(dir, "node", "coverage-1.json"), JSON.stringify({ result: [{ url: pathToFileURL(tries).href, functions: [fn([0, text.length, 1])] }] }));
+    const nodeOnly = collect(dir, { searchDir: dir }).get(tries);
+    assert.deepEqual([...nodeOnly.keys()], [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal([...nodeOnly.values()].every(Boolean), true);
+    const map = { version: 3, sources: ["../../src/tries.js"], mappings: "AAAA;AAEA" };
+    writeFileSync(
+      join(dir, "worker-1.json"),
+      JSON.stringify({ kind: "workerd", loaded: false, scripts: [{ url: "bundle.js", source: text, functions: [fn([0, text.length, 0])], map, mapDir: join(root, ".wrangler", "tmp") }] }),
+    );
+    const both = collect(dir, { searchDir: dir }).get(tries);
+    assert.deepEqual([...both], [[1, true], [3, true]]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an empty or missing dump folder reports every file at 0%", () => {
+  const dir = scratch();
+  rmSync(dir, { recursive: true, force: true });
+  assert.equal(collect(dir).size, 0);
+  const shown = report(dir);
+  for (const file of workerFiles()) assert.match(shown, new RegExp(`\\| src/${file.split(/[\\/]/).pop().replace(".", "\\.")} \\| 0\\.00% \\|`));
+});
+
+test("a workerd script whose source map can't be found fails the run instead of dropping out of the table", () => {
+  const dir = scratch();
+  try {
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "bundle.js", sourceMapURL: "gone.js.map", source: "x();\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.throws(() => collect(dir, { searchDir: dir }), /no source map for bundle\.js in worker-8787\.json/);
+    assert.throws(() => report(dir), /no source map/);
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "bundle.js", source: "x();\n//# sourceMappingURL=gone.js.map\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.throws(() => collect(dir, { searchDir: dir }), /no source map for bundle\.js/);
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "internal", source: "x();\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.equal(collect(dir, { searchDir: dir }).size, 0);
+    assert.match(problems(dir, collect(dir, { searchDir: dir })).join("\n"), /worker\.js maps no covered line/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a map reference on another scheme than the script's file: url is not found rather than thrown", () => {
+  const url = pathToFileURL(join(root, ".wrangler", "tmp", "dev-1", "index.js")).href;
+  assert.equal(sourceMapOf({ url, sourceMapURL: "http://127.0.0.1:9229/index.js.map", source: "x();" }, null), null);
+  assert.equal(sourceMapOf({ url, sourceMapURL: "data-less.js.map", source: "x();" }, null), null);
+});
+
+test("a run with no Worker dump, or one where worker.js maps no covered line, is a failed run", () => {
+  const dir = scratch();
+  try {
+    const main = join(root, "src", "worker.js");
+    assert.match(problems(dir, new Map()).join("\n"), /no Worker dump was saved/);
+    writeFileSync(join(dir, "worker-backup-8800-1.json"), JSON.stringify({ kind: "workerd", scripts: [] }));
+    assert.match(problems(dir, new Map()).join("\n"), /worker\.js maps no covered line/);
+    assert.match(problems(dir, new Map([[main, new Map([[1, false], [2, false]])]])).join("\n"), /worker\.js maps no covered line/);
+    assert.deepEqual(problems(dir, new Map([[main, new Map([[1, false], [2, true]])]])), []);
+    rmSync(dir, { recursive: true, force: true });
+    assert.match(problems(dir, new Map([[main, new Map([[1, true]])]])).join("\n"), /no Worker dump was saved/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the Worker runs with natives syntax on, added once to whatever V8 flags were already set", () => {
+  assert.equal(v8Flags({}), V8_FLAGS);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: "" }), V8_FLAGS);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: "--stack-size=2000" }), `--stack-size=2000 ${V8_FLAGS}`);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: ` ${V8_FLAGS}  --stack-size=2000` }), `${V8_FLAGS} --stack-size=2000`);
+});
+
+test("V8's collected ranges join the inspector's scripts by source, with the startup snapshot beside them, and a script neither reported is dropped", () => {
+  const bundle = "export default 1;\n";
+  const taken = [
+    { source: bundle, ranges: [{ startOffset: 0, endOffset: 18, count: 1 }] },
+    { source: "internal();", ranges: [{ startOffset: 0, endOffset: 11, count: 3 }] },
+  ];
+  const startup = [
+    { source: bundle, ranges: [{ startOffset: 0, endOffset: 19, count: 1 }] },
+    { source: "loaded();", ranges: [{ startOffset: 0, endOffset: 9, count: 1 }] },
+  ];
+  const sources = [
+    { url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle },
+    { url: "file:///w/loaded.js", sourceMapURL: "", source: "loaded();" },
+    { url: "file:///w/other.js", sourceMapURL: "", source: "never ran" },
+  ];
+  assert.deepEqual(matchScripts(taken, sources, startup), [
+    { url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle, functions: [{ ranges: taken[0].ranges }], startup: [{ ranges: startup[0].ranges }] },
+    { url: "file:///w/loaded.js", sourceMapURL: "", source: "loaded();", functions: [], startup: [{ ranges: startup[1].ranges }] },
+  ]);
+  assert.deepEqual(matchScripts(taken, sources), [{ url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle, functions: [{ ranges: taken[0].ranges }] }]);
+  assert.deepEqual(matchScripts([], sources), []);
+});
+
+test("a workerd script's lines count when either its startup snapshot or its block counts ran them, and stay uncovered when neither did", () => {
+  const dir = scratch();
+  try {
+    const tries = join(root, "src", "tries.js");
+    const text = readFileSync(tries, "utf8");
+    const lines = text.split("\n");
+    const at = (line) => lines.slice(0, line - 1).join("\n").length + (line > 1 ? 1 : 0);
+    const map = { version: 3, sources: ["../../src/tries.js"], mappings: lines.map((_, i) => (i === 0 ? "AAAA" : "AACA")).join(";") };
+    const script = (extra) => ({ url: "bundle.js", source: text, map, mapDir: join(root, ".wrangler", "tmp"), ...extra });
+    const write = (scripts) => writeFileSync(join(dir, "worker-1.json"), JSON.stringify({ kind: "workerd", loaded: true, scripts }));
+    const covered = () => [...collect(dir, { searchDir: dir }).get(tries)].filter(([, ran]) => ran).map(([line]) => line);
+    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(2), at(3), 0], [at(3), at(4), 0])] })]);
+    const both = covered();
+    assert.ok(both.includes(1), "the top level ran at load");
+    assert.ok(both.includes(2), "line 2 ran after the counts were on");
+    assert.equal(both.includes(3), false, "line 3 ran in neither");
+    write([script({ functions: [fn([at(2), at(3), 4])] })]);
+    assert.deepEqual(covered(), [2]);
+    write([script({ functions: [], startup: [fn([0, text.length, 1], [at(3), at(4), 0])] })]);
+    assert.equal(covered().includes(3), false);
+    assert.ok(covered().includes(1));
+    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(3), at(4), 2], [at(4), text.length, 0])] })]);
+    assert.deepEqual(covered(), [1, 2, 3], "a function run only at load stays covered beside the block counts");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+class FakeInspector extends EventTarget {
+  constructor(answer) {
+    super();
+    this.answer = answer;
+    this.sent = [];
+  }
+  send(text) {
+    const msg = JSON.parse(text);
+    this.sent.push(msg.method);
+    this.answer(msg, this);
+  }
+  reply(body) {
+    this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(body) }));
+  }
+  close() {
+    this.dispatchEvent(new Event("close"));
+  }
+}
+
+function workerd(later = (msg, socket) => socket.reply({ id: msg.id, result: { result: { value: "[]" } } })) {
+  let started = false;
+  return new FakeInspector((msg, socket) => {
+    if (msg.method === "Runtime.enable") {
+      socket.reply({ method: "Runtime.executionContextCreated", params: { context: { id: 7 } } });
+      return socket.reply({ id: msg.id, result: {} });
+    }
+    if (!started && msg.method === "Runtime.evaluate") {
+      started = msg.params.expression.includes("DebugToggleBlockCoverage");
+      return socket.reply({ id: msg.id, result: { result: { value: "[]" } } });
+    }
+    later(msg, socket);
+  });
+}
+
+test("a Worker's coverage is started on its inspector and saved as a workerd dump", async () => {
+  const dir = scratch();
+  try {
+    const socket = workerd();
+    const cover = await coverWorker(9229, dir, { connect: async () => socket });
+    assert.equal(await cover.save(join(dir, "worker-1.json")), 0);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "worker-1.json"), "utf8")), { kind: "workerd", loaded: true, scripts: [] });
+    assert.deepEqual(socket.sent, ["Runtime.enable", "Runtime.evaluate", "Runtime.evaluate", "Runtime.evaluate", "Debugger.enable"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Worker whose inspector closes mid-run fails its save at once, and every later call too", async () => {
+  const socket = workerd((msg, s) => s.close());
+  const cover = await coverWorker(9229, "", { connect: async () => socket });
+  await assert.rejects(cover.save("unused.json"), /^Error: Runtime\.evaluate: the Worker's inspector on 9229 closed$/);
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 closed/);
+});
+
+test("an inspector socket error fails the pending call instead of leaving it waiting", async () => {
+  const socket = workerd((msg, s) => s.dispatchEvent(new Event("error")));
+  const cover = await coverWorker(9229, "", { connect: async () => socket });
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 failed/);
+});
+
+test("an inspector that never answers fails the call at its limit", async () => {
+  const socket = workerd(() => {});
+  const cover = await coverWorker(9229, "", { connect: async () => socket, limit: 1 });
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 gave no answer in 1 ms/);
+});
+
+function sourcing(answer) {
+  return workerd((msg, s) => {
+    if (msg.method === "Debugger.enable") {
+      s.reply({ method: "Debugger.scriptParsed", params: { scriptId: "1", url: "file:///bundle.js" } });
+      return s.reply({ id: msg.id, result: {} });
+    }
+    if (msg.method === "Debugger.getScriptSource") return answer(msg, s);
+    s.reply({ id: msg.id, result: { result: { value: "[]" } } });
+  });
+}
+
+test("a script whose source the inspector refuses is left out, and the save still succeeds", async () => {
+  const dir = scratch();
+  try {
+    const socket = sourcing((msg, s) => s.reply({ id: msg.id, error: { message: "No script for id" } }));
+    const cover = await coverWorker(9229, dir, { connect: async () => socket });
+    assert.equal(await cover.save(join(dir, "worker-1.json")), 0);
+    assert.equal(socket.sent.at(-1), "Debugger.getScriptSource");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an inspector that closes or goes silent while scripts are read fails the save and writes no dump", async () => {
+  const dir = scratch();
+  try {
+    const file = join(dir, "worker-1.json");
+    const closing = await coverWorker(9229, dir, { connect: async () => sourcing((msg, s) => s.close()) });
+    await assert.rejects(closing.save(file), /^Error: Debugger\.getScriptSource: the Worker's inspector on 9229 closed$/);
+    const silent = await coverWorker(9229, dir, { connect: async () => sourcing(() => {}), limit: 1 });
+    await assert.rejects(silent.save(file), /^Error: Debugger\.getScriptSource: the Worker's inspector on 9229 gave no answer in 1 ms$/);
+    assert.equal(existsSync(file), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an inspector that closes before coverage starts fails the start", async () => {
+  const socket = new FakeInspector((msg, s) => s.close());
+  await assert.rejects(coverWorker(9229, "", { connect: async () => socket }), /Runtime\.enable: the Worker's inspector on 9229 closed/);
+});

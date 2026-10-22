@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
 import { APP_HOST } from "../app.mjs";
+import { coverWorker } from "../inspect.mjs";
 
 const GRACE = { email: "grace@example.com", name: "Grace Hopper", agent: true };
 const NEAR = "127.0.0.1";
@@ -474,6 +475,8 @@ function wranglerRun(wrangler, root, args) {
   if (result.status !== 0) throw new Error(`wrangler ${args.join(" ")} failed:\n${result.stdout}\n${result.stderr}`);
 }
 
+let covers = 0;
+
 async function startWorker({ wrangler, root, persist, port, inspector, vars, log }) {
   const out = openSync(log, "w");
   const child = spawn(
@@ -502,13 +505,23 @@ async function startWorker({ wrangler, root, persist, port, inspector, vars, log
       process.kill(-child.pid, name);
     } catch {}
   };
+  let cover = null;
   const stop = async () => {
+    if (cover) {
+      const taking = cover;
+      cover = null;
+      await taking.save(join(process.env.P99_COVERAGE, `worker-backup-${port}-${++covers}.json`)).catch((error) => {
+        console.error(`coverage: ${error.message}`);
+        process.exitCode = 1;
+      });
+    }
     signal("SIGTERM");
     const late = setTimeout(() => signal("SIGKILL"), 10000);
     await exited;
     clearTimeout(late);
   };
   try {
+    if (process.env.P99_COVERAGE) cover = await coverWorker(inspector, join(root, ".wrangler", "tmp"));
     await until(
       "the backup Worker's health",
       async () => {
@@ -576,7 +589,7 @@ async function unlessBusy(fn) {
   try {
     return await fn();
   } catch (error) {
-    if (/database is locked|SQLITE_BUSY/.test(String(error?.message))) return null;
+    if (/database is locked|SQLITE_BUSY/.test(String(error?.message)) || error?.code === "ENOENT") return null;
     throw error;
   }
 }
