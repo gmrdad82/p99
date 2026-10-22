@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
-import { BACKUP_TABLES, backupDue, backupStep, cutRows, pageKey, pageQuery } from "../src/backup.js";
+import { BACKUP_TABLES, backupDue, backupStep, cutRows, forwardOf, pageKey, pageQuery, pullLanes } from "../src/backup.js";
 
 const MONDAY = new Date("2026-10-19T03:00:00.000Z");
 const DATE = "2026-10-19";
@@ -65,6 +65,10 @@ function r2() {
     async put(key, text, options = {}) {
       objects.set(key, { text: String(text), customMetadata: { ...(options.customMetadata || {}) } });
     },
+    async get(key) {
+      const o = objects.get(key);
+      return o ? { text: async () => o.text, customMetadata: o.customMetadata } : null;
+    },
     async list({ prefix = "", cursor, include = [] } = {}) {
       const keys = [...objects.keys()].filter((k) => k.startsWith(prefix) && (!cursor || k > cursor)).sort();
       const shown = keys.slice(0, LIST_PAGE);
@@ -89,6 +93,25 @@ function r2() {
 function setup(root) {
   const db = migrated(root);
   return { db, env: { DB: d1(db), BUCKET: r2() } };
+}
+
+const indexOf = (name) => BACKUP_TABLES.findIndex((t) => t.name === name);
+
+const board = (db, name) =>
+  db.prepare("INSERT INTO boards (name, host, created_at, updated_at) VALUES (?, 'example.com', ?, ?) RETURNING id").get(name, AT, AT).id;
+
+const label = (db, name) => db.prepare("INSERT INTO labels (name, color, created_at) VALUES (?, '#e5534b', ?) RETURNING id").get(name, AT).id;
+
+async function logged(fn) {
+  const lines = [];
+  const log = console.log;
+  console.log = (...args) => lines.push(args.join(" "));
+  try {
+    await fn();
+  } finally {
+    console.log = log;
+  }
+  return lines;
 }
 
 const inbox = (db) => db.prepare("SELECT id FROM labels WHERE role = 'inbox'").get().id;
@@ -192,17 +215,90 @@ export async function backupChecks({ check, root }) {
     assert.equal(pageQuery(BACKUP_TABLES.find((t) => t.name === "labels"), marks, 0).binds.length, 3);
   });
 
-  await check("[backup] the lanes and the key counters are paged after every row that points at them, the counters last", async () => {
+  await check("[backup] every table is paged after every table it points at, the lanes first and the key counters last", async () => {
     const names = BACKUP_TABLES.map((t) => t.name);
     assert.equal(names[names.length - 1], "sqlite_sequence");
-    for (const lane of ["labels", "boards", "board_columns"]) {
-      assert.ok(names.indexOf(lane) > names.indexOf("board_positions"), lane);
-      assert.ok(names.indexOf(lane) > names.indexOf("items"), lane);
-      assert.ok(names.indexOf(lane) > names.indexOf("item_labels"), lane);
-      assert.equal(BACKUP_TABLES.find((t) => t.name === lane).cut, undefined, lane);
+    assert.deepEqual(names.slice(0, 3), ["labels", "boards", "board_columns"]);
+    for (const table of BACKUP_TABLES) {
+      for (const lane of Object.values(table.refs ?? {})) assert.ok(indexOf(lane) < indexOf(table.name), `${table.name} -> ${lane}`);
+      if (table.item) assert.ok(indexOf("items") < indexOf(table.name), table.name);
+      if (table.lane) assert.equal(table.cut, undefined, table.name);
     }
-    assert.ok(names.indexOf("items") < names.indexOf("comments"));
-    assert.ok(names.indexOf("comments") < names.indexOf("attachments"));
+    for (const [child, parent] of [
+      ["attachments", "comments"],
+      ["code_devices", "codes"],
+      ["items", "labels"],
+      ["board_columns", "boards"],
+      ["board_columns", "labels"],
+      ["board_positions", "boards"],
+      ["item_labels", "labels"],
+    ]) {
+      assert.ok(indexOf(parent) < indexOf(child), `${child} -> ${parent}`);
+    }
+    for (const [name, refs] of [
+      ["board_columns", ["boards", "labels"]],
+      ["items", ["labels"]],
+      ["board_positions", ["boards", "labels"]],
+      ["item_labels", ["labels"]],
+    ]) {
+      assert.deepEqual(Object.values(BACKUP_TABLES[indexOf(name)].refs).sort(), refs, name);
+    }
+  });
+
+  await check("[backup] a row pointing at a lane the backup lacks brings it along once; one whose lane is gone is left out", async () => {
+    const table = BACKUP_TABLES[indexOf("board_positions")];
+    const held = { labels: [1, 2], boards: [7] };
+    const snapshot = {
+      labels: [
+        { _rowid: 1, id: 1, name: "Inbox" },
+        { _rowid: 9, id: 9, name: "Blocked" },
+      ],
+      boards: [
+        { _rowid: 7, id: 7, name: "QA" },
+        { _rowid: 8, id: 8, name: "Release" },
+      ],
+    };
+    const rows = [
+      { _rowid: 1, board_id: 7, label_id: 1 },
+      { _rowid: 2, board_id: 7, label_id: 9 },
+      { _rowid: 3, board_id: 8, label_id: 9 },
+      { _rowid: 4, board_id: 7, label_id: 2 },
+      { _rowid: 5, board_id: 6, label_id: 1 },
+      { _rowid: 6, board_id: 7, label_id: 5 },
+    ];
+    const pull = pullLanes(table, rows, held, snapshot);
+    assert.deepEqual(pull.rows.map((r) => r._rowid), [1, 2, 3, 4]);
+    assert.deepEqual(pull.dropped, [5, 6]);
+    assert.deepEqual(pull.pulled.labels.map((r) => r.id), [9]);
+    assert.deepEqual(pull.pulled.boards.map((r) => r.id), [8]);
+    assert.deepEqual(held, { labels: [1, 2], boards: [7] });
+    const quiet = pullLanes(table, rows.slice(0, 1), held, snapshot);
+    assert.deepEqual(quiet, { rows: rows.slice(0, 1), pulled: { boards: [], labels: [] }, dropped: [] });
+    const items = BACKUP_TABLES[indexOf("items")];
+    assert.deepEqual(pullLanes(items, [{ _rowid: 3, label_id: 9 }], { labels: [] }, { labels: [] }).dropped, [3]);
+  });
+
+  await check("[backup] a merge pointer past its page waits for its target's page, and stays waiting when the target never comes", async () => {
+    const items = BACKUP_TABLES[indexOf("items")];
+    const first = [
+      { _rowid: 1, duplicate_of: 9 },
+      { _rowid: 2, duplicate_of: 1 },
+      { _rowid: 3, duplicate_of: 3 },
+      { _rowid: 4, duplicate_of: null },
+      { _rowid: 5, duplicate_of: 12 },
+    ];
+    const waiting = forwardOf(items, first, [], 1);
+    assert.deepEqual(waiting, [
+      [1, 9, 1],
+      [5, 12, 1],
+    ]);
+    const second = [
+      { _rowid: 8, duplicate_of: null },
+      { _rowid: 9, duplicate_of: null },
+      { _rowid: 11, duplicate_of: null },
+    ];
+    assert.deepEqual(forwardOf(items, second, waiting, 2), [[5, 12, 1]]);
+    assert.deepEqual(forwardOf(items, [], [[5, 12, 1]], 3), [[5, 12, 1]]);
   });
 
   await check("[backup] a row merged into an item filed after the cut keeps no pointer past the cut; others are left as they are", async () => {
@@ -249,7 +345,7 @@ export async function backupChecks({ check, root }) {
     assert.equal(fileItem(back, "after a partial restore"), doomed);
   });
 
-  await check("[backup] a second run on the same date replaces the first whole: no page of the first is left", async () => {
+  await check("[backup] a second run on the same date (forced by dropping the first run's row) replaces the first whole: no page of the first is left", async () => {
     const { db, env } = setup(root);
     for (let i = 0; i < 4; i++) comment(db, fileItem(db, `item-${i}`), `comment-${i}`);
     const board = db.prepare("INSERT INTO boards (name, host, created_at, updated_at) VALUES ('QA', 'example.com', ?, ?) RETURNING id").get(AT, AT).id;
@@ -262,6 +358,8 @@ export async function backupChecks({ check, root }) {
     await env.BUCKET.put(pageKey(DATE, "items", 9), JSON.stringify({ table: "items", page: 9, rows: [] }));
     for (const id of db.prepare("SELECT id FROM items").all().map((r) => r.id)) deleteItem(db, id);
     db.prepare("DELETE FROM backup_runs WHERE date = ?").run(DATE);
+    const listed = [...env.BUCKET.objects.keys()].filter((k) => k.startsWith(`backups/${DATE}/`)).sort();
+    assert.ok(listed.indexOf(pageKey(DATE, "items", 9)) >= LIST_PAGE, "the stale page sits past the bucket's first listing page");
     await runToEnd(env, db, minutes(MONDAY, 120));
     const second = pagesOf(env.BUCKET);
     const secondRun = runRow(db);
@@ -271,6 +369,7 @@ export async function backupChecks({ check, root }) {
     assert.deepEqual(second.filter((p) => p.run !== secondRun.started_at).map((p) => p.key), []);
     assert.deepEqual(rowsOf(second, "items"), []);
     assert.deepEqual(rowsOf(second, "comments"), []);
+    assert.ok(second.every((p) => p.run === secondRun.started_at), "every page names the run that wrote it");
     assert.equal(env.BUCKET.objects.has(pageKey("2026-10-12", "items", 1)), true, "another date's run is left alone");
   });
 
@@ -363,5 +462,135 @@ export async function backupChecks({ check, root }) {
     await backupStep(env, minutes(MONDAY, 30));
     assert.equal(env.BUCKET.objects.size, 0);
     assert.equal(db.prepare("SELECT count(*) AS n FROM backup_runs").get().n, 1);
+  });
+
+  await check("[backup] a board and a column label made between the lane pages come along, and the restore points at nothing it lacks", async () => {
+    const { db, env } = setup(root);
+    const many = db.prepare("INSERT INTO labels (name, color, created_at) VALUES (?, '#539bf5', ?)");
+    for (let i = 0; i < 2500; i++) many.run(`Lane ${i}`, AT);
+    const qa = board(db, "QA");
+    const moved = fileItem(db, "moved");
+    let made = null;
+    await runToEnd(env, db, MONDAY, async () => {
+      if (made || runRow(db).table_index !== indexOf("board_columns")) return;
+      const release = board(db, "Release");
+      const blocked = label(db, "Blocked");
+      db.prepare("INSERT INTO board_columns (board_id, label_id, position) VALUES (?, ?, 0)").run(release, blocked);
+      db.prepare("UPDATE items SET label_id = ? WHERE id = ?").run(blocked, moved);
+      db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'a0')").run(qa, moved, blocked);
+      made = { release, blocked };
+    });
+    assert.ok(made, "no step ended between the boards and their columns");
+    const pages = pagesOf(env.BUCKET);
+    const { db: back, dangling } = restore(root, pages);
+    assert.deepEqual(dangling, []);
+    assert.equal(back.prepare("SELECT name FROM boards WHERE id = ?").get(made.release)?.name, "Release");
+    assert.equal(back.prepare("SELECT name FROM labels WHERE id = ?").get(made.blocked)?.name, "Blocked");
+    assert.equal(back.prepare("SELECT label_id FROM board_columns WHERE board_id = ?").get(made.release)?.label_id, made.blocked);
+    assert.equal(back.prepare("SELECT label_id FROM items WHERE id = ?").get(moved).label_id, made.blocked);
+    for (const lane of ["labels", "boards"]) {
+      const mine = pages.filter((p) => p.table === lane);
+      assert.deepEqual(mine.map((p) => p.page), mine.map((_, i) => i + 1), lane);
+      assert.equal(JSON.parse(runRow(db).held_json).pages[lane], mine.length, lane);
+    }
+    assert.equal(rowsOf(pages, "labels").filter((r) => r.id === made.blocked).length, 1, "a lane comes along once");
+    assert.equal(JSON.parse(runRow(db).rows_json).labels, rowsOf(pages, "labels").length);
+  });
+
+  await check("[backup] a board deleted, a label swept and a merge target deleted mid-run restore with nothing dangling, and the log names the cleared pointer", async () => {
+    const { db, env } = setup(root);
+    const qa = board(db, "QA");
+    const spare = board(db, "Spare");
+    const flaky = label(db, "Flaky");
+    const ids = [];
+    for (let i = 0; i < 300; i++) ids.push(fileItem(db, `bulk-${i}`));
+    const merged = ids[0];
+    const target = ids[ids.length - 1];
+    db.prepare("UPDATE items SET open = 0, resolution = 'duplicate', duplicate_of = ? WHERE id = ?").run(target, merged);
+    db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'a0')").run(qa, ids[1], inbox(db));
+    db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'a0')").run(spare, ids[2], inbox(db));
+    db.prepare("INSERT INTO item_labels (item_id, label_id) VALUES (?, ?)").run(ids[3], flaky);
+    let cut = null;
+    const lines = await logged(() =>
+      runToEnd(env, db, MONDAY, async () => {
+        const run = runRow(db);
+        if (cut || run.table_index !== indexOf("items") || run.after_rowid < merged || run.after_rowid >= target) return;
+        db.prepare("UPDATE items SET duplicate_of = NULL WHERE duplicate_of = ?").run(target);
+        deleteItem(db, target);
+        db.prepare("DELETE FROM board_positions WHERE board_id = ?").run(spare);
+        db.prepare("DELETE FROM boards WHERE id = ?").run(spare);
+        db.prepare("DELETE FROM item_labels WHERE label_id = ?").run(flaky);
+        db.prepare("DELETE FROM labels WHERE id = ?").run(flaky);
+        cut = run.after_rowid;
+      }),
+    );
+    assert.ok(cut, "no step ended between the two items pages");
+    const pages = pagesOf(env.BUCKET);
+    assert.ok(pages.filter((p) => p.table === "items").length >= 2, "the items span two pages");
+    const { db: back, dangling } = restore(root, pages);
+    assert.deepEqual(dangling, []);
+    assert.equal(back.prepare("SELECT duplicate_of FROM items WHERE id = ?").get(merged).duplicate_of, null);
+    assert.equal(back.prepare("SELECT count(*) AS n FROM items WHERE id = ?").get(target).n, 0);
+    assert.equal(back.prepare("SELECT count(*) AS n FROM board_positions WHERE board_id = ?").get(spare).n, 0);
+    assert.equal(back.prepare("SELECT count(*) AS n FROM item_labels").get().n, 0);
+    assert.equal(back.prepare("SELECT count(*) AS n FROM board_positions WHERE board_id = ?").get(qa).n, 1);
+    assert.equal(back.prepare("SELECT count(*) AS n FROM items").get().n, ids.length - 1);
+    const held = JSON.parse(runRow(db).held_json);
+    assert.deepEqual(held.cleared, [merged]);
+    assert.deepEqual(held.forward, []);
+    assert.equal(held.dropped, undefined);
+    assert.ok(pages.every((p) => p.run === runRow(db).started_at), "the rewritten page still names its run");
+    assert.ok(lines.some((l) => l.includes(`merge pointer cleared on items ${merged}`)), lines.join("\n"));
+  });
+
+  await check("[backup] a merge target filed before the cut and kept keeps its pointer across items pages", async () => {
+    const { db, env } = setup(root);
+    board(db, "QA");
+    board(db, "Spare");
+    const ids = [];
+    for (let i = 0; i < 300; i++) ids.push(fileItem(db, `bulk-${i}`));
+    db.prepare("UPDATE items SET open = 0, resolution = 'duplicate', duplicate_of = ? WHERE id = ?").run(ids[ids.length - 1], ids[0]);
+    await runToEnd(env, db);
+    const pages = pagesOf(env.BUCKET);
+    assert.ok(pages.filter((p) => p.table === "items").length >= 2, "the items span two pages");
+    assert.equal(rowsOf(pages, "items").find((r) => r.id === ids[0]).duplicate_of, ids[ids.length - 1]);
+    const held = JSON.parse(runRow(db).held_json);
+    assert.equal(held.cleared, undefined);
+    assert.deepEqual(held.forward, []);
+    assert.deepEqual(restore(root, pages).dangling, []);
+  });
+
+  await check("[backup] a run left open by a version without the lane record starts over, so its table order can't skip a table", async () => {
+    const { db, env } = setup(root);
+    const id = fileItem(db, "one");
+    db.prepare(
+      "INSERT INTO backup_runs (date, started_at, table_index, after_rowid, page, pages, rows_json, marks_json) VALUES (?, '2026-10-19T03:00:00.000Z', 20, 0, 0, 20, '{}', '{\"items\":1}')",
+    ).run(DATE);
+    await runToEnd(env, db, minutes(MONDAY, 15));
+    const run = runRow(db);
+    assert.equal(run.started_at, minutes(MONDAY, 15).toISOString());
+    assert.ok(run.held_json);
+    assert.deepEqual(rowsOf(pagesOf(env.BUCKET), "items").map((r) => r.id), [id]);
+    assert.ok(rowsOf(pagesOf(env.BUCKET), "labels").length > 0);
+  });
+
+  await check("[backup] the authenticator devices and the files still waiting to go are in the backup, each at the cut", async () => {
+    const { db, env } = setup(root);
+    const code = db
+      .prepare("INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by) VALUES ('h1', 'h1', 'Ada Lovelace', 'ada@example.com', '[]', 1, ?, 'P99') RETURNING id")
+      .get(AT).id;
+    db.prepare("INSERT INTO code_devices (code_id, token_hash, created_at) VALUES (?, 'device-1', ?)").run(code, AT);
+    db.prepare("INSERT INTO deletions (r2_key, item_id, due_at) VALUES ('files/1/a.png', 1, ?)").run(AT);
+    let late = false;
+    await runToEnd(env, db, MONDAY, async () => {
+      if (late) return;
+      db.prepare("INSERT INTO code_devices (code_id, token_hash, created_at) VALUES (?, 'device-2', ?)").run(code, AT);
+      db.prepare("INSERT INTO deletions (r2_key, item_id, due_at) VALUES ('files/2/b.png', 2, ?)").run(AT);
+      late = true;
+    });
+    const pages = pagesOf(env.BUCKET);
+    assert.deepEqual(rowsOf(pages, "code_devices").map((r) => r.token_hash), ["device-1"]);
+    assert.deepEqual(rowsOf(pages, "deletions").map((r) => r.r2_key), ["files/1/a.png"]);
+    assert.deepEqual(restore(root, pages).dangling, []);
   });
 }

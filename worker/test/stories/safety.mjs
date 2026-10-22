@@ -12,7 +12,7 @@ const GRACE = { email: "grace@example.com", name: "Grace Hopper", agent: true };
 const NEAR = "127.0.0.1";
 const FAR = "localhost";
 const SCHEDULED = "/__scheduled?cron=*%2F15+*+*+*+*";
-const LEFT_OUT = ["app_sessions", "app_tries", "backup_runs", "code_devices", "deletions", "github_deliveries", "usage"];
+const LEFT_OUT = ["app_sessions", "app_tries", "backup_runs", "github_deliveries", "usage"];
 const OLD_RUNS = ["2025-01-06", "2025-01-13", "2025-01-20", "2025-01-27", "2025-02-03", "2025-02-10", "2025-02-17", "2025-02-24"];
 const BACKUP_STEP_PAGES = 6;
 const BACKUP_STEP_BYTES = 512 * 1024;
