@@ -422,7 +422,8 @@ pub fn civil_day(date: &str) -> Option<i64> {
 }
 
 fn normalize(pasted: &str) -> String {
-    let text = soft_breaks(pasted);
+    let decoded = soft_breaks(pasted);
+    let text = unglue(&decoded);
     let mut begin = None;
     let mut end = None;
     let mut before = String::new();
@@ -478,6 +479,41 @@ fn invisible(c: char) -> bool {
     )
 }
 
+fn unglue(text: &str) -> Cow<'_, str> {
+    let mut marks: Vec<usize> = text
+        .match_indices("BEGIN ")
+        .chain(text.match_indices("END "))
+        .map(|(at, _)| at)
+        .collect();
+    marks.sort_unstable();
+    let mut out = String::new();
+    let mut last = 0;
+    for at in marks {
+        if at < last {
+            continue;
+        }
+        let lead = text[..at].trim_end_matches([' ', '\t']);
+        let start = lead.trim_end_matches('-').len();
+        if start == lead.len() || start < last {
+            continue;
+        }
+        let label = text[at..]
+            .find(['-', '\r', '\n'])
+            .map_or(text.len(), |n| at + n);
+        let stop = label + (text[label..].len() - text[label..].trim_start_matches('-').len());
+        out.push_str(&text[last..start]);
+        out.push('\n');
+        out.push_str(&text[start..stop]);
+        out.push('\n');
+        last = stop;
+    }
+    if last == 0 {
+        return Cow::Borrowed(text);
+    }
+    out.push_str(&text[last..]);
+    Cow::Owned(out)
+}
+
 fn soft_breaks(pasted: &str) -> Cow<'_, str> {
     if !pasted.contains('=') {
         return Cow::Borrowed(pasted);
@@ -500,7 +536,9 @@ fn soft_breaks(pasted: &str) -> Cow<'_, str> {
             [b'\r', b'\n', ..] => i = after + 2,
             [b'\n', ..] => i = after + 1,
             [] => i = after,
-            [high, low, ..] if blank == 0 && high.is_ascii_hexdigit() && low.is_ascii_hexdigit() => {
+            [high, low, ..]
+                if blank == 0 && high.is_ascii_hexdigit() && low.is_ascii_hexdigit() =>
+            {
                 let hex = [*high, *low];
                 let text = std::str::from_utf8(&hex).unwrap_or("00");
                 out.push(u8::from_str_radix(text, 16).unwrap_or(0));
@@ -730,7 +768,10 @@ mod tests {
 
     fn studio() -> (String, String) {
         let (signing, public) = pair();
-        (mint(&signing, &claims("p99", "studio", Some("timed"))), public)
+        (
+            mint(&signing, &claims("p99", "studio", Some("timed"))),
+            public,
+        )
     }
 
     #[test]
@@ -758,7 +799,8 @@ mod tests {
         let (signing, public) = pair();
         let token = (1..10_000)
             .map(|n| {
-                let payload = claims("p99", "studio", Some("timed")).replace("a@b.c", &format!("a{n}@b.c"));
+                let payload =
+                    claims("p99", "studio", Some("timed")).replace("a@b.c", &format!("a{n}@b.c"));
                 mint(&signing, &payload)
             })
             .find(|t| t.contains('-'))
@@ -802,11 +844,39 @@ mod tests {
         let spaced = soft.replace("=\r\n", "=  \n");
         assert_eq!(normalize(&spaced), token);
         let escaped = format!("=EF=BB=BF{}=20\n", wrap(&token, 64, "=\n"));
+        assert_eq!(normalize(&escaped), token, "{escaped:?}");
         assert!(verify(&public, &escaped).is_ok(), "{escaped:?}");
+        let (head, tail) = token.split_at(75);
+        let mail = format!(
+            "Content-Transfer-Encoding: quoted-printable\r\n\r\nHi Ada=2C your key:\r\n\r\n=EF=BB=BF----- BEGIN PITO MD LICENSE -----\r\n{head}=\r\n{tail}\r\n------ END PITO MD LICENSE ------\r\n-- =\r\nGrace Hopper\r\n"
+        );
+        assert_eq!(normalize(&mail), token, "{mail:?}");
+        assert!(verify(&public, &mail).is_ok(), "{mail:?}");
         assert_eq!(soft_breaks("a=3Db=\nc="), "a=bc");
         assert_eq!(soft_breaks("a=zz"), "a=zz");
         assert_eq!(soft_breaks("a= b"), "a= b");
         assert!(matches!(soft_breaks("plain"), Cow::Borrowed("plain")));
+    }
+
+    #[test]
+    fn armour_glued_onto_the_key_by_a_rewrapping_client_is_split_back_out() {
+        let (token, public) = studio();
+        let glued = format!(
+            "> ----- BEGIN PITO MD LICENSE -----{token}------ END PITO MD LICENSE ------ thanks\n"
+        );
+        assert_eq!(normalize(&glued), token, "{glued:?}");
+        assert!(verify(&public, &glued).is_ok());
+        let half = format!(
+            "----- BEGIN PITO MD LICENSE -----{token}\n------ END PITO MD LICENSE ------\n"
+        );
+        assert_eq!(normalize(&half), token);
+        let mismatched =
+            format!("----- BEGIN PITO MD LICENSE -----{token}------ END PITO MD KEY ------");
+        assert_eq!(verify(&public, &mismatched), Err(Refusal::Shape));
+        assert_eq!(unglue("SEND it, BEGIN now"), "SEND it, BEGIN now");
+        assert!(matches!(unglue("plain"), Cow::Borrowed("plain")));
+        assert_eq!(unglue("a-- END X --b"), "a\n-- END X --\nb");
+        assert_eq!(unglue("-BEGIN X"), "\n-BEGIN X\n");
     }
 
     #[test]
@@ -828,7 +898,10 @@ mod tests {
         let mut flipped = token.clone().into_bytes();
         flipped[10] = if flipped[10] == b'x' { b'y' } else { b'x' };
         let broken = wrap(std::str::from_utf8(&flipped).unwrap(), 64, "\r\n");
-        assert_eq!(verify(&public, &format!("\u{feff}{broken}")), Err(Refusal::Signature));
+        assert_eq!(
+            verify(&public, &format!("\u{feff}{broken}")),
+            Err(Refusal::Signature)
+        );
     }
 
     #[test]

@@ -1269,6 +1269,46 @@ fn a_list_limit_of_zero_never_tells_the_owner_their_inbox_is_empty() {
 }
 
 #[test]
+fn an_empty_page_that_still_carries_a_cursor_ends_the_list_without_saying_more_follow() {
+    let stub = Stub::hooked(World::new(vec![]), |req, _| {
+        (req.is("GET", "/v1/issues"))
+            .then(|| Reply::json(200, json!({"issues": [], "next_cursor": "x"})))
+    });
+    let home = Home::of("empty-cursor", &stub);
+    let began = Instant::now();
+    let empty = home.run(&["list", "--limit", "10"]);
+    assert!(began.elapsed() < Duration::from_secs(30));
+    assert_eq!(empty.code, Some(0), "{}", empty.err);
+    assert_eq!(empty.out.trim(), "no items");
+    assert!(!empty.err.contains("more items follow"), "{}", empty.err);
+    assert_eq!(stub.sent("GET", "/v1/issues").len(), 1);
+    let json: Value = serde_json::from_str(&home.ok(&["list", "--json"])).unwrap();
+    assert_eq!(json["more"], false);
+
+    let world = World::many(3);
+    let first: Vec<Value> = world.items.iter().map(Item::summary).collect();
+    let stub = Stub::hooked(world, move |req, _| {
+        if !req.is("GET", "/v1/issues") {
+            return None;
+        }
+        let issues = match req.param("cursor") {
+            None => first.clone(),
+            Some(_) => vec![],
+        };
+        Some(Reply::json(
+            200,
+            json!({"issues": issues, "next_cursor": "again"}),
+        ))
+    });
+    let home = Home::of("empty-second", &stub);
+    let some = home.run(&["list", "--limit", "10"]);
+    assert_eq!(some.code, Some(0), "{}", some.err);
+    assert_eq!(some.out.lines().count(), 3, "{}", some.out);
+    assert!(!some.err.contains("more items follow"), "{}", some.err);
+    assert_eq!(stub.sent("GET", "/v1/issues").len(), 2);
+}
+
+#[test]
 fn a_list_across_two_accounts_keeps_to_the_limit_and_says_more_follow() {
     let mut world = World::many(5);
     for id in 101..=102 {

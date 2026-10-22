@@ -1153,11 +1153,14 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 limit: (limit - taken).min(100) as i64,
             };
             let page = client.list(&query)?;
-            let page_empty = page.issues.is_empty();
+            if page.issues.is_empty() {
+                cursor = None;
+                break;
+            }
             taken += page.issues.len();
             found.extend(page.issues);
             cursor = page.next_cursor;
-            if cursor.is_none() || page_empty {
+            if cursor.is_none() {
                 break;
             }
         }
@@ -1619,9 +1622,9 @@ fn announce(config: &Config, global: &Global, args: &AnnounceArgs) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::{ListArgs, Summary, key_of, newest, pitomd_link};
-    use clap::Parser;
     use crate::config::Host;
     use crate::license::State;
+    use clap::Parser;
 
     const REFUSED: &str = "Only an Agency or Owner key hides the 'by PITO.MD' link";
 
@@ -1709,7 +1712,10 @@ mod tests {
             assert_eq!(error.exit_code(), 2, "{bad}");
         }
         let zero = limit(&["--limit", "0"]).unwrap_err().to_string();
-        assert!(zero.starts_with("error: invalid value '0' for '--limit"), "{zero}");
+        assert!(
+            zero.starts_with("error: invalid value '0' for '--limit"),
+            "{zero}"
+        );
     }
 
     #[test]
