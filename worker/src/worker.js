@@ -3233,6 +3233,7 @@ useCardKit({
   firstRows,
   isText,
   isUid,
+  isUniqueViolation,
   issueResponse,
   json,
   keyOf,

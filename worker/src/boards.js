@@ -32,6 +32,8 @@ const ORPHANS = `SELECT l.id FROM labels l WHERE NOT ${USED} AND NOT EXISTS (SEL
 const LABEL_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:+-]{0,31}$/u;
 const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5", "#986ee2", "#d260a8"];
 const MOVED = "this card moved; refreshed";
+const CARDS_FIXED = "the Cards board keeps its six lanes; rename a lane with p99 labels rename";
+const CARDS_STAYS = "the Cards board stays";
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 
@@ -219,7 +221,7 @@ async function ensureBoard(c, v) {
     DB.prepare("UPDATE boards SET owner = ?1, updated_at = ?2 WHERE owner IS NULL AND (?3 OR host = ?4)").bind(me, c.now, ...scopeBinds(v)),
     DB.prepare(
       `INSERT INTO boards (name, host, owner, created_at, updated_at)
-       SELECT ?4, ?2, ?1, ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE owner = ?1 AND host IS ?2)
+       SELECT ?4, ?2, ?1, ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE owner = ?1 AND host IS ?2 AND cards = 0)
        RETURNING id`,
     ).bind(me, at, c.now, c.actor.name ? `${c.actor.name}'s board` : "My board"),
   ]);
@@ -344,7 +346,7 @@ function sweepLabels(DB) {
 }
 
 async function ownBoard(c, v, rawId) {
-  const b = await c.env.DB.prepare("SELECT id, name, host, owner FROM boards WHERE id = ?1").bind(boardId(rawId)).first();
+  const b = await c.env.DB.prepare("SELECT id, name, host, owner, cards FROM boards WHERE id = ?1").bind(boardId(rawId)).first();
   if (!b || !sees(v, b.host)) K.fail(404, "no such board");
   if (b.owner !== c.actor.email) K.fail(403, "only its owner changes a board; others watch it");
   return b;
@@ -364,7 +366,7 @@ export async function postBoard(c) {
   const { DB } = c.env;
   const made = await DB.prepare(
     `INSERT INTO boards (name, host, owner, created_at, updated_at)
-     SELECT ?1, ?2, ?3, ?4, ?4 WHERE (SELECT count(*) FROM boards WHERE owner = ?3 AND host IS ?2) < ?5
+     SELECT ?1, ?2, ?3, ?4, ?4 WHERE (SELECT count(*) FROM boards WHERE owner = ?3 AND host IS ?2 AND cards = 0) < ?5
      RETURNING id`,
   )
     .bind(name, space(v), c.actor.email, c.now, MAX_BOARDS)
@@ -381,6 +383,7 @@ export async function putBoard(c, rawId) {
   const v = boardView(c);
   const b = await ownBoard(c, v, rawId);
   const name = body.name === undefined ? b.name : boardName(body.name);
+  if (b.cards && body.columns !== undefined) K.fail(409, CARDS_FIXED);
   const plan = body.columns === undefined ? null : await columnsOf(c, v, body.columns);
   if (name !== b.name) await c.env.DB.prepare("UPDATE boards SET name = ?2, updated_at = ?3 WHERE id = ?1").bind(b.id, name, c.now).run();
   if (plan) await writeColumns(c, b.id, plan);
@@ -393,8 +396,9 @@ export async function deleteBoard(c, rawId) {
   K.requireManager(c);
   const v = boardView(c);
   const b = await ownBoard(c, v, rawId);
+  if (b.cards) K.fail(409, CARDS_STAYS);
   const { DB } = c.env;
-  const left = await DB.prepare("SELECT count(*) AS n FROM boards WHERE owner = ?1 AND host IS ?2").bind(b.owner, b.host).first();
+  const left = await DB.prepare("SELECT count(*) AS n FROM boards WHERE owner = ?1 AND host IS ?2 AND cards = 0").bind(b.owner, b.host).first();
   if (left.n <= 1) K.fail(409, "that is your last board here; it stays");
   await DB.batch([
     DB.prepare("DELETE FROM board_columns WHERE board_id = ?1").bind(b.id),
@@ -531,7 +535,7 @@ function anchorOf(body) {
   return null;
 }
 
-function placeIn(column, selfId, anchor, anchorId) {
+export function placeIn(column, selfId, anchor, anchorId) {
   const list = column.filter((r) => r.id !== selfId);
   let slot = 0;
   if (anchor) {
