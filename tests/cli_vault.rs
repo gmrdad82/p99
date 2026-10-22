@@ -244,3 +244,11 @@ fn a_github_token_without_op_installed_says_to_install_it() {
     );
     assert!(h.stub.seen().is_empty());
 }
+
+#[test]
+fn a_github_token_the_vault_gives_that_is_not_utf8_is_refused_before_github_is_asked() {
+    let h = Home::new("vault-gh-bytes", fake::any);
+    let bin = fake_op(&h.dir, "printf 'ghp_\\377'");
+    github_set(&h, &bin).refused(&format!("{GH_REF}: not UTF-8"));
+    assert!(h.stub.seen().is_empty());
+}

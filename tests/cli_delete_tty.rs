@@ -10,7 +10,7 @@ mod stub;
 use std::ffi::CStr;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::FromRawFd;
+use std::os::fd::{AsRawFd, FromRawFd};
 use std::os::raw::{c_char, c_int};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::Stdio;
@@ -27,6 +27,7 @@ unsafe extern "C" {
     fn grantpt(fd: c_int) -> c_int;
     fn unlockpt(fd: c_int) -> c_int;
     fn ptsname(fd: c_int) -> *mut c_char;
+    fn fcntl(fd: c_int, cmd: c_int, ...) -> c_int;
 }
 
 const O_RDWR: c_int = 2;
@@ -34,6 +35,13 @@ const O_RDWR: c_int = 2;
 const O_NOCTTY: c_int = 0x20000;
 #[cfg(target_os = "linux")]
 const O_NOCTTY: c_int = 0o400;
+#[cfg(target_os = "linux")]
+const O_CLOEXEC: c_int = 0o2000000;
+#[cfg(target_os = "macos")]
+const O_CLOEXEC: c_int = 0;
+const F_GETFD: c_int = 1;
+const F_SETFD: c_int = 2;
+const FD_CLOEXEC: c_int = 1;
 const CTRL_D: &[u8] = &[4];
 const ESC_TITLE: &str = "The total \u{1b}[31mdoes not\u{1b}[0m update";
 const PROMPT: &str = "BUG-12  The total [31mdoes not[0m update\nDeleting it removes its 1 comment, 2 files and history for good; GitHub keeps its own issue.\nType BUG-12 to delete it: ";
@@ -42,9 +50,15 @@ static NAMING: Mutex<()> = Mutex::new(());
 
 fn pty() -> (File, File) {
     let _held = NAMING.lock().unwrap();
-    let fd = unsafe { posix_openpt(O_RDWR | O_NOCTTY) };
+    let fd = unsafe { posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC) };
     assert!(fd >= 0, "{}", std::io::Error::last_os_error());
     let master = unsafe { File::from_raw_fd(fd) };
+    assert_eq!(
+        unsafe { fcntl(fd, F_SETFD, FD_CLOEXEC) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
+    );
     assert_eq!(unsafe { grantpt(fd) }, 0, "{}", std::io::Error::last_os_error());
     assert_eq!(unsafe { unlockpt(fd) }, 0, "{}", std::io::Error::last_os_error());
     let name = unsafe { ptsname(fd) };
@@ -95,10 +109,14 @@ fn at_terminal(h: &Home, args: &[&str], typed: &[u8]) -> Out {
 }
 
 fn delete_home(name: &str) -> Home {
-    Home::new(name, |req: &Req| {
+    delete_home_with(name, 1)
+}
+
+fn delete_home_with(name: &str, comments: i64) -> Home {
+    Home::new(name, move |req: &Req| {
         if req.is("GET", "/_p99/v1/issues/12") {
             let mut found = thread(12, ESC_TITLE);
-            found["issue"]["comments"] = json!(1);
+            found["issue"]["comments"] = json!(comments);
             found["attachments"] = json!([{"id": 1, "name": "a.png"}, {"id": 2, "name": "b.png"}]);
             Reply::ok(found)
         } else if req.is("GET", "/_p99/v1/issues/13") {
@@ -203,4 +221,41 @@ fn an_item_the_worker_cannot_find_is_never_asked_about_or_deleted() {
     assert!(!out.stderr.contains("Type BUG-13"), "{}", out.stderr);
     assert!(out.stderr.contains("no such item"), "{}", out.stderr);
     assert!(h.stub.under("DELETE", "/_p99/v1/issues/").is_empty());
+}
+
+#[test]
+fn the_terminal_s_master_side_is_never_inherited_by_a_child() {
+    let (master, _slave) = pty();
+    let flags = unsafe { fcntl(master.as_raw_fd(), F_GETFD) };
+    assert!(flags >= 0, "{}", std::io::Error::last_os_error());
+    assert_eq!(flags & FD_CLOEXEC, FD_CLOEXEC);
+}
+
+#[test]
+fn a_line_typed_back_that_is_not_utf8_keeps_the_item() {
+    let h = delete_home("delete-tty-bytes");
+    let out = at_terminal(&h, &["delete", "12"], b"BUG-\xc3\n");
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    let after = out
+        .stderr
+        .strip_prefix(PROMPT)
+        .unwrap_or_else(|| panic!("{}", out.stderr));
+    assert!(after.starts_with("p99: "), "{after}");
+    assert!(!after.contains("is kept"), "{after}");
+    assert!(out.stdout.is_empty(), "{}", out.stdout);
+    assert_eq!(deleted(&h), 0);
+}
+
+#[test]
+fn a_negative_comment_count_from_the_worker_reads_as_none() {
+    let h = delete_home_with("delete-tty-negative", -3);
+    let out = at_terminal(&h, &["delete", "12"], b"BUG-12\n");
+    out.ok();
+    assert!(
+        out.stderr
+            .contains("Deleting it removes its 0 comments, 2 files and history for good"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(deleted(&h), 1);
 }

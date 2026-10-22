@@ -62,6 +62,7 @@ function reset() {
 }
 
 export async function githubChecks({ base, call, check, issueBody, here, there }) {
+  assert.equal(there, "localhost", "the GitHub token and deliver() are set on localhost");
   const port = new URL(base).port;
   const names = (host) => [`GITHUB_TOKEN_${tagOf(host)}`, `GITHUB_HOOK_${tagOf(host)}`];
   const link = (host, body = { repo: REPO }) => call("PUT", `/_p99/v1/github/${host}`, { body });
@@ -301,5 +302,29 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     const listed = (await call("GET", "/_p99/v1/github")).json.hosts.map((h) => h.host);
     assert.equal(listed.includes(there), false);
     assert.equal(listed.includes(here), false);
+  });
+
+  await check("a call scoped to one host lists, links and unlinks only that host's repository", async () => {
+    reset();
+    assert.equal((await link(there)).status, 200);
+    assert.equal((await link(here)).status, 200);
+    const scoped = await call("GET", `/_p99/v1/github?host=${here}`);
+    assert.equal(scoped.status, 200, JSON.stringify(scoped.json));
+    assert.deepEqual(scoped.json.hosts.map((h) => h.host), [here]);
+    const elsewhere = await call("PUT", `/_p99/v1/github/${there}?host=${here}`, { body: { repo: "acme/other" } });
+    assert.equal(elsewhere.status, 404);
+    assert.equal(elsewhere.json.message, "no such host");
+    const kept = await call("DELETE", `/_p99/v1/github/${there}?host=${here}`);
+    assert.equal(kept.status, 404);
+    assert.equal(kept.json.message, "no such host");
+    const all = (await call("GET", "/_p99/v1/github?host=*")).json.hosts;
+    assert.equal(all.find((h) => h.host === there).repo, REPO);
+    const own = await call("DELETE", `/_p99/v1/github/${here}?host=${here}`);
+    assert.equal(own.status, 200, JSON.stringify(own.json));
+    assert.equal(own.json.host, here);
+    assert.equal((await unlink(there)).status, 200);
+    const left = (await call("GET", "/_p99/v1/github")).json.hosts.map((h) => h.host);
+    assert.equal(left.includes(here) || left.includes(there), false);
+    assert.equal(gh.seen.length, 0);
   });
 }

@@ -1034,10 +1034,7 @@ mod tests {
 
     #[test]
     fn a_host_that_cannot_be_reached_stops_the_call_with_its_address() {
-        let gone = {
-            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-            format!("http://{}/_p99", listener.local_addr().unwrap())
-        };
+        let gone = "http://127.0.0.1:1/_p99".to_string();
         let (open, open_log) = answering(vec![HOSTS]);
         let said = client_on(&[&gone, &open])
             .json::<Value>("GET", "/v1/hosts", None)

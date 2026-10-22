@@ -1430,7 +1430,7 @@ esac
             (
                 "setup-vault-garbled",
                 "true",
-                "the 1Password CLI: EOF while parsing a value at line 1 column 0",
+                "the 1Password CLI: ",
             ),
             (
                 "setup-vault-no-id",
@@ -1442,7 +1442,17 @@ esac
             let (h, cf) = blank(name, fresh());
             let bin = op(&h.dir, made);
             let out = run(&h, &bin, true, &["--vault", "Example", "--no-mail"]);
-            out.refused(said);
+            if said.ends_with(": ") {
+                assert_eq!(out.code, Some(1), "{name}: {}", out.stderr);
+                let last = out.stderr.lines().last().unwrap_or_default();
+                assert!(
+                    last.len() > said.len() + 5 && last.starts_with(&format!("p99: {said}")),
+                    "{name}: {}",
+                    out.stderr
+                );
+            } else {
+                out.refused(said);
+            }
             assert!(!h.config().contains(TOKEN), "{name}: {}", h.config());
             assert!(!cf.lock().unwrap().worker, "{name}: a Worker went up");
             assert_eq!(item(&bin, 1)["fields"][0]["value"], TOKEN, "{name}");

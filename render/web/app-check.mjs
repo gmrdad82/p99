@@ -9,7 +9,7 @@ import { totpOf } from "../../worker/test/app.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
-const PORT = Number(process.env.P99_APP_PORT || 8833);
+const PORT = Number(process.env.P99_APP_PORT || 8853);
 const APP_HOST = "app.localhost";
 const APP = `http://${APP_HOST}:${PORT}`;
 const SHOP = "shop.example.com";
@@ -90,6 +90,12 @@ async function worker() {
     `/issues?host=${SHOP}`,
     { client_uid: "00000000-0000-4000-8000-000000000001", kind: "bug", title: TITLE, body: "", page: { url: `https://${SHOP}/cart`, path: "/cart", title: "Cart" }, context: {}, marks: [] },
     ADA,
+  );
+  await signed(
+    "POST",
+    `/issues?host=${DOCS}`,
+    { client_uid: "00000000-0000-4000-8000-000000000002", kind: "bug", title: "The search finds nothing", body: "", page: { url: `https://${DOCS}/search`, path: "/search", title: "Search" }, context: {}, marks: [] },
+    LIN,
   );
   return { people, signed, close: () => dev.kill("SIGTERM") };
 }
@@ -184,7 +190,7 @@ async function check(back) {
     const badge = p.locator(".app-bar .app-badge");
     assert.match(await badge.getAttribute("src"), /^\/_p99\/badges\/studio\.svg\?v=/);
     assert.equal(await badge.getAttribute("alt"), "Studio licence");
-    ok("the right code opens the list of spaces, sorted, with the open items each holds for her and the licence badge");
+    ok("the right code opens the list of spaces, sorted, with only her own open items counted and the licence badge");
 
     await p.click(`a.app-space[href="#space=${SHOP}"]`);
     await p.locator("p99-root").getByText(TITLE).first().waitFor();
@@ -254,9 +260,38 @@ async function check(back) {
     await g.p.waitForFunction((w) => document.querySelector(".app-profile .app-status").textContent === w, WORDS.taken);
     assert.equal(await g.p.locator(".app-profile input[name=username]").getAttribute("aria-invalid"), "true");
     ok("signing in from a profile link opens the profile, and a username someone holds is taken");
-    await g.p.click("a.app-brand");
-    assert.deepEqual(await spacesShown(g.p), [{ host: DOCS, href: `#space=${DOCS}`, role: "Manager", count: "0 open", open: "false" }]);
-    ok("a manager's space carries the Manager mark and counts every open item");
+
+    const isMe = (url) => url.pathname === "/_p99/api/me";
+    const patchAs = (status) => (route) =>
+      route.request().method() === "PATCH" ? route.fulfill({ status, contentType: "application/json", body: '{"message":"no"}' }) : route.continue();
+    await g.p.route(isMe, patchAs(500));
+    await g.p.fill(".app-profile input[name=username]", "grace.hopper");
+    await g.p.click(".app-profile button[type=submit]");
+    await g.p.waitForFunction((w) => document.querySelector(".app-profile .app-status").textContent === w, WORDS.failed);
+    assert.equal(await g.p.locator(".app-profile input[name=username]").getAttribute("aria-invalid"), "true");
+    assert.equal(await g.p.locator(".app-profile button[type=submit]").isDisabled(), false);
+    assert.equal(await screen(g.p), "profile");
+    ok("a profile save that fails on the server says something went wrong and stays on the profile");
+    await g.p.unroute(isMe);
+    await g.p.route(isMe, patchAs(401));
+    await g.p.click(".app-profile button[type=submit]");
+    await waitScreen(g.p, "signin");
+    assert.equal(await g.p.locator("#signin .app-error").isHidden(), true);
+    ok("a profile save answered as signed out lands on the sign-in form");
+    await g.p.unroute(isMe);
+
+    await g.p.goto(APP + "/");
+    assert.deepEqual(await spacesShown(g.p), [{ host: DOCS, href: `#space=${DOCS}`, role: "Manager", count: "1 open", open: "true" }]);
+    ok("a manager's space carries the Manager mark and counts every open item, not only her own");
+
+    const isPanel = (url) => url.pathname === "/_p99/panel.js";
+    await g.p.route(isPanel, (route) => route.fulfill({ status: 500, contentType: "text/plain", body: "boom" }));
+    await g.p.click(`a.app-space[href="#space=${DOCS}"]`);
+    await waitScreen(g.p, "problem");
+    assert.equal(await g.p.textContent(".app-problem .app-error"), WORDS.failed);
+    assert.equal(await g.p.locator("p99-root").count(), 0);
+    ok("a space whose panel fails to load says so and leaves no panel behind");
+    await g.p.unroute(isPanel);
     assert.deepEqual(g.errors, []);
     await g.ctx.close();
 
@@ -270,14 +305,18 @@ async function check(back) {
 
     const l = await visit(browser);
     const right = totpOf(lin.key);
-    for (let i = 0; i < 5; i++) {
-      await signIn(l.p, lin.email, wrong(right));
-      assert.equal(await said(l.p), WORDS.denied, `try ${i + 1}`);
-    }
+    await l.p.route("**/_p99/app/signin", (route) => route.fulfill({ status: 429, contentType: "application/json", body: '{"message":"too many tries"}' }));
     await signIn(l.p, lin.email, right);
     assert.equal(await said(l.p), WORDS.limited);
     assert.equal(await screen(l.p), "signin");
-    ok("past five tries in a few minutes, even the right code waits");
+    assert.equal(await l.p.inputValue("#signin input[name=totp]"), "");
+    assert.equal(await l.p.inputValue("#signin input[name=email]"), lin.email);
+    ok("a sign-in the Worker holds back for too many tries says to wait and keeps the e-mail");
+    await l.p.unroute("**/_p99/app/signin");
+    await signIn(l.p, lin.email, right);
+    assert.deepEqual((await spacesShown(l.p)).map((s) => s.host), [SHOP]);
+    ok("once the Worker lets her try again, the same code signs in");
+    assert.deepEqual(l.errors, []);
     await l.ctx.close();
 
     console.log(`${passed} checks passed against the Worker`);

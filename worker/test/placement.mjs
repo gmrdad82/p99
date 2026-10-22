@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 export async function placementChecks({ base, call, browse, mint, check, here, placement }) {
+  assert.equal(new URL(base).hostname, here, "the loader is fetched as the host whose placement is set");
   const envOf = async () => (await call("GET", "/_p99/v1/hosts")).json.hosts.find((h) => h.host === here).env;
   const put = async (config) => call("PUT", `/_p99/v1/hosts/${here}`, { body: { env: await envOf(), config } });
   const loader = async () => (await fetch(`${base}/_p99/p99.js`)).text();
@@ -14,42 +15,50 @@ export async function placementChecks({ base, call, browse, mint, check, here, p
     };
     const saved = await put(config);
     assert.equal(saved.status, 200, JSON.stringify(saved.json));
+    let restored;
     try {
       assert.deepEqual(saved.json.config, config);
       const listed = (await call("GET", "/_p99/v1/hosts")).json.hosts.find((h) => h.host === here);
       assert.deepEqual(listed.config, config);
       const served = await loader();
-      if (served.includes('"c":"top-left"')) {
-        assert.ok(served.includes('"a":"#chat-launcher"'), "the anchor is in the loader");
-        assert.ok(served.includes('"f":["^/checkout/?$","^/account/[^/]*/?$","^/admin/.*/?$"]'), "the off pages are patterns in the loader");
-        assert.equal(served.includes("Tell us"), false, "the words wait for /me");
-      }
+      assert.ok(served.includes('"c":"top-left"'), "the loader carries this host's placement");
+      assert.ok(served.includes('"a":"#chat-launcher"'), "the anchor is in the loader");
+      assert.ok(served.includes('"f":["^/checkout/?$","^/account/[^/]*/?$","^/admin/.*/?$"]'), "the off pages are patterns in the loader");
+      assert.equal(served.includes("Tell us"), false, "the words wait for /me");
       const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
       const me = await browse("GET", "/me", ada.secret);
       assert.equal(me.status, 200, JSON.stringify(me.json));
       assert.deepEqual(me.json.strings, { title: "Tell us", send: "Send it", empty: "" });
     } finally {
-      assert.equal((await put(placement)).status, 200);
+      restored = await put(placement);
     }
+    assert.equal(restored.status, 200);
     const plain = await browse("GET", "/me", (await mint("Ada Lovelace", "ada@example.com", [here])).secret);
     assert.deepEqual(plain.json.strings, {});
-    assert.equal((await loader()).includes('"a":'), false);
+    const back = await loader();
+    assert.ok(back.includes('"c":"top-left"'), "the loader still carries this host's placement");
+    assert.equal(back.includes('"a":'), false);
   });
 
   await check("an off page with regex characters is escaped, and an empty off list or null fields are dropped", async () => {
     const odd = await put({ ...placement, off: ["/a.b", "/(x)", "/c+d?"], above: null, strings: null });
     assert.equal(odd.status, 200, JSON.stringify(odd.json));
+    let restored;
     try {
       assert.deepEqual(odd.json.config, { ...placement, off: ["/a.b", "/(x)", "/c+d?"] });
       const served = await loader();
-      if (served.includes('"c":"top-left"')) assert.ok(served.includes('"f":["^/a\\\\.b/?$","^/\\\\(x\\\\)/?$","^/c\\\\+d\\\\?/?$"]'), served.slice(0, 400));
+      assert.ok(served.includes('"c":"top-left"'), "the loader carries this host's placement");
+      assert.ok(served.includes('"f":["^/a\\\\.b/?$","^/\\\\(x\\\\)/?$","^/c\\\\+d\\\\?/?$"]'), served.slice(0, 400));
       const none = await put({ ...placement, off: [] });
       assert.equal(none.status, 200);
       assert.deepEqual(none.json.config.off, []);
-      assert.equal((await loader()).includes('"f":'), false);
+      const bare = await loader();
+      assert.ok(bare.includes('"c":"top-left"'), "the loader carries this host's placement");
+      assert.equal(bare.includes('"f":'), false);
     } finally {
-      assert.equal((await put(placement)).status, 200);
+      restored = await put(placement);
     }
+    assert.equal(restored.status, 200);
   });
 
   await check("a placement with a bad anchor, off page or words is refused and the saved one stays", async () => {
