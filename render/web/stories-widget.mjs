@@ -626,8 +626,66 @@ try {
     await waitStatus(p, /didn't upload/);
     check(`each upload was tried once (${puts.length})`, puts.length >= 1 && new Set(puts).size === puts.length);
     check("the status names the screenshot", /screen\.(webp|jpg|png)/.test(await statusLine(p)));
+    check(`the status names the daily file limit ("${await statusLine(p)}")`, /today's limit of 100 MB of files/.test(await statusLine(p)));
+    check("the visitor isn't told to try again against a limit that holds all day", !/try again/i.test(await statusLine(p)));
     check("no Retry is offered for a limit that holds all day", !(await p.locator(RETRY).isVisible()));
     check("the item is filed", (await found(title)).length === 1);
+    await ctx.close();
+  });
+
+  const COMMENT = S("[data-view=item] .p99-comment-form");
+  const commentLine = (p) => p.locator(`${COMMENT} .p99-status-line`).textContent();
+  const threadFor = async (title) => {
+    const { ctx, p } = await visit();
+    await openForm(p);
+    await shotReady(p);
+    await write(p, title);
+    await p.locator(SEND).click();
+    await thread(p);
+    const [item] = await found(title);
+    if (!item) throw new Error(`the item "${title}" was never filed`);
+    const posts = [];
+    p.on("request", (r) => {
+      if (r.method() === "POST" && new URL(r.url()).pathname === `/_p99/api/issues/${item.key}/comments`) posts.push(JSON.parse(r.postData() || "{}").client_uid);
+    });
+    return { ctx, p, item, posts };
+  };
+  const stored = async (item, body) => (await must("GET", `/issues/${item.key}?host=${HOST}`)).comments.filter((c) => c.body === body);
+
+  await story("a comment at the daily limit is told at once, keeps its words, and offers no Retry", async () => {
+    const { ctx, p, item, posts } = await threadFor(tag("A thread at the day's comments"));
+    await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, (route) =>
+      route.request().method() !== "POST"
+        ? route.fallback()
+        : route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "today's limit of 200 comments is reached" }) }),
+    );
+    const body = tag("One comment too many");
+    await p.locator(`${COMMENT} textarea[name=body]`).fill(body);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.waitForFunction(() => /today's limit of 200 comments/.test(document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open [data-view=item] .p99-comment-form .p99-status-line")?.textContent || ""), null, { timeout: 20000 });
+    check("the comment's status line names the limit", /today's limit of 200 comments/.test(await commentLine(p)));
+    check(`it is told at once, not after hidden retries (${posts.length} sends)`, posts.length === 1);
+    check("no Retry is offered for a limit that holds all day", !(await p.locator(`${COMMENT} .p99-retry`).isVisible()));
+    check("the comment's words are kept", (await p.locator(`${COMMENT} textarea[name=body]`).inputValue()) === body);
+    check("Send works again", !(await p.locator(`${COMMENT} button[type=submit]`).isDisabled()));
+    check("nothing is stored", (await stored(item, body)).length === 0);
+    await ctx.close();
+  });
+
+  await story("a comment slowed once by the per-minute limit is retried quietly and stored once", async () => {
+    const { ctx, p, item, posts } = await threadFor(tag("A thread slowed by the per-minute limit"));
+    let refused = 0;
+    await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, async (route) => {
+      if (route.request().method() !== "POST" || refused++) return route.fallback();
+      await route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "too many requests with this code; try again in a minute" }) });
+    });
+    const body = tag("Slowed, then sent");
+    await p.locator(`${COMMENT} textarea[name=body]`).fill(body);
+    await p.locator(`${COMMENT} button[type=submit]`).click();
+    await p.locator(S(".p99-comment .p99-body"), { hasText: body }).first().waitFor({ timeout: 20000 });
+    check(`sent twice with one id (${posts.length} sends, ${new Set(posts).size} ids)`, posts.length === 2 && new Set(posts).size === 1);
+    check(`one comment is stored (${(await stored(item, body)).length})`, (await stored(item, body)).length === 1);
+    check("no Retry was left on screen", !(await p.locator(`${COMMENT} .p99-retry`).isVisible()));
     await ctx.close();
   });
 
