@@ -60,3 +60,7 @@ commit/8d51052cc978:tests/cli_vault.rs:68 an assertion message naming the vault 
 commit/8d51052cc978:tests/cli_vault.rs:119 the tests check the error that names the secret tool, as waived at its current line
 commit/8d51052cc978:tests/cli_vault.rs:136 the tests check the notice that names the secret tool, as waived at its current line
 commit/8d51052cc978:tests/cli_vault.rs:141 the tests check the error that names the secret tool, as waived at its current line
+src/config.rs:428 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:434 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:435 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:465 a fake vault reference in the config tests that a reference is no inline secret
