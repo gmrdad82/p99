@@ -95,9 +95,26 @@ What moved:
 
 JavaScript is still not measured. The Worker suite ran 113 checks and 8 known reds, and the browser stories ran 50 checks and 6 known reds.
 
+## w197 TUI tests, 2026-10-22 (agent/cov-tui-i1, main 0eab3bb plus the TUI tests)
+
+Rust: **61.4% of lines** (59.9% of regions, 64.4% of functions), up from 48.3%. Every TUI screen is driven in-process under `cargo test` with key, mouse and stream events on the sample data and pito-tui's injected clock, asserting on the drawn cells and styles; tests/tui_dump.rs runs the binary's `--dump`, `--keys` and `--bench` flags. 307 tests pass; the same 10 stories stay known red and ignored.
+
+| File | Lines covered | Lines | w195 |
+|---|---|---|---|
+| src/tui.rs | 88.97% | 281 | 30.58% |
+| src/tui/badge.rs | 99.34% | 305 | 75.93% |
+| src/tui/board.rs | 97.85% | 1115 | 65.98% |
+| src/tui/codes.rs | 97.67% | 172 | 9.88% |
+| src/tui/deck.rs | 96.59% | 205 | 90.24% |
+| src/tui/demo.rs | 100.00% | 359 | 58.22% |
+| src/tui/demo/boards.rs | 90.71% | 269 | 31.60% |
+| src/tui/inbox.rs | 97.32% | 1196 | 59.24% |
+| src/tui/source.rs | 97.19% | 356 | 75.28% |
+
+What is left in the TUI: tui.rs's real terminal run, its mouse-capture switch and the `--capture`/`--compare` error lines; source.rs's live stream thread, whose relay the tests drive directly; and demo/boards.rs's `const fn` sample rows, which the compiler evaluates, so no test run can count them.
+
 ## Uncovered critical paths, first in line
 
 - The CLI commands no story runs: cli/delete.rs, cli/merge.rs, hooks.rs and email.rs (0–2%), github.rs (12%) and links.rs (22%). Setup is at 24%.
-- The TUI's codes screen (tui/codes.rs, 10%) and tui.rs (31%).
 - Secrets (vault.rs, 8%) and import (42%).
 - The Worker, the loader, the panel and the board (JavaScript): not measured yet; the worker suite and the browser checks exercise them heavily without numbers.
