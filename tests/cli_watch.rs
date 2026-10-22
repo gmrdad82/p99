@@ -123,7 +123,7 @@ fn watch_connects_signed_and_prints_one_line_per_event() {
         printed,
         [
             "BUG-7  issue  shop.example.com  Grace Hopper: Cart is empty",
-            "BUG-7  move  shop.example.com  Ada Lovelace*: Cart is empty  Inbox -> Doing on Web",
+            "BUG-7  move  shop.example.com  Ada Lovelace 🤖: Cart is empty  Inbox -> Doing on Web",
             "board:Web  board.move  shop.example.com  P99: Doing -> Review",
             "board:Web  board  shop.example.com  P99: renamed",
             "-  statuses  shop.example.com  P99: renamed a status",

@@ -135,21 +135,24 @@ Rust: **77.3% of lines** (76.0% of regions, 78.7% of functions) for the combined
 | src/wire.rs | 88.20% | 161 | 81.37% |
 
 What is left in the CLI: delete's confirmation on a terminal (the tests have no TTY, so only `--yes` and the piped refusal run); setup's interactive walk; `watch`'s settle and longest-wait limits, since its reconnect tests wait out the real 1 s and 2 s backoff; and the deploy story's own runs, which clear the environment and so drop the coverage profile, slightly undercounting setup.rs and cloudflare.rs.
-## w199 cards, 2026-10-22 (agent/cards-i1, main edf87c6 plus the cards train)
+## w199 cards, 2026-10-22 (agent/cards-i1, main c660a75 plus the cards train)
 
-Rust: **64.9% of lines** (63.7% of regions, 67.3% of functions), up from 61.4%. 370 tests pass under `cargo llvm-cov nextest`; the same 10 stories stay known red and ignored.
+Rust: **79.14% of lines** (78.07% of regions, 80.28% of functions) for the tree with the CLI and TUI tests, up from 77.3%. 505 tests pass under `cargo llvm-cov nextest`; the same 10 stories stay known red and ignored.
 
 | File | Lines covered | Lines | Last measured |
 |---|---|---|---|
 | src/card.rs | 99.75% | 400 | new |
 | src/cli/card.rs | 98.36% | 428 | new |
-| src/config.rs | 91.76% | 352 | 84.40% |
+| src/cli.rs | 88.57% | 1129 | 88.32% |
+| src/config.rs | 96.67% | 420 | 93.08% |
 | src/import.rs | 47.22% | 612 | 42.20% |
 | src/tui/deck.rs | 97.63% | 211 | 96.59% |
 | src/tui/demo/boards.rs | 85.22% | 291 | 90.71% |
 | src/tui/inbox.rs | 97.47% | 1224 | 97.32% |
 | src/tui/source.rs | 97.21% | 358 | 97.19% |
-| src/wire.rs | 85.25% | 183 | 44.72% |
+| src/wire.rs | 90.71% | 183 | 88.20% |
+
+src/tui/demo/boards.rs drops because its six sample cards are `const fn` rows, which the compiler evaluates, so no test run counts them.
 
 JavaScript, node's own coverage (`NODE_V8_COVERAGE` over `npm test`): only the modules the suite imports into node count, so these are the pure helpers, not the routes, which run inside workerd.
 
