@@ -302,13 +302,16 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     ]) {
       const quiet = await deliver(payload, "issues");
       assert.equal(quiet.status, 204, JSON.stringify(payload));
-      assert.equal((await threadOf(item.key, there)).closed_at, null, JSON.stringify(payload));
+      const still = await threadOf(item.key, there);
+      assert.equal(still.closed_at, null, JSON.stringify(payload));
+      assert.equal(still.resolution, null, JSON.stringify(payload));
     }
     const fixed = await deliver(closed(91, { state_reason: null }), "issues");
     assert.equal(fixed.status, 200, JSON.stringify(fixed.json));
     assert.deepEqual(fixed.json, { linked: [], changed: [item.key] });
     const thread = await threadOf(item.key, there);
     assert.ok(thread.closed_at);
+    assert.equal(thread.resolution, "fixed");
     const again = await deliver(closed(91), "issues");
     assert.equal(again.status, 200, JSON.stringify(again.json));
     assert.deepEqual(again.json, { linked: [], changed: [] });

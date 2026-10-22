@@ -201,7 +201,7 @@ Every card route runs in the worker suite against wrangler dev. Among the checks
 
 ## w208 coverage gaps, 2026-10-22 (agent/cov-gaps)
 
-Tests only. The "after" column is the train's measured run (agent/cov-i1, below).
+Tests only. The "after" column is the train's measured run (agent/cov-i2, below).
 
 | File | Before | After | What now runs it |
 |---|---|---|---|
@@ -214,7 +214,7 @@ Tests only. The "after" column is the train's measured run (agent/cov-i1, below)
 
 ## w208 import, 2026-10-22 (agent/cov-import)
 
-`p99 import` and the Worker's import routes, before and after. The before column is the last measured run; the after column is the train's measured run (agent/cov-i1, below).
+`p99 import` and the Worker's import routes, before and after. The before column is the last measured run; the after column is the train's measured run (agent/cov-i2, below).
 
 | Code | Before | After |
 |---|---|---|
@@ -228,11 +228,13 @@ What runs them now:
 - src/import.rs unit tests: every refused field of every record type, line numbers across blank and CRLF lines, uids per type, batches at 200 records and at 2 MB, a Worker refusal mapped back to its bundle line, and a file path that leaves the bundle.
 - worker/test/imports.mjs, in the worker suite: every rejected event shape (with its record number), every other record type's bad shapes, every rejected item field, the route's host, key and body refusals, conflicts across hosts and taken uids with nothing written, managers with and without a code, finish's bad lists, its conflicts and its links, every refused attachment parameter, a stored file sent twice and a uid taken by another item.
 
-## w208 train, 2026-10-22 (agent/cov-i1, main b1d20d2 plus cov-gaps and cov-import)
+## w208 train, 2026-10-23 (agent/cov-i2, main 25908ba plus cov-gaps and cov-import)
 
-Rust: **92.2% of lines** (91.8% of regions, 93.1% of functions), up from 89.0%; 689 tests pass under `cargo llvm-cov nextest`. The Worker: **97.1% of lines**, up from 93.6%, from 279 checks and the 32 unit tests. The browser: **85.1% of lines**, up from 80.1%, with the app page's own check in the pass. The loader by bytes is unchanged at 94.93%, and it stays 12 bytes under its 2,048-byte gzip budget.
+The before column is the last measured run, the w199 cards section above, or the JavaScript numbers below for a file that section doesn't list.
 
-The browser pass ran at a load average near 30, and two checks of code this wave didn't touch timed out there: manage-check's duplicate picker, read after a fixed 500 ms, and the board's autoscroll under a held drag (board.mjs:709). Both passed on the pass before, which had the board's 28 checks green and board.js at 91.32%. They weren't re-run, so board.js reads 84.44% and panel.js a little low in this table.
+Rust: **93.14% of lines** (92.21% of regions, 91.81% of functions), up from 89.87%; 692 tests pass under `cargo llvm-cov nextest`, main's no-ffmpeg test included. The Worker: **97.11% of lines**, up from 94.60%, from 279 checks and the 32 unit tests. The browser: **85.10% of lines**, up from 81.05%, with the app page's own check in the pass. The loader by bytes is unchanged at 94.93%, and it stays 12 bytes under its 2,048-byte gzip budget.
+
+The browser pass ran at a load average near 20, and two checks of code this wave didn't touch ran out of time there: the board's autoscroll under a held drag (board.mjs:709, 30 s) and the widget story of a panel that fails to load on hover (20 s, as in the w199 pass). The board check passed on an earlier pass of this train, with its 28 checks green and board.js at 91.32%, and ran out of time on the last two. Neither was re-run, so board.js reads 84.44% and panel.js a little low in this table. manage-check's duplicate picker, which timed out in the pass before, now waits for its options and passed.
 
 | File | Before | After |
 |---|---|---|
@@ -241,21 +243,22 @@ The browser pass ran at a load average near 30, and two checks of code this wave
 | src/client.rs | 88.18% of 702 | 95.22% of 857 |
 | src/import.rs | 47.22% of 612 | 99.65% of 1,146 |
 | worker/src/github.js | 65.03% of 346 | 97.69% of 346 |
-| worker/src/worker.js | 94.71% of 3,098 | 97.40% of 3,159 |
+| worker/src/worker.js | 95.50% of 3,159 | 97.40% of 3,159 |
 | worker/src/web/app.js | 0.00% of 350 | 79.14% of 350 |
-| worker/src/web/panel.js | 88.26% of 1,840 | 86.03% of 1,976 |
+| worker/src/web/panel.js | 89.32% of 1,976 | 86.03% of 1,976 |
+| worker/src/web/board.js | 91.32% of 887 | 84.44% of 887 |
 
-The client and import rows count their new `#[cfg(test)]` modules, so their line counts grew. github.js's last gain is the closed-issue story the train added: closing the GitHub issue P99 opened marks its item fixed once, and a close as not planned, a pull request's close, another action, an unknown number, a number that isn't one, another repository or another event leave it open.
+The client and import rows count their new `#[cfg(test)]` modules, so their line counts grew. panel.js and board.js are files of the w203 train that this wave doesn't change; they read lower because of the two checks that ran out of time. github.js's last gain is the closed-issue story the train added: closing the GitHub issue P99 opened marks its item fixed (closed, with the resolution `fixed`) once, and a close as not planned, a pull request's close, another action, an unknown number, a number that isn't one, another repository or another event leave it open.
 
 Bugs the new tests found:
 - **The P99 page never marked a space's open count.** app.js wrote `data-open` as a bare attribute or left it out, and app.css styles only `[data-open="true"]`, so a space with open items looked like an empty one. app.js now writes `true` or `false`.
 - **Try again after a failed panel load could never load the panel.** A browser keeps a failed module import for its URL, so importing `panel.js?v=…` again fails without a new fetch. Each retry now asks with its try number (`&try=N`), which the Worker ignores. panel.js loads board.js the same way (panel.js:468), so a manager's board that once fails to load stays failed until a reload; panel.js belongs to the w203 train, so it's left for the repo session.
 - **A vanished file during `p99 import` was the only upload failure without its bundle line.** It now says `line N: <path>: …` like the rest.
 - Three checks were wrong, not the code: the vault story asserted one secret PUT where `github set` stores two (the token and the hook secret), the commit-page cap expected 200 where a delivery that names no item answers the quiet 204, and the import manager check used an address an earlier check had already minted as a manager.
-- Two checks were timing-bound and are now deterministic: the TOTP replay check recomputed its digits, so a 30-second step boundary between checks made them new, and the manage check waited a fixed 700 ms for the duplicate search.
+- Three checks were timing-bound and are now deterministic: the TOTP replay check recomputed its digits, so a 30-second step boundary between checks made them new, and the manage check waited a fixed 700 ms for the duplicate search and a fixed 500 ms for the duplicate picker's first list.
 - The worker suite hangs instead of failing when a check group throws outside a check: with no built `p99` binary, migrateChecks' `binary()` throws, `main` prints `not ok` and the process never exits. The full gate builds the binary first, so only a hand-run `npm run coverage` meets it.
 
-From the reviews, for the repo session (each needs a product change outside a tests-only brief): `vault::store` reports "Broken pipe" instead of what `op` said when `op` exits before reading the template; and `p99 import`'s own checks are looser than the Worker's (marks' shape, context over 64 KB, page titles over 300, `created_at` such as `2025-13-45`, a bad `resolution` with `status: done`), so a bundle that passes the dry run can still stop part way.
+From the reviews, for the repo session (each needs a product change outside a tests-only brief): `vault::store` reports "Broken pipe" instead of what `op` said when `op` exits before reading the template; and `p99 import`'s own checks are looser than the Worker's (marks' shape, context over 64 KB, page titles over 300, `created_at` such as `2025-13-45`, a bad `resolution` with `status: done`), so a bundle that passes the dry run can still stop part way. Two browser checks are still timing-bound under load: board.mjs:709 waits 30 s for the held drag's autoscroll and ran out on this train's last two passes, and the widget's hover story ran out at 20 s here and in the w199 pass.
 
 ## Uncovered critical paths, first in line
 
