@@ -6,7 +6,7 @@ use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
     BoardQuery, DEPRECATED, LaneInfo, OLD_WORKER, OldBoards, OneBoard, archived_lines, board_lines,
-    lane_lines, lane_named, refusal,
+    lane_lines, lane_named, lanes_from, refusal,
 };
 use crate::wire::{Issue, MoveTo, out};
 
@@ -275,13 +275,13 @@ pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result
         if global.json {
             return print_json(&serde_json::json!({ "labels": labels }));
         }
-        let lanes = lanes_of(&client)?;
+        let lanes = lanes_from(&labels);
         for line in lane_lines(&labels, &lanes) {
             out!("{line}");
         }
         return Ok(());
     };
-    let lanes = lanes_of(&client)?;
+    let lanes = lanes_from(&labels);
     let label = lane_named(&labels, &lanes, from)
         .ok_or_else(|| format!("no lane is called {from}; p99 labels lists them"))?;
     let renamed = client.rename_label(label.id, to.trim())?;

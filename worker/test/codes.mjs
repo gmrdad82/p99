@@ -72,7 +72,9 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     assert.equal((await browse("GET", "/me", minted.secret)).status, 200);
     await revoke(minted.code.id);
     assert.equal((await browse("GET", "/me", minted.secret)).status, 401);
+    assert.equal(rows("codes", minted.code.id), 1);
     assert.equal((await remove(minted.code.id)).status, 200);
+    assert.equal(rows("codes", minted.code.id), 0);
     assert.equal((await browse("GET", "/me", minted.secret)).status, 401);
     const again = await mint("Ada Lovelace", "ada.back@example.com", [here]);
     assert.notEqual(again.code.id, minted.code.id);

@@ -788,6 +788,7 @@
 @media (prefers-reduced-motion: reduce) {
   .p99-panel { --p99-slide: 0px; transition-duration: var(--p99-motion-fast); }
   .p99-view, .p99-item, .p99-comment, .p99-marks li, .p99-file-list li, .p99-shot img, .p99-region img, .p99-slow { --p99-rise: 0px; }
+  .n { transition: none; }
   .p99-shimmer { animation: none; }
   .p99-spin { animation: none; border-color: var(--p99-accent-ink); border-right-color: transparent; }
   .p99-outline { animation: none; }

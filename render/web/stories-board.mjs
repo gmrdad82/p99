@@ -129,7 +129,7 @@ try {
   await story("the panel's filter lists All, Only this website, Projects, Needs you, then Landed", async () => {
     const { ctx, p } = await page(browser, back.code);
     const options = await R(p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-pick select[name=view] option"), (o) => [o.value, o.textContent]));
-    check(`the views in order (${JSON.stringify(options)})`, JSON.stringify(options) === JSON.stringify([["all", "All"], ["site", "Only this website"], ["projects", "Projects"], ["needs", "Needs you"], ["landed", "Landed, waiting for your check"]]));
+    check(`the views in order (${JSON.stringify(options)})`, JSON.stringify(options) === JSON.stringify([["all", "This website and its cards"], ["site", "Only this website"], ["projects", "Projects"], ["needs", "Needs you"], ["landed", "Landed, waiting for your check"]]));
     await ctx.close();
   });
 

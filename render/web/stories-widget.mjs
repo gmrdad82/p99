@@ -1312,6 +1312,17 @@ try {
     await ctx.close();
   });
 
+  await story("under reduced motion the dot stops fading once the panel has loaded, and keeps its ease otherwise", async () => {
+    for (const [motion, want] of [["reduce", "0s"], ["no-preference", "0.3s"]]) {
+      const { ctx, p } = await dotPage([owner(2, 0, 0)], motion);
+      await p.locator("p99-root >> .w .b:not(.f)").click();
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]"), null, { timeout: 20000 });
+      const d = await dot(p);
+      check(`${motion}: the dot's transition lasts ${want} with the panel loaded (${d.duration})`, d.text === "2" && d.duration === want);
+      await ctx.close();
+    }
+  });
+
   for (const [name, me, board] of [
     ["a Worker that sends no role: manager stands in, so a manager is an Owner", (() => { const m = owner(0, 0, 1); delete m.role; return m; })(), true],
     ["a Worker that sends no role: a non-manager is a User", (() => { const m = visitor(0, 1); delete m.role; return m; })(), false],

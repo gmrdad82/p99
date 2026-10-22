@@ -925,6 +925,12 @@ pub struct LabelUse {
 pub struct LabelEntry {
     pub id: i64,
     pub name: String,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub word: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub closes: bool,
     #[serde(default, deserialize_with = "lenient")]

@@ -274,9 +274,11 @@ try {
       check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of);
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, resolution: null });
       const moved = await open(DESK, main.key);
+      let offered = [];
       const pickMove = async (opt) => {
         await moved.p.waitForFunction(() => document.querySelectorAll("p99-root").length && document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option").length > 2);
         await toManage(moved.p);
+        offered = await moved.p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option"), (o) => o.value));
         await moved.p.locator(S(".p99-move-to select")).selectOption(opt);
         await moved.p.locator(S(".p99-manage > button[type=submit]")).click();
         await moved.p.waitForTimeout(1500);
@@ -285,6 +287,7 @@ try {
       const doing = await pickMove({ label: "In progress" });
       check(`Save with Move to In progress moves the item (${doing.label}, ${doing.stage})`, doing.label === "In progress" && doing.stage === "in_progress");
       const dropped = await pickMove({ label: "Drop (close without fixing)" });
+      check(`Move to on an item in a later lane lists its own lane first, then the rest in lane order (${offered.join(" | ")})`, offered.join("|") === "In progress|New|Planned|Needs you|Stuck|Landed|Done|");
       check(`Drop closes it under Done without fixing (${dropped.label}, ${dropped.resolution}, ${dropped.stage})`, dropped.label === "Done" && dropped.resolution === "abandoned" && dropped.stage === "dropped");
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { resolution: null });
       await moved.ctx.close();

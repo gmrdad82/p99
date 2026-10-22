@@ -64,7 +64,7 @@ const WORDS = {
   only_branch: "The fix is written but isn't in a build yet.",
   list_title: "Items",
   view_label: "Show",
-  view_all: "All",
+  view_all: "This website and its cards",
   view_site: "Only this website",
   view_projects: "Projects",
   view_needs: "Needs you",

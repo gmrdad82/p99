@@ -225,6 +225,22 @@ pub fn lane_lines(labels: &[crate::wire::LabelEntry], lanes: &[LaneInfo]) -> Vec
         .collect()
 }
 
+pub fn lanes_from(labels: &[crate::wire::LabelEntry]) -> Vec<LaneInfo> {
+    use clap::ValueEnum;
+    let mut lanes: Vec<LaneInfo> = labels
+        .iter()
+        .filter_map(|label| {
+            Some(LaneInfo {
+                word: Lane::from_str(label.word.as_deref()?, true).ok()?,
+                label: label.name.clone(),
+                closes: label.closes,
+            })
+        })
+        .collect();
+    lanes.sort_by_key(|lane| Lane::value_variants().iter().position(|v| *v == lane.word));
+    lanes
+}
+
 pub fn lane_named<'a>(
     labels: &'a [crate::wire::LabelEntry],
     lanes: &[LaneInfo],
@@ -313,10 +329,37 @@ mod tests {
             .map(|(i, n)| LabelEntry {
                 id: i as i64 + 10,
                 name: (*n).to_owned(),
+                word: None,
                 closes: *n == "Done",
                 boards: Vec::new(),
             })
             .collect()
+    }
+
+    #[test]
+    fn the_lanes_come_from_the_labels_words_in_lane_order_and_a_label_without_one_is_left_out() {
+        let mut labels = entries(&["Done", "Waiting on me", "New", "Inbox", "Odd"]);
+        labels[0].word = Some("done".into());
+        labels[1].word = Some("needs-you".into());
+        labels[2].word = Some("new".into());
+        labels[4].word = Some("someday".into());
+        let lanes = lanes_from(&labels);
+        assert_eq!(
+            lanes
+                .iter()
+                .map(|l| (l.word, l.label.as_str(), l.closes))
+                .collect::<Vec<_>>(),
+            [
+                (Lane::New, "New", false),
+                (Lane::NeedsYou, "Waiting on me", false),
+                (Lane::Done, "Done", true),
+            ]
+        );
+        assert!(lanes_from(&entries(&["Inbox", "Done"])).is_empty());
+        assert_eq!(
+            lane_named(&labels, &lanes, "needs-you").map(|l| l.id),
+            Some(11)
+        );
     }
 
     #[test]

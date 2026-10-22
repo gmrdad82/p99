@@ -261,7 +261,7 @@ fn labels() -> Value {
             .iter()
             .map(|&i| {
                 let (word, label) = LANES[i];
-                json!({"id": 10 + i, "name": label, "closes": word == "done", "boards": []})
+                json!({"id": 10 + i, "name": label, "word": word, "closes": word == "done", "boards": []})
             })
             .collect(),
     )
@@ -715,6 +715,14 @@ fn labels_lists_the_seven_lanes_and_renames_one_by_word_or_name() {
             format!("{:<12} Landed", "landed"),
             format!("{:<12} {:<20} closes", "done", "Done"),
         ]
+    );
+    assert!(
+        worker
+            .seen()
+            .iter()
+            .all(|s| !s.path.starts_with("/v1/board")),
+        "the lane words come with the labels: {:?}",
+        worker.seen()
     );
     let doc = json_of(&run(&worker, "labels", &["labels", "--json"]));
     assert_eq!(doc, json!({"labels": labels()}));
