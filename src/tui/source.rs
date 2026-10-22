@@ -267,26 +267,8 @@ impl Source {
         for (account, client) in clients.iter().enumerate() {
             let (client, live) = (client.clone(), Arc::clone(live));
             thread::spawn(move || {
-                let tell = |send: &dyn Fn(&Waker<Msg>) -> bool| {
-                    live.listeners
-                        .lock()
-                        .map(|listeners| listeners.iter().filter(|w| send(w)).count() > 0)
-                        .unwrap_or(false)
-                };
-                let _ = crate::stream::follow(&client, None, |heard| match heard {
-                    Heard::Open { again: false } | Heard::Dropped(..) => true,
-                    Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(account, None))),
-                    Heard::Event(text) => {
-                        let event = serde_json::from_str::<serde_json::Value>(text).ok();
-                        let key = event
-                            .as_ref()
-                            .and_then(|event| event["key"].as_str().map(str::to_owned));
-                        let gone = event.is_some_and(|event| event["type"] == "delete");
-                        tell(&|w| {
-                            (gone || w.send(Msg::Pushed(account, key.clone())))
-                                & w.send(Msg::Heard(account, text.to_owned()))
-                        })
-                    }
+                let _ = crate::stream::follow(&client, None, |heard| {
+                    relay(&live.listeners, account, heard)
                 });
             });
         }
@@ -306,6 +288,30 @@ impl Source {
         };
         codes.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
         Ok(codes)
+    }
+}
+
+fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, account: usize, heard: Heard<'_>) -> bool {
+    let tell = |send: &dyn Fn(&Waker<Msg>) -> bool| {
+        listeners
+            .lock()
+            .map(|listeners| listeners.iter().filter(|w| send(w)).count() > 0)
+            .unwrap_or(false)
+    };
+    match heard {
+        Heard::Open { again: false } | Heard::Dropped(..) => true,
+        Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(account, None))),
+        Heard::Event(text) => {
+            let event = serde_json::from_str::<serde_json::Value>(text).ok();
+            let key = event
+                .as_ref()
+                .and_then(|event| event["key"].as_str().map(str::to_owned));
+            let gone = event.is_some_and(|event| event["type"] == "delete");
+            tell(&|w| {
+                (gone || w.send(Msg::Pushed(account, key.clone())))
+                    & w.send(Msg::Heard(account, text.to_owned()))
+            })
+        }
     }
 }
 
@@ -424,3 +430,6 @@ fn civil(days: i64) -> (i64, i64, i64) {
     let year = of_cycle + era * 400 + i64::from(month <= 2);
     (year, month, day)
 }
+
+#[cfg(test)]
+mod tests;
