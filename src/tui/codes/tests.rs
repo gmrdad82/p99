@@ -1,4 +1,11 @@
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpListener;
+use std::sync::{Arc, Mutex};
+use std::thread;
+
 use pito_tui::dump;
+
+use crate::config::{Account, Config};
 
 use super::super::demo::tests::without_codes;
 use super::super::tests::{CODES, HIGH, Run, WIDE, line, row, run, sample, spot, waiting};
@@ -326,13 +333,252 @@ fn a_delete_the_worker_refuses_keeps_the_row_and_says_why() {
     let mut app = shown();
     let said = app.event(
         CODES,
-        Msg::CodeDeleted(2, Err("revoke it first (409)".into())),
+        Msg::CodeDeleted(Box::new(revoked(2, "grace@example.com", "3fpd")), Err("revoke it first (409)".into())),
     );
     assert!(said.contains("revoke it first (409)"), "{said}");
     assert!(said.contains("…3fpd") && said.contains("4 codes"), "{said}");
-    let unknown = app.event(CODES, Msg::CodeDeleted(99, Ok(())));
-    assert!(unknown.contains("Deleted code 99"), "{unknown}");
-    assert!(unknown.contains("4 codes"), "{unknown}");
+}
+
+fn revoked(id: i64, email: &str, hint: &str) -> Code {
+    Code {
+        id,
+        name: "Grace Hopper".into(),
+        email: email.into(),
+        hint: hint.into(),
+        revoked_at: Some("2026-10-01T00:00:00Z".into()),
+        ..Code::default()
+    }
+}
+
+fn twin(app: &mut Run) -> Code {
+    let other = Code {
+        name: "Katherine Johnson".into(),
+        hosts: vec!["other.example.com".into()],
+        created_at: "2026-10-20T00:00:00Z".into(),
+        ..revoked(2, "katherine@example.com", "zz99")
+    };
+    let screen = app.tui.find_mut::<Codes>().expect("the codes are a screen");
+    if let Some(list) = &mut screen.codes {
+        list.insert(0, (other.clone(), fold("katherine johnson")));
+    }
+    screen.sift();
+    other
+}
+
+#[test]
+fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_the_id() {
+    let mut app = shown();
+    let other = twin(&mut app);
+    let before = app.text();
+    assert!(before.contains("…zz99") && before.contains("…3fpd"), "{before}");
+    let done = app.event(CODES, Msg::CodeDeleted(Box::new(other), Ok(())));
+    assert!(!done.contains("…zz99"), "{done}");
+    assert!(done.contains("…3fpd"), "{done}");
+    assert!(done.contains("Deleted code 2 of Katherine Johnson"), "{done}");
+    assert!(done.contains("4 codes"), "{done}");
+    let kept = app.event(
+        CODES,
+        Msg::CodeDeleted(Box::new(revoked(2, "grace@example.com", "3fpd")), Ok(())),
+    );
+    assert!(!kept.contains("…3fpd"), "{kept}");
+    assert!(kept.contains("Deleted code 2 of Grace Hopper"), "{kept}");
+    assert!(kept.contains("3 codes"), "{kept}");
+}
+
+#[test]
+fn deleting_the_twin_with_d_takes_the_selected_row_and_leaves_the_other_account_alone() {
+    let mut app = shown();
+    twin(&mut app);
+    let selected = codes(&app).chosen().cloned().expect("a row is selected");
+    assert_eq!(selected.hint, "zz99");
+    let erased = erase(&app.source, &selected);
+    assert_eq!(erased, Ok(()));
+    app.event(CODES, Msg::CodeDeleted(Box::new(selected), erased));
+    let left: Vec<(i64, String)> = codes(&app)
+        .codes
+        .as_ref()
+        .expect("the codes stay read")
+        .iter()
+        .map(|(c, _)| (c.id, c.hint.clone()))
+        .collect();
+    assert!(left.contains(&(2, "3fpd".to_owned())), "{left:?}");
+    assert!(!left.iter().any(|(_, hint)| hint == "zz99"), "{left:?}");
+}
+
+#[test]
+fn a_demo_delete_sticks_when_the_codes_are_read_again() {
+    let mut app = shown();
+    app.press("down down d 3fpd enter");
+    tap(&mut app, "r");
+    app.tui.settle();
+    let again = app.text();
+    assert!(again.contains("3 codes"), "{again}");
+    assert!(!again.contains("…3fpd"), "{again}");
+    let left = app.source.codes().expect("the sample reads");
+    assert!(left.iter().all(|c| c.hint != "3fpd"), "{left:?}");
+}
+
+#[test]
+fn d_while_a_delete_is_on_its_way_says_so_and_asks_nothing() {
+    let mut app = shown();
+    app.press("down down");
+    app.tui.find_mut::<Codes>().expect("the codes are a screen").sending = true;
+    let said = app.press("d");
+    assert!(!codes(&app).typing());
+    assert!(said.contains("A delete is still on its way."), "{said}");
+    assert!(said.contains("…3fpd") && said.contains("4 codes"), "{said}");
+    let done = app.event(
+        CODES,
+        Msg::CodeDeleted(Box::new(revoked(9, "nobody@example.com", "none")), Err("no such code 9".into())),
+    );
+    assert!(done.contains("no such code 9"), "{done}");
+    app.press("d");
+    assert!(codes(&app).typing());
+}
+
+type Seen = Arc<Mutex<Vec<(String, String)>>>;
+
+fn worker(answer: impl Fn(&str, &str) -> (u16, String) + Send + 'static) -> (String, Seen) {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let base = format!("http://{}", listener.local_addr().expect("an address"));
+    let seen: Seen = Arc::default();
+    let log = seen.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let Ok(clone) = stream.try_clone() else { continue };
+            let mut reader = BufReader::new(clone);
+            let mut line = String::new();
+            if reader.read_line(&mut line).is_err() {
+                continue;
+            }
+            let mut parts = line.split_whitespace();
+            let method = parts.next().unwrap_or_default().to_owned();
+            let path = parts.next().unwrap_or_default().to_owned();
+            let mut length = 0;
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                    break;
+                }
+                let (k, v) = header.split_once(':').unwrap_or_default();
+                if k.eq_ignore_ascii_case("content-length") {
+                    length = v.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0; length];
+            let _ = reader.read_exact(&mut body);
+            let (status, reply) = answer(&method, &path);
+            log.lock().expect("the log").push((method, path));
+            let _ = write!(
+                stream,
+                "HTTP/1.1 {status} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+                reply.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+fn listing(codes: &[(i64, &str, &str)]) -> String {
+    let codes: Vec<serde_json::Value> = codes
+        .iter()
+        .map(|(id, email, hint)| {
+            serde_json::json!({
+                "id": id,
+                "name": "Grace Hopper",
+                "email": email,
+                "hint": hint,
+                "revoked_at": "2026-10-01T00:00:00Z",
+            })
+        })
+        .collect();
+    serde_json::json!({ "codes": codes }).to_string()
+}
+
+fn account(codes: &'static [(i64, &'static str, &'static str)], delete: (u16, &'static str)) -> (String, Seen) {
+    worker(move |method, path| match method {
+        "GET" if path.starts_with("/_p99/v1/codes") => (200, listing(codes)),
+        "DELETE" => (delete.0, delete.1.to_owned()),
+        _ => (404, r#"{"message":"no such route"}"#.to_owned()),
+    })
+}
+
+const GRACE_A: &[(i64, &str, &str)] = &[(2, "grace@example.com", "3fpd")];
+const KATHERINE_B: &[(i64, &str, &str)] = &[(2, "katherine@example.com", "zz99")];
+const DELETED: (u16, &str) = (200, r#"{"id":2,"deleted":true}"#);
+
+fn live(a: (String, Seen), b: (String, Seen)) -> (Source, Seen, Seen) {
+    let mut config = Config::default();
+    for (name, base) in [("a", &a.0), ("b", &b.0)] {
+        config.accounts.insert(
+            name.into(),
+            Account {
+                url: Some(format!("{base}/_p99")),
+                key: "a-test-key".into(),
+                ..Account::default()
+            },
+        );
+    }
+    (Source::over(config), a.1, b.1)
+}
+
+fn calls(seen: &Seen) -> Vec<String> {
+    seen.lock()
+        .expect("the log")
+        .iter()
+        .map(|(method, path)| format!("{method} {}", path.split('?').next().unwrap_or_default()))
+        .collect()
+}
+
+#[test]
+fn a_live_delete_finds_the_code_in_the_second_account_and_deletes_it_there() {
+    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+    let code = revoked(2, "katherine@example.com", "zz99");
+    assert_eq!(erase(&source, &code), Ok(()));
+    assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
+    assert_eq!(calls(&b), ["GET /_p99/v1/codes", "DELETE /_p99/v1/codes/2"]);
+}
+
+#[test]
+fn a_live_delete_of_a_code_no_account_holds_says_so_and_deletes_nothing() {
+    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+    let code = revoked(9, "grace@example.com", "3fpd");
+    assert_eq!(erase(&source, &code), Err("no such code 9".to_owned()));
+    assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
+    assert_eq!(calls(&b), ["GET /_p99/v1/codes"]);
+}
+
+#[test]
+fn a_live_delete_whose_id_matches_but_hint_does_not_deletes_nothing() {
+    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+    let code = revoked(2, "grace@example.com", "xxxx");
+    assert_eq!(erase(&source, &code), Err("no such code 2".to_owned()));
+    for seen in [&a, &b] {
+        assert!(!calls(seen).iter().any(|call| call.starts_with("DELETE")), "{:?}", calls(seen));
+    }
+}
+
+#[test]
+fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
+    for (status, message) in [(409, "revoke it first"), (404, "no such code")] {
+        let body: &'static str = Box::leak(format!(r#"{{"message":"{message}"}}"#).into_boxed_str());
+        let (source, a, _) = live(account(GRACE_A, (status, body)), account(&[], DELETED));
+        let code = revoked(2, "grace@example.com", "3fpd");
+        assert_eq!(erase(&source, &code), Err(format!("{message} ({status})")));
+        assert_eq!(calls(&a), ["GET /_p99/v1/codes", "DELETE /_p99/v1/codes/2"]);
+    }
+}
+
+#[test]
+fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
+    let (source, _, b) = live(
+        worker(|_, _| (500, r#"{"message":"database is down"}"#.to_owned())),
+        account(KATHERINE_B, DELETED),
+    );
+    let code = revoked(2, "katherine@example.com", "zz99");
+    assert_eq!(erase(&source, &code), Err("database is down (500)".to_owned()));
+    assert!(calls(&b).is_empty(), "{:?}", calls(&b));
 }
 
 #[test]

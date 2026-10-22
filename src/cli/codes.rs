@@ -49,6 +49,10 @@ pub(crate) fn matches(code: &Code, typed: &str) -> bool {
     !code.hint.is_empty() && typed.trim().eq_ignore_ascii_case(&code.hint)
 }
 
+pub(crate) fn same(a: &Code, b: &Code) -> bool {
+    a.id == b.id && a.hint == b.hint && a.email == b.email
+}
+
 pub(crate) fn kept(id: i64) -> String {
     format!("code {id} is kept: the four characters typed back didn't match")
 }

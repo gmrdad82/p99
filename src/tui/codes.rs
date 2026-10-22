@@ -7,7 +7,7 @@ use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style, text::Line};
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Span, Turn};
 
-use crate::cli::codes::{kept, matches, refusal, remove};
+use crate::cli::codes::{kept, matches, refusal, remove, same};
 use crate::one_board::Role;
 use crate::wire::Code;
 
@@ -107,12 +107,13 @@ impl Codes {
     }
 
     fn ask(&mut self, cx: &mut Cx<'_, Msg>) {
-        if self.sending {
-            return;
-        }
         let Some(code) = self.chosen().cloned() else {
             return;
         };
+        if self.sending {
+            cx.say("A delete is still on its way.", Tone::Muted);
+            return;
+        }
         if let Some(why) = refusal(&code) {
             cx.say(why, Tone::Alert);
             return;
@@ -146,27 +147,26 @@ impl Codes {
     fn erase(&mut self, code: Code, cx: &mut Cx<'_, Msg>) {
         self.sending = true;
         let source = self.source.clone();
-        cx.detach(move || Msg::CodeDeleted(code.id, erase(&source, &code)));
+        cx.detach(move || {
+            let result = erase(&source, &code);
+            Msg::CodeDeleted(Box::new(code), result)
+        });
     }
 
-    fn erased(&mut self, id: i64, result: Result<(), String>, cx: &mut Cx<'_, Msg>) {
+    fn erased(&mut self, code: &Code, result: Result<(), String>, cx: &mut Cx<'_, Msg>) {
         self.sending = false;
         if let Err(error) = result {
             cx.say(error, Tone::Alert);
             return;
         }
-        let mut codes = self.codes.take().unwrap_or_default();
-        let gone = codes
-            .iter()
-            .position(|(c, _)| c.id == id)
-            .map(|at| codes.remove(at).0);
-        self.codes = Some(codes);
+        if let Some(codes) = &mut self.codes {
+            codes.retain(|(c, _)| !same(c, code));
+        }
         self.sift();
-        let said = match gone {
-            Some(code) => format!("Deleted code {id} of {}", code.name),
-            None => format!("Deleted code {id}"),
-        };
-        cx.say(said, Tone::Good);
+        cx.say(
+            format!("Deleted code {} of {}", code.id, code.name),
+            Tone::Good,
+        );
     }
 }
 
@@ -175,14 +175,17 @@ fn erase(source: &Source, code: &Code) -> Result<(), String> {
         return Err(why.clone());
     }
     if source.is_demo() {
-        return source.sample(|_| Ok(()));
+        return source.sample(|demo| {
+            demo.forget(code);
+            Ok(())
+        });
     }
     for account in 0..source.accounts().len() {
         let client = source.client(account, None)?;
         let held = client
             .codes(None)?
             .iter()
-            .any(|c| c.id == code.id && c.hint == code.hint && c.email == code.email);
+            .any(|c| same(c, code));
         if held {
             return remove(&client, code.id).map(|_| ());
         }
@@ -256,7 +259,7 @@ impl Screen<Msg> for Codes {
                 self.sift();
             }
             Msg::Codes(Err(error)) => self.error = Some(error),
-            Msg::CodeDeleted(id, result) => self.erased(id, result, cx),
+            Msg::CodeDeleted(code, result) => self.erased(&code, result, cx),
             _ => {}
         }
     }

@@ -85,7 +85,7 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     await revoke(target.code.id);
     assert.equal((await remove(target.code.id, { body: { force: true } })).status, 400);
     const fromBrowser = await browse("DELETE", `/codes/${target.code.id}`, owner.secret);
-    assert.notEqual(fromBrowser.status, 200);
+    assert.equal(fromBrowser.status, 404);
     assert.equal(rows("codes", target.code.id), 1);
     assert.equal((await remove(target.code.id)).status, 200);
   });

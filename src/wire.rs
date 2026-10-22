@@ -2,9 +2,9 @@ use std::borrow::Cow;
 
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_json::Value;
 
 use crate::one_board::Role;
-use serde_json::Value;
 
 macro_rules! out {
     ($($arg:tt)*) => {
@@ -1085,6 +1085,61 @@ pub struct ImportFinish {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Names;
+
+    impl<'de> Deserializer<'de> for Names {
+        type Error = serde::de::value::Error;
+
+        fn deserialize_any<V: serde::de::Visitor<'de>>(self, _: V) -> Result<V::Value, Self::Error> {
+            Err(serde::de::Error::custom(""))
+        }
+
+        fn deserialize_struct<V: serde::de::Visitor<'de>>(
+            self,
+            _: &'static str,
+            fields: &'static [&'static str],
+            _: V,
+        ) -> Result<V::Value, Self::Error> {
+            Err(serde::de::Error::custom(fields.join(",")))
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map enum identifier ignored_any
+        }
+    }
+
+    fn written_and_read<T: Serialize + for<'de> Deserialize<'de> + Default>() -> (Vec<String>, Vec<String>) {
+        let written = match serde_json::to_value(T::default()).expect("it writes") {
+            Value::Object(map) => map.keys().cloned().collect(),
+            other => panic!("not an object: {other}"),
+        };
+        let why = T::deserialize(Names).err().expect("only the field names").to_string();
+        let mut read: Vec<String> = why.split(',').map(str::to_owned).collect();
+        read.push("role".to_owned());
+        let mut written: Vec<String> = written;
+        written.sort();
+        read.sort();
+        (written, read)
+    }
+
+    #[test]
+    fn every_field_an_author_member_or_code_reads_is_written_with_its_role() {
+        let (written, read) = written_and_read::<Author>();
+        assert_eq!(written, read);
+        let (written, read) = written_and_read::<Member>();
+        assert_eq!(written, read);
+        let (written, read) = written_and_read::<Code>();
+        assert_eq!(written, read);
+    }
+
+    #[test]
+    fn the_field_names_come_from_the_struct_and_not_from_a_list_kept_here() {
+        let (_, read) = written_and_read::<Member>();
+        assert_eq!(read, ["manager", "role", "username"]);
+    }
 
     #[test]
     fn via_reads_on_people_authors_and_events_and_defaults_to_none() {
