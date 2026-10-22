@@ -460,10 +460,11 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
 fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), String> {
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let account = account_of(config, global, host.as_deref())?;
-    if config
-        .accounts
-        .get(&account)
-        .is_some_and(|a| crate::vault::is_reference(&a.key))
+    if !crate::config::key_overridden()
+        && config
+            .accounts
+            .get(&account)
+            .is_some_and(|a| crate::vault::is_reference(&a.key))
     {
         eprintln!(
             "{}: reading the account key from {}",

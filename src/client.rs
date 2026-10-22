@@ -56,7 +56,7 @@ impl Client {
             .accounts
             .get(account)
             .ok_or_else(|| format!("no account is called {account}"))?;
-        let key = crate::config::secret(&entry.key)?.into_bytes();
+        let key = crate::config::key(entry)?.into_bytes();
         let access = match (&entry.access_client_id, &entry.access_client_secret) {
             (None, None) => None,
             (Some(id), Some(secret)) => Some((id.clone(), crate::config::secret(secret)?)),

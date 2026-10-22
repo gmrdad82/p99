@@ -294,6 +294,25 @@ pub fn token(account: &Account) -> Result<String, String> {
     }
 }
 
+pub fn key(account: &Account) -> Result<String, String> {
+    key_from(env::var_os("P99_KEY"), &account.key)
+}
+
+pub fn key_overridden() -> bool {
+    env::var_os("P99_KEY").is_some()
+}
+
+fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
+    let Some(given) = given else {
+        return secret(configured);
+    };
+    match given.into_string() {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        Ok(_) => Err("P99_KEY is set but empty; unset it or give the key".to_owned()),
+        Err(_) => Err("P99_KEY is not text; unset it or give the key".to_owned()),
+    }
+}
+
 pub fn agent(flag: bool, me: &Me) -> bool {
     if flag {
         return true;
@@ -396,6 +415,46 @@ mod tests {
             ("Grace Hopper", "grace@example.org")
         );
         assert_eq!(config.me_for("custom").email, "ada@example.com");
+    }
+
+    #[test]
+    fn p99_key_comes_first_over_an_inline_key_and_a_reference() {
+        let given = |v: &str| Some(std::ffi::OsString::from(v));
+        assert_eq!(key_from(given("from-env"), "inline").unwrap(), "from-env");
+        assert_eq!(
+            key_from(given("from-env"), "op://Example/p99/key").unwrap(),
+            "from-env"
+        );
+        assert_eq!(key_from(given(" padded "), "inline").unwrap(), " padded ");
+    }
+
+    #[test]
+    fn without_p99_key_the_configured_key_is_used() {
+        assert_eq!(key_from(None, "inline").unwrap(), "inline");
+        assert_eq!(key_from(None, "").unwrap(), "");
+    }
+
+    #[test]
+    fn an_empty_p99_key_is_refused_without_the_configured_key() {
+        for empty in ["", " ", "\t\n  "] {
+            assert_eq!(
+                key_from(Some(empty.into()), "inline").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+            assert_eq!(
+                key_from(Some(empty.into()), "op://Example/p99/key").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_p99_key_that_is_not_text_is_refused_without_echoing_it() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'k', 0xff, b'y']);
+        let why = key_from(Some(raw), "inline").unwrap_err();
+        assert_eq!(why, "P99_KEY is not text; unset it or give the key");
     }
 
     fn scratch(name: &str) -> PathBuf {
