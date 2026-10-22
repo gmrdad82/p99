@@ -424,7 +424,7 @@ pub fn merged_hosts(known: Vec<String>, entries: &[Entry]) -> Vec<String> {
 pub fn person(name: &str, email: &str, agent: bool) -> String {
     let who = if name.is_empty() { email } else { name };
     if agent {
-        format!("{who}*")
+        format!("{who} {}", crate::card::ROBOT)
     } else {
         who.to_owned()
     }

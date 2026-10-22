@@ -81,7 +81,7 @@ function nameSql(column) {
 }
 
 function pushOf(c, event) {
-  const full = { by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null, at: c.now, ...event };
+  const full = { by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent), via: c.actor.agent ? (c.actor.via ?? null) : null } : null, at: c.now, ...event };
   noteHook(c, full);
   if (c.env.HUB) c.pushes.push(full);
 }
@@ -448,6 +448,7 @@ function labelStatements(c, row, to, opts = {}) {
   const events = [];
   const actor = c.actor ? c.actor.email ?? null : null;
   const agent = c.actor && c.actor.agent ? 1 : 0;
+  const via = agent ? (c.actor.via ?? null) : null;
   if (row.label_id !== to.id) events.push({ kind: "label", detail: { from: row.label_name, to: to.name }, internal: 1 });
   if (statusChanged) {
     const detail = { from: stageOf(row), to: stageOf(next) };
@@ -457,10 +458,10 @@ function labelStatements(c, row, to, opts = {}) {
   if (events.length > 0) {
     statements.push(
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?7
          FROM json_each(?5) WHERE (SELECT label_id FROM items WHERE id = ?1) = ?6`,
-      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id),
+      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id, via),
     );
   }
   const after = () => {

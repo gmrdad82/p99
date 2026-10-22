@@ -1038,3 +1038,95 @@ fn the_label_tone_is_good_when_closed_accent_when_new_and_strong_between() {
     assert!(production("production"));
     assert!(!production("development"));
 }
+
+mod marks {
+    use pito_tui::ratatui::style::Color;
+    use serde_json::json;
+
+    use super::super::*;
+    use crate::wire::{Author, Comment, Event};
+
+    fn flat(lines: &[Line<'static>]) -> Vec<String> {
+        lines
+            .iter()
+            .map(|line| line.spans.iter().map(|s| s.content.as_ref()).collect())
+            .collect()
+    }
+
+    fn thread(agent: bool, via: Option<&str>) -> Thread {
+        let mut thread = Thread::default();
+        thread.issue.key = "BUG-7".into();
+        thread.issue.kind = "bug".into();
+        thread.issue.title = "Waveform drifts".into();
+        thread.issue.created_at = "2026-10-22T08:00:00.000Z".into();
+        thread.issue.updated_at = "2026-10-22T08:00:00.000Z".into();
+        thread.issue.reporter = json!({"name": "Ada Lovelace", "email": "ada@example.com", "agent": agent, "via": via});
+        thread.comments.push(Comment {
+            id: 1,
+            author: Author {
+                email: "ada@example.com".into(),
+                name: "Ada Lovelace".into(),
+                manager: true,
+                agent,
+                via: via.map(str::to_owned),
+            },
+            body: "Looked into it.".into(),
+            created_at: "2026-10-22T08:01:00.000Z".into(),
+            ..Comment::default()
+        });
+        thread.events.push(Event {
+            actor: Some("ada@example.com".into()),
+            actor_name: Some("Ada Lovelace".into()),
+            agent,
+            via: via.map(str::to_owned),
+            kind: "created".into(),
+            at: "2026-10-22T08:00:00.000Z".into(),
+            ..Event::default()
+        });
+        thread
+    }
+
+    fn drawn(thread: &Thread) -> Vec<String> {
+        let palette = Palette::new(Color::Rgb(0x3b, 0x7d, 0xd8));
+        let units = Units::new("s", "m", "h", "d").year("y").now("now");
+        flat(&lines(thread, 100, &palette, 1_761_120_000, &units))
+    }
+
+    #[test]
+    fn an_agent_thread_shows_the_robot_and_its_label_on_the_reporter_comment_and_event() {
+        let text = drawn(&thread(true, Some("pci·splicer")));
+        let reporter = text.iter().find(|l| l.contains("reported it")).unwrap();
+        assert!(reporter.starts_with("Ada Lovelace 🤖 reported it"), "{reporter}");
+        assert!(reporter.contains(" · via pci·splicer"), "{reporter}");
+        let comment = text.iter().find(|l| l.starts_with("Ada Lovelace 🤖 · via")).unwrap();
+        assert!(comment.contains("via pci·splicer"), "{comment}");
+        let event = text.iter().find(|l| l.contains("created")).unwrap();
+        assert!(event.ends_with("by Ada Lovelace 🤖 (pci·splicer)"), "{event}");
+        assert!(text.iter().all(|l| !l.contains("Lovelace*")));
+    }
+
+    #[test]
+    fn an_agent_without_a_label_shows_the_robot_and_no_via() {
+        let text = drawn(&thread(true, None));
+        assert!(text.iter().any(|l| l.starts_with("Ada Lovelace 🤖 reported it")));
+        assert!(text.iter().all(|l| !l.contains("via ")));
+        let event = text.iter().find(|l| l.contains("created")).unwrap();
+        assert!(event.ends_with("by Ada Lovelace 🤖"), "{event}");
+    }
+
+    #[test]
+    fn a_person_shows_no_robot_and_ignores_a_stray_label() {
+        let text = drawn(&thread(false, Some("pci")));
+        assert!(text.iter().all(|l| !l.contains('🤖')));
+        assert!(text.iter().all(|l| !l.contains("via ") && !l.contains("(pci)")));
+        assert!(text.iter().any(|l| l.starts_with("Ada Lovelace reported it")));
+    }
+
+    #[test]
+    fn via_of_keeps_a_trimmed_label_only_for_an_agent() {
+        assert_eq!(via_of(true, Some("  pci  ")), Some("pci".to_owned()));
+        assert_eq!(via_of(true, Some("   ")), None);
+        assert_eq!(via_of(true, None), None);
+        assert_eq!(via_of(false, Some("pci")), None);
+    }
+}

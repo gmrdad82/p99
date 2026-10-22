@@ -483,6 +483,29 @@
 .p99-filters label { display: grid; gap: var(--p99-space-xxs); min-width: 0; }
 .p99-filters label:has(input[type="search"]) { grid-column: 1 / -1; }
 .p99-filters button[type="submit"] { display: none; }
+.p99-pick { display: grid; gap: var(--p99-space-sm); }
+.p99-pick > label { display: grid; gap: var(--p99-space-xxs); min-width: 0; }
+.p99-pick fieldset { display: flex; flex-wrap: wrap; gap: var(--p99-space-xs); margin: 0; padding: 0; border: 0; min-width: 0; }
+.p99-pick fieldset[hidden] { display: none; }
+.p99-pick legend { padding: 0 0 var(--p99-space-xxs); font-size: var(--p99-text-xs); color: var(--p99-muted); }
+.p99-pick fieldset label { position: relative; display: inline-flex; }
+.p99-pick fieldset input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.p99-pick fieldset span {
+  padding: var(--p99-space-xxs) var(--p99-space-sm);
+  border: 1px solid var(--p99-rule);
+  border-radius: var(--p99-radius-sm);
+  font-size: var(--p99-text-sm);
+  color: var(--p99-muted);
+  transition: color var(--p99-motion-hover-out) var(--p99-ease-in-out), border-color var(--p99-motion-hover-out) var(--p99-ease-in-out), background var(--p99-motion-hover-out) var(--p99-ease-in-out);
+}
+.p99-pick fieldset input:checked + span { color: var(--p99-ink); border-color: var(--p99-accent-ink); background: color-mix(in srgb, var(--p99-accent) 12%, transparent); transition-timing-function: var(--p99-ease-enter); }
+.p99-pick fieldset input:focus-visible + span { box-shadow: 0 0 0 2px var(--p99-focus); }
+.p99-pick .p99-empty { margin: 0; font-size: var(--p99-text-sm); }
+.p99-ai { font-style: normal; }
+.p99-via { margin-left: var(--p99-space-xxs); color: var(--p99-muted); font-weight: normal; }
+.p99-status[data-lane="stuck"] { color: var(--p99-status-warning); border-color: color-mix(in srgb, var(--p99-status-warning) 40%, var(--p99-rule)); }
+.p99-status[data-lane="landed"] { color: var(--p99-status-validated); border-color: color-mix(in srgb, var(--p99-status-validated) 40%, var(--p99-rule)); }
+.p99-status[data-lane="done"] { color: var(--p99-muted); }
 .p99-items { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--p99-space-sm); }
 .p99-item {
   display: grid;

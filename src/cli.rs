@@ -538,10 +538,11 @@ fn event_line(text: &str) -> Option<String> {
     let event: Value = serde_json::from_str(text).ok()?;
     let field = |name: &str| event[name].as_str().unwrap_or("-").to_owned();
     let by = &event["by"];
-    let name = who(
+    let name = who_via(
         "",
         by["name"].as_str().unwrap_or("P99"),
         by["agent"].as_bool().unwrap_or(false),
+        by["via"].as_str(),
     );
     let step = || {
         format!(
@@ -631,9 +632,17 @@ pub(crate) fn when(stamp: &str) -> String {
 fn who(email: &str, name: &str, agent: bool) -> String {
     let base = if name.is_empty() { email } else { name };
     if agent {
-        format!("{base}*")
+        format!("{base} {}", crate::card::ROBOT)
     } else {
         base.to_owned()
+    }
+}
+
+fn who_via(email: &str, name: &str, agent: bool, via: Option<&str>) -> String {
+    let base = who(email, name, agent);
+    match via.map(str::trim).filter(|label| agent && !label.is_empty()) {
+        Some(label) => format!("{base} ({label})"),
+        None => base,
     }
 }
 
@@ -1251,7 +1260,7 @@ fn print_thread(thread: &Thread) {
         .unwrap_or(false);
     out!(
         "reported by {} on {}  {}{}",
-        who(text("email"), text("name"), agent),
+        who_via(text("email"), text("name"), agent, reporter.get("via").and_then(Value::as_str)),
         issue.host.as_deref().unwrap_or("-"),
         when(&issue.created_at),
         if issue.env.is_empty() {
@@ -1336,7 +1345,7 @@ fn print_thread(thread: &Thread) {
         out!(
             "\n{} {}{}",
             when(&comment.created_at),
-            who(&author.email, &author.name, author.agent),
+            who_via(&author.email, &author.name, author.agent, author.via.as_deref()),
             if comment.internal { "  [internal]" } else { "" }
         );
         out!("{}", comment.body);
@@ -1355,10 +1364,12 @@ fn print_thread(thread: &Thread) {
             out!(
                 "  {}  {}  {}  {}",
                 when(&e.at),
-                e.actor_name
-                    .as_deref()
-                    .or(e.actor.as_deref())
-                    .unwrap_or("-"),
+                who_via(
+                    e.actor.as_deref().unwrap_or("-"),
+                    e.actor_name.as_deref().unwrap_or_default(),
+                    e.agent,
+                    e.via.as_deref(),
+                ),
                 e.kind,
                 detail
             );

@@ -8,6 +8,7 @@ export const DEFAULT_CARDS_LIMIT = 200;
 export const MAX_CARDS_LIMIT = 500;
 export const NOT_YET = "this Worker has no cards yet; run p99 deploy";
 export const PERSON_CLOSES = "only a person closes a card";
+export const ROBOT = "🤖";
 export const PROJECT_RULE = `a project name has 1 to ${MAX_PROJECT_CHARS} characters`;
 
 export let K = null;

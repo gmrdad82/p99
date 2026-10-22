@@ -1,3 +1,5 @@
+import { ROBOT } from "./cards.js";
+
 const R2_BATCH = 1000;
 const UPLOAD_GRACE_MS = 15 * 60 * 1000;
 const ITEM_TABLES = ["attachments", "comments", "events", "reads", "item_labels", "board_positions", "github_links", "mail_optouts", "build_items", "landings"];
@@ -12,9 +14,9 @@ async function dropObjects(env, keys) {
   for (let at = 0; at < keys.length; at += R2_BATCH) await env.BUCKET.delete(keys.slice(at, at + R2_BATCH));
 }
 
-function actorWord(c) {
+export function actorWord(c) {
   if (!c.actor) return "P99";
-  return c.actor.agent ? `${c.actor.name}*` : c.actor.name;
+  return c.actor.agent ? `${c.actor.name} ${ROBOT}` : c.actor.name;
 }
 
 export async function deleteIssue(c, rawKey) {
@@ -26,6 +28,7 @@ export async function deleteIssue(c, rawKey) {
   const later = new Date(Date.parse(c.now) + UPLOAD_GRACE_MS).toISOString();
   const actor = c.actor ? c.actor.email : null;
   const agent = c.actor && c.actor.agent ? 1 : 0;
+  const via = agent ? (c.actor.via ?? null) : null;
   const done = await DB.batch([
     DB.prepare(
       `SELECT i.id, l.name FROM items i JOIN labels l ON l.id = i.label_id WHERE i.duplicate_of = ?1 AND i.open = 0`,
@@ -37,11 +40,11 @@ export async function deleteIssue(c, rawKey) {
        RETURNING r2_key`,
     ).bind(row.id, later, c.now),
     DB.prepare(
-      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-       SELECT id, ?2, 'status', json_object('from', resolution, 'to', 'received', 'deleted', ?3), 0, ?4, ?5
+      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+       SELECT id, ?2, 'status', json_object('from', resolution, 'to', 'received', 'deleted', ?3), 0, ?4, ?5, ?6
        FROM items WHERE duplicate_of = ?1 AND open = 0
        RETURNING item_id`,
-    ).bind(row.id, actor, key, c.now, agent),
+    ).bind(row.id, actor, key, c.now, agent, via),
     DB.prepare(
       `UPDATE items SET duplicate_of = NULL,
          label_id = CASE WHEN open = 0 THEN (SELECT id FROM labels WHERE role = 'inbox') ELSE label_id END,
@@ -71,7 +74,7 @@ export async function deleteIssue(c, rawKey) {
     }
   }
   K.push(c, "delete", row, { label: row.label_name ?? null });
-  const by = c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null;
+  const by = c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent), via: c.actor.agent ? (c.actor.via ?? null) : null } : null;
   for (const r of unlinked) {
     if (!reopened.has(r.id) || !c.env.HUB) continue;
     c.pushes.push({ type: "label", key: K.keyOf(r.kind, r.id), host: r.host, title: r.title, from: was.get(r.id) ?? null, to: r.label, by, at: c.now });

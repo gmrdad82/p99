@@ -7,6 +7,7 @@ const WORDS = {
   boards: "Boards",
   pick_board: "Pick a board",
   watching: "watching {owner}",
+  filtered: "showing {what}",
   close_board: "Close the board",
   live: "Live",
   connecting: "Connecting…",
@@ -45,7 +46,7 @@ const CSS = `
 .p99-chev{flex:none;width:8px;height:8px;margin:0 2px 4px;border:solid var(--p99-muted);border-width:0 2px 2px 0;rotate:45deg;transition:rotate var(--p99-motion-base) var(--p99-ease-in-out)}
 .p99-pick-board[aria-expanded=true] .p99-chev{rotate:225deg;margin-bottom:-4px}
 .p99-pick-board:disabled .p99-chev{display:none}
-.p99-watch{margin:0;color:var(--p99-muted);font-size:var(--p99-text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p99-watch,.p99-board-filter{margin:0;color:var(--p99-muted);font-size:var(--p99-text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .p99-menu{position:absolute;left:calc(-1 * var(--p99-space-sm));top:calc(100% + var(--p99-space-xs));z-index:3;min-width:240px;max-width:min(360px,calc(100vw - 32px));max-height:min(60vh,420px);margin:0;padding:var(--p99-space-xs);list-style:none;overflow-y:auto;border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:var(--p99-shadow-overlay);opacity:0;translate:0 -6px;transition:opacity var(--p99-motion-base) var(--p99-ease-exit),translate var(--p99-motion-base) var(--p99-ease-exit)}
 .p99-menu.is-open{opacity:1;translate:0 0;transition-timing-function:var(--p99-ease-enter)}
 .p99-menu [role=option]{display:flex;align-items:center;gap:var(--p99-space-sm);min-height:40px;padding:var(--p99-space-xs) var(--p99-space-sm);border-radius:var(--p99-radius-sm);font-size:var(--p99-text-sm);cursor:pointer;outline:none;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out)}
@@ -104,7 +105,7 @@ const CSS = `
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, filter: null, keep: null, keeping: null, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   if (B.el && B.root !== ctx.root) {
@@ -116,6 +117,8 @@ export function open(ctx) {
     B.data = null;
   }
   B.ctx = ctx;
+  B.keep = null;
+  B.keeping = (typeof ctx.only === "function" ? Promise.resolve().then(ctx.only) : Promise.resolve(null)).then((k) => (B.keep = k instanceof Set ? k : null), () => (B.keep = null));
   if (!B.el) build(ctx.root);
   if (!B.open) show();
   return load(ctx.board || B.id || remembered());
@@ -160,6 +163,7 @@ function build(root) {
   B.title = h("h2", { id: "p99-board-title", text: t("board") });
   B.pick = h("button", { type: "button", class: "p99-pick-board", "aria-haspopup": "listbox", "aria-expanded": "false", disabled: true, title: t("pick_board"), onclick: () => (folded() ? unfold() : shut(true)) }, B.owner, B.title, h("span", { class: "p99-chev", "aria-hidden": "true" }));
   B.watch = h("p", { class: "p99-watch", hidden: true });
+  B.filter = h("p", { class: "p99-board-filter", hidden: true });
   B.menu = h("ul", { class: "p99-menu", role: "listbox", "aria-label": t("boards"), tabindex: "-1", hidden: true });
   B.menu.addEventListener("click", (e) => { const o = e.target.closest("[role=option]"); if (o) choose(o.dataset.id); });
   B.live = h("span", { class: "p99-live", "data-state": "off", text: t("offline_live") });
@@ -167,7 +171,7 @@ function build(root) {
   B.say = h("p", { class: "p99-sr", role: "status", "aria-live": "assertive" });
   const x = h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   B.el = h("div", { class: "p99-board", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
-    h("header", { class: "p99-board-head" }, h("b", { class: "p99-logo", text: "P99" }), h("nav", { class: "p99-board-name", "aria-label": t("boards") }, B.pick, B.watch, B.menu), B.live, x),
+    h("header", { class: "p99-board-head" }, h("b", { class: "p99-logo", text: "P99" }), h("nav", { class: "p99-board-name", "aria-label": t("boards") }, B.pick, B.watch, B.filter, B.menu), B.live, x),
     B.cols,
     h("p", { class: "p99-sr", id: "p99-drag-help", text: t("drag_help") }),
     B.say);
@@ -205,7 +209,7 @@ function load(id) {
       if (seq === B.seq) blank(t("no_boards"));
       return null;
     }
-    return B.ctx.call("GET", "/boards/" + encodeURIComponent(pick.id)).then((d) => {
+    return Promise.all([B.ctx.call("GET", "/boards/" + encodeURIComponent(pick.id)), B.keeping]).then(([d]) => {
       if (seq !== B.seq || !B.open || !d || !d.board) return;
       B.want = null;
       B.id = String(d.board.id);
@@ -273,7 +277,7 @@ function paint() {
       col.toggleAttribute("data-closes", !!c.closes);
       col.setAttribute("aria-label", c.label);
       col.querySelector("h3").textContent = c.label;
-      col.querySelector(".p99-cards").replaceChildren(...d.cards.filter((x) => same(x.label, c.label)).map((x) => reuse(old.get(x.key), card(x))));
+      col.querySelector(".p99-cards").replaceChildren(...d.cards.filter((x) => same(x.label, c.label)).filter(shown).map((x) => reuse(old.get(x.key), card(x))));
     });
   };
   if (keep) flip(fill, TRAVEL, 260);
@@ -281,6 +285,8 @@ function paint() {
   if (at && at !== B.root.activeElement && at.isConnected) at.focus({ preventScroll: true });
   counts();
 }
+
+function shown(x) { return !B.keep || B.keep.has(x.key); }
 
 function reuse(e, n) {
   if (!e) return n;
@@ -302,6 +308,9 @@ function paintHead(b) {
   if (theirs) B.owner.replaceChildren(...face(b.owner));
   B.watch.hidden = !theirs;
   B.watch.textContent = theirs ? t("watching", { owner: handle(b.owner) }) : "";
+  const word = B.keep && typeof B.ctx.pickWord === "string" ? B.ctx.pickWord : "";
+  B.filter.hidden = !word;
+  B.filter.textContent = word ? t("filtered", { what: word }) : "";
   B.pick.disabled = !B.boards || B.boards.length < 2;
 }
 

@@ -110,6 +110,49 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
 ];
 
+pub(super) const CARDS: [super::Item; 6] = [
+    card("feature", "new", "Export keeps every audio track", false, 20 * MINUTE),
+    card("task", "planned", "Thumbnails for the clip rail", false, 3 * HOUR),
+    card("bug", "in-progress", "Waveform drifts after a cut", true, 50 * MINUTE),
+    card("bug", "stuck", "Spanish cues lose their accents", true, 2 * HOUR),
+    card("feature", "landed", "Roll-up player plays the cut", true, 30 * MINUTE),
+    card("task", "done", "Silence removed by default", false, DAY),
+];
+
+const fn card(
+    kind: &'static str,
+    status: &'static str,
+    title: &'static str,
+    agent: bool,
+    updated: i64,
+) -> super::Item {
+    super::Item {
+        kind,
+        status,
+        resolution: if matches!(status.as_bytes(), b"done") {
+            Some("fixed")
+        } else {
+            None
+        },
+        title,
+        host: "shop.example.com",
+        path: "/",
+        grace: false,
+        agent,
+        created: updated + HOUR,
+        updated,
+        unread: false,
+        assignee: None,
+        body: "",
+    }
+}
+
+pub(super) const FIRST_CARD: i64 = (super::ITEMS.len() + ITEMS.len() + 1) as i64;
+
+pub(super) fn is_card(issue: &Issue) -> bool {
+    issue.id >= FIRST_CARD
+}
+
 #[allow(clippy::too_many_arguments)]
 const fn extra(
     kind: &'static str,
@@ -148,6 +191,17 @@ const SHOP: [(&str, bool); 4] = [
     ("QA ready", false),
     ("Done", true),
 ];
+
+const LANES: [(&str, bool); 6] = [
+    ("New", false),
+    ("Planned", false),
+    ("In progress", false),
+    ("Stuck", false),
+    ("Landed", false),
+    ("Done", true),
+];
+
+const CARDS_BOARD: i64 = 3;
 
 const QA: [(&str, bool); 3] = [("QA ready", false), ("Testing", false), ("Verified", true)];
 
@@ -191,6 +245,11 @@ pub(super) fn status_label(status: &str) -> &'static str {
         "doing" => "Doing",
         "review" => "QA ready",
         "done" => "Done",
+        "new" => "New",
+        "planned" => "Planned",
+        "in-progress" => "In progress",
+        "stuck" => "Stuck",
+        "landed" => "Landed",
         _ => "Inbox",
     }
 }
@@ -201,6 +260,7 @@ impl Shelf {
             boards: vec![
                 board(1, "Shop", "ada.lovelace", true, &SHOP),
                 board(2, "QA", "grace.hopper", false, &QA),
+                board(CARDS_BOARD, "Cards", "ada.lovelace", true, &LANES),
             ],
             orders: HashMap::new(),
         };
@@ -212,8 +272,11 @@ impl Shelf {
     }
 
     fn append(&mut self, key: &str, label: &str) {
+        let card = wire::item_number(key).is_some_and(|id| id >= FIRST_CARD);
         for board in &self.boards {
-            if board.lane(label).is_none() || self.orders.contains_key(&(board.id, key.to_owned()))
+            if board.lane(label).is_none()
+                || (board.id == CARDS_BOARD) != card
+                || self.orders.contains_key(&(board.id, key.to_owned()))
             {
                 continue;
             }
@@ -285,6 +348,9 @@ impl Demo {
             .filter_map(|issue| {
                 let label = issue.label.clone().unwrap_or_default();
                 board.lane(&label)?;
+                if (board.id == CARDS_BOARD) != is_card(issue) {
+                    return None;
+                }
                 Some(Card {
                     key: issue.key.clone(),
                     kind: issue.kind.clone(),

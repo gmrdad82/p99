@@ -12,6 +12,7 @@ mod boards;
 pub const NOW: i64 = 1_791_979_200;
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
+const VIA: &str = "pci";
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 3600;
@@ -341,6 +342,7 @@ impl Demo {
         let mut threads: Vec<Thread> = ITEMS
             .iter()
             .chain(boards::ITEMS.iter())
+            .chain(boards::CARDS.iter())
             .enumerate()
             .map(|(at, item)| thread(at as i64 + 1, item))
             .collect();
@@ -355,6 +357,7 @@ impl Demo {
                     name: name.into(),
                     manager: !grace,
                     agent,
+                    via: agent.then(|| VIA.to_owned()),
                 },
                 body: body.into(),
                 internal,
@@ -372,6 +375,8 @@ impl Demo {
             threads[item - 1].events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
                 kind: "status".into(),
                 detail,
                 at: iso(NOW - ago),
@@ -459,6 +464,7 @@ impl Demo {
                 name: ME.0.into(),
                 manager: true,
                 agent: false,
+                via: None,
             },
             body: body.into(),
             internal,
@@ -523,6 +529,8 @@ impl Demo {
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
                 kind: "status".into(),
                 detail,
                 at: iso(NOW),
@@ -542,6 +550,8 @@ impl Demo {
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
                 kind: "assignee".into(),
                 detail: json!({"from": issue.assignee, "to": to}),
                 at: iso(NOW),
@@ -560,6 +570,8 @@ impl Demo {
             thread.events.push(Event {
                 actor: Some(ME.1.into()),
                 actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
                 kind: "label".into(),
                 detail: json!({"from": issue.label, "to": "Done"}),
                 at: iso(NOW),
@@ -603,7 +615,7 @@ fn thread(id: i64, item: &Item) -> Thread {
             path: item.path.into(),
             title: String::new(),
         },
-        reporter: json!({"email": email, "name": name, "agent": item.agent}),
+        reporter: json!({"email": email, "name": name, "agent": item.agent, "via": item.agent.then_some(VIA)}),
         assignee: item.assignee.map(Assignee::new),
         created_at: iso(NOW - item.created),
         updated_at: iso(NOW - item.updated),
@@ -617,6 +629,8 @@ fn thread(id: i64, item: &Item) -> Thread {
         events: vec![Event {
             actor: Some(email.into()),
             actor_name: Some(name.into()),
+            agent: item.agent,
+            via: item.agent.then(|| VIA.to_owned()),
             kind: "created".into(),
             detail: Value::Null,
             at: iso(NOW - item.created),
@@ -671,6 +685,7 @@ pub fn summary(issue: &Issue) -> Summary {
             email: text("email"),
             name: text("name"),
             agent: reporter["agent"].as_bool().unwrap_or(false),
+            via: reporter["via"].as_str().map(str::to_owned),
         },
         assignee: issue.assignee.clone(),
         created_at: issue.created_at.clone(),

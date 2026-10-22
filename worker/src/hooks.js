@@ -1,3 +1,5 @@
+import { ROBOT } from "./cards.js";
+
 const SERVICES = ["slack", "discord"];
 const EVENTS = ["new", "comment", "status", "shipped"];
 const HOOK_TTL_MS = 30 * 1000;
@@ -226,10 +228,10 @@ export function noteLanded(c, ids, env, version) {
   if (ids.length > 0) noteHook(c, { type: "landed", ids, env, version: version ?? null, by: null });
 }
 
-function actorName(by) {
+export function actorName(by) {
   if (!by || typeof by.name !== "string" || by.name.length === 0) return "P99";
   const name = by.name.includes("@") ? by.name.slice(0, by.name.indexOf("@")) : by.name;
-  return by.agent ? `${name}*` : name;
+  return by.agent ? `${name} ${ROBOT}` : name;
 }
 
 function accentOf(dir, host) {
