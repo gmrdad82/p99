@@ -98,6 +98,16 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     assert.equal(listed.json.issues.some((i) => i.title === title), false);
   });
 
+  await check("a signed body that isn't JSON, or isn't UTF-8, is refused as such and files nothing", async () => {
+    const title = `Not JSON ${randomUUID().slice(0, 8)}`;
+    for (const bytes of [Buffer.from(`{"title":"${title}",`), Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d])]) {
+      await refusal(await signedFetch("POST", `/_p99/v1/issues?host=${here}`, { bytes }), 400, /not valid JSON/);
+    }
+    const listed = await call("GET", `/_p99/v1/issues?host=${here}&q=${encodeURIComponent(title)}`);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.json.issues.some((i) => i.title === title), false);
+  });
+
   let key = "BUG-00000000";
   await check("an item with one mark is filed for the upload checks", async () => {
     const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Uploads land once", marks: [MARK] }) });

@@ -24,10 +24,12 @@ export function matchScripts(taken, sources, startup = []) {
   return scripts;
 }
 
-export async function coverWorker(port, searchDir) {
+export const CALL_LIMIT = 60_000;
+
+export async function coverWorker(port, searchDir, { connect = open, limit = CALL_LIMIT } = {}) {
   let socket = null;
   for (let i = 0; i < 300 && !socket; i++) {
-    socket = await open(`ws://127.0.0.1:${port}/ws`).catch(() => null);
+    socket = await connect(`ws://127.0.0.1:${port}/ws`).catch(() => null);
     if (!socket) await new Promise((r) => setTimeout(r, 200));
   }
   if (!socket) throw new Error(`the Worker's inspector did not answer on ${port}`);
@@ -35,8 +37,17 @@ export async function coverWorker(port, searchDir) {
   let context = null;
   let counting = false;
   let reloaded = false;
+  let gone = null;
   const waiting = new Map();
   const parsed = new Map();
+  const drop = (why) => {
+    if (gone) return;
+    gone = why;
+    for (const call of waiting.values()) call.reject(new Error(`${call.method}: ${why}`));
+    waiting.clear();
+  };
+  socket.addEventListener("close", () => drop(`the Worker's inspector on ${port} closed`));
+  socket.addEventListener("error", () => drop(`the Worker's inspector on ${port} failed`));
   socket.addEventListener("message", (event) => {
     const msg = JSON.parse(event.data);
     if (msg.method === "Debugger.scriptParsed") parsed.set(msg.params.scriptId, msg.params);
@@ -50,8 +61,17 @@ export async function coverWorker(port, searchDir) {
   });
   const send = (method, params = {}) =>
     new Promise((resolve, reject) => {
+      if (gone) return reject(new Error(`${method}: ${gone}`));
       const id = next++;
-      waiting.set(id, { resolve, reject, method });
+      const timer = setTimeout(() => {
+        waiting.delete(id);
+        reject(new Error(`${method}: the Worker's inspector on ${port} gave no answer in ${limit} ms`));
+      }, limit);
+      const settle = (fn) => (value) => {
+        clearTimeout(timer);
+        fn(value);
+      };
+      waiting.set(id, { resolve: settle(resolve), reject: settle(reject), method });
       socket.send(JSON.stringify({ id, method, params }));
     });
   const evaluate = async (expression) => {

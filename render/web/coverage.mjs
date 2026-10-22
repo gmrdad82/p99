@@ -107,6 +107,52 @@ export function fold(dir, readText = (name) => readFileSync(join(web, name), "ut
   return files;
 }
 
+export const LOADER = "p99.js";
+
+export function alignLines(served, file) {
+  const at = new Int32Array(file.length).fill(-1);
+  const a = lineStarts(served);
+  const b = lineStarts(file);
+  for (let n = 0; n < Math.min(a.length, b.length); n++) {
+    const s = served.slice(a[n], n + 1 < a.length ? a[n + 1] : served.length);
+    const f = file.slice(b[n], n + 1 < b.length ? b[n + 1] : file.length);
+    let head = 0;
+    while (head < s.length && head < f.length && s[head] === f[head]) head++;
+    let tail = 0;
+    while (tail < s.length - head && tail < f.length - head && s[s.length - 1 - tail] === f[f.length - 1 - tail]) tail++;
+    for (let i = 0; i < f.length; i++) at[b[n] + i] = a[n] + (i < head ? i : i >= f.length - tail ? s.length - (f.length - i) : head);
+  }
+  return at;
+}
+
+export function loaderBytes(dir, file = readFileSync(join(web, LOADER), "utf8")) {
+  const run = new Uint8Array(file.length);
+  for (const name of existsSync(dir) ? readdirSync(dir).sort() : []) {
+    if (!name.endsWith(".json")) continue;
+    for (const entry of JSON.parse(readFileSync(join(dir, name), "utf8"))) {
+      if (servedParts(entry.url, entry.source)[0]?.name !== LOADER) continue;
+      const counts = offsetCounts(entry.source, entry.functions);
+      const at = alignLines(entry.source, file);
+      for (let i = 0; i < file.length; i++) if (at[i] >= 0 && counts[at[i]] > 0) run[i] = 1;
+    }
+  }
+  let total = 0;
+  let ran = 0;
+  const missed = [];
+  for (let i = 0; i < file.length; i++) {
+    if (/\s/.test(file[i])) continue;
+    total++;
+    if (run[i]) ran++;
+    else if (missed.length > 0 && missed.at(-1).end === i) missed.at(-1).end = i + 1;
+    else missed.push({ start: i, end: i + 1 });
+  }
+  return { ran, total, missed: missed.map(({ start, end }) => file.slice(start, end)) };
+}
+
+export function bytesLine({ ran, total }) {
+  return `src/web/${LOADER} by bytes: ${(total === 0 ? 0 : (100 * ran) / total).toFixed(2)}% (${ran} of ${total} non-space bytes run)`;
+}
+
 export function dumpCount(dir) {
   return existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".json")).length : 0;
 }
@@ -152,8 +198,9 @@ async function main() {
     taken.push({ check, dumps: dumpCount(dir) - before });
   }
   const files = fold(dir);
-  const text = report(dir, files);
-  writeFileSync(join(dir, "table.md"), text + "\n");
+  const bytes = loaderBytes(dir);
+  const text = `${report(dir, files)}\n\n${bytesLine(bytes)}`;
+  writeFileSync(join(dir, "table.md"), `${text}\n\nThe loader's bytes that never ran:\n\n${bytes.missed.map((part) => `- \`${part}\``).join("\n")}\n`);
   console.log(`\nBrowser line coverage (worker/src/web, from the browser checks):\n\n${text}`);
   const found = problems(taken, files);
   for (const line of found) console.error(line);

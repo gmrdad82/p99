@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ARGS, CHECKS, SHOWN, cover, dumpCount, fold, ownScripts, problems, report, servedParts } from "./coverage.mjs";
+import { ARGS, CHECKS, LOADER, SHOWN, alignLines, bytesLine, cover, dumpCount, fold, loaderBytes, ownScripts, problems, report, servedParts } from "./coverage.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -190,4 +190,40 @@ test("every check the pass runs is a file here, and the board runs its checks ag
   const board = readFileSync(join(here, "board.mjs"), "utf8");
   assert.match(board, /process\.argv\[2\] === "check"/);
   assert.match(board, /process\.argv\.includes\("--worker"\)/);
+});
+
+test("a served loader lines up with its file byte for byte around what the Worker substituted", () => {
+  const file = "let h=__P99_HOST__,c;\nf();\nD=import(\"/p.js?v=__V__\");";
+  const served = 'let h={"a":"#top"},c;\nf();\nD=import("/p.js?v=dev");';
+  const at = alignLines(served, file);
+  assert.equal(served[at[file.indexOf(",c")]], ",");
+  assert.equal(served[at[file.indexOf("f()")]], "f");
+  assert.equal(served[at[file.indexOf("__P99_HOST__")]], "{");
+  assert.equal(served[at[file.lastIndexOf('");')]], '"');
+  assert.equal(served.slice(at[file.indexOf("let")], at[file.indexOf("let")] + 6), "let h=");
+  assert.deepEqual([...alignLines("a();", "a();\nb();").slice(5)], [-1, -1, -1, -1]);
+});
+
+test("the loader's bytes count once across pages, only where some page ran them, and the rest is named", () => {
+  const dir = scratch();
+  try {
+    const file = "let h=__P99_HOST__;\nF=()=>{forget()};\nZ=()=>{zoom()};";
+    const page = (host, inner) => {
+      const source = file.replace("__P99_HOST__", host);
+      const block = (word, count) => ({ startOffset: source.indexOf(word), endOffset: source.indexOf(word) + word.length + 2, count });
+      return { url: `http://shop.example.com/_p99/${LOADER}?v=dev`, source, functions: whole(source, ...inner(block)) };
+    };
+    writeFileSync(join(dir, "a.json"), JSON.stringify([page("{}", (b) => [b("forget", 0), b("zoom", 2)]), { url: "http://shop.example.com/_p99/panel.js", source: "x", functions: whole("x") }]));
+    writeFileSync(join(dir, "b.json"), JSON.stringify([page('{"a":"#top"}', (b) => [b("forget", 0), b("zoom", 0)])]));
+    writeFileSync(join(dir, "c.txt"), "not a dump");
+    const bytes = loaderBytes(dir, file);
+    assert.equal(bytes.total, file.replace(/\s/g, "").length);
+    assert.equal(bytes.ran, bytes.total - "forget()".length);
+    assert.deepEqual(bytes.missed, ["forget()"]);
+    assert.match(bytesLine(bytes), /^src\/web\/p99\.js by bytes: \d+\.\d\d% \(\d+ of \d+ non-space bytes run\)$/);
+    assert.equal(bytesLine({ ran: 0, total: 0 }), "src/web/p99.js by bytes: 0.00% (0 of 0 non-space bytes run)");
+    assert.deepEqual(loaderBytes(join(dir, "missing"), file).ran, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

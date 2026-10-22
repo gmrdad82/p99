@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decodeMappings, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 import { collect, ownsFile, problems, report, workerFiles } from "./coverage.mjs";
-import { V8_FLAGS, matchScripts, v8Flags } from "./inspect.mjs";
+import { V8_FLAGS, coverWorker, matchScripts, v8Flags } from "./inspect.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fn = (...ranges) => ({ functionName: "", isBlockCoverage: true, ranges: ranges.map(([startOffset, endOffset, count]) => ({ startOffset, endOffset, count })) });
@@ -284,7 +284,7 @@ test("a workerd script's lines count when either its startup snapshot or its blo
     const script = (extra) => ({ url: "bundle.js", source: text, map, mapDir: join(root, ".wrangler", "tmp"), ...extra });
     const write = (scripts) => writeFileSync(join(dir, "worker-1.json"), JSON.stringify({ kind: "workerd", loaded: true, scripts }));
     const covered = () => [...collect(dir, { searchDir: dir }).get(tries)].filter(([, ran]) => ran).map(([line]) => line);
-    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(3), at(4), 0])] })]);
+    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(2), at(3), 0], [at(3), at(4), 0])] })]);
     const both = covered();
     assert.ok(both.includes(1), "the top level ran at load");
     assert.ok(both.includes(2), "line 2 ran after the counts were on");
@@ -294,7 +294,80 @@ test("a workerd script's lines count when either its startup snapshot or its blo
     write([script({ functions: [], startup: [fn([0, text.length, 1], [at(3), at(4), 0])] })]);
     assert.equal(covered().includes(3), false);
     assert.ok(covered().includes(1));
+    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(3), at(4), 2], [at(4), text.length, 0])] })]);
+    assert.deepEqual(covered(), [1, 2, 3], "a function run only at load stays covered beside the block counts");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+class FakeInspector extends EventTarget {
+  constructor(answer) {
+    super();
+    this.answer = answer;
+    this.sent = [];
+  }
+  send(text) {
+    const msg = JSON.parse(text);
+    this.sent.push(msg.method);
+    this.answer(msg, this);
+  }
+  reply(body) {
+    this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(body) }));
+  }
+  close() {
+    this.dispatchEvent(new Event("close"));
+  }
+}
+
+function workerd(later = (msg, socket) => socket.reply({ id: msg.id, result: { result: { value: "[]" } } })) {
+  let started = false;
+  return new FakeInspector((msg, socket) => {
+    if (msg.method === "Runtime.enable") {
+      socket.reply({ method: "Runtime.executionContextCreated", params: { context: { id: 7 } } });
+      return socket.reply({ id: msg.id, result: {} });
+    }
+    if (!started && msg.method === "Runtime.evaluate") {
+      started = msg.params.expression.includes("DebugToggleBlockCoverage");
+      return socket.reply({ id: msg.id, result: { result: { value: "[]" } } });
+    }
+    later(msg, socket);
+  });
+}
+
+test("a Worker's coverage is started on its inspector and saved as a workerd dump", async () => {
+  const dir = scratch();
+  try {
+    const socket = workerd();
+    const cover = await coverWorker(9229, dir, { connect: async () => socket });
+    assert.equal(await cover.save(join(dir, "worker-1.json")), 0);
+    assert.deepEqual(JSON.parse(readFileSync(join(dir, "worker-1.json"), "utf8")), { kind: "workerd", loaded: true, scripts: [] });
+    assert.deepEqual(socket.sent, ["Runtime.enable", "Runtime.evaluate", "Runtime.evaluate", "Runtime.evaluate", "Debugger.enable"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a Worker whose inspector closes mid-run fails its save at once, and every later call too", async () => {
+  const socket = workerd((msg, s) => s.close());
+  const cover = await coverWorker(9229, "", { connect: async () => socket });
+  await assert.rejects(cover.save("unused.json"), /^Error: Runtime\.evaluate: the Worker's inspector on 9229 closed$/);
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 closed/);
+});
+
+test("an inspector socket error fails the pending call instead of leaving it waiting", async () => {
+  const socket = workerd((msg, s) => s.dispatchEvent(new Event("error")));
+  const cover = await coverWorker(9229, "", { connect: async () => socket });
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 failed/);
+});
+
+test("an inspector that never answers fails the call at its limit", async () => {
+  const socket = workerd(() => {});
+  const cover = await coverWorker(9229, "", { connect: async () => socket, limit: 1 });
+  await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 gave no answer in 1 ms/);
+});
+
+test("an inspector that closes before coverage starts fails the start", async () => {
+  const socket = new FakeInspector((msg, s) => s.close());
+  await assert.rejects(coverWorker(9229, "", { connect: async () => socket }), /Runtime\.enable: the Worker's inspector on 9229 closed/);
 });
