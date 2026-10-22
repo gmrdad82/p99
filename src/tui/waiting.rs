@@ -348,7 +348,8 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                 self.reader.event(Msg::Pushed(account, key.clone()), cx);
                 self.inner.event(Msg::Pushed(account, key), cx);
             }
-            event @ (Msg::Commented(_, Ok(_)) | Msg::Changed(_, Ok(_)) | Msg::Deleted(_, Ok(_)))
+            event
+            @ (Msg::Commented(_, Ok(_)) | Msg::Changed(_, Ok(_)) | Msg::Deleted(_, Ok(_)))
                 if self.reading() =>
             {
                 self.reader.event(event, cx);

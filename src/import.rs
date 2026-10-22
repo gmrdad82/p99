@@ -634,9 +634,7 @@ fn print_summary(
         );
     }
     if !managers.is_empty() {
-        println!(
-            "these Owners have no Owner code yet; mint one each, or list them in MANAGERS:"
-        );
+        println!("these Owners have no Owner code yet; mint one each, or list them in MANAGERS:");
         for email in managers {
             crate::wire::out!("  p99 invite {host} --owner --name \"<name>\" --email {email}");
         }

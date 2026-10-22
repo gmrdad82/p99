@@ -67,21 +67,30 @@ fn typed_back(input: &mut impl BufRead, err: &mut impl Write, code: &Code) -> Re
         Role::of(code.manager).word(),
         crate::wire::clean(&code.hint),
     );
-    let _ = write!(err, "Type {} to delete it: ", crate::wire::clean(&code.hint));
+    let _ = write!(
+        err,
+        "Type {} to delete it: ",
+        crate::wire::clean(&code.hint)
+    );
     let _ = err.flush();
     let mut line = String::new();
     input.read_line(&mut line).map_err(|e| e.to_string())?;
     Ok(matches(code, &line))
 }
 
-pub fn delete(config: &Config, global: &Global, args: &CodeDeleteArgs) -> Result<(), String> {
+pub fn delete(
+    config: &Config,
+    global: &Global,
+    host: Option<&str>,
+    args: &CodeDeleteArgs,
+) -> Result<(), String> {
     if !args.yes && !io::stdin().is_terminal() {
         return Err(format!(
             "deleting code {} needs --yes when no one is at a terminal to type its last four characters back",
             args.id
         ));
     }
-    let (client, _) = client_for(config, global, None)?;
+    let (client, _) = client_for(config, global, host)?;
     let code = find(client.codes(None)?, args.id)?;
     if let Some(why) = refusal(&code) {
         return Err(why);
@@ -131,7 +140,16 @@ mod tests {
         assert!(ask(&revoked, "3fpd\n").0);
         assert!(ask(&revoked, "  3FPD \n").0);
         assert!(ask(&revoked, "3fpd").0);
-        for wrong in ["", "\n", "3fp\n", "3fpdx\n", "...3fpd\n", "2\n", "yes\n", "m9xa\n"] {
+        for wrong in [
+            "",
+            "\n",
+            "3fp\n",
+            "3fpdx\n",
+            "...3fpd\n",
+            "2\n",
+            "yes\n",
+            "m9xa\n",
+        ] {
             assert!(!ask(&revoked, wrong).0, "{wrong:?}");
         }
         assert!(!matches(&code(2, "", true, false), ""));
@@ -152,7 +170,10 @@ mod tests {
         );
         assert_eq!(lines[2], "Type 3fpd to delete it: ");
         let (_, owner) = ask(&code(9, "7k2q", true, true), "\n");
-        assert!(owner.starts_with("   9  revoked  Grace Hopper <grace@example.com>  Owner  ...7k2q\n"), "{owner}");
+        assert!(
+            owner.starts_with("   9  revoked  Grace Hopper <grace@example.com>  Owner  ...7k2q\n"),
+            "{owner}"
+        );
     }
 
     #[test]
@@ -160,8 +181,14 @@ mod tests {
         let mut sly = code(4, "q81v", true, false);
         sly.name = "Grace\u{1b}]52;x Hopper\u{202e}".into();
         let (_, said) = ask(&sly, "\n");
-        assert!(!said.contains('\u{1b}') && !said.contains('\u{202e}'), "{said:?}");
-        assert!(said.contains("Grace]52;x Hopper <grace@example.com>"), "{said}");
+        assert!(
+            !said.contains('\u{1b}') && !said.contains('\u{202e}'),
+            "{said:?}"
+        );
+        assert!(
+            said.contains("Grace]52;x Hopper <grace@example.com>"),
+            "{said}"
+        );
     }
 
     #[test]
@@ -188,21 +215,54 @@ mod tests {
     #[test]
     fn the_worker_answer_reads_and_prints_as_it_came() {
         let done: CodeDeleted = serde_json::from_value(json!({"id": 2, "deleted": true})).unwrap();
-        assert_eq!(done, CodeDeleted { id: 2, deleted: true });
-        assert_eq!(serde_json::to_value(&done).unwrap(), json!({"id": 2, "deleted": true}));
+        assert_eq!(
+            done,
+            CodeDeleted {
+                id: 2,
+                deleted: true
+            }
+        );
+        assert_eq!(
+            serde_json::to_value(&done).unwrap(),
+            json!({"id": 2, "deleted": true})
+        );
         assert!(serde_json::from_value::<CodeDeleted>(json!({"deleted": true})).is_err());
     }
 
     #[test]
     fn a_code_author_and_member_print_role_beside_manager() {
         let owner = serde_json::to_value(code(1, "7k2q", false, true)).unwrap();
-        assert_eq!((owner["manager"].clone(), owner["role"].clone()), (json!(true), json!("owner")));
+        assert_eq!(
+            (owner["manager"].clone(), owner["role"].clone()),
+            (json!(true), json!("owner"))
+        );
         let user = serde_json::to_value(code(2, "3fpd", true, false)).unwrap();
-        assert_eq!((user["manager"].clone(), user["role"].clone()), (json!(false), json!("user")));
-        let keys: Vec<&str> = user.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(
+            (user["manager"].clone(), user["role"].clone()),
+            (json!(false), json!("user"))
+        );
+        let keys: Vec<&str> = user
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         assert_eq!(
             keys,
-            ["id", "name", "email", "hosts", "manager", "role", "hint", "created_at", "created_by", "revoked_at", "last_used_at", "totp"]
+            [
+                "id",
+                "name",
+                "email",
+                "hosts",
+                "manager",
+                "role",
+                "hint",
+                "created_at",
+                "created_by",
+                "revoked_at",
+                "last_used_at",
+                "totp"
+            ]
         );
         let author = serde_json::to_value(Author {
             name: "Ada Lovelace".into(),
@@ -218,7 +278,10 @@ mod tests {
             manager: false,
         })
         .unwrap();
-        assert_eq!(member, json!({"username": "grace.hopper", "manager": false, "role": "user"}));
+        assert_eq!(
+            member,
+            json!({"username": "grace.hopper", "manager": false, "role": "user"})
+        );
     }
 
     #[test]
@@ -233,8 +296,12 @@ mod tests {
         assert_eq!(back["role"], "owner");
         assert_eq!(back["totp"], true);
         let again: Code = serde_json::from_value(back).unwrap();
-        assert_eq!((again.id, again.manager, again.hint.as_str()), (5, true, "7k2q"));
-        let old: Member = serde_json::from_value(json!({"username": "ada", "manager": true})).unwrap();
+        assert_eq!(
+            (again.id, again.manager, again.hint.as_str()),
+            (5, true, "7k2q")
+        );
+        let old: Member =
+            serde_json::from_value(json!({"username": "ada", "manager": true})).unwrap();
         assert_eq!(serde_json::to_value(old).unwrap()["role"], "owner");
     }
 

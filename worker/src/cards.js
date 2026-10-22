@@ -50,7 +50,3 @@ export function projectName(raw) {
   if (text.length < 1 || [...text].length > MAX_PROJECT_CHARS) K.fail(400, PROJECT_RULE);
   return text;
 }
-
-export function todo() {
-  return K.json(501, { error: "todo" });
-}

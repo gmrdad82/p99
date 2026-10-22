@@ -263,7 +263,7 @@ impl Source {
                     continue;
                 }
             };
-            match client.one_board(&query) {
+            match client.one_board::<crate::one_board::OneBoard>(&query) {
                 Ok(board) => {
                     if !answered {
                         view.lanes = board.board.lanes;

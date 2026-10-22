@@ -283,11 +283,17 @@ fn esc_or_an_empty_answer_closes_the_question_and_keeps_the_code() {
     app.press("down down d");
     let closed = app.press("3f esc");
     assert!(!codes(&app).typing());
-    assert!(closed.contains("…3fpd") && !closed.contains("Delete for good"), "{closed}");
+    assert!(
+        closed.contains("…3fpd") && !closed.contains("Delete for good"),
+        "{closed}"
+    );
     app.press("d");
     let empty = app.press("enter");
     assert!(!codes(&app).typing());
-    assert!(empty.contains("…3fpd") && !empty.contains("kept"), "{empty}");
+    assert!(
+        empty.contains("…3fpd") && !empty.contains("kept"),
+        "{empty}"
+    );
 }
 
 #[test]
@@ -301,7 +307,10 @@ fn d_on_an_active_code_says_revoke_it_first_and_asks_nothing() {
         refused.contains("code 4 is active: revoke it first, p99 revoke 4"),
         "{refused}"
     );
-    assert!(refused.contains("…q81v") && refused.contains("4 codes"), "{refused}");
+    assert!(
+        refused.contains("…q81v") && refused.contains("4 codes"),
+        "{refused}"
+    );
     let typed = app.press("q81v enter");
     assert!(typed.contains("…q81v"), "{typed}");
 }
@@ -333,7 +342,10 @@ fn a_delete_the_worker_refuses_keeps_the_row_and_says_why() {
     let mut app = shown();
     let said = app.event(
         CODES,
-        Msg::CodeDeleted(Box::new(revoked(2, "grace@example.com", "3fpd")), Err("revoke it first (409)".into())),
+        Msg::CodeDeleted(
+            Box::new(revoked(2, "grace@example.com", "3fpd")),
+            Err("revoke it first (409)".into()),
+        ),
     );
     assert!(said.contains("revoke it first (409)"), "{said}");
     assert!(said.contains("…3fpd") && said.contains("4 codes"), "{said}");
@@ -370,11 +382,17 @@ fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_
     let mut app = shown();
     let other = twin(&mut app);
     let before = app.text();
-    assert!(before.contains("…zz99") && before.contains("…3fpd"), "{before}");
+    assert!(
+        before.contains("…zz99") && before.contains("…3fpd"),
+        "{before}"
+    );
     let done = app.event(CODES, Msg::CodeDeleted(Box::new(other), Ok(())));
     assert!(!done.contains("…zz99"), "{done}");
     assert!(done.contains("…3fpd"), "{done}");
-    assert!(done.contains("Deleted code 2 of Katherine Johnson"), "{done}");
+    assert!(
+        done.contains("Deleted code 2 of Katherine Johnson"),
+        "{done}"
+    );
     assert!(done.contains("4 codes"), "{done}");
     let kept = app.event(
         CODES,
@@ -422,14 +440,20 @@ fn a_demo_delete_sticks_when_the_codes_are_read_again() {
 fn d_while_a_delete_is_on_its_way_says_so_and_asks_nothing() {
     let mut app = shown();
     app.press("down down");
-    app.tui.find_mut::<Codes>().expect("the codes are a screen").sending = true;
+    app.tui
+        .find_mut::<Codes>()
+        .expect("the codes are a screen")
+        .sending = true;
     let said = app.press("d");
     assert!(!codes(&app).typing());
     assert!(said.contains("A delete is still on its way."), "{said}");
     assert!(said.contains("…3fpd") && said.contains("4 codes"), "{said}");
     let done = app.event(
         CODES,
-        Msg::CodeDeleted(Box::new(revoked(9, "nobody@example.com", "none")), Err("no such code 9".into())),
+        Msg::CodeDeleted(
+            Box::new(revoked(9, "nobody@example.com", "none")),
+            Err("no such code 9".into()),
+        ),
     );
     assert!(done.contains("no such code 9"), "{done}");
     app.press("d");
@@ -446,7 +470,9 @@ fn worker(answer: impl Fn(&str, &str) -> (u16, String) + Send + 'static) -> (Str
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { continue };
-            let Ok(clone) = stream.try_clone() else { continue };
+            let Ok(clone) = stream.try_clone() else {
+                continue;
+            };
             let mut reader = BufReader::new(clone);
             let mut line = String::new();
             if reader.read_line(&mut line).is_err() {
@@ -496,7 +522,10 @@ fn listing(codes: &[(i64, &str, &str)]) -> String {
     serde_json::json!({ "codes": codes }).to_string()
 }
 
-fn account(codes: &'static [(i64, &'static str, &'static str)], delete: (u16, &'static str)) -> (String, Seen) {
+fn account(
+    codes: &'static [(i64, &'static str, &'static str)],
+    delete: (u16, &'static str),
+) -> (String, Seen) {
     worker(move |method, path| match method {
         "GET" if path.starts_with("/_p99/v1/codes") => (200, listing(codes)),
         "DELETE" => (delete.0, delete.1.to_owned()),
@@ -555,14 +584,19 @@ fn a_live_delete_whose_id_matches_but_hint_does_not_deletes_nothing() {
     let code = revoked(2, "grace@example.com", "xxxx");
     assert_eq!(erase(&source, &code), Err("no such code 2".to_owned()));
     for seen in [&a, &b] {
-        assert!(!calls(seen).iter().any(|call| call.starts_with("DELETE")), "{:?}", calls(seen));
+        assert!(
+            !calls(seen).iter().any(|call| call.starts_with("DELETE")),
+            "{:?}",
+            calls(seen)
+        );
     }
 }
 
 #[test]
 fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
     for (status, message) in [(409, "revoke it first"), (404, "no such code")] {
-        let body: &'static str = Box::leak(format!(r#"{{"message":"{message}"}}"#).into_boxed_str());
+        let body: &'static str =
+            Box::leak(format!(r#"{{"message":"{message}"}}"#).into_boxed_str());
         let (source, a, _) = live(account(GRACE_A, (status, body)), account(&[], DELETED));
         let code = revoked(2, "grace@example.com", "3fpd");
         assert_eq!(erase(&source, &code), Err(format!("{message} ({status})")));
@@ -577,7 +611,10 @@ fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
         account(KATHERINE_B, DELETED),
     );
     let code = revoked(2, "katherine@example.com", "zz99");
-    assert_eq!(erase(&source, &code), Err("database is down (500)".to_owned()));
+    assert_eq!(
+        erase(&source, &code),
+        Err("database is down (500)".to_owned())
+    );
     assert!(calls(&b).is_empty(), "{:?}", calls(&b));
 }
 

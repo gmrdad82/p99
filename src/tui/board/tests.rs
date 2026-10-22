@@ -1174,5 +1174,8 @@ fn a_move_made_in_a_thread_opened_from_w_reaches_the_board_underneath() {
     app.advance(Duration::from_millis(1));
     let back = app.press("esc");
     assert!(back.contains("New 8"), "{back}");
-    assert!(!lane(&app, "Needs you").contains(&"BUG-25".to_owned()), "{back}");
+    assert!(
+        !lane(&app, "Needs you").contains(&"BUG-25".to_owned()),
+        "{back}"
+    );
 }

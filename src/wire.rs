@@ -885,31 +885,19 @@ pub struct Owner {
     pub username: Option<String>,
 }
 
+impl Owner {
+    pub fn handle(&self) -> String {
+        self.username
+            .as_deref()
+            .map_or_else(|| "someone".to_owned(), |u| format!("@{u}"))
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Lane {
     pub label: String,
     #[serde(default, deserialize_with = "lenient")]
     pub closes: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LaneBoard {
-    pub id: i64,
-    pub name: String,
-    #[serde(default, deserialize_with = "lenient")]
-    pub owner: Option<Owner>,
-    #[serde(default, deserialize_with = "lenient")]
-    pub mine: bool,
-    #[serde(default, deserialize_with = "lenient")]
-    pub cards: bool,
-    #[serde(default, deserialize_with = "lenient")]
-    pub columns: Vec<Lane>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LaneBoards {
-    #[serde(default, deserialize_with = "lenient")]
-    pub boards: Vec<LaneBoard>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1049,7 +1037,10 @@ mod tests {
     impl<'de> Deserializer<'de> for Names {
         type Error = serde::de::value::Error;
 
-        fn deserialize_any<V: serde::de::Visitor<'de>>(self, _: V) -> Result<V::Value, Self::Error> {
+        fn deserialize_any<V: serde::de::Visitor<'de>>(
+            self,
+            _: V,
+        ) -> Result<V::Value, Self::Error> {
             Err(serde::de::Error::custom(""))
         }
 
@@ -1069,12 +1060,16 @@ mod tests {
         }
     }
 
-    fn written_and_read<T: Serialize + for<'de> Deserialize<'de> + Default>() -> (Vec<String>, Vec<String>) {
+    fn written_and_read<T: Serialize + for<'de> Deserialize<'de> + Default>()
+    -> (Vec<String>, Vec<String>) {
         let written = match serde_json::to_value(T::default()).expect("it writes") {
             Value::Object(map) => map.keys().cloned().collect(),
             other => panic!("not an object: {other}"),
         };
-        let why = T::deserialize(Names).err().expect("only the field names").to_string();
+        let why = T::deserialize(Names)
+            .err()
+            .expect("only the field names")
+            .to_string();
         let mut read: Vec<String> = why.split(',').map(str::to_owned).collect();
         read.push("role".to_owned());
         let mut written: Vec<String> = written;

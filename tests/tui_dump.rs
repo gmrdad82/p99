@@ -329,7 +329,11 @@ fn the_waiting_badge_counts_down_as_cards_move_out_and_hides_at_zero() {
     let stuck = format!("{needs} h h space l l enter");
     let landed = format!("{stuck}{}", " h space l enter".repeat(4));
     for size in ["120x34", "80x24"] {
-        for (keys, said) in [(needs, Some("2 waiting")), (stuck.as_str(), Some("1 waiting")), (landed.as_str(), None)] {
+        for (keys, said) in [
+            (needs, Some("2 waiting")),
+            (stuck.as_str(), Some("1 waiting")),
+            (landed.as_str(), None),
+        ] {
             let text = dump(size, keys);
             let head: String = text.lines().take(3).collect::<Vec<_>>().join("\n");
             match said {

@@ -1008,8 +1008,8 @@ pub(crate) fn print_totp(code: &Code, key: &str) {
     println!("send these apart from the link; each browser asks for its 6-digit code once");
 }
 
-fn totp(config: &Config, global: &Global, id: i64) -> Result<(), String> {
-    let (client, _) = client_for(config, global, None)?;
+fn totp(config: &Config, global: &Global, host: Option<&str>, id: i64) -> Result<(), String> {
+    let (client, _) = client_for(config, global, host)?;
     let set = client.totp(id)?;
     if global.json {
         let mut value = serde_json::to_value(&set).map_err(|e| e.to_string())?;
@@ -1037,8 +1037,10 @@ fn code_state(code: &Code) -> &'static str {
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
     match &args.action {
-        Some(InvitesAction::Totp { id }) => return totp(config, global, *id),
-        Some(InvitesAction::Delete(a)) => return codes::delete(config, global, a),
+        Some(InvitesAction::Totp { id }) => return totp(config, global, args.host.as_deref(), *id),
+        Some(InvitesAction::Delete(a)) => {
+            return codes::delete(config, global, args.host.as_deref(), a);
+        }
         None => {}
     }
     let mut codes = match demo(global) {

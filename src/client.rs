@@ -11,8 +11,8 @@ use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
     Attachment, Build, Change, Code, Comment, Download, EnvEntry, HostEntry, ImportFinish,
-    ImportReport, Issue, IssueList, LabelEntry, LaneBoards, ListQuery, Member, Minted, MoveTo,
-    MovedCard, NewCode, NewIssue, Thread,
+    ImportReport, Issue, IssueList, LabelEntry, ListQuery, Member, Minted, MoveTo, MovedCard,
+    NewCode, NewIssue, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -183,10 +183,6 @@ impl Client {
 
     pub fn waiting(&self) -> Result<crate::one_board::Waiting, String> {
         self.json("GET", "/v1/cards/waiting", None)
-    }
-
-    pub fn lanes(&self) -> Result<LaneBoards, String> {
-        self.json("GET", &self.scoped("/v1/boards"), None)
     }
 
     pub fn move_to(&self, request: &MoveTo) -> Result<MovedCard, String> {

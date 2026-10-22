@@ -218,10 +218,7 @@ fn the_sample_offers_a_card_and_a_plain_item_the_same_seven_lanes() {
         "Done",
     ];
     assert_eq!(source.labels(0).expect("the sample has lanes"), lanes);
-    assert_eq!(
-        source.labels(0).expect("the sample has lanes"),
-        lanes
-    );
+    assert_eq!(source.labels(0).expect("the sample has lanes"), lanes);
     let board = source.board(&[]).expect("the sample has a board");
     assert_eq!(board.cards.len(), 28);
     let (count, cards) = source.waiting().expect("the sample has cards waiting");
@@ -598,7 +595,8 @@ fn current(path: &str) -> (u16, &'static str) {
     static BOARD: OnceLock<String> = OnceLock::new();
     static WAITING: OnceLock<String> = OnceLock::new();
     if path.starts_with("/v1/board") {
-        let board = BOARD.get_or_init(|| format!(r#"{{"board":{LANES_JSON},"cards":[{BOARD_CARD}]}}"#));
+        let board =
+            BOARD.get_or_init(|| format!(r#"{{"board":{LANES_JSON},"cards":[{BOARD_CARD}]}}"#));
         return (200, board.as_str());
     }
     if path.starts_with("/v1/cards/waiting") {
@@ -606,7 +604,10 @@ fn current(path: &str) -> (u16, &'static str) {
         return (200, waiting.as_str());
     }
     if path.starts_with("/v1/projects") {
-        return (200, r#"{"projects":[{"name":"Storefront","open":1,"done":0}]}"#);
+        return (
+            200,
+            r#"{"projects":[{"name":"Storefront","open":1,"done":0}]}"#,
+        );
     }
     if path.starts_with("/v1/labels") {
         return (
@@ -666,16 +667,24 @@ fn serve(answer: Answer) -> String {
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(mut stream) = stream else { return };
-            let Ok(clone) = stream.try_clone() else { continue };
+            let Ok(clone) = stream.try_clone() else {
+                continue;
+            };
             let mut reader = BufReader::new(clone);
             let mut line = String::new();
             if reader.read_line(&mut line).is_err() {
                 continue;
             }
-            let path = line.split_whitespace().nth(1).unwrap_or_default().to_owned();
+            let path = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned();
             loop {
                 let mut header = String::new();
-                if reader.read_line(&mut header).map_or(true, |n| n == 0) || header.trim().is_empty() {
+                if reader.read_line(&mut header).map_or(true, |n| n == 0)
+                    || header.trim().is_empty()
+                {
                     break;
                 }
             }
@@ -702,7 +711,10 @@ fn workers(accounts: &[(&str, Answer)]) -> Source {
     let config: Config = toml::from_str(&toml).expect("the config parses");
     Source::Live(Arc::new(Live {
         config,
-        accounts: accounts.iter().map(|(name, _)| (*name).to_owned()).collect(),
+        accounts: accounts
+            .iter()
+            .map(|(name, _)| (*name).to_owned())
+            .collect(),
         holder: None,
         agent: None,
         clients: OnceLock::new(),
@@ -714,19 +726,27 @@ fn workers(accounts: &[(&str, Answer)]) -> Source {
 fn a_board_over_one_answering_and_one_routeless_account_shows_the_cards_and_one_line() {
     let source = workers(&[("shop", current), ("old", behind_named)]);
     let view = source.board(&[]).expect("one account answered");
-    let keys: Vec<(usize, &str)> = view.cards.iter().map(|c| (c.account, c.key.as_str())).collect();
+    let keys: Vec<(usize, &str)> = view
+        .cards
+        .iter()
+        .map(|c| (c.account, c.key.as_str()))
+        .collect();
     assert_eq!(keys, [(0, "BUG-25")]);
     assert_eq!(view.lanes.len(), 7);
     assert_eq!(
         view.missing,
-        ["old: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account old upgrades it"]
+        [
+            "old: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account old upgrades it"
+        ]
     );
 }
 
 #[test]
 fn a_routeless_account_with_no_version_alone_gets_its_line_over_empty_lanes() {
     let source = workers(&[("old", behind_nameless)]);
-    let view = source.board(&[]).expect("a routeless account is a line, not a failure");
+    let view = source
+        .board(&[])
+        .expect("a routeless account is a line, not a failure");
     assert!(view.cards.is_empty());
     assert_eq!(view.lanes.len(), 7);
     assert_eq!(view.missing.len(), 1);
@@ -742,7 +762,11 @@ fn a_routeless_account_beside_a_failing_one_shows_both_lines() {
     let source = workers(&[("old", behind_named), ("down", broken)]);
     let view = source.board(&[]).expect("two lines, no lone failure");
     assert_eq!(view.missing.len(), 2);
-    assert!(view.missing[0].starts_with("old: its Worker is P99 1.9.2"), "{:?}", view.missing);
+    assert!(
+        view.missing[0].starts_with("old: its Worker is P99 1.9.2"),
+        "{:?}",
+        view.missing
+    );
     assert_eq!(view.missing[1], "down: the Worker broke (500)");
     assert_eq!(
         source.waiting().err().as_deref(),
@@ -757,7 +781,10 @@ fn a_routeless_account_beside_a_failing_one_shows_both_lines() {
 #[test]
 fn one_failing_account_alone_is_an_error_not_a_board() {
     let source = workers(&[("down", broken)]);
-    assert_eq!(source.board(&[]).err().as_deref(), Some("the Worker broke (500)"));
+    assert_eq!(
+        source.board(&[]).err().as_deref(),
+        Some("the Worker broke (500)")
+    );
     assert_eq!(
         source.waiting().err().as_deref(),
         Some("down: the Worker broke (500)")
@@ -772,7 +799,10 @@ fn the_count_comes_from_the_accounts_that_answer_and_skips_a_routeless_one() {
     let keys: Vec<(usize, &str)> = cards.iter().map(|(a, c)| (*a, c.key.as_str())).collect();
     assert_eq!(keys, [(0, "BUG-25")]);
     let alone = workers(&[("old", behind_named)]);
-    assert_eq!(alone.waiting().expect("nothing answered, nothing failed").0, 0);
+    assert_eq!(
+        alone.waiting().expect("nothing answered, nothing failed").0,
+        0
+    );
 }
 
 #[test]
@@ -780,7 +810,9 @@ fn a_worker_older_than_the_waiting_route_is_named_with_its_version() {
     let source = workers(&[("pre", before_waiting)]);
     assert_eq!(
         source.waiting().err().as_deref(),
-        Some("pre: its Worker is P99 1.8.0, the board needs 1.10 or later; p99 deploy --account pre upgrades it")
+        Some(
+            "pre: its Worker is P99 1.8.0, the board needs 1.10 or later; p99 deploy --account pre upgrades it"
+        )
     );
     let beside = workers(&[("shop", current), ("pre", before_waiting)]);
     assert_eq!(beside.waiting().expect("the newer account answered").0, 2);
@@ -793,18 +825,28 @@ fn a_user_account_is_told_it_is_not_an_owner() {
         source.waiting().err().as_deref(),
         Some("mine: not an owner (403)")
     );
-    assert_eq!(source.board(&[]).err().as_deref(), Some("not an owner (403)"));
+    assert_eq!(
+        source.board(&[]).err().as_deref(),
+        Some("not an owner (403)")
+    );
 }
 
 #[test]
 fn projects_merge_across_accounts_in_any_case_and_skip_a_routeless_one() {
-    let source = workers(&[("shop", current), ("blog", current_too), ("old", behind_named)]);
+    let source = workers(&[
+        ("shop", current),
+        ("blog", current_too),
+        ("old", behind_named),
+    ]);
     assert_eq!(
         source.projects().expect("two accounts answered"),
         ["Mobile app", "Storefront"]
     );
     let alone = workers(&[("old", behind_named)]);
-    assert_eq!(alone.projects().expect("nothing failed"), Vec::<String>::new());
+    assert_eq!(
+        alone.projects().expect("nothing failed"),
+        Vec::<String>::new()
+    );
 }
 
 #[test]
