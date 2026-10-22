@@ -1,3 +1,4 @@
+import { notCard } from "./cards.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
 import { isChars, namedBy, sameCase, sameFolded } from "./text.js";
@@ -568,7 +569,7 @@ export async function postMove(c) {
   const reads = await DB.batch([
     DB.prepare(`SELECT i.*, ${LABEL_COLUMNS}, ${nameSql("i.assignee")} AS assignee_username FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`).bind(id, ...scopeBinds(v)),
     DB.prepare(
-      `SELECT b.id, b.host, b.owner, l.id AS label_id, l.name, l.role, l.closes FROM boards b
+      `SELECT b.id, b.host, b.owner, b.cards, l.id AS label_id, l.name, l.role, l.closes FROM boards b
        JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
        WHERE (b.owner = ?1 OR b.id = ?2) AND (?3 OR b.host = ?4)`,
     ).bind(c.actor.email, board, ...scopeBinds(v)),
@@ -583,14 +584,20 @@ export async function postMove(c) {
   ]);
   const row = reads[0].results[0];
   if (!row) K.fail(404, `no item ${body.key}`);
+  const isCard = row.project !== null;
   const columns = reads[1].results;
   if (hasBoard) {
     const on = columns.filter((r) => r.id === board);
     if (on.length === 0) K.fail(404, "no such board");
     if (on[0].owner !== c.actor.email) K.fail(403, "only its owner moves cards on a board; others watch it");
     if (on[0].host !== null && on[0].host !== row.host) K.fail(404, "no such board");
+    if (Boolean(on[0].cards) !== isCard) {
+      const key = K.keyOf(row.kind, row.id);
+      if (isCard) K.fail(400, `${key} is a card; it moves on the Cards board`);
+      K.fail(409, notCard(key));
+    }
   }
-  const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board));
+  const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board) && Boolean(r.cards) === isCard);
   const named = namedBy(mine, body.to, (r) => r.name);
   if (new Set(named.map((r) => r.label_id)).size > 1) K.fail(400, `${body.to} names more than one label; give its exact name`);
   const target = named[0];
