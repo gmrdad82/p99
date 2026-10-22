@@ -4,9 +4,10 @@ import { lanesOf, lanesStatement, placeStatement, topOf } from "./cards-write.js
 import { labelChangeStatements } from "./boards.js";
 import { sameFolded } from "./text.js";
 
-export const PERSON_UNCARDS = "only a person turns a card back into an item";
 const NEEDS_YOU = laneIndex("needs-you");
 const FALLBACK = laneIndex("in-progress");
+const LANE_AT_SQL = `SELECT (SELECT count(*) FROM board_columns x WHERE x.board_id = bc.board_id AND x.position < bc.position) AS at
+  FROM board_columns bc JOIN boards b ON b.id = bc.board_id AND b.cards = 1 WHERE bc.label_id = ?1`;
 const LAST_MOVE_SQL = `SELECT json_extract(detail_json, '$.from') AS name FROM events
   WHERE item_id = ?1 AND kind = 'label' AND json_extract(detail_json, '$.migrated') IS NOT 1
   ORDER BY id DESC LIMIT 1`;
@@ -41,6 +42,8 @@ const STAY = { statements: [], after() {} };
 export async function leaveNeedsYou(c, row) {
   if (!c.manager || !c.actor || c.actor.agent || row.project === null || row.project === undefined || !row.open) return STAY;
   const { DB } = c.env;
+  const at = await DB.prepare(LANE_AT_SQL).bind(row.label_id).first();
+  if (!at || at.at !== NEEDS_YOU) return STAY;
   const [read, moved] = await DB.batch([lanesStatement(c), DB.prepare(LAST_MOVE_SQL).bind(row.id)]);
   const lanes = lanesOf(read.results);
   const needs = lanes ? lanes.lanes[NEEDS_YOU] : null;
@@ -52,15 +55,12 @@ export async function leaveNeedsYou(c, row) {
   const place = await topOf(c, lanes.board, to.id, row.id);
   return {
     statements: [...plan.statements, placeStatement(c, lanes.board, to.id, place, row.client_uid)],
-    after() {
+    after(update) {
+      if (!update?.meta?.changes) return;
       plan.after();
       K.push(c, "order", row, { board: lanes.board, order: place.key, ...(place.rows.length > 1 ? { rebalanced: true } : {}) });
     },
   };
-}
-
-export function refuseAgentUncard(c, row, body) {
-  if (row.project !== null && row.project !== undefined && body.project === null && c.actor?.agent) K.fail(403, PERSON_UNCARDS);
 }
 
 export const NEEDS_ROUTES = [["GET", /^\/cards\/waiting$/, getWaiting]];

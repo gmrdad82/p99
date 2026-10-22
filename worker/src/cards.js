@@ -9,6 +9,7 @@ export const DEFAULT_CARDS_LIMIT = 200;
 export const MAX_CARDS_LIMIT = 500;
 export const NOT_YET = "this Worker has no cards yet; run p99 deploy";
 export const PERSON_CLOSES = "only a person closes a card";
+export const PERSON_UNCARDS = "only a person turns a card back into an item";
 export const ROBOT = "🤖";
 export const PROJECT_RULE = `a project name has 1 to ${MAX_PROJECT_CHARS} characters`;
 
@@ -16,6 +17,10 @@ export let K = null;
 
 export function useKit(kit) {
   K = kit;
+}
+
+export function refuseAgentUncard(c, row, body) {
+  if (row.project !== null && row.project !== undefined && body.project === null && c.actor?.agent) K.fail(403, PERSON_UNCARDS);
 }
 
 export function laneIndex(word) {

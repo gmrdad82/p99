@@ -46,7 +46,7 @@ const CHANGED_AGENT = "CASE WHEN e.id IS NULL THEN i.reporter_agent ELSE e.actor
 function columnsSql(body) {
   return `i.id, i.kind, i.project, i.title, ${body ? "i.body," : ""} i.host, i.open, i.created_at, i.comment_count,
       i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, lb.name AS label_name,
-      ${CHANGED_AT} AS changed_at,
+      ${CHANGED_AT} AS changed_at, e.id AS changed_event,
       COALESCE(e.actor_email, i.reporter_email) AS changed_email,
       ${CHANGED_AGENT} AS changed_agent,
       CASE WHEN e.id IS NULL THEN i.reporter_via ELSE e.actor_via END AS changed_via,
@@ -57,7 +57,7 @@ const HEAVY_JOINS = `JOIN labels lb ON lb.id = i.label_id LEFT JOIN events e ON 
 const HANDLE_COLUMNS = `${handleSql("page.reporter_email")} AS reporter_username, ${handleSql("page.changed_email")} AS changed_username`;
 const PAGE_ORDER = "ORDER BY lane, keyed, COALESCE(ord, ''), id DESC";
 const LANE_ORDER = "r.lane, r.keyed, COALESCE(r.ord, ''), r.id DESC";
-const NEWEST_ORDER = "ORDER BY changed_at DESC, id DESC";
+const NEWEST_ORDER = "ORDER BY changed_at DESC, changed_event DESC, id DESC";
 
 function listSql(scope, lanes, outer, limit, newest = false) {
   return `WITH ${LANES_CTE},
@@ -72,7 +72,7 @@ function listSql(scope, lanes, outer, limit, newest = false) {
       SELECT r.lane, r.ord, r.keyed, r.place, ${columnsSql(false)}
       FROM ranked r JOIN items i ON i.id = r.id ${HEAVY_JOINS}
       ${outer.length ? `WHERE ${outer.join(" AND ")}` : ""}
-      ORDER BY ${newest ? `${CHANGED_AT} DESC, r.id DESC` : LANE_ORDER} LIMIT ${limit})
+      ORDER BY ${newest ? `${CHANGED_AT} DESC, e.id DESC, r.id DESC` : LANE_ORDER} LIMIT ${limit})
     SELECT page.*, ${HANDLE_COLUMNS} FROM page ${newest ? NEWEST_ORDER : PAGE_ORDER}`;
 }
 
@@ -395,14 +395,14 @@ export async function listProjects(c) {
   return K.json(200, { projects: results.map((r) => ({ name: r.name, open: r.open, done: r.done })) });
 }
 
-function waitingLanes(q) {
-  return `lane IN (${WAITING_LANES.map((word) => q.bind(laneIndex(word))).join(", ")})`;
+function waitingLanes(q, column) {
+  return `${column} IN (${WAITING_LANES.map((word) => q.bind(laneIndex(word))).join(", ")})`;
 }
 
 export function waitingListStatement(c) {
   const q = K.query();
   const scope = scopeOf(boardView(c), q);
-  const lanes = waitingLanes(q);
+  const lanes = waitingLanes(q, "lane");
   return c.env.DB.prepare(listSql(scope, lanes, [], q.bind(MAX_CARDS_LIMIT), true)).bind(...q.binds);
 }
 
@@ -412,7 +412,7 @@ export function waitingCountStatement(c) {
   return c.env.DB.prepare(
     `WITH ${LANES_CTE}
      SELECT count(*) AS n FROM items i JOIN lanes ON lanes.label_id = i.label_id
-     WHERE i.project IS NOT NULL AND ${scope("i")} AND lanes.${waitingLanes(q)}`,
+     WHERE i.project IS NOT NULL AND ${scope("i")} AND ${waitingLanes(q, "lanes.lane")}`,
   ).bind(...q.binds);
 }
 

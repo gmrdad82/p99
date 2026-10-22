@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, PERSON_CLOSES, PROJECT_RULE, notCard } from "../src/cards.js";
-import { PERSON_UNCARDS } from "../src/needs-you.js";
+import { LANES, LANE_NAMES, PERSON_CLOSES, PERSON_UNCARDS, PROJECT_RULE, notCard } from "../src/cards.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const graceBot = { email: "grace@example.com", name: "Grace Hopper", agent: true, via: "pci·splicer·writer" };

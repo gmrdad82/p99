@@ -2070,7 +2070,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
-  back.after();
+  back.after(results[5]);
   push(c, "comment", row, { internal });
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });

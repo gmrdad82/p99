@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, WAITING_LANES, useKit } from "../src/cards.js";
-import { PERSON_UNCARDS, backLane, refuseAgentUncard } from "../src/needs-you.js";
+import { LANES, LANE_NAMES, PERSON_UNCARDS, WAITING_LANES, refuseAgentUncard, useKit } from "../src/cards.js";
+import { useKit as useBoardsKit } from "../src/boards.js";
+import { backLane, leaveNeedsYou } from "../src/needs-you.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const graceBot = { email: "grace@example.com", name: "Grace Hopper", agent: true, via: "pci·splicer·writer" };
@@ -65,8 +66,89 @@ async function unitChecks(check) {
   });
 }
 
+function fakeDb(at, from) {
+  const seen = { prepared: [], batches: 0 };
+  const lanes = LANE_NAMES.map((name, i) => ({ board: 9, id: i + 1, name, role: i === 0 ? "inbox" : i === 6 ? "done" : null, closes: i === 6 ? 1 : 0 }));
+  const statement = (sql) => {
+    const made = { sql, binds: [], bind: (...binds) => ((made.binds = binds), made), first: async () => (at === null ? null : { at }), all: async () => ({ results: [] }) };
+    seen.prepared.push(made);
+    return made;
+  };
+  const DB = {
+    prepare: statement,
+    batch: async () => {
+      seen.batches++;
+      return [{ results: lanes }, { results: from === null ? [] : [{ name: from }] }];
+    },
+  };
+  return { DB, seen };
+}
+
+async function leaveChecks(check) {
+  const pushed = [];
+  const kit = {
+    clean: (value) => value,
+    fail: (status, message) => {
+      throw new Refused(status, message);
+    },
+    refuseAgentClose: () => {},
+    keyOf: (kind, id) => `T-${id}`,
+    push: (c, type, row, detail) => pushed.push({ type, key: `T-${row.id}`, ...detail }),
+  };
+  useKit(kit);
+  useBoardsKit(kit);
+  const row = { id: 42, kind: "task", project: "Splicer", open: 1, label_id: 4, label_name: "Needs you", label_role: null, host: "example.com", title: "Look", client_uid: "u-42" };
+  const context = (db, actor = ada, manager = true) => ({ manager, actor, now: "2026-10-22T09:00:00.000Z", env: { DB: db.DB, HUB: {} }, pushes: [] });
+
+  await check("a card outside Needs you costs one lane query and no move", async () => {
+    const db = fakeDb(1, "Planned");
+    const left = await leaveNeedsYou(context(db), { ...row, label_id: 2, label_name: "Planned" });
+    assert.deepEqual(left.statements, []);
+    assert.equal(db.seen.prepared.length, 1);
+    assert.match(db.seen.prepared[0].sql, /b\.cards = 1/);
+    assert.deepEqual(db.seen.prepared[0].binds, [2]);
+    assert.equal(db.seen.batches, 0);
+    const none = fakeDb(null, "Planned");
+    assert.deepEqual((await leaveNeedsYou(context(none), row)).statements, []);
+    assert.equal(none.seen.batches, 0);
+  });
+
+  await check("an agent, a User, a plain item or a closed card never reads the board", async () => {
+    for (const [actor, manager, item] of [[graceBot, true, row], [ada, false, row], [ada, true, { ...row, project: null }], [ada, true, { ...row, open: 0 }], [null, true, row]]) {
+      const db = fakeDb(3, "Planned");
+      assert.deepEqual((await leaveNeedsYou(context(db, actor, manager), item)).statements, []);
+      assert.equal(db.seen.prepared.length, 0);
+    }
+  });
+
+  await check("a move that lost its race announces nothing; a move that landed announces the lane and the place", async () => {
+    pushed.length = 0;
+    const db = fakeDb(3, "Planned");
+    const c = context(db);
+    const left = await leaveNeedsYou(c, row);
+    assert.equal(left.statements.length, 3);
+    assert.match(left.statements[0].sql, /^UPDATE items SET label_id/);
+    assert.deepEqual(left.statements[0].binds.slice(0, 3), [42, 4, 2]);
+    for (const update of [undefined, { meta: {} }, { meta: { changes: 0 } }]) left.after(update);
+    assert.deepEqual(c.pushes, []);
+    assert.equal(c.hooked, undefined);
+    assert.deepEqual(pushed, []);
+    left.after({ meta: { changes: 1 } });
+    assert.deepEqual(c.pushes.map((p) => [p.type, p.key, p.from, p.to]), [["label", "T-42", "Needs you", "Planned"]]);
+    assert.deepEqual(pushed.map((p) => [p.type, p.key, p.board]), [["order", "T-42", 9]]);
+  });
+
+  await check("a last move from no lane, or from needs-you, sends the card to In progress", async () => {
+    for (const from of [null, "Needs you"]) {
+      const left = await leaveNeedsYou(context(fakeDb(3, from)), row);
+      assert.deepEqual(left.statements[0].binds.slice(0, 3), [42, 4, 3]);
+    }
+  });
+}
+
 export async function needsChecks({ call, browse, mint, check, issueBody, here, there, d1count }) {
   await unitChecks(check);
+  await leaveChecks(check);
 
   const file = async (project, title, actor = ada, host = here) => {
     const made = await call("POST", `/_p99/v1/cards?host=${host}`, { actor, body: { client_uid: randomUUID(), project, title, host } });
@@ -224,6 +306,8 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
   assert.equal((await call("POST", `/_p99/v1/cards/${w.stuck}/links`, { actor: graceBot, body: { ref: "pci#2732" } })).status, 201);
   const far = await file("Waiting Order", "Waiting far away", ada, there);
   await status(far, "stuck", graceBot);
+  const tied = [...Object.values(w), far].map(idOf).join(", ");
+  assert.equal(d1count(`UPDATE events SET at = '2026-10-22T12:00:00.000Z' WHERE item_id IN (${tied}) RETURNING 0 AS n`), 0);
 
   await check("GET /cards/waiting lists needs-you, stuck and landed, newest change first, with the count", async () => {
     const json = await waiting();
@@ -236,7 +320,8 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     const at = json.cards.map((cd) => cd.changed_at);
     assert.deepEqual(at, [...at].sort().reverse());
     const ours = json.cards.map((cd) => cd.key).filter((key) => Object.values(w).includes(key) || key === far);
-    assert.deepEqual(ours, [far, w.stuck, w.needs, w.landed]);
+    assert.deepEqual(ours, [far, w.stuck, w.needs, w.landed], "changes made in one instant come back by the order they were made");
+    assert.ok(json.cards.filter((cd) => ours.includes(cd.key)).every((cd) => cd.changed_at === "2026-10-22T12:00:00.000Z"));
     assert.equal(/@/.test(JSON.stringify(json)), false);
     const stuck = json.cards.find((cd) => cd.key === w.stuck);
     assert.deepEqual(stuck.links.map((l) => l.ref), ["pci#2732"]);
@@ -312,6 +397,22 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal(counted(open, loud), openBefore);
   });
 
+  await check("a User's comment on their own card in needs-you leaves it there, with no move", async () => {
+    const visitor = await mint("Mary Somerville", "mary@example.com", [here]);
+    const filed = await browse("POST", "/issues", visitor.secret, issueBody({ title: "A report that became a card" }));
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    const key = filed.json.key;
+    assert.equal((await call("PATCH", `/_p99/v1/issues/${key}`, { actor: ada, body: { project: "Needs Visitor" } })).status, 200);
+    await status(key, "planned");
+    await status(key, "needs-you", graceBot);
+    const moves = counted(key, ["label"]);
+    const said = await browse("POST", `/issues/${key}/comments`, visitor.secret, { client_uid: randomUUID(), body: "Any news?" });
+    assert.equal(said.status, 201, JSON.stringify(said.json));
+    assert.equal((await card(key)).status, "needs-you");
+    assert.equal(counted(key, ["label"]), moves);
+    assert.equal((await events(key, "comment")).length, 1);
+  });
+
   await check("an agent's --no-project is refused with the contract's line and changes nothing", async () => {
     const key = await file("Needs Uncard", "Stays a card");
     await status(key, "landed", graceBot);
@@ -323,5 +424,32 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     const still = await card(key);
     assert.equal(still.project, "Needs Uncard");
     assert.equal(still.status, "landed");
+  });
+
+  await check("count is the whole number of waiting cards when more than 500 wait, and the list stops at 500", async () => {
+    const source = await file("Waiting Many", "The card copied", ada, there);
+    await status(source, "stuck", graceBot);
+    const before = await waiting();
+    const columns = d1count("SELECT group_concat(name, ', ') AS n FROM pragma_table_info('items') WHERE name NOT IN ('id', 'client_uid')");
+    let seeded = false;
+    try {
+      assert.equal(
+        d1count(
+          `WITH RECURSIVE k(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM k WHERE x < 501)
+           INSERT INTO items (client_uid, ${columns}) SELECT 'seed-waiting-' || x, ${columns} FROM items, k WHERE items.id = ${idOf(source)} RETURNING 0 AS n`,
+        ),
+        0,
+      );
+      seeded = true;
+      const many = await waiting();
+      assert.equal(many.count, before.count + 501);
+      assert.equal(many.cards.length, 500);
+      assert.ok(many.count > many.cards.length);
+      const boss = await mint("Emmy Noether", "emmy@example.com", [there], true);
+      assert.equal((await browse("GET", "/me", boss.secret)).json.counts.waiting, (await waiting(there)).count);
+    } finally {
+      if (seeded) d1count("DELETE FROM items WHERE client_uid LIKE 'seed-waiting-%' RETURNING 0 AS n");
+    }
+    assert.equal((await waiting()).count, before.count);
   });
 }
