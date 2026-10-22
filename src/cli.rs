@@ -1,5 +1,5 @@
 mod card;
-mod codes;
+pub(crate) mod codes;
 mod delete;
 mod merge;
 mod waiting;

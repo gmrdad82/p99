@@ -14,7 +14,7 @@ const WORDS = {
   none: "No spaces yet. Ask the person who invited you for a P99 link.",
   open_one: "1 open",
   open_many: "{n} open",
-  manager: "Owner",
+  owner: "Owner",
   profile: "Profile",
   back: "Spaces",
   username: "Username",
@@ -217,7 +217,7 @@ function spaces() {
     const list = h("ul", { class: "app-spaces" }, d.spaces.map((s) =>
       h("li", null, h("a", { class: "app-space", href: "#space=" + encodeURIComponent(s.host) },
         h("b", { class: "app-host", text: s.host }),
-        s.manager ? h("small", { class: "app-role", text: say("manager") }) : null,
+        s.manager ? h("small", { class: "app-role", text: say("owner") }) : null,
         h("span", { class: "app-count", "data-open": s.open > 0, text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
     const title = h("h1", { tabindex: "-1", text: say("spaces") });
     const view = h("div", { class: "app-screen" }, bar(""),

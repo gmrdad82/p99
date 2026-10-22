@@ -28,6 +28,7 @@ import { markChecks } from "./marks.mjs";
 import { foldChecks } from "./fold.mjs";
 import { oneBoardChecks } from "./one-board.mjs";
 import { LANE_NAMES } from "../src/cards.js";
+import { codeChecks } from "./codes.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1106,6 +1107,7 @@ async function run() {
   await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await needsChecks({ call, browse, mint, check, issueBody, here, there, d1count });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });
+  await codeChecks({ call, browse, mint, check, issueBody, here, there, state, wrangler, root });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

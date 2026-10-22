@@ -65,7 +65,7 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
 
    It shows, for that account: how each 1.8 status maps to a label (on 1.7, each 1.7 status with its label and stage) and how many open items each holds; every board, nested ones included, and who would own it (1.8 kept no board creator, so the account's first manager code that isn't revoked; on 1.7, each host's home board), and a decision when one person would own more than 3 boards in one space (one site, or every host), the most a person may have there; how many cards change place in each column as priority becomes order; the tags beyond each item's label, which 0011 keeps untouched and unused; the members whose 1.8 status changes only managers make from 1.9 on; label names that would collide; the usernames that get a number or fall back, and how many people rows are created (the hash covers every default username, through the people digest); the people who act through agents and the @username* they show under; the kinds with their key counts; and the hosts' settings, which carry over. It ends with the decisions needed, one line each, and the plan hash, the SHA-256 of the plan's JSON with its keys sorted.
 
-2. Answer the decisions (mint a manager code, rename a tag, remove a board) and read the plan again: any change to the data gives a new hash.
+2. Answer the decisions (mint an Owner code, rename a tag, remove a board) and read the plan again: any change to the data gives a new hash.
 
 3. Deploy with the hash:
 

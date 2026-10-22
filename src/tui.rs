@@ -265,6 +265,7 @@ pub enum Msg {
     Changed(String, Result<Issue, String>),
     Deleted(String, Result<crate::wire::Deleted, String>),
     Codes(Result<Vec<Code>, String>),
+    CodeDeleted(Box<Code>, Result<(), String>),
     Pushed(usize, Option<String>),
     Board(Vec<String>, Result<deck::BoardView, String>),
     Shifted(String, Result<deck::Moved, String>),

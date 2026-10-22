@@ -463,7 +463,7 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
     assert_eq!(
         out.lines(),
         [
-            "Grace Hopper <grace@example.com> (manager)",
+            "Grace Hopper <grace@example.com> (Owner)",
             "mailed the link for shop.example.com to grace@example.com",
             "key:    JBSWY3DPEHPK3PXP   (paste it as a one-time password or setup key; totp is the same as a link)",
             "totp:   otpauth://totp/P99:grace@example.com?secret=JBSWY3DPEHPK3PXP&issuer=P99&algorithm=SHA1&digits=6&period=30",
@@ -708,7 +708,7 @@ fn invites_lists_each_code_with_its_role_state_and_last_use() {
                 4,
                 "active",
                 "Grace Hopper <grace@example.com>",
-                "member",
+                "User",
                 "shop.example.com",
                 "never"
             ),
@@ -716,7 +716,7 @@ fn invites_lists_each_code_with_its_role_state_and_last_use() {
                 6,
                 "revoked",
                 "Linus <linus@example.com>",
-                "manager, totp",
+                "Owner, totp",
                 "dev.example.com",
                 "2026-10-02 18:45"
             ),
@@ -736,6 +736,185 @@ fn invites_lists_each_code_with_its_role_state_and_last_use() {
         }
     });
     assert_eq!(empty.p99(&["invites"]).stdout, "no codes\n");
+}
+
+fn two_codes(name: &str) -> Home {
+    Home::new(name, |req: &Req| {
+        if req.is("GET", "/_p99/v1/codes") {
+            let mut owner = code(6, "Ada Lovelace", "ada@example.com", &["example.com"]);
+            owner["manager"] = json!(true);
+            owner["role"] = json!("owner");
+            let mut revoked = code(4, "Grace Hopper", "grace@example.com", &["shop.example.com"]);
+            revoked["role"] = json!("user");
+            revoked["revoked_at"] = json!("2026-10-03T00:00:00Z");
+            Reply::ok(json!({"codes": [owner, revoked]}))
+        } else if req.is("DELETE", "/_p99/v1/codes/4") {
+            Reply::ok(json!({"id": 4, "deleted": true}))
+        } else if req.is("DELETE", "/_p99/v1/codes/6") {
+            Reply::problem(409, "revoke it first")
+        } else {
+            fake::any(req)
+        }
+    })
+}
+
+#[test]
+fn invites_and_its_codes_alias_print_every_role_as_owner_or_user() {
+    let h = two_codes("invites-roles");
+    for command in ["invites", "codes"] {
+        let out = h.p99(&[command]);
+        out.ok();
+        let roles: Vec<&str> = out
+            .lines()
+            .iter()
+            .map(|l| if l.contains("  Owner  ") { "Owner" } else if l.contains("  User  ") { "User" } else { l })
+            .collect();
+        assert_eq!(roles, ["Owner", "User"], "{}", out.stdout);
+        for old in ["manager", "member", "person", "reporter"] {
+            assert!(!out.stdout.contains(old), "{old}: {}", out.stdout);
+        }
+    }
+    let answer = h.p99(&["codes", "--json"]).json();
+    let pairs: Vec<(Value, Value)> = answer["codes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| (c["manager"].clone(), c["role"].clone()))
+        .collect();
+    assert_eq!(
+        pairs,
+        [(json!(true), json!("owner")), (json!(false), json!("user"))]
+    );
+}
+
+#[test]
+fn a_role_filter_takes_owner_or_user_and_every_old_word() {
+    let h = two_codes("invites-role-filter");
+    for (word, id) in [
+        ("owner", "6"),
+        ("manager", "6"),
+        ("user", "4"),
+        ("person", "4"),
+        ("reporter", "4"),
+    ] {
+        let out = h.p99(&["invites", "--role", word]);
+        out.ok();
+        assert_eq!(out.lines().len(), 1, "{word}: {}", out.stdout);
+        assert!(out.lines()[0].trim_start().starts_with(id), "{word}: {}", out.stdout);
+        let answer = h.p99(&["codes", "--role", word, "--json"]).json();
+        assert_eq!(answer["codes"].as_array().unwrap().len(), 1, "{word}");
+        assert_eq!(answer["codes"][0]["id"].to_string(), id, "{word}");
+    }
+    let out = h.p99(&["invites", "--role", "guest"]);
+    out.clap("invalid value 'guest' for '--role <ROLE>'");
+    assert!(out.stderr.contains("[possible values: owner, user]"), "{}", out.stderr);
+    h.p99(&["codes", "--role", "Admin"])
+        .clap("invalid value 'Admin' for '--role <ROLE>'");
+}
+
+#[test]
+fn invite_owner_and_its_old_manager_alias_mint_an_owner() {
+    for flag in ["--owner", "--manager"] {
+        let h = home(&format!("invite-owner{flag}"));
+        let out = h.p99(&[
+            "invite",
+            "shop.example.com",
+            "--name",
+            "Grace Hopper",
+            "--email",
+            "grace@example.com",
+            flag,
+            "--no-mail",
+        ]);
+        out.ok();
+        let sent = h.stub.call("POST", "/_p99/v1/codes").json();
+        assert_eq!(sent["manager"], true, "{flag}");
+    }
+    let h = home("invite-user");
+    h.p99(&[
+        "invite",
+        "shop.example.com",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--no-mail",
+    ])
+    .ok();
+    assert_eq!(h.stub.call("POST", "/_p99/v1/codes").json()["manager"], false);
+}
+
+#[test]
+fn invites_delete_removes_a_revoked_code_with_yes_and_names_it() {
+    let h = two_codes("invites-delete");
+    let out = h.p99(&["invites", "delete", "4", "--yes"]);
+    out.ok();
+    assert_eq!(
+        out.stdout,
+        "deleted code 4 of Grace Hopper <grace@example.com>\n"
+    );
+    let call = h.stub.call("DELETE", "/_p99/v1/codes/4");
+    assert!(call.signed);
+    assert!(call.text().is_empty());
+    let answer = h.p99(&["codes", "delete", "4", "--yes", "--json"]).json();
+    assert_eq!(answer, json!({"id": 4, "deleted": true}));
+}
+
+#[test]
+fn invites_delete_refuses_an_active_code_before_any_delete() {
+    let h = two_codes("invites-delete-active");
+    h.p99(&["invites", "delete", "6", "--yes"])
+        .refused("code 6 is active: revoke it first, p99 revoke 6");
+    h.p99(&["codes", "delete", "6", "--yes", "--json"])
+        .refused("code 6 is active: revoke it first, p99 revoke 6");
+    assert!(h.stub.calls("DELETE", "/_p99/v1/codes/6").is_empty());
+}
+
+#[test]
+fn invites_delete_says_plainly_when_no_code_has_that_id() {
+    let h = two_codes("invites-delete-missing");
+    h.p99(&["invites", "delete", "9", "--yes"])
+        .refused("no such code 9");
+    assert!(h.stub.under("DELETE", "/_p99/v1/codes").is_empty());
+}
+
+#[test]
+fn invites_delete_without_a_terminal_needs_yes_and_calls_nothing() {
+    let h = two_codes("invites-delete-no-terminal");
+    let out = h.p99_in(&["invites", "delete", "4"], "3fpd\n");
+    out.refused(
+        "deleting code 4 needs --yes when no one is at a terminal to type its last four characters back",
+    );
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn invites_delete_passes_on_what_the_worker_refuses() {
+    let h = Home::new("invites-delete-raced", |req: &Req| {
+        if req.is("GET", "/_p99/v1/codes") {
+            let mut revoked = code(4, "Grace Hopper", "grace@example.com", &["shop.example.com"]);
+            revoked["revoked_at"] = json!("2026-10-03T00:00:00Z");
+            Reply::ok(json!({"codes": [revoked]}))
+        } else if req.is("DELETE", "/_p99/v1/codes/4") {
+            Reply::problem(404, "no such code")
+        } else {
+            fake::any(req)
+        }
+    });
+    h.p99(&["invites", "delete", "4", "--yes"])
+        .refused("no such code (404)");
+}
+
+#[test]
+fn invites_delete_takes_one_numeric_id() {
+    let h = two_codes("invites-delete-clap");
+    h.p99(&["invites", "delete"])
+        .clap("the following required arguments were not provided:");
+    h.p99(&["codes", "delete", "BUG-4", "--yes"])
+        .clap("invalid value 'BUG-4' for '<ID>'");
+    h.p99(&["invites", "delete", "4", "5", "--yes"])
+        .clap("unexpected argument '5' found");
+    assert!(h.stub.seen().is_empty());
 }
 
 #[test]

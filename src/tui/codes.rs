@@ -2,11 +2,13 @@ use std::time::{Duration, Instant};
 
 use pito_tui::clock::{self, Units};
 use pito_tui::crossterm::event::{KeyCode, KeyEvent};
-use pito_tui::footer::{Hint, InputBar};
+use pito_tui::footer::{Edit, Hint, Input, InputBar, Tone};
 use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style, text::Line};
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Span, Turn};
 
+use crate::cli::codes::{kept, matches, refusal, remove, same};
+use crate::one_board::Role;
 use crate::wire::Code;
 
 use super::Msg;
@@ -31,6 +33,8 @@ pub struct Codes {
     stopped: bool,
     filter: Filter,
     badge: Badge,
+    asking: Option<(Input, Code, String)>,
+    sending: bool,
 }
 
 impl Codes {
@@ -45,6 +49,8 @@ impl Codes {
                 .placeholder("type to filter by person or host")
                 .hint("enter keeps the filter · esc clears it"),
             badge: Badge::off(),
+            asking: None,
+            sending: false,
         }
     }
 
@@ -82,10 +88,9 @@ impl Codes {
                     Cell::new(code.name.as_str()).style(palette.strong),
                     Cell::new(code.email.as_str()).faint(),
                     Cell::new(code.hosts.join(", ")),
-                    if code.manager {
-                        Cell::new("manager").style(palette.accent)
-                    } else {
-                        Cell::new("person").faint()
+                    match Role::of(code.manager) {
+                        Role::Owner => Cell::new(Role::Owner.word()).style(palette.accent),
+                        Role::User => Cell::new(Role::User.word()).faint(),
                     },
                     Cell::new(format!("…{}", code.hint)).faint(),
                     Cell::new(ago(code.last_used_at.as_deref())).faint(),
@@ -95,6 +100,97 @@ impl Codes {
         );
         self.codes = Some(codes);
     }
+
+    fn chosen(&self) -> Option<&Code> {
+        let at = self.filter.current()?;
+        self.codes.as_ref()?.get(at).map(|(code, _)| code)
+    }
+
+    fn ask(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(code) = self.chosen().cloned() else {
+            return;
+        };
+        if self.sending {
+            cx.say("A delete is still on its way.", Tone::Muted);
+            return;
+        }
+        if let Some(why) = refusal(&code) {
+            cx.say(why, Tone::Alert);
+            return;
+        }
+        let prompt = format!("type {} to delete code {}", code.hint, code.id);
+        self.asking = Some((Input::new(), code, prompt));
+    }
+
+    fn answer(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        let Some((input, code, _)) = &mut self.asking else {
+            return;
+        };
+        match input.key(key.into()) {
+            Edit::Submit(value) => {
+                let code = code.clone();
+                self.asking = None;
+                if value.trim().is_empty() {
+                    return;
+                }
+                if matches(&code, &value) {
+                    self.erase(code, cx);
+                } else {
+                    cx.say(kept(code.id), Tone::Muted);
+                }
+            }
+            Edit::Cancel => self.asking = None,
+            _ => {}
+        }
+    }
+
+    fn erase(&mut self, code: Code, cx: &mut Cx<'_, Msg>) {
+        self.sending = true;
+        let source = self.source.clone();
+        cx.detach(move || {
+            let result = erase(&source, &code);
+            Msg::CodeDeleted(Box::new(code), result)
+        });
+    }
+
+    fn erased(&mut self, code: &Code, result: Result<(), String>, cx: &mut Cx<'_, Msg>) {
+        self.sending = false;
+        if let Err(error) = result {
+            cx.say(error, Tone::Alert);
+            return;
+        }
+        if let Some(codes) = &mut self.codes {
+            codes.retain(|(c, _)| !same(c, code));
+        }
+        self.sift();
+        cx.say(
+            format!("Deleted code {} of {}", code.id, code.name),
+            Tone::Good,
+        );
+    }
+}
+
+fn erase(source: &Source, code: &Code) -> Result<(), String> {
+    if let Source::Broken(why) = source {
+        return Err(why.clone());
+    }
+    if source.is_demo() {
+        return source.sample(|demo| {
+            demo.forget(code);
+            Ok(())
+        });
+    }
+    for account in 0..source.accounts().len() {
+        let client = source.client(account, None)?;
+        let held = client
+            .codes(None)?
+            .iter()
+            .any(|c| same(c, code));
+        if held {
+            return remove(&client, code.id).map(|_| ());
+        }
+    }
+    Err(format!("no such code {}", code.id))
 }
 
 impl Screen<Msg> for Codes {
@@ -147,7 +243,7 @@ impl Screen<Msg> for Codes {
         Some(Box::new(move || Msg::Codes(source.codes())))
     }
 
-    fn loaded(&mut self, event: Msg, _cx: &mut Cx<'_, Msg>) {
+    fn loaded(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Codes(Ok(codes)) => {
                 self.codes = Some(
@@ -163,6 +259,7 @@ impl Screen<Msg> for Codes {
                 self.sift();
             }
             Msg::Codes(Err(error)) => self.error = Some(error),
+            Msg::CodeDeleted(code, result) => self.erased(&code, result, cx),
             _ => {}
         }
     }
@@ -178,14 +275,23 @@ impl Screen<Msg> for Codes {
             }
             return;
         }
+        if self.asking.is_some() {
+            self.answer(key, cx);
+            return;
+        }
         match self.filter.key(key) {
             Turn::Filtered => self.sift(),
             Turn::Pass if key.code == KeyCode::Char('r') => cx.reload(),
+            Turn::Pass if key.code == KeyCode::Char('d') => self.ask(cx),
             _ => {}
         }
     }
 
     fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
+        if let Some((input, ..)) = &mut self.asking {
+            input.paste(text);
+            return;
+        }
         if self.filter.paste(text) == Turn::Filtered {
             self.sift();
         }
@@ -205,11 +311,19 @@ impl Screen<Msg> for Codes {
     }
 
     fn typing(&self) -> bool {
-        self.filter.typing()
+        self.asking.is_some() || self.filter.typing()
     }
 
     fn input(&self) -> Option<InputBar<'_>> {
-        self.filter.bar()
+        match &self.asking {
+            Some((input, _, prompt)) => Some(
+                InputBar::new("Delete for good", input)
+                    .placeholder(prompt)
+                    .hint("enter deletes the code and its sign-ins · esc keeps it")
+                    .tone(Tone::Alert),
+            ),
+            None => self.filter.bar(),
+        }
     }
 
     fn hints(&self) -> Vec<Hint<'_>> {
@@ -221,6 +335,9 @@ impl Screen<Msg> for Codes {
             Hint::new("/", "filter").rank(1),
             Hint::new("r", "read again").rank(3),
         ];
+        if self.chosen().is_some_and(|c| c.revoked_at.is_some()) {
+            hints.push(Hint::new("d", "delete").rank(2));
+        }
         if self.filter.active() {
             hints.push(Hint::new("esc", "clear filter"));
         }

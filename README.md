@@ -20,7 +20,7 @@ P99: got questions or doubts? [Ping me on Discord](https://discord.gg/XsNcn3kYzn
 | Loader start to the "+" painted | **8.9 ms** cold, **3.4 ms** warm |
 | Page navigation to the "+" painted | **42.6 ms** cold, **13.8 ms** warm |
 | Click to the panel's form on screen | **59.0 ms** cold: panel and styles load only then (29.1 KB gzipped), and the capture code right after the form shows; **25.5 ms** warm |
-| A manager's click on "Board" to the board with its cards | **294 ms** cold, 270 cards on it: the board's code loads only then (11.0 KB gzipped), with the board from the Worker |
+| An Owner's click on "Board" to the board with its cards | **294 ms** cold, 270 cards on it: the board's code loads only then (11.0 KB gzipped), with the board from the Worker |
 | The web board while a card is dragged | **1.6 ms** a frame at the median, **4.8 ms** at p95, **9.1 ms** at p99 (input, scripts, style and layout): 120 fps leaves 8.33 ms |
 | The P99 page's first paint on a mid-range phone | **226 ms** cold signed out, **216 ms** signed in (150 ms round trips, 1.6 Mbps, a 4x slower CPU); 406 and 392 ms before its critical style was inlined |
 | Worker, p50 and p99 per request | **18.5 / 38.2 ms** the loader, **29.3 / 49.9 ms** an item with its thread, **28.7 / 51.7 ms** a board, **39.7 / 72.3 ms** a list of 50, **60.0 / 92.5 ms** a new item, **60.9 / 104 ms** a move, on a local `wrangler dev`, not Cloudflare's edge |
@@ -56,9 +56,9 @@ Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each agai
 
 **The panel loads on the first click.** It files bugs, ideas, improvements, questions and tasks, lists what the person sent with what's new for them, and shows each thread with its replies, files, status changes and where its fix has landed. It follows the page's light or dark scheme and takes the site's colours through CSS variables.
 
-<p align="center"><img src="docs/images/panel-light.png" width="49%" alt="The P99 panel open over a light checkout page on item BUG-2: the report, a manager's reply, the reporter's answer, a status change to in progress and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/panel-dark.png" width="49%" alt="The same panel and thread in the dark scheme."></p>
+<p align="center"><img src="docs/images/panel-light.png" width="49%" alt="The P99 panel open over a light checkout page on item BUG-2: the report, an Owner's reply, the reporter's answer, a status change to in progress and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/panel-dark.png" width="49%" alt="The same panel and thread in the dark scheme."></p>
 
-**A board for the people who run the site.** A manager opens "Board" in the panel and gets the site's board over the page: four columns (Inbox, Doing, Review, Done, each one renameable), cards to drag with the mouse, a finger or the keyboard, and boards nested as cards inside other boards, each showing how much of it is done. A move made anywhere, in the browser, the terminal or by an agent, slides into place on every open board within about a second. The board's code loads only when a manager opens it.
+**A board for the people who run the site.** An Owner opens "Board" in the panel and gets the site's board over the page: four columns (Inbox, Doing, Review, Done, each one renameable), cards to drag with the mouse, a finger or the keyboard, and boards nested as cards inside other boards, each showing how much of it is done. A move made anywhere, in the browser, the terminal or by an agent, slides into place on every open board within about a second. The board's code loads only when an Owner opens it.
 
 **Captures that keep secrets.** The visible screen, the whole page or regions the person marks go with the item. Fields marked `data-p99-redact` (and every password field) are blanked in every capture, the address is kept without its query string and hash, and a site can switch P99 off on any page, such as a checkout's receipt.
 
@@ -82,7 +82,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 <p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace 🤖 (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role, the code's last four characters, when it was last used, and whether it is active."></p>
 
-**Boards.** Every item carries one label, its state, and a board is one manager's columns of labels, in that person's order: the top matters most, and there is no priority field to fill. Moving a card gives the item that column's label, so it shows on every board with that column; a shared label is a handoff between people. Others watch a board read-only. `p99 move BUG-12 --to Doing` does it from a script or an agent; `p99 boards`, `p99 board` and `p99 labels` list them, with `--json`.
+**Boards.** Every item carries one label, its state, and a board is one Owner's columns of labels, in that person's order: the top matters most, and there is no priority field to fill. Moving a card gives the item that column's label, so it shows on every board with that column; a shared label is a handoff between people. Others watch a board read-only. `p99 move BUG-12 --to Doing` does it from a script or an agent; `p99 boards`, `p99 board` and `p99 labels` list them, with `--json`.
 
 **A CLI for people and agents.** Every command answers `--json`. An agent acting for you runs with `--agent` (or `P99_AGENT=1`), and its items, comments and changes show as your name with a robot, `Ada Lovelace 🤖`, so your words and your agent's never look alike.
 
@@ -108,7 +108,7 @@ BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 
 **One item for the same report.** `p99 merge BUG-14 BUG-15 --into BUG-12` folds duplicates into one item. Their reporters follow it: they read its public thread in the panel and get its replies, its closing and its landings by mail.
 
-**Delete for good.** `p99 delete BUG-12`, `d` in the TUI or the panel's Delete under Manage removes an item with its comments, notes and every stored file; managers only.
+**Delete for good.** `p99 delete BUG-12`, `d` in the TUI or the panel's Delete under Manage removes an item with its comments, notes and every stored file; Owners only.
 
 **GitHub, kept small.** `p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN` links a site to a repository: `p99 github open BUG-12` opens a GitHub issue for the item, and when a pull request carrying `Fixes: BUG-12` merges, or that issue is closed, the item is marked fixed ([the GitHub guide](docs/guides/github.md)).
 
@@ -126,7 +126,7 @@ Each Cloudflare account holds one Worker, one D1 database and one R2 bucket, and
 
 <p align="center"><img src="docs/images/architecture.png" width="800" alt="Diagram: browsers on example.com and shop.example.com load /_p99/p99.js from their own origin through a route on each host; one P99 Worker uses D1 for items, comments, events, codes and hosts and R2 for attachments and weekly backups; the p99 CLI and TUI call the Worker's signed API, and p99 setup and deploy upload the embedded build through the Cloudflare API."></p>
 
-Invites are personal codes rather than accounts. `p99 invite example.com --name "Ada Lovelace" --email ada@example.com` mints a 12-character code and a link, `https://example.com/#p99=<code>`. The code travels in the link's fragment, which browsers never send to a server, so it stays out of every log. Codes are revocable and rate-limited. Code holders see their own items; managers see everything.
+Invites are personal codes rather than accounts. `p99 invite example.com --name "Ada Lovelace" --email ada@example.com` mints a 12-character code and a link, `https://example.com/#p99=<code>`. The code travels in the link's fragment, which browsers never send to a server, so it stays out of every log. Codes are revocable and rate-limited, and a revoked one can be deleted for good (`p99 invites delete <id>`). There are two roles: an Owner runs P99 and sees everything (`p99 invite … --owner`), and a User, any other code holder, sees their own items.
 
 **A second factor, when you want one.** `p99 invite … --totp` adds an authenticator to the code, and `p99 invites totp <id>` adds one to a code someone already holds, keeping their link. P99 prints the setup once: a key to paste as the one-time password in 1Password, Bitwarden or Apple Passwords, or as the setup key in Google Authenticator or Authy, and the same secret as an `otpauth://` link for apps that take one. Send it apart from the link. The first time a browser uses the code, the panel asks for the 6-digit code; after that the browser is remembered, and a forwarded link alone opens nothing anywhere else. The Worker keeps the secret encrypted, refuses a code already used, and locks the authenticator after 10 wrong tries. Nothing changes on the site: the prompt lives in the panel.
 

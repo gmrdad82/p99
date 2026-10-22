@@ -1,7 +1,10 @@
 use std::borrow::Cow;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+
+use crate::one_board::Role;
 
 macro_rules! out {
     ($($arg:tt)*) => {
@@ -41,6 +44,48 @@ where
 
 fn assigned<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Assignee>, D::Error> {
     Ok(Option::<Assignee>::deserialize(deserializer)?.filter(|a| !a.username.is_empty()))
+}
+
+impl Serialize for Author {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Author", 6)?;
+        out.serialize_field("email", &self.email)?;
+        out.serialize_field("name", &self.name)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.serialize_field("agent", &self.agent)?;
+        out.serialize_field("via", &self.via)?;
+        out.end()
+    }
+}
+
+impl Serialize for Member {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Member", 3)?;
+        out.serialize_field("username", &self.username)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.end()
+    }
+}
+
+impl Serialize for Code {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Code", 12)?;
+        out.serialize_field("id", &self.id)?;
+        out.serialize_field("name", &self.name)?;
+        out.serialize_field("email", &self.email)?;
+        out.serialize_field("hosts", &self.hosts)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.serialize_field("hint", &self.hint)?;
+        out.serialize_field("created_at", &self.created_at)?;
+        out.serialize_field("created_by", &self.created_by)?;
+        out.serialize_field("revoked_at", &self.revoked_at)?;
+        out.serialize_field("last_used_at", &self.last_used_at)?;
+        out.serialize_field("totp", &self.totp)?;
+        out.end()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -285,7 +330,7 @@ pub struct Deleted {
     pub unlinked: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Author {
     #[serde(default, deserialize_with = "lenient")]
     pub email: String,
@@ -556,7 +601,7 @@ impl std::fmt::Display for Assignee {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Member {
     pub username: String,
     #[serde(default, deserialize_with = "lenient")]
@@ -703,7 +748,7 @@ pub struct EnvEntry {
     pub notify: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Code {
     pub id: i64,
     #[serde(default, deserialize_with = "lenient")]
@@ -998,6 +1043,61 @@ pub struct ImportFinish {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct Names;
+
+    impl<'de> Deserializer<'de> for Names {
+        type Error = serde::de::value::Error;
+
+        fn deserialize_any<V: serde::de::Visitor<'de>>(self, _: V) -> Result<V::Value, Self::Error> {
+            Err(serde::de::Error::custom(""))
+        }
+
+        fn deserialize_struct<V: serde::de::Visitor<'de>>(
+            self,
+            _: &'static str,
+            fields: &'static [&'static str],
+            _: V,
+        ) -> Result<V::Value, Self::Error> {
+            Err(serde::de::Error::custom(fields.join(",")))
+        }
+
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map enum identifier ignored_any
+        }
+    }
+
+    fn written_and_read<T: Serialize + for<'de> Deserialize<'de> + Default>() -> (Vec<String>, Vec<String>) {
+        let written = match serde_json::to_value(T::default()).expect("it writes") {
+            Value::Object(map) => map.keys().cloned().collect(),
+            other => panic!("not an object: {other}"),
+        };
+        let why = T::deserialize(Names).err().expect("only the field names").to_string();
+        let mut read: Vec<String> = why.split(',').map(str::to_owned).collect();
+        read.push("role".to_owned());
+        let mut written: Vec<String> = written;
+        written.sort();
+        read.sort();
+        (written, read)
+    }
+
+    #[test]
+    fn every_field_an_author_member_or_code_reads_is_written_with_its_role() {
+        let (written, read) = written_and_read::<Author>();
+        assert_eq!(written, read);
+        let (written, read) = written_and_read::<Member>();
+        assert_eq!(written, read);
+        let (written, read) = written_and_read::<Code>();
+        assert_eq!(written, read);
+    }
+
+    #[test]
+    fn the_field_names_come_from_the_struct_and_not_from_a_list_kept_here() {
+        let (_, read) = written_and_read::<Member>();
+        assert_eq!(read, ["manager", "role", "username"]);
+    }
 
     #[test]
     fn via_reads_on_people_authors_and_events_and_defaults_to_none() {

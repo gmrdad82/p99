@@ -589,6 +589,10 @@ impl Demo {
     pub fn codes(&self) -> Vec<Code> {
         self.codes.clone()
     }
+
+    pub fn forget(&mut self, code: &Code) {
+        self.codes.retain(|c| !crate::cli::codes::same(c, code));
+    }
 }
 
 fn env_of(host: &str) -> &'static str {
