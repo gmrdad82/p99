@@ -54,7 +54,7 @@ pub struct CardsArgs {
     pub cursor: Option<String>,
     #[arg(
         long,
-        conflicts_with_all = ["project", "status", "since", "source", "host", "cursor"],
+        conflicts_with_all = ["project", "status", "since", "source", "host", "limit", "cursor"],
         help = "only the cards waiting on a person (needs-you, stuck, landed), newest change first"
     )]
     pub waiting: bool,
@@ -151,7 +151,7 @@ pub struct CardLinkArgs {
     pub note: Option<String>,
 }
 
-fn now() -> i64 {
+pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

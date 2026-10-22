@@ -3,7 +3,11 @@ use serde::{Deserialize, Serialize};
 use crate::card::{Card, Lane, Person, Source};
 use crate::wire::{LaneCard, Owner};
 
-pub const DEPRECATED: &str = "p99 boards is deprecated: one board per account since 1.10; p99 board prints it";
+pub const DEPRECATED: &str =
+    "p99 boards is deprecated: one board per account since 1.10; p99 board prints it";
+pub const OLD_WORKER: &str =
+    "this Worker still has a board per person; run p99 deploy for the one board";
+pub const NO_WAITING: &str = "this Worker has no Needs you list yet; run p99 deploy";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LaneInfo {
@@ -108,6 +112,127 @@ impl Role {
     }
 }
 
+pub fn refusal(why: String) -> String {
+    match crate::card::refusal(why) {
+        bare if bare == crate::card::NOT_YET => OLD_WORKER.to_owned(),
+        bare => bare,
+    }
+}
+
+pub fn waiting_refusal(why: String) -> String {
+    match crate::card::refusal(why) {
+        bare if bare == crate::card::NOT_YET || bare == "no item waiting" => NO_WAITING.to_owned(),
+        bare => bare,
+    }
+}
+
+fn card_line(card: &BoardCard) -> String {
+    let mut line = format!(
+        "  {:<9} {:<12} {}",
+        card.key,
+        card.project.as_deref().unwrap_or(""),
+        card.title
+    );
+    if let Some(who) = card.assignee.as_deref().filter(|w| !w.is_empty()) {
+        line.push_str(&format!("  @{who}"));
+    }
+    line
+}
+
+pub fn board_lines(board: &OneBoard) -> Vec<String> {
+    let mut lines = Vec::new();
+    for lane in &board.board.lanes {
+        let cards: Vec<&BoardCard> = board
+            .cards
+            .iter()
+            .filter(|c| c.status == lane.word)
+            .collect();
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(format!(
+            "{} ({}){}",
+            lane.label,
+            cards.len(),
+            if lane.closes { ", closes" } else { "" }
+        ));
+        lines.extend(cards.into_iter().map(card_line));
+    }
+    let strays: Vec<&BoardCard> = board
+        .cards
+        .iter()
+        .filter(|c| !board.board.lanes.iter().any(|l| l.word == c.status))
+        .collect();
+    for card in strays {
+        lines.push(format!("{}  in {}", card_line(card), card.label));
+    }
+    lines
+}
+
+pub fn archived_lines(old: &OldBoards) -> Vec<String> {
+    if old.archived.is_empty() {
+        return vec!["no archived boards".to_owned()];
+    }
+    old.archived
+        .iter()
+        .map(|b| {
+            let n = b.cards.len();
+            format!(
+                "{:<5} {:<24} {:<16} archived, {} column{}, {n} card{}",
+                b.id,
+                b.name,
+                b.owner
+                    .as_ref()
+                    .map_or_else(|| "someone".to_owned(), |o| o.handle()),
+                b.columns.len(),
+                if b.columns.len() == 1 { "" } else { "s" },
+                if n == 1 { "" } else { "s" }
+            )
+        })
+        .collect()
+}
+
+pub fn lane_lines(labels: &[crate::wire::LabelEntry]) -> Vec<String> {
+    use clap::ValueEnum;
+    labels
+        .iter()
+        .enumerate()
+        .map(|(at, label)| {
+            let word = if labels.len() == Lane::value_variants().len() {
+                Lane::value_variants()[at].word()
+            } else {
+                ""
+            };
+            format!(
+                "{word:<12} {:<20} {}",
+                label.name,
+                if label.closes { "closes" } else { "" }
+            )
+            .trim_end()
+            .to_owned()
+        })
+        .collect()
+}
+
+pub fn lane_named<'a>(
+    labels: &'a [crate::wire::LabelEntry],
+    raw: &str,
+) -> Option<&'a crate::wire::LabelEntry> {
+    use clap::ValueEnum;
+    let wanted = raw.trim().to_lowercase();
+    labels
+        .iter()
+        .find(|l| l.name.to_lowercase() == wanted)
+        .or_else(|| {
+            if labels.len() != Lane::value_variants().len() {
+                return None;
+            }
+            let lane = Lane::from_str(raw.trim(), true).ok()?;
+            let at = Lane::value_variants().iter().position(|l| *l == lane)?;
+            labels.get(at)
+        })
+}
+
 pub fn query(q: &BoardQuery) -> String {
     let mut pairs: Vec<(&str, String)> = Vec::new();
     for name in &q.projects {
@@ -131,5 +256,227 @@ pub fn query(q: &BoardQuery) -> String {
         String::new()
     } else {
         format!("?{}", parts.join("&"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::wire::LabelEntry;
+
+    fn lanes() -> Lanes {
+        use clap::ValueEnum;
+        Lanes {
+            lanes: Lane::value_variants()
+                .iter()
+                .map(|l| LaneInfo {
+                    word: *l,
+                    label: l.name().to_owned(),
+                    closes: *l == Lane::Done,
+                })
+                .collect(),
+        }
+    }
+
+    fn card(key: &str, status: Lane, project: Option<&str>, assignee: Option<&str>) -> BoardCard {
+        BoardCard {
+            key: key.to_owned(),
+            kind: "feature".to_owned(),
+            project: project.map(str::to_owned),
+            status,
+            label: status.name().to_owned(),
+            lane: Some(1),
+            title: format!("{key} title"),
+            host: "shop.example.com".to_owned(),
+            assignee: assignee.map(str::to_owned),
+            order: Some("a0".to_owned()),
+            changed_at: "2026-10-22T09:12:00.000Z".to_owned(),
+            changed_by: None,
+        }
+    }
+
+    fn entries(names: &[&str]) -> Vec<LabelEntry> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, n)| LabelEntry {
+                id: i as i64 + 10,
+                name: (*n).to_owned(),
+                closes: *n == "Done",
+                boards: Vec::new(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_board_prints_every_lane_in_order_with_its_count_and_cards() {
+        let board = OneBoard {
+            board: lanes(),
+            cards: vec![
+                card("FEAT-41", Lane::NeedsYou, Some("Splicer"), None),
+                card("BUG-12", Lane::New, None, Some("grace")),
+                card("FEAT-40", Lane::NeedsYou, Some("Paper"), Some("")),
+            ],
+        };
+        let lines = board_lines(&board);
+        assert_eq!(lines[0], "New (1)");
+        assert_eq!(
+            lines[1],
+            format!("  {:<9} {:<12} BUG-12 title  @grace", "BUG-12", "")
+        );
+        let needs = lines.iter().position(|l| l == "Needs you (2)").unwrap();
+        assert_eq!(
+            lines[needs + 1],
+            format!("  {:<9} {:<12} FEAT-41 title", "FEAT-41", "Splicer")
+        );
+        assert_eq!(
+            lines[needs + 2],
+            format!("  {:<9} {:<12} FEAT-40 title", "FEAT-40", "Paper")
+        );
+        assert_eq!(lines.last().unwrap(), "Done (0), closes");
+        assert_eq!(lines.iter().filter(|l| l.is_empty()).count(), 6);
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| l.ends_with(')') || l.ends_with("closes"))
+                .count(),
+            7
+        );
+    }
+
+    #[test]
+    fn a_renamed_lane_prints_its_name_and_a_card_outside_the_lanes_still_shows() {
+        let mut board = OneBoard {
+            board: lanes(),
+            cards: vec![card("FEAT-9", Lane::Stuck, Some("Splicer"), None)],
+        };
+        board.board.lanes[4].label = "Blocked".to_owned();
+        board.board.lanes.truncate(6);
+        board
+            .cards
+            .push(card("FEAT-8", Lane::Done, Some("Splicer"), None));
+        let lines = board_lines(&board);
+        assert!(lines.contains(&"Blocked (1)".to_owned()), "{lines:?}");
+        assert_eq!(
+            lines.last().unwrap(),
+            &format!("  {:<9} {:<12} FEAT-8 title  in Done", "FEAT-8", "Splicer")
+        );
+        assert!(board_lines(&OneBoard::default()).is_empty());
+    }
+
+    #[test]
+    fn the_archived_boards_print_one_line_each_or_say_there_are_none() {
+        let mut old = OldBoards::default();
+        assert_eq!(archived_lines(&old), ["no archived boards"]);
+        old.archived = vec![
+            ArchivedBoard {
+                id: 2,
+                name: "Web".to_owned(),
+                owner: Some(Owner {
+                    username: Some("ada".to_owned()),
+                }),
+                columns: vec![crate::wire::Lane::default(); 4],
+                cards: vec![LaneCard::default()],
+                archived: true,
+            },
+            ArchivedBoard {
+                id: 3,
+                name: "Ops".to_owned(),
+                columns: vec![crate::wire::Lane::default()],
+                ..ArchivedBoard::default()
+            },
+        ];
+        assert_eq!(
+            archived_lines(&old),
+            [
+                format!(
+                    "{:<5} {:<24} {:<16} archived, 4 columns, 1 card",
+                    2, "Web", "@ada"
+                ),
+                format!(
+                    "{:<5} {:<24} {:<16} archived, 1 column, 0 cards",
+                    3, "Ops", "someone"
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_lanes_print_with_their_word_when_there_are_seven() {
+        let seven = entries(&[
+            "New",
+            "Planned",
+            "In progress",
+            "Needs you",
+            "Stuck",
+            "Landed",
+            "Done",
+        ]);
+        let lines = lane_lines(&seven);
+        assert_eq!(lines.len(), 7);
+        assert_eq!(lines[0], format!("{:<12} New", "new"));
+        assert_eq!(lines[3], format!("{:<12} Needs you", "needs-you"));
+        assert_eq!(lines[6], format!("{:<12} {:<20} closes", "done", "Done"));
+        let odd = lane_lines(&entries(&["Inbox", "Done"]));
+        assert_eq!(odd[0], format!("{:<12} Inbox", ""));
+    }
+
+    #[test]
+    fn a_lane_is_found_by_its_name_in_any_case_or_by_its_word() {
+        let seven = entries(&[
+            "New",
+            "Planned",
+            "In progress",
+            "Waiting on me",
+            "Stuck",
+            "Landed",
+            "Done",
+        ]);
+        assert_eq!(lane_named(&seven, "waiting ON me").unwrap().id, 13);
+        assert_eq!(lane_named(&seven, "needs-you").unwrap().id, 13);
+        assert_eq!(lane_named(&seven, " needs you ").unwrap().id, 13);
+        assert_eq!(lane_named(&seven, "in-progress").unwrap().id, 12);
+        assert!(lane_named(&seven, "QA ready").is_none());
+        assert!(lane_named(&entries(&["Inbox", "Done"]), "new").is_none());
+    }
+
+    #[test]
+    fn an_old_worker_gets_its_own_line_and_other_refusals_pass_bare() {
+        assert_eq!(refusal("no such route (404)".into()), OLD_WORKER);
+        assert_eq!(
+            refusal("only an Owner reads the board (403)".into()),
+            "only an Owner reads the board"
+        );
+        assert_eq!(waiting_refusal("no such route (404)".into()), NO_WAITING);
+        assert_eq!(waiting_refusal("no item waiting (404)".into()), NO_WAITING);
+        assert_eq!(
+            waiting_refusal("bad signature (401)".into()),
+            "bad signature"
+        );
+    }
+
+    #[test]
+    fn the_board_query_carries_each_filter_once_and_skips_empty_ones() {
+        let q = BoardQuery {
+            projects: vec!["Splicer".to_owned(), "Paper Two".to_owned(), String::new()],
+            host: Some("shop.example.com".to_owned()),
+            source: Some(Source::Agent),
+            statuses: vec![Lane::NeedsYou, Lane::Landed],
+        };
+        assert_eq!(
+            query(&q),
+            "?project=Splicer&project=Paper%20Two&host=shop.example.com&source=agent&status=needs-you&status=landed"
+        );
+        assert_eq!(query(&BoardQuery::default()), "");
+    }
+
+    #[test]
+    fn the_role_words_and_their_aliases() {
+        use clap::ValueEnum;
+        assert_eq!(Role::of(true), Role::Owner);
+        assert_eq!(Role::of(false).word(), "User");
+        assert_eq!(Role::from_str("manager", true).unwrap(), Role::Owner);
+        assert_eq!(Role::from_str("reporter", true).unwrap(), Role::User);
+        assert_eq!(serde_json::to_string(&Role::Owner).unwrap(), "\"owner\"");
     }
 }

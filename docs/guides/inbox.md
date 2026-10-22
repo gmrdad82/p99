@@ -11,28 +11,28 @@ Everything people file lands in one inbox per Cloudflare account, across all its
 
 ## Items
 
-An item is a `bug`, `feature` (an idea), `improvement`, `question` or `task` (tasks are filed by managers). Its key is a prefix and a number, `BUG-12`, `FEAT-7`, `IMP-5`, `Q-10`, `TASK-6`, over one numbering per account: any prefix with the right number, or the bare number, names the same item, so `12`, `bug-12` and `BUG-12` all work.
+An item is a `bug`, `feature` (an idea), `improvement`, `question` or `task` (tasks are filed by Owners). Its key is a prefix and a number, `BUG-12`, `FEAT-7`, `IMP-5`, `Q-10`, `TASK-6`, over one numbering per account: any prefix with the right number, or the bare number, names the same item, so `12`, `bug-12` and `BUG-12` all work.
 
-An item carries one **label**, its state: a new one gets Inbox, and Inbox, Doing, Review and Done are the defaults, each renameable. A label can **close** an item (Done does); a closed item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). Reporters see their own words in the panel: Received while the item has the first label, In progress under any other open one, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and about the item closing or reopening when mail is on; other label changes mail no one.
+An item carries one **label**, its state: the lanes of the account's one board, New, Planned, In progress, Needs you, Stuck, Landed and Done, each renameable. A new item gets New, and Done **closes** it; a closed item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). Users see their own words in the panel: Received while the item is in New, In progress in any other open lane, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and about the item closing or reopening when mail is on; other lane changes mail no one.
 
-## Boards
+## The one board
 
-A board is one manager's: a name, 3 to 6 columns, each a label, and its own order of the cards, which is that person's priority: the top of a column matters most. It shows the items whose label is one of its columns, each once, and moving a card gives the item that column's label. Everyone gets a board, Inbox, Doing, Review, Done, the first time they open the boards, and can make up to three. Others watch it read-only and see the same cards in the same order. A shared label is a handoff: when a dev's last column, "QA ready", is the first column of a QA person's board, a card the dev moves there shows up for QA, with nothing to set up.
+Each account has one board. Its seven lanes are the labels above, and it shows every item an Owner may see, plain items and cards alike; an Owner scoped to some hosts sees only theirs. The order within a lane is the account's one priority, the top mattering most, and every Owner moves cards between lanes and within one. Users don't see the board.
 
-In the panel, a manager's list starts with two choices. **Show** is All (the items, as before), Only this website (the cards filed on this site), Projects (the cards of the projects ticked below it) or Landed, waiting for your check (cards whose fix landed, across projects). **Last change by** is Everyone, People or Agents, by who made the latest change. A card from another site opens on that site in a new tab. The board overlay keeps to the same choice and says "showing …" while it does. The choice stays in that browser; visitors see neither.
+In the panel, an Owner's list starts with two choices. **Show** is All (the items, as before), Only this website (the cards filed on this site), Projects (the cards of the projects ticked below it) or Landed, waiting for your check (cards whose fix landed, across projects). **Last change by** is Everyone, People or Agents, by who made the latest change. A card from another site opens on that site in a new tab. The board overlay keeps to the same choice and says "showing …" while it does. The choice stays in that browser; visitors see neither.
 
 ```sh
-p99 boards
 p99 board
-p99 board @grace.hopper
-p99 boards set QA --columns "QA ready,Testing,Done" --closes Done
-p99 move BUG-12 --to Doing
-p99 move BUG-12 --to Doing --after BUG-9
+p99 board --project Splicer --project Paper --host example.com
+p99 move BUG-12 --to in-progress
+p99 move BUG-12 --to "In progress" --after BUG-9
 p99 labels
-p99 labels rename "QA ready" "Ready for QA"
+p99 labels rename needs-you "Waiting on me"
 ```
 
-`--to` takes a label on one of your boards, in any case; with `--before` or `--after` the card is also placed in that column of your board, and without them its place on boards stays as it was. `p99 boards set` makes the board or changes its columns; `--closes` names the columns whose label closes an item. A rename changes the label on every board and item; when other people's boards use it, `p99 labels rename` asks first, naming them, and `--yes` answers for scripts.
+`p99 board` prints each lane as `Name (count)` with its cards below, each with its project; `--project` repeats and keeps those projects' cards, and `--host` one host's items. `--to` takes a lane's word (`new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed`, `done`) or its name, in any case; `--before` or `--after` also places the card beside another in that lane. `p99 labels` lists the seven lanes with their words, and `p99 labels rename` renames one, by its name or its word, for everyone; the word stays.
+
+Before 1.10 each Owner had boards of their own. Deploying 1.10 folds them into the one board, after `p99 migrate --plan` shows how ([deploy](deploy.md)): each item keeps its lane or gets the one its old column maps to, with a `label` event naming the old column, and the order of the oldest Owner's boards comes first. The old boards stay archived and read-only: `p99 boards` prints a deprecation line on standard error and their names, and `p99 boards set` answers `p99: boards are one per account; see p99 board`, exit 1. A Worker not deployed since answers `p99 board` with `p99: this Worker still has a board per person; run p99 deploy for the one board`.
 
 ## The TUI
 
@@ -58,8 +58,8 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | Key | In an item |
 | --- | --- |
 | `r` | write a reply; `enter` sends it, `esc` drops it |
-| `i` | make the next reply internal (managers only see it), or not |
-| `m` | move it to a label of your boards; `Drop` closes it without fixing, `Duplicate of…` asks for the item it duplicates |
+| `i` | make the next reply internal (Owners only see it), or not |
+| `m` | move it to a lane; `Drop` closes it without fixing, `Duplicate of…` asks for the item it duplicates |
 | `a` | assign it to someone, or to no one |
 | `o` | open the item's page in the browser |
 | `d` | delete it for good, with its comments and files: type its key back, then `enter` |
@@ -69,17 +69,17 @@ The Inbox screen lists the open items of every host, newest activity first, with
 
 An item shows its kind, label, host and environment, the page it was filed on, who reported it, its text, its comments with their files, where its fix has landed, and its events.
 
-The Board screen opens your first board: its columns are its labels, and its cards are the items carrying them, in your order. `b` picks another board, yours first, then everyone else's by @username; on someone else's board you watch, the footer says whose, and nothing moves. A move made elsewhere slides into place as it happens. When a card moved before your drop landed, the board says "this card moved; refreshed" and reads it again.
+The Board screen shows the one board: its seven lanes and their cards, in the account's order. A move made elsewhere slides into place as it happens. When a card moved before your drop landed, the board says "this card moved; refreshed" and reads it again. The header counts what waits on you (Needs you, Stuck and Landed) beside the licence, none at 0, and `w` lists those cards.
 
 | Key | On the board |
 | --- | --- |
 | `←` `→` `↑` `↓` | move between cards |
-| `space` | pick up a card on your board; the arrows carry it, `enter` drops it, `esc` puts it back |
+| `space` | pick up a card; the arrows carry it, `enter` drops it, `esc` puts it back |
 | `enter` | open the item |
-| `b` | pick a board |
+| `w` | the cards waiting on you |
 | `r` | read the board again |
 
-The mouse drags cards too, on your own boards.
+The mouse drags cards too.
 
 ## The CLI
 
@@ -116,9 +116,9 @@ p99 delete BUG-16
  IMP-5    Doing       shop.example.com Show delivery dates on product pages  -> ada@example.com  landed: dev
 ```
 
-Everyone is a username on the account, made from their name when they get a code (`Grace Hopper` is `@grace.hopper`); each person changes only their own ([usernames](../reference/formats.md#usernames)), and an agent acting for them shows as their name with 🤖, never a username of its own. `p99 assign` takes a username, with or without the `@`, or `me`; the assignee must hold a code for the item's site or be a manager.
+Everyone is a username on the account, made from their name when they get a code (`Grace Hopper` is `@grace.hopper`); each person changes only their own ([usernames](../reference/formats.md#usernames)), and an agent acting for them shows as their name with 🤖, never a username of its own. `p99 assign` takes a username, with or without the `@`, or `me`; the assignee must hold a code for the item's site or be an Owner.
 
-A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, a manager finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
+A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, an Owner finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
 
 ## JSON for scripts
 

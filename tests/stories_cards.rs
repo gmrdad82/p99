@@ -219,6 +219,19 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
         ("POST", "/v1/cards/FEAT-41/status") if body["status"] == "done" => {
             return (403, r#"{"message":"only a person closes a card"}"#.into());
         }
+        ("POST", "/v1/cards/FEAT-41/status") if body["status"] == "needs-you" => {
+            let mut moved = card.clone();
+            moved["status"] = json!("needs-you");
+            moved["label"] = json!("Needs you");
+            moved["lane"] = json!(1);
+            if body["note"].is_string() {
+                let mut noted = comment.clone();
+                noted["body"] = body["note"].clone();
+                json!({"card":moved,"comment":noted})
+            } else {
+                json!({"card":moved})
+            }
+        }
         ("POST", "/v1/cards/FEAT-41/status") if body["note"].is_string() => {
             json!({"card":card,"comment":comment})
         }
@@ -318,7 +331,7 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
     );
     unparsed(
         &["card", "status", "FEAT-41", "blocked"],
-        "error: invalid value 'blocked' for '<STATUS>'\n  [possible values: new, planned, in-progress, stuck, landed, done]\n",
+        "error: invalid value 'blocked' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
         None,
     );
     unparsed(
@@ -1067,4 +1080,214 @@ fn edit_no_project_on_an_item_that_is_no_card_says_so_and_changes_nothing() {
     assert_eq!(missing.code, Some(1));
     assert!(missing.stdout.is_empty(), "{}", missing.stdout);
     assert!(worker.seen().iter().all(|s| s.method != "PATCH"));
+}
+
+fn waiting_card(key: &str, status: &str, label: &str, at: &str) -> Value {
+    let mut one = card();
+    one["key"] = json!(key);
+    one["status"] = json!(status);
+    one["label"] = json!(label);
+    one["changed_at"] = json!(at);
+    one
+}
+
+fn waiting_list() -> Value {
+    json!({"count": 3, "cards": [
+        waiting_card("FEAT-43", "needs-you", "Needs you", "2026-10-22T09:30:00.000Z"),
+        waiting_card("FEAT-41", "stuck", "Stuck", "2026-10-22T09:12:00.000Z"),
+        waiting_card("FEAT-7", "landed", "Landed", "2026-10-21T17:00:00.000Z"),
+    ]})
+}
+
+fn waiting(method: &str, path: &str, _: &Value) -> (u16, String) {
+    match (method, path) {
+        ("GET", "/v1/cards/waiting") => (200, waiting_list().to_string()),
+        _ => (404, r#"{"message":"no such route"}"#.into()),
+    }
+}
+
+fn nothing_waiting(_: &str, path: &str, _: &Value) -> (u16, String) {
+    if path == "/v1/cards/waiting" {
+        return (200, r#"{"count":0,"cards":[]}"#.into());
+    }
+    (404, r#"{"message":"no such route"}"#.into())
+}
+
+fn cards_era(_: &str, path: &str, _: &Value) -> (u16, String) {
+    if path == "/v1/cards/waiting" {
+        return (404, r#"{"message":"no item waiting"}"#.into());
+    }
+    (404, r#"{"message":"no such route"}"#.into())
+}
+
+#[test]
+fn needs_you_is_set_with_a_note_and_its_alias_with_the_space_is_the_same_word() {
+    let worker = Worker::start(answers);
+    let file = config("needs_you", &worker.url);
+    let noted = json_of(&p99(
+        &file,
+        &[
+            "card",
+            "status",
+            "FEAT-41",
+            "needs-you",
+            "--note",
+            "Look at the export clip: https://example.com/clip",
+            "--json",
+        ],
+        &[("P99_AGENT", "pci")],
+        None,
+    ));
+    assert_eq!(noted["card"]["status"], "needs-you");
+    assert_eq!(noted["card"]["label"], "Needs you");
+    assert_eq!(
+        noted["comment"]["body"],
+        "Look at the export clip: https://example.com/clip"
+    );
+    let seen = worker.last();
+    assert_eq!(seen.path, "/v1/cards/FEAT-41/status");
+    assert_eq!(seen.body["status"], "needs-you");
+    assert_eq!(seen.actor["agent"], true);
+    assert_eq!(seen.actor["via"], "pci");
+
+    for word in ["needs you", "needs-you"] {
+        let out = p99(&file, &["card", "status", "FEAT-41", word], &[], None);
+        assert_eq!(out.code, Some(0), "{word}: {}", out.stderr);
+        assert_eq!(
+            out.stdout,
+            "FEAT-41 is now Needs you (needs-you, #1 in its lane)\n"
+        );
+        assert_eq!(worker.last().body["status"], "needs-you", "{word}");
+    }
+
+    let listed = p99(
+        &file,
+        &[
+            "cards",
+            "--status",
+            "needs you",
+            "--status",
+            "stuck",
+            "--json",
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(listed.code, Some(0), "{}", listed.stderr);
+    assert_eq!(
+        worker.last().path,
+        "/v1/cards?status=needs-you&status=stuck&limit=200"
+    );
+}
+
+#[test]
+fn an_unknown_lane_word_lists_the_seven_and_waiting_conflicts_with_every_filter() {
+    for (args, first) in [
+        (
+            vec!["card", "status", "FEAT-41", "needs_you"],
+            "error: invalid value 'needs_you' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
+        ),
+        (
+            vec!["cards", "--status", "waiting"],
+            "error: invalid value 'waiting' for '--status <word>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
+        ),
+        (
+            vec!["card", "status", "FEAT-41", "Needs You"],
+            "error: invalid value 'Needs You' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
+        ),
+    ] {
+        unparsed(&args, first, None);
+    }
+    for other in [
+        vec!["--project", "Splicer"],
+        vec!["--status", "stuck"],
+        vec!["--since", "6h"],
+        vec!["--source", "agent"],
+        vec!["--host", "shop.example.com"],
+        vec!["--limit", "5"],
+        vec!["--cursor", "c2"],
+    ] {
+        let mut args = vec!["cards", "--waiting"];
+        args.extend(other.iter().copied());
+        unparsed(
+            &args,
+            "error: the argument '--waiting' cannot be used with",
+            Some("Usage: p99 cards "),
+        );
+    }
+}
+
+#[test]
+fn cards_waiting_in_json_is_the_workers_list_in_its_order() {
+    let worker = Worker::start(waiting);
+    let doc = json_of(&run(
+        &worker,
+        "waiting_json",
+        &["cards", "--waiting", "--json"],
+    ));
+    assert_eq!(doc, waiting_list());
+    let seen = worker.last();
+    assert_eq!(
+        (seen.method.as_str(), seen.path.as_str()),
+        ("GET", "/v1/cards/waiting")
+    );
+    let keys: Vec<&str> = doc["cards"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["key"].as_str().unwrap())
+        .collect();
+    assert_eq!(keys, ["FEAT-43", "FEAT-41", "FEAT-7"]);
+}
+
+#[test]
+fn cards_waiting_text_puts_the_count_first_then_one_line_a_card() {
+    let worker = Worker::start(waiting);
+    let out = run(&worker, "waiting_text", &["cards", "--waiting"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert_eq!(lines.len(), 4, "{}", out.stdout);
+    assert_eq!(lines[0], "3 cards wait on you");
+    assert!(
+        lines[1].starts_with("FEAT-43  needs-you   Splicer      Export keeps every audio track"),
+        "{}",
+        lines[1]
+    );
+    assert!(
+        lines[2].starts_with("FEAT-41  stuck       Splicer "),
+        "{}",
+        lines[2]
+    );
+    assert!(
+        lines[3].starts_with("FEAT-7   landed      Splicer "),
+        "{}",
+        lines[3]
+    );
+
+    let empty = Worker::start(nothing_waiting);
+    let none = run(&empty, "waiting_empty", &["cards", "--waiting"]);
+    assert_eq!(none.code, Some(0), "{}", none.stderr);
+    assert_eq!(none.stdout, "nothing waits on you\n");
+    let doc = json_of(&run(
+        &empty,
+        "waiting_empty",
+        &["cards", "--waiting", "--json"],
+    ));
+    assert_eq!(doc, json!({"count": 0, "cards": []}));
+}
+
+#[test]
+fn cards_waiting_on_an_older_worker_says_deploy() {
+    for answer in [old_worker as Answer, cards_era] {
+        let worker = Worker::start(answer);
+        for args in [
+            vec!["cards", "--waiting"],
+            vec!["cards", "--waiting", "--json"],
+        ] {
+            refused(
+                &run(&worker, "waiting_old", &args),
+                "this Worker has no Needs you list yet; run p99 deploy",
+            );
+        }
+    }
 }

@@ -55,7 +55,10 @@ pub enum Command {
     Hosts(HostsArgs),
     #[command(about = "mint a personal code for a person on one or more hosts")]
     Invite(InviteArgs),
-    #[command(about = "list the personal codes; delete a revoked one", visible_alias = "codes")]
+    #[command(
+        about = "list the personal codes; delete a revoked one",
+        visible_alias = "codes"
+    )]
     Invites(InvitesArgs),
     #[command(about = "revoke a personal code")]
     Revoke(RevokeArgs),
@@ -81,9 +84,9 @@ pub enum Command {
     Comment(CommentArgs),
     #[command(about = "set an item's label, or close it as abandoned or duplicate")]
     Status(StatusArgs),
-    #[command(about = "move an item to a label on your boards, or beside another card")]
+    #[command(about = "move an item to a lane of the one board, or beside another card in it")]
     Move(crate::boards::MoveArgs),
-    #[command(about = "list cards in lane order, from the Cards board")]
+    #[command(about = "list cards in lane order, or the ones waiting on you")]
     Cards(card::CardsArgs),
     #[command(
         about = "show, file, comment on, move or link one card",
@@ -93,9 +96,9 @@ pub enum Command {
     Card(card::CardArgs),
     #[command(about = "list the project names cards carry")]
     Projects,
-    #[command(about = "list your boards and others'; set one's columns")]
+    #[command(about = "deprecated: the boards before the one board, archived and read-only")]
     Boards(crate::boards::BoardsArgs),
-    #[command(about = "print a board's columns and cards")]
+    #[command(about = "print the one board: its seven lanes and their cards")]
     Board(crate::boards::BoardArgs),
     #[command(about = "assign an item to someone, or to no one")]
     Assign(AssignArgs),
@@ -123,7 +126,7 @@ pub enum Command {
         arg_required_else_help = false
     )]
     Github(crate::github::GithubArgs),
-    #[command(about = "list the labels, the columns of every board; rename one")]
+    #[command(about = "list the lanes, the one board's columns; rename one")]
     Labels(crate::boards::LabelsArgs),
     #[command(
         about = "fold duplicates into one item; their reporters follow it and get its updates"
