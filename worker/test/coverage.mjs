@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { v8Flags } from "./inspect.mjs";
 import { mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -29,6 +30,7 @@ export function collect(dir, { searchDir = join(root, ".wrangler", "tmp") } = {}
     const dump = JSON.parse(readFileSync(join(dir, name), "utf8"));
     for (const script of dump.scripts || []) {
       const counts = offsetCounts(script.source, script.functions, { loaded: dump.loaded });
+      if (script.startup) offsetCounts(script.source, script.startup).forEach((n, i) => (counts[i] = Math.max(counts[i], n)));
       const found = script.map ? { map: script.map, dir: script.mapDir } : sourceMapOf(script, searchDir);
       if (found) {
         for (const [file, lines] of mappedLines(script.source, counts, found.map, found.dir)) add(file, lines);
@@ -67,16 +69,25 @@ export function report(dir, files = collect(dir)) {
   return table(rows(files, root, universe));
 }
 
+export function unitTests(dir = join(root, "test")) {
+  return readdirSync(dir)
+    .filter((name) => name.endsWith(".test.mjs"))
+    .sort()
+    .map((name) => join(dir, name));
+}
+
+function runNode(args, env) {
+  const child = spawn(process.execPath, args, { cwd: root, stdio: "inherit", env });
+  return new Promise((resolve) => child.once("exit", (status, signal) => resolve(signal ? 1 : status)));
+}
+
 async function main() {
   const dir = join(root, ".wrangler", "coverage");
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "node"), { recursive: true });
-  const child = spawn(process.execPath, [join(root, "test", "run.mjs")], {
-    cwd: root,
-    stdio: "inherit",
-    env: { ...process.env, P99_COVERAGE: dir, NODE_V8_COVERAGE: join(dir, "node") },
-  });
-  const code = await new Promise((resolve) => child.once("exit", (status, signal) => resolve(signal ? 1 : status)));
+  const env = { ...process.env, P99_COVERAGE: dir, NODE_V8_COVERAGE: join(dir, "node"), MINIFLARE_WORKERD_V8_FLAGS: v8Flags(process.env) };
+  const units = await runNode(["--test", ...unitTests()], env);
+  const code = await runNode([join(root, "test", "run.mjs")], env);
   let files;
   try {
     files = collect(dir);
@@ -90,7 +101,7 @@ async function main() {
   console.log(`\nWorker line coverage (worker/src, from the worker suite):\n\n${text}`);
   const found = problems(dir, files);
   for (const line of found) console.error(line);
-  process.exitCode = found.length > 0 ? 1 : code;
+  process.exitCode = found.length > 0 ? 1 : units || code;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

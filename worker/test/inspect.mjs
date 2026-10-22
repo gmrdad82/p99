@@ -1,19 +1,47 @@
 import { writeFileSync } from "node:fs";
 import { sourceMapOf } from "./coverage-lines.mjs";
 
+export const V8_FLAGS = "--allow-natives-syntax";
+
+export const COLLECT =
+  "JSON.stringify(%DebugCollectCoverage().map((ranges) => ({ source: ranges.script, ranges: ranges.map(({ start, end, count }) => ({ startOffset: start, endOffset: end, count })) })))";
+
+export function v8Flags(env) {
+  const flags = (env.MINIFLARE_WORKERD_V8_FLAGS || "").split(" ").filter(Boolean);
+  return flags.includes(V8_FLAGS) ? flags.join(" ") : [...flags, V8_FLAGS].join(" ");
+}
+
+export function matchScripts(taken, sources, startup = []) {
+  const bySource = new Map(taken.map((entry) => [entry.source, entry.ranges]));
+  const before = new Map(startup.map((entry) => [entry.source, entry.ranges]));
+  const scripts = [];
+  for (const { url, sourceMapURL, source } of sources) {
+    const ranges = bySource.get(source);
+    const early = before.get(source);
+    if (!ranges && !early) continue;
+    scripts.push({ url, sourceMapURL, source, functions: ranges ? [{ ranges }] : [], ...(early ? { startup: [{ ranges: early }] } : {}) });
+  }
+  return scripts;
+}
+
 export async function coverWorker(port, searchDir) {
   let socket = null;
-  for (let i = 0; i < 100 && !socket; i++) {
+  for (let i = 0; i < 300 && !socket; i++) {
     socket = await open(`ws://127.0.0.1:${port}/ws`).catch(() => null);
     if (!socket) await new Promise((r) => setTimeout(r, 200));
   }
   if (!socket) throw new Error(`the Worker's inspector did not answer on ${port}`);
   let next = 1_000_000;
+  let context = null;
+  let counting = false;
+  let reloaded = false;
   const waiting = new Map();
   const parsed = new Map();
   socket.addEventListener("message", (event) => {
     const msg = JSON.parse(event.data);
     if (msg.method === "Debugger.scriptParsed") parsed.set(msg.params.scriptId, msg.params);
+    if (msg.method === "Runtime.executionContextCreated") context = msg.params.context.id;
+    if (msg.method === "Runtime.executionContextsCleared" && counting) reloaded = true;
     const done = msg.id !== undefined && waiting.get(msg.id);
     if (!done) return;
     waiting.delete(msg.id);
@@ -26,28 +54,40 @@ export async function coverWorker(port, searchDir) {
       waiting.set(id, { resolve, reject, method });
       socket.send(JSON.stringify({ id, method, params }));
     });
-  await send("Profiler.enable");
-  await send("Profiler.startPreciseCoverage", { callCount: true, detailed: true });
+  const evaluate = async (expression) => {
+    const { result, exceptionDetails } = await send("Runtime.evaluate", { contextId: context, expression, returnByValue: true });
+    if (exceptionDetails) throw new Error(`Runtime.evaluate: ${exceptionDetails.exception?.description || exceptionDetails.text}`);
+    return result.value;
+  };
+  await send("Runtime.enable");
+  for (let i = 0; i < 100 && context === null; i++) await new Promise((r) => setTimeout(r, 100));
+  if (context === null) throw new Error(`the Worker's inspector on ${port} named no execution context`);
+  const startup = JSON.parse(await evaluate(COLLECT));
+  await evaluate("%DebugToggleBlockCoverage(true)");
+  counting = true;
   return {
     async save(file) {
-      const { result } = await send("Profiler.takePreciseCoverage");
+      if (reloaded) {
+        socket.close();
+        throw new Error(`the Worker on inspector ${port} reloaded while its coverage was counted; a file under worker/ changed during the run`);
+      }
+      const taken = JSON.parse(await evaluate(COLLECT));
       await send("Debugger.enable");
-      const scripts = [];
-      for (const entry of result) {
-        if (!entry.url || entry.url.startsWith("node:") || entry.url.startsWith("cloudflare:")) continue;
-        const { scriptSource } = await send("Debugger.getScriptSource", { scriptId: entry.scriptId }).catch(() => ({}));
-        if (!scriptSource) continue;
-        const info = parsed.get(entry.scriptId) || {};
-        const script = { url: entry.url, sourceMapURL: info.sourceMapURL || "", source: scriptSource, functions: entry.functions };
+      const sources = [];
+      for (const [scriptId, info] of parsed) {
+        if (!info.url || info.url.startsWith("node:") || info.url.startsWith("cloudflare:")) continue;
+        const { scriptSource } = await send("Debugger.getScriptSource", { scriptId }).catch(() => ({}));
+        if (scriptSource) sources.push({ url: info.url, sourceMapURL: info.sourceMapURL || "", source: scriptSource });
+      }
+      const scripts = matchScripts(taken, sources, startup).map((script) => {
         let found = null;
         try {
           found = sourceMapOf(script, searchDir);
         } catch (error) {
-          console.error(`coverage: ${entry.url}: ${error.message}`);
+          console.error(`coverage: ${script.url}: ${error.message}`);
         }
-        scripts.push(found ? { ...script, map: found.map, mapDir: found.dir } : script);
-      }
-      await send("Profiler.stopPreciseCoverage").catch(() => {});
+        return found ? { ...script, map: found.map, mapDir: found.dir } : script;
+      });
       socket.close();
       writeFileSync(file, JSON.stringify({ kind: "workerd", loaded: true, scripts }));
       return scripts.length;

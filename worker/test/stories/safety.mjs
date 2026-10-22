@@ -484,6 +484,7 @@ async function startWorker({ wrangler, root, persist, port, inspector, vars, log
     clearTimeout(late);
   };
   try {
+    if (process.env.P99_COVERAGE) cover = await coverWorker(inspector, join(root, ".wrangler", "tmp"));
     await until(
       "the backup Worker's health",
       async () => {
@@ -496,7 +497,6 @@ async function startWorker({ wrangler, root, persist, port, inspector, vars, log
       },
       60000,
     );
-    if (process.env.P99_COVERAGE) cover = await coverWorker(inspector, join(root, ".wrangler", "tmp"));
   } catch (error) {
     await stop();
     throw error;
@@ -552,7 +552,7 @@ async function unlessBusy(fn) {
   try {
     return await fn();
   } catch (error) {
-    if (/database is locked|SQLITE_BUSY/.test(String(error?.message))) return null;
+    if (/database is locked|SQLITE_BUSY/.test(String(error?.message)) || error?.code === "ENOENT") return null;
     throw error;
   }
 }

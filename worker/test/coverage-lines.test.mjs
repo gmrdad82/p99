@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decodeMappings, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 import { collect, ownsFile, problems, report, workerFiles } from "./coverage.mjs";
+import { V8_FLAGS, matchScripts, v8Flags } from "./inspect.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fn = (...ranges) => ({ functionName: "", isBlockCoverage: true, ranges: ranges.map(([startOffset, endOffset, count]) => ({ startOffset, endOffset, count })) });
@@ -237,6 +238,62 @@ test("a run with no Worker dump, or one where worker.js maps no covered line, is
     assert.deepEqual(problems(dir, new Map([[main, new Map([[1, false], [2, true]])]])), []);
     rmSync(dir, { recursive: true, force: true });
     assert.match(problems(dir, new Map([[main, new Map([[1, true]])]])).join("\n"), /no Worker dump was saved/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the Worker runs with natives syntax on, added once to whatever V8 flags were already set", () => {
+  assert.equal(v8Flags({}), V8_FLAGS);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: "" }), V8_FLAGS);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: "--stack-size=2000" }), `--stack-size=2000 ${V8_FLAGS}`);
+  assert.equal(v8Flags({ MINIFLARE_WORKERD_V8_FLAGS: ` ${V8_FLAGS}  --stack-size=2000` }), `${V8_FLAGS} --stack-size=2000`);
+});
+
+test("V8's collected ranges join the inspector's scripts by source, with the startup snapshot beside them, and a script neither reported is dropped", () => {
+  const bundle = "export default 1;\n";
+  const taken = [
+    { source: bundle, ranges: [{ startOffset: 0, endOffset: 18, count: 1 }] },
+    { source: "internal();", ranges: [{ startOffset: 0, endOffset: 11, count: 3 }] },
+  ];
+  const startup = [
+    { source: bundle, ranges: [{ startOffset: 0, endOffset: 19, count: 1 }] },
+    { source: "loaded();", ranges: [{ startOffset: 0, endOffset: 9, count: 1 }] },
+  ];
+  const sources = [
+    { url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle },
+    { url: "file:///w/loaded.js", sourceMapURL: "", source: "loaded();" },
+    { url: "file:///w/other.js", sourceMapURL: "", source: "never ran" },
+  ];
+  assert.deepEqual(matchScripts(taken, sources, startup), [
+    { url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle, functions: [{ ranges: taken[0].ranges }], startup: [{ ranges: startup[0].ranges }] },
+    { url: "file:///w/loaded.js", sourceMapURL: "", source: "loaded();", functions: [], startup: [{ ranges: startup[1].ranges }] },
+  ]);
+  assert.deepEqual(matchScripts(taken, sources), [{ url: "file:///w/.wrangler/tmp/dev/index.js", sourceMapURL: "index.js.map", source: bundle, functions: [{ ranges: taken[0].ranges }] }]);
+  assert.deepEqual(matchScripts([], sources), []);
+});
+
+test("a workerd script's lines count when either its startup snapshot or its block counts ran them, and stay uncovered when neither did", () => {
+  const dir = scratch();
+  try {
+    const tries = join(root, "src", "tries.js");
+    const text = readFileSync(tries, "utf8");
+    const lines = text.split("\n");
+    const at = (line) => lines.slice(0, line - 1).join("\n").length + (line > 1 ? 1 : 0);
+    const map = { version: 3, sources: ["../../src/tries.js"], mappings: lines.map((_, i) => (i === 0 ? "AAAA" : "AACA")).join(";") };
+    const script = (extra) => ({ url: "bundle.js", source: text, map, mapDir: join(root, ".wrangler", "tmp"), ...extra });
+    const write = (scripts) => writeFileSync(join(dir, "worker-1.json"), JSON.stringify({ kind: "workerd", loaded: true, scripts }));
+    const covered = () => [...collect(dir, { searchDir: dir }).get(tries)].filter(([, ran]) => ran).map(([line]) => line);
+    write([script({ functions: [fn([at(2), at(3), 4])], startup: [fn([0, text.length, 1], [at(3), at(4), 0])] })]);
+    const both = covered();
+    assert.ok(both.includes(1), "the top level ran at load");
+    assert.ok(both.includes(2), "line 2 ran after the counts were on");
+    assert.equal(both.includes(3), false, "line 3 ran in neither");
+    write([script({ functions: [fn([at(2), at(3), 4])] })]);
+    assert.deepEqual(covered(), [2]);
+    write([script({ functions: [], startup: [fn([0, text.length, 1], [at(3), at(4), 0])] })]);
+    assert.equal(covered().includes(3), false);
+    assert.ok(covered().includes(1));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

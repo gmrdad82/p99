@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SHOWN, cover, dumpCount, fold, ownScripts, problems, report, servedParts } from "./coverage.mjs";
+import { ARGS, CHECKS, SHOWN, cover, dumpCount, fold, ownScripts, problems, report, servedParts } from "./coverage.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -181,4 +181,13 @@ test("the dump count reads only JSON files, and a missing folder counts none", (
 test("app.js counts in the browser table, so its row shows whichever checks ran", () => {
   assert.ok(SHOWN.includes("app.js"));
   assert.deepEqual(servedParts("http://app.localhost:8790/_p99/app.js", ""), [{ name: "app.js", from: 0 }]);
+});
+
+test("every check the pass runs is a file here, and the board runs its checks against the real Worker rather than drafting a still", () => {
+  for (const check of CHECKS) assert.ok(existsSync(join(here, check)), check);
+  for (const check of Object.keys(ARGS)) assert.ok(CHECKS.includes(check), check);
+  assert.deepEqual(ARGS["board.mjs"], ["check", "--worker"]);
+  const board = readFileSync(join(here, "board.mjs"), "utf8");
+  assert.match(board, /process\.argv\[2\] === "check"/);
+  assert.match(board, /process\.argv\.includes\("--worker"\)/);
 });

@@ -399,8 +399,8 @@ async function startDev(at, vars, logName) {
     clearTimeout(late);
   };
   try {
-    await waitForHealth(child, `http://127.0.0.1:${at}`, logName);
     if (covering) cover = await coverWorker(at + 1000, join(work, "tmp"));
+    await waitForHealth(child, `http://127.0.0.1:${at}`, logName);
   } catch (error) {
     await stop();
     throw error;

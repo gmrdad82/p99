@@ -110,20 +110,54 @@ The two kinds of row count lines differently. A file the Worker bundle loaded co
 
 ### How it's measured
 
-- **The Worker:** `cd worker && npm run coverage` runs the worker suite (`npm test`, its stories included) with coverage on. The Worker runs inside workerd under `wrangler dev`, so node's own coverage can't see it: the suite opens wrangler's inspector port, starts V8's precise coverage once the Worker answers, and takes it just before each `wrangler dev` stops, the safety stories' backup Worker included. The counts are on wrangler's bundle and are mapped back to each file of worker/src through the bundle's source map. The node-side code the suite imports directly (license.js, tries.js) is read from node's own `NODE_V8_COVERAGE`. The table prints at the end and is kept in worker/.wrangler/coverage/table.md. The run fails with one line when a Worker dump couldn't be saved, when a workerd script's source map isn't found, or when worker.js maps no covered line, so a broken run never passes with a plausible table. The source map is read from beside the bundle, or else the newest one of that name under worker/.wrangler/tmp, where wrangler writes its bundles. The browser files under worker/src/web are served as text by the Worker, so they're counted by the browser pass, not here.
-- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap) and the widget stories (stories-widget) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md. The pass fails when a check took no coverage of a P99 script or when no line of worker/src/web ran. A check that fails keeps the coverage of the pages it closed before failing; the pages still open when it exits don't count.
-- The coverage tools' own unit tests run in the full gate: worker/test/coverage-lines.test.mjs inside `npm test`, and render/web/coverage.test.mjs right after it.
-- The Worker's module top level runs before the inspector attaches, so it's counted as run; a function that ran only before the attach and never again shows as not run.
+- **The Worker:** `cd worker && npm run coverage` runs the worker suite (`npm test`, its stories included) with coverage on. The Worker runs inside workerd under `wrangler dev`, so node's own coverage can't see it, and workerd keeps the inspector's `Profiler.enable` for its own CPU profiler, so V8's precise coverage can't be started through the inspector either. Instead the run starts workerd with V8's `--allow-natives-syntax` (through miniflare's `MINIFLARE_WORKERD_V8_FLAGS`), and the suite connects to wrangler's inspector port as each `wrangler dev` starts, before the first request: `%DebugCollectCoverage()` takes a function-level snapshot of what the module's load ran, `%DebugToggleBlockCoverage(true)` turns on V8's block counts, and `%DebugCollectCoverage()` takes those just before that `wrangler dev` stops, the safety stories' backup Worker included. The counts are on wrangler's bundle and are mapped back to each file of worker/src through the bundle's source map. The node-side code the suite imports directly (license.js, tries.js) is read from node's own `NODE_V8_COVERAGE`. The table prints at the end and is kept in worker/.wrangler/coverage/table.md. The run fails with one line when a Worker dump couldn't be saved, when a workerd script's source map isn't found, or when worker.js maps no covered line, so a broken run never passes with a plausible table. The source map is read from beside the bundle, or else the newest one of that name under worker/.wrangler/tmp, where wrangler writes its bundles. The browser files under worker/src/web are served as text by the Worker, so they're counted by the browser pass, not here.
+- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap), the widget stories (stories-widget) and the board's checks against the real Worker (`board.mjs check --worker`) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md. The pass fails when a check took no coverage of a P99 script or when no line of worker/src/web ran. A check that fails keeps the coverage of the pages it closed before failing; the pages still open when it exits don't count.
+- The unit tests run in the full gate: worker/test/coverage-lines.test.mjs and worker/test/order.test.mjs inside `npm test`, and render/web/coverage.test.mjs right after it. `npm run coverage` runs every worker/test/*.test.mjs under node's coverage first, then the suite.
+- A Worker that reloads during the run (a file under worker/ changed, package.json included) fails the run with one line: its counts start over in a new isolate, so they would read low.
+- A byte of the Worker counts as run when either snapshot ran it. The load snapshot is function-level, so a function the module's top level called counts whole, and a function compiled at load counts whole when it runs again later, without its blocks.
 
-### Numbers
+### Numbers, 2026-10-22 (main 0eab3bb plus this branch)
 
-Not measured yet: no run has happened on this branch. The integrator runs both commands once and pastes the two tables here, the Worker (worker/src) and the browser (worker/src/web).
+The Worker (worker/src), from the worker suite: 127 checks passed, 8 known reds, and the 24 unit tests. **93.3% of lines.**
+
+| File | Lines covered | Lines |
+|---|---|---|
+| src/boards.js | 97.74% | 576 |
+| src/deletes.js | 93.67% | 79 |
+| src/feed.js | 100.00% | 73 |
+| src/github.js | 65.03% | 346 |
+| src/hooks.js | 90.28% | 360 |
+| src/labels.js | 100.00% | 21 |
+| src/license.js | 100.00% | 8 |
+| src/links.js | 95.41% | 109 |
+| src/mail.js | 99.22% | 128 |
+| src/mailer.js | 96.88% | 256 |
+| src/order.js | 91.90% | 210 |
+| src/people.js | 97.35% | 151 |
+| src/standalone.js | 97.31% | 297 |
+| src/tries.js | 100.00% | 8 |
+| src/worker.js | 94.58% | 3209 |
+| **total** | **93.29%** | 5831 |
+
+The browser (worker/src/web), from the browser checks, the widget stories (50 passed, 6 known reds) and the board's 16 checks. **75.6% of lines.**
+
+| File | Lines covered | Lines |
+|---|---|---|
+| src/web/app.js | 0.00% | 350 |
+| src/web/avatar.js | 100.00% | 47 |
+| src/web/board.js | 86.12% | 742 |
+| src/web/p99.js | 100.00% | 30 |
+| src/web/panel.js | 83.02% | 1737 |
+| src/web/shot.js | 84.37% | 435 |
+| **total** | **75.58%** | 3341 |
 
 ### Uncovered critical paths, first in line
 
-Chosen by reading the suite, before any measured run. The first measured tables check them: a critical path that measures lower than these three goes on this list.
+Read from the measured run, by function.
 
-- Uploads' bad paths: a reused upload uid with other bytes, a bad uid, name or type, content that doesn't match its type, a region without a mark, and a body that differs from its signed hash. Covered now by worker/test/critical.mjs.
-- Signing's header checks: a missing or malformed auth or body hash, a clock off by more than a minute, a bad or missing actor, a signature over another path or method, and a JSON body that differs from its hash. Covered now by worker/test/critical.mjs.
-- Codes: minting's validation and its client_uid replay (a replay answers the first code, whatever the new body says), a repeated or unknown revoke, an authenticator on a revoked code, verify's 6-digit rule and its lockout after 10 wrong codes. Covered now by worker/test/critical.mjs.
-- Import's attachment and finish paths beyond the one import story in worker/test/run.mjs.
+- Codes: a code minted before codes were sealed is sealed on its first use (authoriseCode); no check runs it. The races where two identical code mints or item filings land at once (postCode, createIssue) are reachable only by concurrent requests.
+- Import: the event records' validation (importRecord, 25 of 62 lines not run), postImport's and finishImport's bad paths, and import's attachment bad paths.
+- A host's placement config: the above, off and strings fields of validConfig (16 of 48 lines not run).
+- GitHub: opening a GitHub issue from an item, and listing and deleting a repo's link (github.js at 65%).
+- The standalone app page (worker/src/web/app.js, 0%): no browser check opens it.
+- Covered on this branch, by worker/test/critical.mjs: uploads' bad paths, signing's header checks, minting, revoking and verifying codes, a JSON body streamed past its limit without a length, and renaming a person. Card order (worker/src/order.js) is checked against its upstream project's test vectors by worker/test/order.test.mjs.

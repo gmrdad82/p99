@@ -9,7 +9,8 @@ const repo = resolve(here, "../..");
 const worker = join(repo, "worker");
 const web = join(worker, "src", "web");
 
-export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs"];
+export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "board.mjs"];
+export const ARGS = { "board.mjs": ["check", "--worker"] };
 export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "app.js"];
 const SERVED = new Set(SHOWN);
 const CAPTURE_TAIL = "\nreturn exports;\n})();\n";
@@ -123,7 +124,7 @@ export function report(dir, files = fold(dir)) {
 
 function runCheck(check, dir) {
   const hook = pathToFileURL(join(here, "coverage-hook.mjs")).href;
-  const child = spawn(process.execPath, ["--import", hook, join(here, check)], {
+  const child = spawn(process.execPath, ["--import", hook, join(here, check), ...(ARGS[check] || [])], {
     cwd: here,
     stdio: "inherit",
     env: { ...process.env, P99_BROWSER_COVERAGE: dir },

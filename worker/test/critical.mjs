@@ -89,7 +89,7 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
   });
 
   await check("a signed JSON body that differs from its X-Content-SHA256 is refused and files nothing", async () => {
-    const title = `Swapped body ${randomUUID()}`;
+    const title = `Swapped body ${randomUUID().slice(0, 8)}`;
     const sent = Buffer.from(JSON.stringify(issueBody({ title })));
     const claimed = Buffer.from(JSON.stringify(issueBody({ title: "What was signed" })));
     await refusal(await signedFetch("POST", `/_p99/v1/issues?host=${here}`, { bytes: sent, hash: sha256(claimed) }), 401, /does not match/);
@@ -274,5 +274,59 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     await refusal((await browse("POST", "/verify", locked.secret, { totp: wrong })), 403, /too many wrong codes/);
     await refusal((await browse("POST", "/verify", locked.secret, { totp: totpOf(set.json.totp_key) })), 403, /too many wrong codes/);
     assert.equal((await browse("GET", "/me", locked.secret)).status, 428);
+  });
+  await check("a JSON body streamed without a length is cut off at its limit and refused, and the Worker keeps answering", async () => {
+    const chunk = Buffer.alloc(64 * 1024, 0x20);
+    const chunks = 5;
+    const path = `/_p99/v1/issues?host=${here}`;
+    const hash = sha256(Buffer.alloc(chunk.length * chunks, 0x20));
+    const actor = actorHeader(ADA);
+    const ts = Math.floor(Date.now() / 1000);
+    let sent = 0;
+    const body = new ReadableStream({
+      pull(controller) {
+        if (sent++ < chunks) controller.enqueue(new Uint8Array(chunk));
+        else controller.close();
+      },
+    });
+    const answer = await fetch(base + path, {
+      method: "POST",
+      duplex: "half",
+      body,
+      headers: {
+        "content-type": "application/json",
+        "x-p99-key-id": "p99",
+        "x-p99-actor": actor,
+        "x-content-sha256": hash,
+        "x-p99-auth": sign({ secret: keys.p99, ts, method: "POST", path, actor, hash }),
+      },
+    });
+    await refusal(answer, 413, /larger than 262144 bytes/);
+    assert.equal((await signedFetch("GET", "/_p99/v1/hosts")).status, 200);
+  });
+
+  await check("renaming a person moves their items and comments to the new e-mail, and refuses a bad or unchanged address", async () => {
+    const tag = randomUUID().slice(0, 8);
+    const from = `byron-${tag}@example.com`;
+    const to = `lovelace-${tag}@example.com`;
+    const before = { email: from, name: "Ada Lovelace", agent: false };
+    const title = `Renamed reporter ${tag}`;
+    const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { actor: before, body: issueBody({ title }) });
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    const said = await call("POST", `/_p99/v1/issues/${filed.json.key}/comments?host=${here}`, { actor: before, body: { client_uid: randomUUID(), body: "Still broken in Firefox." } });
+    assert.equal(said.status, 201, JSON.stringify(said.json));
+    await refusal(await call("POST", "/_p99/v1/people/rename", { body: { from: "not an e-mail", to } }), 400, /e-mail addresses/);
+    await refusal(await call("POST", "/_p99/v1/people/rename", { body: { from, to: 42 } }), 400, /e-mail addresses/);
+    await refusal(await call("POST", "/_p99/v1/people/rename", { body: { from, to: ` ${from.toUpperCase()}` } }), 400, /the same e-mail/);
+    const moved = await call("POST", "/_p99/v1/people/rename", { body: { from: ` ${from.toUpperCase()} `, to } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    assert.deepEqual({ from: moved.json.from, to: moved.json.to, items: moved.json.items, comments: moved.json.comments, assigned: moved.json.assigned }, { from, to, items: 1, comments: 1, assigned: 0 });
+    const d1 = stateFiles(state, "d1");
+    assert.deepEqual(readEach(d1, "SELECT reporter_email FROM items WHERE title = ?1", title), [{ reporter_email: to }]);
+    assert.deepEqual(readEach(d1, "SELECT count(*) AS n FROM comments WHERE author_email = ?1", from), [{ n: 0 }]);
+    assert.deepEqual(readEach(d1, "SELECT count(*) AS n FROM comments WHERE author_email = ?1", to), [{ n: 1 }]);
+    const again = await call("POST", "/_p99/v1/people/rename", { body: { from, to } });
+    assert.equal(again.status, 200, JSON.stringify(again.json));
+    assert.deepEqual([again.json.items, again.json.comments], [0, 0]);
   });
 }
