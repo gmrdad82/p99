@@ -3,10 +3,14 @@
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
 use crate::stub::{KEY, Reply, Req, Stub, scratch};
+
+const DEADLINE: Duration = Duration::from_secs(60);
 
 pub struct Out {
     pub code: Option<i32>,
@@ -155,6 +159,12 @@ impl Home {
         self.run(args, envs, None)
     }
 
+    pub fn runtime(&self) -> PathBuf {
+        let dir = self.dir.join("run");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     pub fn command(&self, args: &[&str], envs: &[(&str, &str)]) -> Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_p99"));
         cmd.args(args)
@@ -172,7 +182,10 @@ impl Home {
             .env("NO_COLOR", "1")
             .env_remove("P99_TOKEN")
             .env_remove("P99_AGENT")
-            .env_remove("P99_BROWSER")
+            .env("P99_BROWSER", self.dir.join("no-browser-in-tests"))
+            .env("XDG_RUNTIME_DIR", self.runtime())
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
             .env_remove("P99_RESEND_KEY")
             .env_remove("P99_LICENSE_STATE");
         for (k, v) in envs {
@@ -200,21 +213,42 @@ impl Home {
         }
         let mut stdout = child.stdout.take().unwrap();
         let mut stderr = child.stderr.take().unwrap();
+        let (done, finished) = mpsc::channel();
+        let closed = done.clone();
         let out = std::thread::spawn(move || {
             let mut s = String::new();
             let _ = stdout.read_to_string(&mut s);
+            let _ = closed.send(());
             s
         });
         let err = std::thread::spawn(move || {
             let mut s = String::new();
             let _ = stderr.read_to_string(&mut s);
+            let _ = done.send(());
             s
         });
+        let deadline = Instant::now() + DEADLINE;
+        let mut late = false;
+        for _ in 0..2 {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if finished.recv_timeout(left).is_err() {
+                late = true;
+                break;
+            }
+        }
+        if late {
+            let _ = child.kill();
+        }
         let status = child.wait().unwrap();
+        let (stdout, stderr) = (out.join().unwrap(), err.join().unwrap());
+        assert!(
+            !late,
+            "p99 {args:?} ran past {DEADLINE:?} and was killed\nstdout: {stdout}\nstderr: {stderr}"
+        );
         Out {
             code: status.code(),
-            stdout: out.join().unwrap(),
-            stderr: err.join().unwrap(),
+            stdout,
+            stderr,
         }
     }
 }

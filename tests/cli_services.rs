@@ -438,40 +438,59 @@ fn github_answers(name: &str, status: u16, body: serde_json::Value) -> Home {
     })
 }
 
+const SET: [&str; 7] = [
+    "github",
+    "set",
+    "shop.example.com",
+    "--repo",
+    "acme/shop",
+    "--token-ref",
+    "env:P99_TEST_GH",
+];
+const TOKEN: [(&str, &str); 1] = [("P99_TEST_GH", "ghp_example")];
+
+fn nothing_stored(h: &Home) {
+    assert!(h.stub.calls("PUT", SECRETS).is_empty());
+    assert!(h.stub.under("DELETE", SECRETS).is_empty());
+    assert!(
+        h.stub
+            .calls("PUT", "/_p99/v1/github/shop.example.com")
+            .is_empty()
+    );
+}
+
 #[test]
 fn github_set_refusals_stop_before_any_secret_is_stored() {
-    let token = [("P99_TEST_GH", "ghp_example")];
-    let set = [
-        "github",
-        "set",
-        "shop.example.com",
-        "--repo",
-        "acme/shop",
-        "--token-ref",
-        "env:P99_TEST_GH",
-    ];
-    github_answers("github-401", 401, json!({"message": "Bad credentials"}))
-        .p99_env(&set, &token)
-        .refused("GitHub refused the token; is it current?");
-    github_answers("github-404", 404, json!({"message": "Not Found"}))
-        .p99_env(&set, &token)
-        .refused(
-            "the token can't see acme/shop; give it this repository with Issues: read and write",
-        );
-    github_answers("github-500", 500, json!({"message": "Server Error"}))
-        .p99_env(&set, &token)
-        .refused("GitHub answered 500: Server Error");
-    github_answers("github-502", 502, json!(null))
-        .p99_env(&set, &token)
-        .refused("GitHub answered 502");
-    let off = github_answers(
+    let refused = |name: &str, status: u16, body: serde_json::Value, said: &str| {
+        let h = github_answers(name, status, body);
+        h.p99_env(&SET, &TOKEN).refused(said);
+        nothing_stored(&h);
+    };
+    refused(
+        "github-401",
+        401,
+        json!({"message": "Bad credentials"}),
+        "GitHub refused the token; is it current?",
+    );
+    refused(
+        "github-404",
+        404,
+        json!({"message": "Not Found"}),
+        "the token can't see acme/shop; give it this repository with Issues: read and write",
+    );
+    refused(
+        "github-500",
+        500,
+        json!({"message": "Server Error"}),
+        "GitHub answered 500: Server Error",
+    );
+    refused("github-502", 502, json!(null), "GitHub answered 502");
+    refused(
         "github-off",
         200,
         json!({"full_name": "acme/shop", "has_issues": false}),
+        "acme/shop has issues turned off",
     );
-    off.p99_env(&set, &token)
-        .refused("acme/shop has issues turned off");
-    assert!(off.stub.calls("PUT", SECRETS).is_empty());
     let h = home("github-bad");
     h.p99_env(
         &[
@@ -483,7 +502,7 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
             "--token-ref",
             "env:P99_TEST_GH",
         ],
-        &token,
+        &TOKEN,
     )
     .refused("no host is called gone.example.com; p99 hosts lists them");
     h.p99_env(
@@ -496,12 +515,12 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
             "--token-ref",
             "env:P99_TEST_GH",
         ],
-        &token,
+        &TOKEN,
     )
     .refused("acme is not a repository; give owner/name");
-    h.p99(&set)
+    h.p99(&SET)
         .refused("env:P99_TEST_GH: P99_TEST_GH is not set");
-    h.p99_env(&set, &[("P99_TEST_GH", "  ")])
+    h.p99_env(&SET, &[("P99_TEST_GH", "  ")])
         .refused("env:P99_TEST_GH is empty");
     h.p99(&[
         "github",
@@ -514,6 +533,49 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
     ])
     .refused("ghp_raw is not a reference; give op://vault/item/field or env:NAME");
     assert!(h.stub.seen().is_empty());
+}
+
+fn failing_after_the_secrets(
+    name: &str,
+    status: u16,
+    fails: &'static str,
+    path: &'static str,
+) -> Home {
+    Home::new(name, move |req: &Req| {
+        if req.is(fails, path) {
+            Reply::json(status, json!({"message": "down"}))
+        } else {
+            fake::any(req)
+        }
+    })
+}
+
+fn removed_both_secrets(h: &Home) {
+    assert_eq!(h.stub.calls("PUT", SECRETS).len(), 2);
+    let (token_name, hook_name) = (
+        format!("GITHUB_TOKEN_{}", tag("shop.example.com")),
+        format!("GITHUB_HOOK_{}", tag("shop.example.com")),
+    );
+    assert_eq!(
+        h.stub.calls("PUT", SECRETS)[0].json()["name"],
+        token_name.as_str()
+    );
+    assert_eq!(
+        h.stub
+            .calls("DELETE", &format!("{SECRETS}/{token_name}"))
+            .len(),
+        1
+    );
+    assert_eq!(
+        h.stub
+            .calls("DELETE", &format!("{SECRETS}/{hook_name}"))
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn github_set_takes_the_secrets_back_off_the_worker_when_a_later_step_fails() {
     let hook = Home::new("github-hook-422", |req: &Req| {
         if req.is("POST", "/gh/repos/acme/shop/hooks") {
             Reply::json(422, json!({"message": "Validation Failed"}))
@@ -521,23 +583,100 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
             fake::any(req)
         }
     });
-    hook.p99_env(&set, &token)
+    hook.p99_env(&SET, &TOKEN)
         .refused("GitHub answered 422: Validation Failed");
+    removed_both_secrets(&hook);
     assert!(
         hook.stub
             .calls("PUT", "/_p99/v1/github/shop.example.com")
             .is_empty()
     );
-    let listing = Home::new("github-hooks-500", |req: &Req| {
-        if req.is("GET", "/gh/repos/acme/shop/hooks") {
-            Reply::json(500, json!({"message": "down"}))
+    let listing =
+        failing_after_the_secrets("github-hooks-500", 500, "GET", "/gh/repos/acme/shop/hooks");
+    listing
+        .p99_env(&SET, &TOKEN)
+        .refused("GitHub answered 500: down");
+    removed_both_secrets(&listing);
+    let worker = failing_after_the_secrets(
+        "github-worker-503",
+        503,
+        "PUT",
+        "/_p99/v1/github/shop.example.com",
+    );
+    let out = worker.p99_env(&SET, &TOKEN);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(!out.stderr.contains("still holds"), "{}", out.stderr);
+    removed_both_secrets(&worker);
+    let second = Home::new("github-hook-secret-500", |req: &Req| {
+        if req.is("PUT", SECRETS)
+            && req.json()["name"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("GITHUB_HOOK_")
+        {
+            Reply::cf_error(500, 10013, "secret store down")
         } else {
             fake::any(req)
         }
     });
-    listing
-        .p99_env(&set, &token)
-        .refused("GitHub answered 500: down");
+    let out = second.p99_env(&SET, &TOKEN);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(!out.stderr.contains("still holds"), "{}", out.stderr);
+    removed_both_secrets(&second);
+    assert!(
+        second
+            .stub
+            .calls("GET", "/gh/repos/acme/shop/hooks")
+            .is_empty()
+    );
+}
+
+#[test]
+fn github_set_says_which_secret_stayed_when_it_cannot_take_it_back() {
+    let token_name = format!("GITHUB_TOKEN_{}", tag("shop.example.com"));
+    let hook_name = format!("GITHUB_HOOK_{}", tag("shop.example.com"));
+    let stuck = token_name.clone();
+    let h = Home::new("github-token-stuck", move |req: &Req| {
+        if req.is("POST", "/gh/repos/acme/shop/hooks") {
+            Reply::json(422, json!({"message": "Validation Failed"}))
+        } else if req.is("DELETE", &format!("{SECRETS}/{stuck}")) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            fake::any(req)
+        }
+    });
+    h.p99_env(&SET, &TOKEN).refused(&format!(
+        "GitHub answered 422: Validation Failed; the Worker still holds {token_name}: delete it in the Cloudflare dashboard, the Worker's Settings, Variables and Secrets"
+    ));
+    assert_eq!(
+        h.stub
+            .calls("DELETE", &format!("{SECRETS}/{hook_name}"))
+            .len(),
+        1
+    );
+    let both = Home::new("github-both-stuck", |req: &Req| {
+        if req.is("POST", "/gh/repos/acme/shop/hooks") {
+            Reply::json(422, json!({"message": "Validation Failed"}))
+        } else if req.under("DELETE", &format!("{SECRETS}/")) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            fake::any(req)
+        }
+    });
+    both.p99_env(&SET, &TOKEN).refused(&format!(
+        "GitHub answered 422: Validation Failed; the Worker still holds {token_name} and {hook_name}: delete them in the Cloudflare dashboard, the Worker's Settings, Variables and Secrets"
+    ));
+    let gone = Home::new("github-token-already-gone", |req: &Req| {
+        if req.is("POST", "/gh/repos/acme/shop/hooks") {
+            Reply::json(422, json!({"message": "Validation Failed"}))
+        } else if req.under("DELETE", &format!("{SECRETS}/")) {
+            Reply::cf_error(404, 10007, "not found")
+        } else {
+            fake::any(req)
+        }
+    });
+    gone.p99_env(&SET, &TOKEN)
+        .refused("GitHub answered 422: Validation Failed");
 }
 
 #[test]
@@ -822,13 +961,15 @@ fn email_set_refuses_a_sender_resend_would_not_send_from() {
     );
     run(&h, "nobody").refused("nobody is not an e-mail address");
     run(&h, "a b@example.com").refused("a b@example.com is not an e-mail address");
-    run(
-        &resend_answers("email-401", 401, json!({"message": "API key is invalid"})),
-        FROM,
-    )
-    .refused("Resend refused the key (401)");
-    run(&resend_answers("email-500", 500, json!({})), FROM)
-        .refused("Resend answered 500 for its domains");
+    for (name, status, said) in [
+        ("email-401", 401, "Resend refused the key (401)"),
+        ("email-500", 500, "Resend answered 500 for its domains"),
+    ] {
+        let refused = resend_answers(name, status, json!({"message": "API key is invalid"}));
+        run(&refused, FROM).refused(said);
+        assert!(d1(&refused).is_empty());
+        assert!(refused.stub.calls("PUT", SECRETS).is_empty());
+    }
     assert!(d1(&h).is_empty());
     assert!(h.stub.calls("PUT", SECRETS).is_empty());
     h.p99(&[

@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_reads_an_environment_variable_trimmed() {
+    fn resolve_ref_reads_an_environment_variable() {
         let path = std::env::var("PATH").unwrap();
         assert_eq!(resolve_ref("env:PATH").unwrap(), path.trim());
     }

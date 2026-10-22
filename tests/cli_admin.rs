@@ -1185,3 +1185,55 @@ fn announce_refusals_name_what_is_missing() {
     announce(&refused, &dir, &["announce", "--env", "staging"])
         .refused("no environment is called staging (400)");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_config_others_can_read_is_refused_before_any_call() {
+    use std::os::unix::fs::PermissionsExt;
+    let h = home("config-readable");
+    std::fs::set_permissions(h.file(), std::fs::Permissions::from_mode(0o644)).unwrap();
+    h.p99(&["hosts"]).refused(&format!(
+        "{} holds a secret and others can read it; run chmod 600 on it",
+        h.file().display()
+    ));
+    assert!(h.stub.seen().is_empty());
+    h.write("key = \n");
+    let out = h.p99(&["hosts"]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr
+            .starts_with(&format!("p99: {}: ", h.file().display())),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn the_harness_never_hands_p99_a_real_browser_or_display() {
+    let h = with_code("harness-env", "abcdefghjkmn");
+    let cmd = h.command(&["link", "shop.example.com"], &[]);
+    let envs: Vec<_> = cmd.get_envs().collect();
+    let set = |name: &str| {
+        envs.iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.map(std::path::PathBuf::from))
+    };
+    assert_eq!(set("DISPLAY"), Some(None));
+    assert_eq!(set("WAYLAND_DISPLAY"), Some(None));
+    let browser = set("P99_BROWSER").flatten().unwrap();
+    assert!(browser.starts_with(&h.dir) && !browser.exists());
+    assert!(
+        set("XDG_RUNTIME_DIR")
+            .flatten()
+            .unwrap()
+            .starts_with(&h.dir)
+    );
+    let out = h.p99(&["link", "shop.example.com"]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr
+            .starts_with(&format!("p99: {}: ", browser.display())),
+        "{}",
+        out.stderr
+    );
+}

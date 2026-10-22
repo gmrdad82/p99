@@ -361,7 +361,7 @@ fn show_prints_the_whole_thread_in_order() {
             fake::any(req)
         }
     });
-    let out = h.p99(&["show", "bug-12", "--host", "Shop.Example.com"]);
+    let out = h.p99(&["show", "bug-12", "--host", " Shop.Example.com "]);
     out.ok();
     let expected = "\
 BUG-12  Bug  Inbox
@@ -402,7 +402,7 @@ events
 ";
     assert_eq!(out.stdout, expected);
     let call = h.stub.call("GET", "/_p99/v1/issues/12");
-    assert_eq!(call.param("host"), Some("Shop.Example.com"));
+    assert_eq!(call.param("host"), Some("shop.example.com"));
     all_signed(&h);
 }
 
@@ -819,6 +819,8 @@ fn download_never_writes_outside_the_folder_a_name_points_to() {
     assert_eq!(out.json()["type"], "application/octet-stream");
     assert_eq!(out.json()["path"], "café.txt");
     assert!(h.dir.join("café.txt").exists());
+    assert!(!h.dir.join("../../café.txt").exists());
+    assert!(!h.dir.join("../café.txt").exists());
     let out = h.p99(&["download", "2"]);
     out.ok();
     assert_eq!(out.stdout, "1 bytes saved to file-2\n");

@@ -231,15 +231,20 @@ fn set(
     let (client, account) = client_for(config, global, Some(&host))?;
     let secret = new_secret()?;
     let (token_name, hook_name) = secret_names(&host);
-    crate::cloudflare::worker_secret(config, &account, &token_name, &token)?;
-    crate::cloudflare::worker_secret(config, &account, &hook_name, &secret)?;
     let url = webhook_url(&host);
-    let hook = github.hook(&repo, &url, &secret)?;
-    let entry: Value = client.json(
-        "PUT",
-        &format!("/v1/github/{host}"),
-        Some(json!({"repo": repo, "hook_id": hook})),
-    )?;
+    crate::cloudflare::worker_secret(config, &account, &token_name, &token)?;
+    let linked =
+        crate::cloudflare::worker_secret(config, &account, &hook_name, &secret).and_then(|()| {
+            let hook = github.hook(&repo, &url, &secret)?;
+            let entry: Value = client.json(
+                "PUT",
+                &format!("/v1/github/{host}"),
+                Some(json!({"repo": repo, "hook_id": hook})),
+            )?;
+            Ok((hook, entry))
+        });
+    let (hook, entry) =
+        linked.map_err(|error| unstore(config, &account, &[&token_name, &hook_name], error))?;
     if global.json {
         let mut answer = json!({"github": entry, "webhook": hook.is_some()});
         if hook.is_none() {
@@ -268,6 +273,22 @@ fn set(
         }
     }
     Ok(())
+}
+
+fn unstore(config: &Config, account: &str, names: &[&str], error: String) -> String {
+    let stayed: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| crate::cloudflare::drop_worker_secret(config, account, name).is_err())
+        .collect();
+    if stayed.is_empty() {
+        return error;
+    }
+    format!(
+        "{error}; the Worker still holds {}: delete {} in the Cloudflare dashboard, the Worker's Settings, Variables and Secrets",
+        stayed.join(" and "),
+        if stayed.len() == 1 { "it" } else { "them" }
+    )
 }
 
 fn show(config: &Config, global: &Global) -> Result<(), String> {

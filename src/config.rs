@@ -397,4 +397,119 @@ mod tests {
         );
         assert_eq!(config.me_for("custom").email, "ada@example.com");
     }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("tmp")
+            .join(format!("p99-config-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn written(dir: &Path, text: &str, mode: u32) -> PathBuf {
+        let file = dir.join("config.toml");
+        fs::write(&file, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        file
+    }
+
+    const INLINE: &str = r#"
+        [accounts.main]
+        account_id = "a"
+        token = "cf-inline-token"
+        key = "op://Vault/P99/key"
+        "#;
+
+    const REFERENCES: &str = r#"
+        [accounts.main]
+        account_id = "a"
+        token = "op://Vault/Cloudflare/token"
+        key = "op://Vault/P99/key"
+        "#;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_holding_a_secret_others_can_read_is_refused() {
+        let dir = scratch("readable");
+        for mode in [0o644, 0o640, 0o604] {
+            let file = written(&dir, INLINE, mode);
+            assert_eq!(
+                Config::load_from(&file).err().unwrap(),
+                format!(
+                    "{} holds a secret and others can read it; run chmod 600 on it",
+                    file.display()
+                )
+            );
+        }
+        let file = written(&dir, INLINE, 0o600);
+        assert_eq!(
+            Config::load_from(&file).unwrap().accounts["main"].token,
+            "cf-inline-token"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_readable_config_of_references_only_still_loads() {
+        let dir = scratch("references");
+        let file = written(&dir, REFERENCES, 0o644);
+        let config = Config::load_from(&file).unwrap();
+        assert_eq!(config.accounts["main"].token, "op://Vault/Cloudflare/token");
+        assert!(!config.has_inline_secret());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_licence_key_counts_as_an_inline_secret() {
+        let config: Config =
+            toml::from_str(&format!("license = \"P99-KEY\"\n{REFERENCES}")).unwrap();
+        assert!(config.has_inline_secret());
+        let config: Config = toml::from_str(INLINE).unwrap();
+        assert!(config.has_inline_secret());
+    }
+
+    #[test]
+    fn malformed_toml_is_named_with_its_file() {
+        let dir = scratch("malformed");
+        let file = written(&dir, "key = \n", 0o600);
+        let error = Config::load_from(&file).err().unwrap();
+        assert!(
+            error.starts_with(&format!("{}: ", file.display())),
+            "{error}"
+        );
+        assert!(
+            error.len() > file.display().to_string().len() + 2,
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_config_that_cannot_be_read_is_named_with_its_file() {
+        let dir = scratch("unreadable");
+        let file = dir.join("config.toml");
+        fs::create_dir_all(&file).unwrap();
+        let error = Config::load_from(&file).err().unwrap();
+        assert!(
+            error.starts_with(&format!("{}: ", file.display())),
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_config_is_the_empty_default() {
+        let dir = scratch("missing");
+        let config = Config::load_from(&dir.join("config.toml")).unwrap();
+        assert!(config.accounts.is_empty() && config.hosts.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

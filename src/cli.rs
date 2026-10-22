@@ -1312,11 +1312,12 @@ fn print_thread(thread: &Thread) {
 }
 
 fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String> {
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let thread = match demo(global) {
         Some(mut d) => d.thread(&key_of(&args.key)?)?,
-        None => client_for(config, global, args.host.as_deref())?
+        None => client_for(config, global, host.as_deref())?
             .0
-            .with_host(args.host.as_deref())
+            .with_host(host.as_deref())
             .thread(&key_of(&args.key)?)?,
     };
     if global.json {
