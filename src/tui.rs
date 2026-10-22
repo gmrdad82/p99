@@ -77,7 +77,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
     let source = if global.demo {
         Source::demo(if headless { Duration::ZERO } else { PACE })
     } else {
-        Source::live(global.account.as_deref(), global.agent)
+        Source::live(global.account.as_deref(), global.agent.clone())
     };
     let state = if global.demo {
         badge::demo_state()

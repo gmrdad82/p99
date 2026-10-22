@@ -1,3 +1,4 @@
+mod card;
 mod delete;
 mod merge;
 
@@ -31,9 +32,12 @@ pub struct Global {
     #[arg(
         long,
         global = true,
-        help = "act as an agent of the configured person, shown as their name with a * (or P99_AGENT=1)"
+        value_name = "label",
+        num_args = 0..=1,
+        require_equals = true,
+        help = "act as an agent of the configured person, shown as their name with 🤖; --agent=<label> says which (or P99_AGENT=<label>)"
     )]
-    pub agent: bool,
+    pub agent: Option<Option<String>>,
     #[arg(
         long,
         global = true,
@@ -77,6 +81,16 @@ pub enum Command {
     Status(StatusArgs),
     #[command(about = "move an item to a label on your boards, or beside another card")]
     Move(crate::boards::MoveArgs),
+    #[command(about = "list cards in lane order, from the Cards board")]
+    Cards(card::CardsArgs),
+    #[command(
+        about = "show, file, comment on, move or link one card",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
+    Card(card::CardArgs),
+    #[command(about = "list the project names cards carry")]
+    Projects,
     #[command(about = "list your boards and others'; set one's columns")]
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print a board's columns and cards")]
@@ -389,6 +403,19 @@ pub struct EditArgs {
     pub text_file: Option<PathBuf>,
     #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
+    #[arg(
+        long,
+        value_name = "name",
+        conflicts_with_all = ["title", "text", "text_file", "no_project"],
+        help = "make the item a card of this project, in lane new"
+    )]
+    pub project: Option<String>,
+    #[arg(
+        long,
+        conflicts_with_all = ["title", "text", "text_file"],
+        help = "make a card a plain item again, back in Inbox"
+    )]
+    pub no_project: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -447,6 +474,9 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Move(a) => crate::boards::run_move(&config, global, &a),
         Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
+        Command::Cards(a) => card::cards(&config, global, &a),
+        Command::Card(a) => card::card(&config, global, &a),
+        Command::Projects => card::projects(&config, global),
         Command::Assign(a) => assign(&config, global, &a),
         Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
@@ -578,7 +608,7 @@ pub(crate) fn client_for(
     host: Option<&str>,
 ) -> Result<(Client, String), String> {
     let account = account_of(config, global, host)?;
-    let client = Client::for_account(config, &account, global.agent)?.aimed(host);
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(host);
     Ok((client, account))
 }
 
@@ -663,7 +693,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             },
         );
     }
-    let agent = global.agent;
+    let agent = &global.agent;
     let holder = crate::config::key_holder(config, global.account.as_deref())?;
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
@@ -781,7 +811,7 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     );
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(config, &account, global.agent)?.aimed(Some(&host));
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
     let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
@@ -1143,7 +1173,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         args.host.clone()
     };
     let scope = if args.mine { "mine" } else { "all" };
-    let agent = global.agent;
+    let agent = &global.agent;
     let limit = args.limit as usize;
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
@@ -1458,6 +1488,9 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
 }
 
 fn edit(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String> {
+    if args.project.is_some() || args.no_project {
+        return card::edit_project(config, global, args);
+    }
     let body = match (&args.text, &args.text_file) {
         (Some(text), _) => Some(text_arg(text)?),
         (None, Some(path)) if path.as_os_str() == "-" => Some(read_stdin()?.trim_end().to_owned()),

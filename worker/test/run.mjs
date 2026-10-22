@@ -21,6 +21,9 @@ import { licenceStories } from "./stories/licence.mjs";
 import { safetyStories } from "./stories/safety.mjs";
 import { criticalChecks } from "./critical.mjs";
 import { coverWorker } from "./inspect.mjs";
+import { cardReadChecks } from "./cards-read.mjs";
+import { cardWriteChecks } from "./cards-write.mjs";
+import { markChecks } from "./marks.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -1244,6 +1247,9 @@ async function run() {
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await widgetStories({ base, call, browse, mint, check, red, issueBody, here, there, state, wrangler, root });
   await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });
+  await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
+  await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
+  await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);

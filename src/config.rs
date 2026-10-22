@@ -443,13 +443,13 @@ fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<Strin
     }
 }
 
-pub fn agent(flag: bool, me: &Me) -> bool {
-    if flag {
-        return true;
+pub fn agent(flag: &Option<Option<String>>, me: &Me) -> (bool, Option<String>) {
+    if flag.is_some() {
+        return (true, None);
     }
     match env::var("P99_AGENT") {
-        Ok(value) if !value.trim().is_empty() => value.trim() != "0",
-        _ => me.agent,
+        Ok(value) if !value.trim().is_empty() => (value.trim() != "0", None),
+        _ => (me.agent, None),
     }
 }
 

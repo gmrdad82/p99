@@ -31,6 +31,9 @@ import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, sign
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
 import { chars, fold, isChars, searchMatch } from "./text.js";
+import { actorVia, useKit as useCardKit } from "./cards.js";
+import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
+import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -378,8 +381,10 @@ function decodeActor(header) {
   if (!isEmail(actor.email)) return null;
   if (!isText(actor.name, 0, 200)) return null;
   if (actor.agent !== null && actor.agent !== undefined && typeof actor.agent !== "boolean") return null;
+  if (actor.via !== null && actor.via !== undefined && typeof actor.via !== "string") return null;
   const email = actor.email.toLowerCase();
-  return { email, name: actor.name || email, agent: actor.agent === true };
+  const agent = actor.agent === true;
+  return { email, name: actor.name || email, agent, via: agent ? actorVia(actor.via) : null };
 }
 
 function isLocal(url) {
@@ -1551,6 +1556,7 @@ async function listIssues(c) {
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
   await labelFilters(c, params, q, where);
+  cardFilters(c, params, q, where);
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1890,6 +1896,7 @@ async function patchIssue(c, rawKey) {
   const body = await readJson(c, MAX_JSON_BYTES);
   refuseGone(body);
   const row = await loadItem(c, rawKey);
+  if (Object.prototype.hasOwnProperty.call(body, "project")) return patchProject(c, row, body);
   const reporter = row.reporter_email === c.actor.email;
   const fresh = Boolean(row.open) && row.label_role === "inbox";
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
@@ -3132,11 +3139,14 @@ const ITEM_ROUTES = [
   ["POST", /^\/merge$/, postMerge],
 ];
 
+const CARD_ROUTES = [...CARD_READS, ...CARD_WRITES];
+
 const BROWSER_ROUTES = [
   ["GET", /^\/me$/, getMe],
   ["POST", /^\/verify$/, postVerify],
   ...ITEM_ROUTES,
   ...BOARD_ROUTES,
+  ...CARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
   ...peopleRoutes(),
 ];
@@ -3162,6 +3172,7 @@ const SIGNED_ROUTES = [
   ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
   ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
+  ...CARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ["GET", /^\/hosts$/, listHosts, {}],
   ["PUT", /^\/hosts\/([^/]+)$/, putHost, {}],
   ["DELETE", /^\/hosts\/([^/]+)$/, deleteHost, {}],
@@ -3188,6 +3199,7 @@ const SIGNED_ROUTES = [
 useKit({
   MAX_JSON_BYTES,
   encoder,
+  cardSide,
   clean,
   eventStatement,
   fail,
@@ -3201,11 +3213,42 @@ useKit({
   loadDirectory,
   parseKey,
   readJson,
+  refuseAgentClose,
   requireEmptyBody,
   requireManager,
   sendMail,
   sha256Hex,
   REPORTERS_TOKEN,
+});
+
+useCardKit({
+  ITEM_SELECT,
+  MAX_BODY_CHARS,
+  MAX_JSON_BYTES,
+  MAX_TITLE_CHARS,
+  KIND_PREFIXES,
+  clean,
+  eventStatement,
+  fail,
+  firstRows,
+  isText,
+  isUid,
+  issueResponse,
+  json,
+  keyOf,
+  loadItem,
+  parseKey,
+  postComment,
+  push,
+  query,
+  readJson,
+  readStatement,
+  requireEmptyBody,
+  requireManager,
+  runHandler,
+  searchText,
+  summaryOf,
+  validTitle,
 });
 
 useGithubKit({
@@ -3314,7 +3357,7 @@ function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
     signed: false,
     bodyHash: declaredHash && /^[0-9a-f]{64}$/.test(declaredHash) ? declaredHash : null,
     code,
-    actor: { email: code.email.toLowerCase(), name: code.name, agent: false },
+    actor: { email: code.email.toLowerCase(), name: code.name, agent: false, via: null },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
     scope: { all: false, host: hostRow.host },
     hostRow,

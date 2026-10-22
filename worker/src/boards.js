@@ -22,7 +22,7 @@ export const LABEL_COLUMNS = "lb.name AS label_name, lb.role AS label_role, lb.c
 export const LABEL_JOIN = "JOIN labels lb ON lb.id = i.label_id";
 
 const MIN_COLUMNS = 3;
-const MAX_COLUMNS = 5;
+const MAX_COLUMNS = 6;
 const MAX_BOARDS = 3;
 const MAX_LABELS = 200;
 const MAX_NAME_CHARS = 100;
@@ -259,7 +259,7 @@ export async function getBoard(c, rawId) {
       (SELECT i.id, i.kind, i.title, l.name AS label, i.assignee, CASE WHEN i.assignee IS NULL THEN NULL ELSE ${nameSql("i.assignee")} END AS assignee_username,
          bp.key AS ord, bc.position AS col
        FROM board_columns bc JOIN labels l ON l.id = bc.label_id
-       JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?1 OR i.host = ?2)
+       JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?1 OR i.host = ?2) AND ${K.cardSide("b", "i")}
        LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
        WHERE bc.board_id = b.id
        ORDER BY bc.position, bp.key IS NOT NULL, bp.key, i.id DESC) x
@@ -417,6 +417,7 @@ function itemMail(c, row, closed, resolution, mergedInto) {
 }
 
 function labelStatements(c, row, to, opts = {}) {
+  K.refuseAgentClose(c, row, to);
   const { DB } = c.env;
   const closes = Boolean(to.closes);
   const wasOpen = Boolean(row.open);
@@ -574,7 +575,7 @@ export async function postMove(c) {
     hasBoard
       ? DB.prepare(
           `SELECT i.id, i.label_id, bp.key FROM boards b JOIN board_columns bc ON bc.board_id = b.id
-           JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?2 OR i.host = ?3)
+           JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?2 OR i.host = ?3) AND ${K.cardSide("b", "i")}
            LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
            WHERE b.id = ?1 ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`,
         ).bind(board, ...scopeBinds(v))

@@ -85,7 +85,7 @@ pub struct Live {
     config: Config,
     accounts: Vec<String>,
     holder: Option<String>,
-    agent: bool,
+    agent: Option<Option<String>>,
     clients: OnceLock<Result<Vec<Client>, String>>,
     listeners: Mutex<Vec<Waker<Msg>>>,
 }
@@ -98,7 +98,7 @@ impl Source {
         Source::Demo(Arc::new(Mutex::new(Demo::new())), pace)
     }
 
-    pub fn live(account: Option<&str>, agent: bool) -> Source {
+    pub fn live(account: Option<&str>, agent: Option<Option<String>>) -> Source {
         let config = match Config::load() {
             Ok(config) => config,
             Err(why) => return Source::Broken(why),
@@ -340,7 +340,7 @@ impl Live {
                 self.accounts
                     .iter()
                     .map(|name| {
-                        Client::among(&self.config, name, self.holder.as_deref(), self.agent)
+                        Client::among(&self.config, name, self.holder.as_deref(), &self.agent)
                     })
                     .collect()
             })
