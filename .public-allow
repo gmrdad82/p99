@@ -75,3 +75,4 @@ commit/7872138cc8a4:tests/cli_services.rs:154 the tests check the --url-ref erro
 commit/8d51052cc978:tests/cli_admin.rs:911 the tests check the p99 link error that names the reference form it reads, as waived at its current line
 commit/8d51052cc978:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
 commit/bc73ea7941c0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
+commit/6045d3de82ac:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
