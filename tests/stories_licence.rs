@@ -202,7 +202,6 @@ fn story_a_studio_customer_pastes_the_mailed_key_and_must_see_studio_with_the_li
 }
 
 #[test]
-#[ignore = "red until fixed: a key with a UTF-8 BOM before its armour is refused as not a key"]
 fn story_a_key_copied_from_a_windows_file_or_an_html_mail_must_still_verify() {
     let issuer = Issuer::new(&SEED);
     let token = issuer.key(&Sale::customer("studio", "2027-03-31"));
@@ -229,7 +228,6 @@ fn story_a_key_copied_from_a_windows_file_or_an_html_mail_must_still_verify() {
 }
 
 #[test]
-#[ignore = "red until fixed: a key wrapped so one line holds only a hyphen fails its signature"]
 fn story_a_key_wrapped_so_a_line_holds_only_a_hyphen_must_still_verify() {
     let issuer = Issuer::new(&SEED);
     let (token, at) = (1..10_000)
