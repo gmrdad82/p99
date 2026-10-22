@@ -92,3 +92,48 @@ pub fn resolve_ref(raw: &str) -> Result<String, String> {
     }
     Ok(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_the_op_scheme_is_a_reference() {
+        assert!(is_reference("op://vault/item/field"));
+        assert!(!is_reference("OP://vault/item/field"));
+        assert!(!is_reference(" op://vault/item/field"));
+        assert!(!is_reference("env:P99_TOKEN"));
+        assert!(!is_reference(""));
+    }
+
+    #[test]
+    fn a_plain_value_reads_as_itself_without_op() {
+        assert_eq!(read("plain-secret").unwrap(), "plain-secret");
+        assert_eq!(read("").unwrap(), "");
+        assert_eq!(read(" spaced \n").unwrap(), " spaced \n");
+    }
+
+    #[test]
+    fn resolve_ref_reads_an_environment_variable() {
+        let path = std::env::var("PATH").unwrap();
+        assert_eq!(resolve_ref("env:PATH").unwrap(), path.trim());
+    }
+
+    #[test]
+    fn resolve_ref_names_an_unset_variable() {
+        assert_eq!(
+            resolve_ref("env:P99_SURELY_NEVER_SET_7F3A").unwrap_err(),
+            "env:P99_SURELY_NEVER_SET_7F3A: P99_SURELY_NEVER_SET_7F3A is not set"
+        );
+    }
+
+    #[test]
+    fn resolve_ref_refuses_a_value_that_is_no_reference() {
+        for raw in ["ghp_raw", "", "env", "op:/vault/item"] {
+            assert_eq!(
+                resolve_ref(raw).unwrap_err(),
+                format!("{raw} is not a reference; give op://vault/item/field or env:NAME")
+            );
+        }
+    }
+}

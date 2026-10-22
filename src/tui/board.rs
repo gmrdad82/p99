@@ -11,7 +11,7 @@ use pito_tui::ratatui::{
     style::{Modifier, Style},
     text::Line,
 };
-use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, text};
+use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, Span, text};
 
 use super::Msg;
 use super::badge::Badge;
@@ -1018,6 +1018,7 @@ impl Screen<Msg> for Board {
     }
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
+        self.moment = self.moment.max(cx.now());
         match event {
             Msg::Board(slug, result) => {
                 let asked = slug.is_some() && slug == self.wanted;
@@ -1110,6 +1111,7 @@ impl Screen<Msg> for Board {
     }
 
     fn tick(&mut self, cx: &mut Cx<'_, Msg>) {
+        self.moment = self.moment.max(cx.now());
         if self.stale.is_some_and(|due| due <= self.moment) {
             self.stale = None;
             if !self.reading {
@@ -1119,6 +1121,7 @@ impl Screen<Msg> for Board {
     }
 
     fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        self.moment = self.moment.max(cx.now());
         if self.reading_thread() {
             self.reader.key(key, cx);
             return;
@@ -1180,6 +1183,7 @@ impl Screen<Msg> for Board {
     }
 
     fn mouse(&mut self, mouse: MouseEvent, _area: Rect, cx: &mut Cx<'_, Msg>) {
+        self.moment = self.moment.max(cx.now());
         if self.view.is_some() && !self.reading_thread() {
             self.mouse_key(mouse, cx);
         }
@@ -1277,8 +1281,8 @@ impl Screen<Msg> for Board {
         Some((view.board.name.clone(), self.palette.accent))
     }
 
-    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
-        self.badge.status(self.status())
+    fn badge(&self) -> &[Span] {
+        self.badge.parts()
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
@@ -1315,3 +1319,6 @@ impl Screen<Msg> for Board {
         self.rows[self.column]
     }
 }
+
+#[cfg(test)]
+mod tests;

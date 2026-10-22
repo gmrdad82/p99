@@ -146,10 +146,14 @@ impl Github {
                     .send_json(body.cloned().unwrap_or(Value::Null))
             }
         };
-        let mut response = response.map_err(|e| format!("GitHub {path}: {e}"))?;
+        let bare = path.split('?').next().unwrap_or(path);
+        let mut response = response.map_err(|e| format!("GitHub {bare}: {e}"))?;
         let status = response.status().as_u16();
-        let value = response.body_mut().read_json().unwrap_or(Value::Null);
-        Ok((status, value))
+        let read = response.body_mut().read_json().ok();
+        if (200..300).contains(&status) && read.is_none() {
+            return Err(format!("GitHub {bare}: the answer could not be read"));
+        }
+        Ok((status, read.unwrap_or(Value::Null)))
     }
 
     fn hook(&self, repo: &str, url: &str, secret: &str) -> Result<Option<i64>, String> {
@@ -229,17 +233,35 @@ fn set(
     }
     let repo = found["full_name"].as_str().unwrap_or(repo).to_owned();
     let (client, account) = client_for(config, global, Some(&host))?;
+    let listed: Value = client.json("GET", "/v1/github", None)?;
+    let relink = listed["hosts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|h| h["host"].as_str() == Some(host.as_str()));
     let secret = new_secret()?;
     let (token_name, hook_name) = secret_names(&host);
-    crate::cloudflare::worker_secret(config, &account, &token_name, &token)?;
-    crate::cloudflare::worker_secret(config, &account, &hook_name, &secret)?;
     let url = webhook_url(&host);
-    let hook = github.hook(&repo, &url, &secret)?;
-    let entry: Value = client.json(
-        "PUT",
-        &format!("/v1/github/{host}"),
-        Some(json!({"repo": repo, "hook_id": hook})),
-    )?;
+    crate::cloudflare::worker_secret(config, &account, &token_name, &token)?;
+    let linked =
+        crate::cloudflare::worker_secret(config, &account, &hook_name, &secret).and_then(|()| {
+            let hook = github.hook(&repo, &url, &secret)?;
+            let entry: Value = client.json(
+                "PUT",
+                &format!("/v1/github/{host}"),
+                Some(json!({"repo": repo, "hook_id": hook})),
+            )?;
+            Ok((hook, entry))
+        });
+    let (hook, entry) = linked.map_err(|error| {
+        if relink {
+            format!(
+                "{error}; {host} was linked before, so its secrets stay and its link may need p99 github set again"
+            )
+        } else {
+            unstore(config, &account, &[&token_name, &hook_name], error)
+        }
+    })?;
     if global.json {
         let mut answer = json!({"github": entry, "webhook": hook.is_some()});
         if hook.is_none() {
@@ -268,6 +290,22 @@ fn set(
         }
     }
     Ok(())
+}
+
+fn unstore(config: &Config, account: &str, names: &[&str], error: String) -> String {
+    let stayed: Vec<&str> = names
+        .iter()
+        .copied()
+        .filter(|name| crate::cloudflare::drop_worker_secret(config, account, name).is_err())
+        .collect();
+    if stayed.is_empty() {
+        return error;
+    }
+    format!(
+        "{error}; the Worker still holds {}: delete {} in the Cloudflare dashboard, the Worker's Settings, Variables and Secrets",
+        stayed.join(" and "),
+        if stayed.len() == 1 { "it" } else { "them" }
+    )
 }
 
 fn show(config: &Config, global: &Global) -> Result<(), String> {

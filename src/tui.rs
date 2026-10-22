@@ -6,6 +6,8 @@ pub mod demo;
 mod history;
 mod inbox;
 mod source;
+#[cfg(test)]
+mod tests;
 
 use std::io::Write;
 use std::path::Path;
@@ -349,7 +351,11 @@ fn palette() -> Palette {
 }
 
 fn tui(source: Source, state: State) -> Tui<Msg> {
-    let badge = Badge::new(state, &palette());
+    build(source, state, palette())
+}
+
+fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
+    let badge = Badge::new(state, &palette);
     Tui::new(NAME, VERSION, ACCENT)
         .title("P99")
         .words(words())
@@ -361,15 +367,15 @@ fn tui(source: Source, state: State) -> Tui<Msg> {
         .modes(Modes::new().mouse(true))
         .screen(
             Section::new("Inbox"),
-            Inbox::new(source.clone(), palette()).badge(badge.clone()),
+            Inbox::new(source.clone(), palette).badge(badge.clone()),
         )
         .screen(
             Section::new("Board"),
-            Board::new(source.clone(), palette()).badge(badge.clone()),
+            Board::new(source.clone(), palette).badge(badge.clone()),
         )
         .screen(
             Section::new("Codes"),
-            Codes::new(source, palette()).badge(badge),
+            Codes::new(source, palette).badge(badge),
         )
 }
 

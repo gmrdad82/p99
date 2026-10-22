@@ -709,3 +709,6 @@ fn codes() -> Vec<Code> {
     blog.created_at = iso(NOW - 2 * DAY);
     vec![ada, old, grace, blog]
 }
+
+#[cfg(test)]
+pub(super) mod tests;

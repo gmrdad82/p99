@@ -5,7 +5,7 @@ use pito_tui::crossterm::event::{KeyCode, KeyEvent};
 use pito_tui::footer::{Hint, InputBar};
 use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style, text::Line};
-use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Turn};
+use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Span, Turn};
 
 use crate::wire::Code;
 
@@ -106,8 +106,8 @@ impl Screen<Msg> for Codes {
         self.badge.easing()
     }
 
-    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
-        self.badge.status(None)
+    fn badge(&self) -> &[Span] {
+        self.badge.parts()
     }
 
     fn legend(&self) -> Option<&str> {
@@ -238,3 +238,6 @@ impl Screen<Msg> for Codes {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests;

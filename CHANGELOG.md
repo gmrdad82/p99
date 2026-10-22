@@ -2,6 +2,36 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.9.4 — 2026-10-22
+
+### Added
+
+- `P99_KEY` in the environment signs the account in use's requests to the Worker, ahead of its configured key or password-manager reference, so scripts and agents run without an unlock; other accounts keep their own key, and the key is never printed. docs/config.md has it next to `P99_TOKEN`.
+
+### Changed
+
+- The web board's drag stays under 8.33 ms a frame on columns of 70 and more cards.
+- A drop ends even when the site's page stops pointer events from reaching the document.
+- During a mouse drag the board holds the focus, so Escape cancels a drag that crossed columns.
+
+### Fixed
+
+- `p99 show --host` takes the host in any case, as the other commands do.
+- A failed `p99 github set` takes back the secrets it stored on the Worker, or says which one stayed and how to remove it.
+
+## v1.9.3 — 2026-10-22
+
+### Fixed
+
+- The TUI's lane header rule now runs the full width of its lane.
+- The site button's "+" stays readable in dark mode on sites with an accent theme.
+
+### Changed
+
+- The TUI's licence badge sits at the right end of the header rule through pito-tui 1.1.0, and costs nothing per frame once it has eased in.
+- `p99 migrate --plan` counts the old tag rows it would leave in place.
+- The README's board and arrives clips show 1.9.2: label columns, a card carried and dropped, the board picker, a watched board, and an item arriving and opened.
+
 ## v1.9.2 — 2026-10-21
 
 ### Added
