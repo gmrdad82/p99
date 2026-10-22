@@ -862,11 +862,11 @@ fn v110_rows() -> Vec<(&'static str, Value)> {
             ]),
         ),
         (
-            "AS first",
+            "l.closes AS closes",
             json!([
-                { "label": "Inbox", "role": "inbox", "closes": 0, "items": 3, "open": 1, "first": 1 },
-                { "label": "QA ready", "role": null, "closes": 0, "items": 1, "open": 1, "first": 0 },
-                { "label": "Shipped", "role": null, "closes": 1, "items": 4, "open": 1, "first": 0 }
+                { "label": "Inbox", "role": "inbox", "closes": 0, "items": 3, "open": 1 },
+                { "label": "QA ready", "role": null, "closes": 0, "items": 1, "open": 1 },
+                { "label": "Shipped", "role": null, "closes": 1, "items": 4, "open": 1 }
             ]),
         ),
         (
@@ -953,8 +953,7 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
 }
 
 #[test]
-fn a_cards_board_with_odd_columns_stops_the_plan_and_the_deploy_with_its_remedy_and_writes_nothing()
-{
+fn a_cards_board_with_odd_columns_is_reset_to_the_seven_lanes_and_the_plan_says_so() {
     let mut rows = vec![(
         "AS placed",
         json!([
@@ -965,29 +964,17 @@ fn a_cards_board_with_odd_columns_stops_the_plan_and_the_deploy_with_its_remedy_
     rows.extend(v110_rows().into_iter().skip(1));
     rows.extend(v19_rows());
     let h = home("fold-odd", &plain_config(), live(&SHIPPED[..15], rows));
-    let stop = "p99: the Cards board has 4 columns where the one board needs six (New, Planned, In progress, Stuck, Landed, Done) or all seven: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again\n";
 
     let plan = h.run(&["migrate", "--plan"]);
-    assert_eq!(plan.code, Some(1), "{}", plan.stdout);
-    assert!(plan.stdout.is_empty(), "{}", plan.stdout);
-    assert_eq!(plan.stderr, stop);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    assert!(plan.stdout.contains("  the Cards board has columns other than the lanes, so they are set to the seven lanes; a card on a column that isn't one moves as below: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{}", plan.stdout);
+    assert!(!plan.stdout.contains("boards set"), "{}", plan.stdout);
+    assert!(!plan.stderr.contains("boards set"), "{}", plan.stderr);
 
-    let deploy = h.run(&["deploy", "--accept-plan", &"a".repeat(64)]);
-    assert_eq!(deploy.code, Some(1));
-    assert!(deploy.stderr.ends_with(stop), "{}", deploy.stderr);
-
-    let json = h.run(&["deploy", "--accept-plan", &"a".repeat(64), "--json"]);
-    assert_eq!(json.code, Some(1));
-    let report = json.json();
-    assert_eq!(report["ok"], false);
-    assert_eq!(report["error"], stop.trim_start_matches("p99: ").trim_end());
-    assert!(
-        h.writes().is_empty(),
-        "a stopped plan wrote: {:?}",
-        h.writes()
-    );
-    assert!(h.upload().is_none());
-    assert_eq!(h.applied(), names(&SHIPPED[..15]));
+    let json = h.run(&["migrate", "--plan", "--json"]);
+    assert_eq!(json.code, Some(0), "{}", json.stderr);
+    assert_eq!(json.json()["plan"]["one_board"]["cards_board"], "reset");
+    assert!(h.writes().is_empty(), "a plan wrote: {:?}", h.writes());
 }
 
 #[test]

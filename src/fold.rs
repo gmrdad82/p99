@@ -33,34 +33,21 @@ fn many(n: i64, one: &str, more: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { more })
 }
 
-pub fn lane_of(role: Option<&str>, first: bool) -> Lane {
+pub fn lane_of(role: Option<&str>) -> Lane {
     match role {
         Some("inbox") => Lane::New,
         Some("review") => Lane::Landed,
-        Some("doing") => Lane::InProgress,
-        None if first => Lane::New,
         _ => Lane::InProgress,
     }
 }
 
-pub fn odd_columns(columns: i64) -> String {
-    format!(
-        "the Cards board has {columns} column{} where the one board needs six (New, Planned, In progress, Stuck, Landed, Done) or all seven: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again",
-        if columns == 1 { "" } else { "s" }
-    )
-}
-
-pub fn needs_you_taken() -> String {
-    "the Cards board has six columns and one is already Needs you, so 0016 can't add the seventh lane: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again".to_owned()
-}
-
-pub fn cards_board(columns: Option<i64>) -> &'static str {
+pub fn cards_board(columns: Option<i64>, needs: bool) -> &'static str {
     match columns {
         None => "make",
         Some(0) => "fill",
-        Some(6) => "insert",
+        Some(6) if !needs => "insert",
         Some(7) => "keep",
-        Some(_) => "odd",
+        Some(_) => "reset",
     }
 }
 
@@ -75,28 +62,18 @@ pub fn earlier(plan: &Value) -> Vec<String> {
         .collect()
 }
 
-pub fn shape(
-    boards: &[Value],
-    labels: &[Value],
-    unplaced: i64,
-) -> Result<(Value, Vec<String>), String> {
+pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<String>) {
     let mut decisions = Vec::new();
     let cards = boards.iter().find(|b| count(b, "cards") == 1);
-    let columns = cards.map(|b| count(b, "columns"));
-    let step = cards_board(columns);
-    if step == "odd" {
-        return Err(odd_columns(columns.unwrap_or_default()));
-    }
-    if step == "insert" && cards.is_some_and(|b| count(b, "needs") > 0) {
-        return Err(needs_you_taken());
-    }
+    let step = cards_board(
+        cards.map(|b| count(b, "columns")),
+        cards.is_some_and(|b| count(b, "needs") > 0),
+    );
     let mut rows = Vec::new();
     for row in labels {
         let items = count(row, "items");
         let open = count(row, "open");
-        let role = row["role"].as_str();
-        let first = count(row, "first") == 1;
-        let to = lane_of(role, first);
+        let to = lane_of(row["role"].as_str());
         if open > 0 && count(row, "closes") == 1 {
             decisions.push(format!(
                 "{} on the closing column {} {} open: 0016 puts {} in {}, never in Done; close {} first if {} finished",
@@ -130,7 +107,7 @@ pub fn shape(
             })
         })
         .collect();
-    Ok((
+    (
         json!({
             "cards_board": step,
             "labels": rows,
@@ -138,7 +115,7 @@ pub fn shape(
             "unplaced": unplaced,
         }),
         decisions,
-    ))
+    )
 }
 
 pub fn plan(
@@ -157,7 +134,7 @@ pub fn plan(
     let unplaced = select(cf, account, Q_UNPLACED)?
         .first()
         .map_or(0, |r| count(r, "items"));
-    let (fold, said) = shape(&boards, &labels, unplaced)?;
+    let (fold, said) = shape(&boards, &labels, unplaced);
     plan["one_board"] = fold;
     decisions.extend(said);
     Ok(())
@@ -200,7 +177,7 @@ pub fn render(out: &mut String, plan: &Value) {
             "fill" => "gets seven lanes",
             "insert" => "gets Needs you as lane 4; its cards stay where they are",
             "keep" => "keeps its seven lanes",
-            _ => "has odd columns",
+            _ => "has columns other than the lanes, so they are set to the seven lanes; a card on a column that isn't one moves as below",
         },
         lanes_line()
     ));
@@ -286,27 +263,30 @@ mod tests {
         json!({"id": id, "name": name, "owner": owner, "cards": cards, "columns": columns, "placed": placed})
     }
 
-    fn label(name: &str, role: Value, closes: i64, items: i64, open: i64, first: Value) -> Value {
-        json!({"label": name, "role": role, "closes": closes, "items": items, "open": open, "first": first})
+    fn label(name: &str, role: Value, closes: i64, items: i64, open: i64) -> Value {
+        json!({"label": name, "role": role, "closes": closes, "items": items, "open": open})
     }
 
     #[test]
     fn the_default_roles_and_custom_columns_map_as_0016_does() {
-        assert_eq!(lane_of(Some("inbox"), false), Lane::New);
-        assert_eq!(lane_of(Some("review"), true), Lane::Landed);
-        assert_eq!(lane_of(Some("doing"), true), Lane::InProgress);
-        assert_eq!(lane_of(None, true), Lane::New);
-        assert_eq!(lane_of(None, false), Lane::InProgress);
-        assert_eq!(lane_of(Some("done"), true), Lane::InProgress);
+        assert_eq!(lane_of(Some("inbox")), Lane::New);
+        assert_eq!(lane_of(Some("review")), Lane::Landed);
+        assert_eq!(lane_of(Some("doing")), Lane::InProgress);
+        assert_eq!(lane_of(None), Lane::InProgress);
+        assert_eq!(lane_of(Some("done")), Lane::InProgress);
     }
 
     #[test]
     fn the_cards_board_step_follows_its_column_count() {
-        assert_eq!(cards_board(None), "make");
-        assert_eq!(cards_board(Some(0)), "fill");
-        assert_eq!(cards_board(Some(6)), "insert");
-        assert_eq!(cards_board(Some(7)), "keep");
-        assert_eq!(cards_board(Some(4)), "odd");
+        assert_eq!(cards_board(None, false), "make");
+        assert_eq!(cards_board(Some(0), false), "fill");
+        assert_eq!(cards_board(Some(6), false), "insert");
+        assert_eq!(cards_board(Some(6), true), "reset");
+        assert_eq!(cards_board(Some(7), false), "keep");
+        assert_eq!(cards_board(Some(7), true), "keep");
+        for odd in [1, 4, 5, 8] {
+            assert_eq!(cards_board(Some(odd), false), "reset");
+        }
     }
 
     #[test]
@@ -336,14 +316,14 @@ mod tests {
             board(3, "Ops", "grace@example.com", 0, 3, 1),
         ];
         let labels = vec![
-            label("Doing", json!("doing"), 0, 2, 2, json!(0)),
-            label("Inbox", json!("inbox"), 0, 3, 1, json!(1)),
-            label("QA ready", Value::Null, 0, 1, 1, json!(0)),
-            label("Review", json!("review"), 0, 0, 0, json!(0)),
-            label("Shipped", Value::Null, 1, 4, 1, json!(0)),
-            label("Triage", Value::Null, 0, 2, 2, json!(1)),
+            label("Doing", json!("doing"), 0, 2, 2),
+            label("Inbox", json!("inbox"), 0, 3, 1),
+            label("QA ready", Value::Null, 0, 1, 1),
+            label("Review", json!("review"), 0, 0, 0),
+            label("Shipped", Value::Null, 1, 4, 1),
+            label("Triage", Value::Null, 0, 2, 2),
         ];
-        shape(&boards, &labels, 2).unwrap()
+        shape(&boards, &labels, 2)
     }
 
     #[test]
@@ -371,7 +351,7 @@ mod tests {
                 ("QA ready", "in-progress", 1, 0),
                 ("Review", "landed", 0, 0),
                 ("Shipped", "in-progress", 1, 3),
-                ("Triage", "new", 2, 0),
+                ("Triage", "in-progress", 2, 0),
             ]
         );
         let archived: Vec<i64> = fold["boards"]
@@ -393,61 +373,50 @@ mod tests {
 
     #[test]
     fn open_items_on_a_closing_column_are_one_decision_in_the_plural() {
-        let (_, decisions) =
-            shape(&[], &[label("Shipped", Value::Null, 1, 5, 3, json!(1))], 0).unwrap();
+        let (_, decisions) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 3)], 0);
         assert_eq!(
             decisions,
             [
-                "3 items on the closing column Shipped are open: 0016 puts them in New, never in Done; close them first if they are finished"
+                "3 items on the closing column Shipped are open: 0016 puts them in In progress, never in Done; close them first if they are finished"
             ]
         );
-        let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0, json!(0))], 0).unwrap();
+        let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0)], 0);
         assert!(none.is_empty());
     }
 
     #[test]
-    fn a_six_column_cards_board_that_already_has_needs_you_stops_the_plan_with_a_remedy() {
+    fn a_six_column_cards_board_that_already_has_needs_you_is_reset_to_the_seven_lanes() {
         let mut taken = board(5, "Cards", "ada@example.com", 1, 6, 0);
         taken["needs"] = json!(1);
-        let stop = shape(&[taken], &[], 0).unwrap_err();
-        assert_eq!(stop, needs_you_taken());
-        assert!(stop.contains("p99 boards set Cards --columns"), "{stop}");
+        let (fold, decisions) = shape(&[taken], &[label("Next up", Value::Null, 0, 2, 2)], 0);
+        assert_eq!(fold["cards_board"], "reset");
+        assert_eq!(fold["labels"][0]["to"], "in-progress");
+        assert!(decisions.is_empty());
         let mut seven = board(5, "Cards", "ada@example.com", 1, 7, 0);
         seven["needs"] = json!(1);
-        assert!(shape(&[seven], &[], 0).is_ok());
-        assert!(shape(&[board(5, "Cards", "ada@example.com", 1, 6, 0)], &[], 0).is_ok());
+        assert_eq!(shape(&[seven], &[], 0).0["cards_board"], "keep");
+        assert_eq!(
+            shape(&[board(5, "Cards", "ada@example.com", 1, 6, 0)], &[], 0).0["cards_board"],
+            "insert"
+        );
         assert!(Q_BOARDS.contains("l.name = 'Needs you') AS needs"));
     }
 
     #[test]
-    fn a_cards_board_with_odd_columns_stops_the_plan_with_a_remedy_and_no_cards_board_is_made() {
+    fn a_cards_board_with_odd_columns_is_reset_and_the_plan_says_so() {
         for columns in [1, 3, 4, 5, 8] {
-            let stop = shape(
+            let (fold, _) = shape(
                 &[board(5, "Cards", "ada@example.com", 1, columns, 0)],
                 &[],
                 0,
-            )
-            .unwrap_err();
-            assert_eq!(stop, odd_columns(columns));
-            assert!(
-                stop.starts_with(&format!("the Cards board has {columns} column")),
-                "{stop}"
             );
-            assert!(stop.contains("p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done"), "{stop}");
-            assert!(stop.ends_with("then deploy again"), "{stop}");
+            assert_eq!(fold["cards_board"], "reset", "{columns}");
+            let mut out = String::new();
+            render(&mut out, &json!({"one_board": fold}));
+            assert!(out.contains("  the Cards board has columns other than the lanes, so they are set to the seven lanes; a card on a column that isn't one moves as below: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{out}");
+            assert!(!out.contains("boards set"), "{out}");
         }
-        assert!(odd_columns(1).starts_with("the Cards board has 1 column where"));
-        for columns in [0, 6, 7] {
-            assert!(
-                shape(
-                    &[board(5, "Cards", "ada@example.com", 1, columns, 0)],
-                    &[],
-                    0
-                )
-                .is_ok()
-            );
-        }
-        let (made, none) = shape(&[board(2, "Web", "ada@example.com", 0, 4, 0)], &[], 0).unwrap();
+        let (made, none) = shape(&[board(2, "Web", "ada@example.com", 0, 4, 0)], &[], 0);
         assert_eq!(made["cards_board"], "make");
         assert!(none.is_empty());
     }
@@ -486,7 +455,7 @@ mod tests {
 
     #[test]
     fn the_render_of_an_empty_account_and_of_a_later_fold() {
-        let (fold, _) = shape(&[], &[], 0).unwrap();
+        let (fold, _) = shape(&[], &[], 0);
         let mut out = String::new();
         render(&mut out, &json!({"one_board": fold}));
         assert!(

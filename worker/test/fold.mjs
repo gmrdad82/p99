@@ -298,7 +298,7 @@ export async function foldChecks({ check, root }) {
     const db = seeded(root);
     fold(root, db);
     assert.deepEqual(laneNames(db), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
-    const expected = { 1: "New", 2: "In progress", 3: "Landed", 4: "Done", 5: "In progress", 6: "New", 7: "Done", 9: "Stuck", 10: "Landed", 11: "New", 12: "New", 13: "In progress", 14: "In progress" };
+    const expected = { 1: "New", 2: "In progress", 3: "Landed", 4: "Done", 5: "In progress", 6: "In progress", 7: "Done", 9: "Stuck", 10: "Landed", 11: "New", 12: "New", 13: "In progress", 14: "In progress" };
     for (const [id, name] of Object.entries(expected)) assert.equal(laneOfItem(db, Number(id)), name, `item ${id}`);
     const closed = db.prepare("SELECT id, open, resolution, closed_at IS NOT NULL AS closed FROM items WHERE id IN (4, 7, 13) ORDER BY id").all();
     assert.deepEqual(closed.map((r) => [r.id, r.open, r.resolution, r.closed]), [[4, 0, "fixed", 1], [7, 0, "abandoned", 1], [13, 1, null, 0]]);
@@ -336,7 +336,7 @@ export async function foldChecks({ check, root }) {
         [2, { from: "Doing", to: "In progress", migrated: true }],
         [3, { from: "Review", to: "Landed", migrated: true }],
         [5, { from: "QA ready", to: "In progress", migrated: true }],
-        [6, { from: "Triage", to: "New", migrated: true }],
+        [6, { from: "Triage", to: "In progress", migrated: true }],
         [7, { from: "Shipped", to: "Done", migrated: true }],
         [11, { from: "Inbox", to: "New", migrated: true }],
         [12, { from: "Inbox", to: "New", migrated: true }],
@@ -352,8 +352,8 @@ export async function foldChecks({ check, root }) {
   await check("[fold] each lane keeps the oldest Owner's order first, column by column, then the other boards by age, then newest first", async () => {
     const db = seeded(root);
     fold(root, db);
-    assert.deepEqual(lane(db, "New"), [1, 6, 12, 11]);
-    assert.deepEqual(lane(db, "In progress"), [2, 5, 14, 13]);
+    assert.deepEqual(lane(db, "New"), [1, 12, 11]);
+    assert.deepEqual(lane(db, "In progress"), [2, 5, 6, 14, 13]);
     assert.deepEqual(lane(db, "Landed"), [3, 10]);
     assert.deepEqual(lane(db, "Done"), [4, 7]);
     assert.deepEqual(lane(db, "Stuck"), [9]);
@@ -361,7 +361,7 @@ export async function foldChecks({ check, root }) {
     for (const key of keys) assert.match(key, /^(a[0-9A-Za-z]|b[0-9A-Za-z]{2}|c[0-9A-Za-z]{3})$/);
     const rows = boardRows(db, ALL, {});
     const placed = rows.filter((r) => r.lane === 0).map((r) => [r.id, r.place]);
-    assert.deepEqual(placed, [[1, 1], [6, 2], [12, 3], [11, 4]]);
+    assert.deepEqual(placed, [[1, 1], [12, 2], [11, 3]]);
   });
 
   await check("[fold] the oldest live Owner's boards lead even when a revoked Owner's code is older, and a fresh account folds with no Owner", async () => {
@@ -474,16 +474,34 @@ export async function foldChecks({ check, root }) {
     assert.equal(laneOfItem(db, 7), "Done");
   });
 
-  await check("[fold] a six-lane Cards board that already has a lane called Needs you is left untouched, not half-folded", async () => {
+  await check("[fold] a six-lane Cards board that already has a lane called Needs you is set to the seven lanes, its Needs you cards kept there", async () => {
     const db = seeded(root, "UPDATE labels SET name = 'Needs you' WHERE name = 'Stuck';");
-    const before = dump(db);
     fold(root, db);
-    const after = dump(db);
-    for (const t of TABLES.filter((t) => t !== "archived")) assert.deepEqual(after[t], before[t], t);
-    assert.deepEqual(after.archived, []);
-    assert.equal(db.prepare("SELECT closes FROM labels WHERE name = 'Done'").get().closes, 1);
-    assert.deepEqual(laneNames(db), ["New", "Planned", "In progress", "Needs you", "Landed", "Done"]);
+    assert.deepEqual(laneNames(db), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
+    assert.deepEqual(db.prepare(LANES_SQL).all().map((l) => l.closes), [0, 0, 0, 0, 0, 0, 1]);
+    assert.equal(laneOfItem(db, 9), "Needs you");
+    assert.equal(laneOfItem(db, 10), "Landed");
+    assert.equal(db.prepare("SELECT count(*) AS n FROM events WHERE item_id IN (9, 10) AND kind = 'label'").get().n, 0);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM archived WHERE kind = 'fold'").get().n, 1);
     assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'one\\_%' ESCAPE '\\'").get().n, 0);
+    const once = dump(db);
+    fold(root, db);
+    assert.deepEqual(dump(db), once);
+  });
+
+  await check("[fold] a Cards board with odd columns is set to the seven lanes, and a card on a column that isn't a lane moves to In progress", async () => {
+    const db = seeded(root, `UPDATE labels SET name = 'Next up' WHERE name = 'Planned'; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")}; ${item(15, "Next up", { day: 4 })} ${place(14, 15, "Next up", "a0")}`);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM board_columns WHERE board_id = 14").get().n, 5);
+    fold(root, db);
+    assert.deepEqual(laneNames(db), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
+    assert.deepEqual(db.prepare(LANES_SQL).all().map((l) => l.closes), [0, 0, 0, 0, 0, 0, 1]);
+    assert.equal(laneOfItem(db, 15), "In progress");
+    assert.equal(laneOfItem(db, 9), "Stuck");
+    assert.equal(laneOfItem(db, 10), "Landed");
+    const moved = db.prepare("SELECT detail_json FROM events WHERE item_id = 15 AND kind = 'label'").all().map((e) => JSON.parse(e.detail_json));
+    assert.deepEqual(moved, [{ from: "Next up", to: "In progress", migrated: true }]);
+    assert.ok(db.prepare("SELECT 1 FROM archived a JOIN labels l ON l.id = a.id WHERE a.kind = 'label' AND l.name = 'Next up'").get());
+    assert.equal(db.prepare("SELECT count(*) AS n FROM items WHERE label_id IN (SELECT id FROM archived WHERE kind = 'label')").get().n, 0);
   });
 
   await check("[fold] a six-lane Cards board with a renamed lane gets Needs you fourth, the renamed lane kept in its place", async () => {
@@ -495,13 +513,15 @@ export async function foldChecks({ check, root }) {
     assert.equal(db.prepare("SELECT count(*) AS n FROM archived WHERE kind = 'fold'").get().n, 1);
   });
 
-  await check("[fold] a visitor's stage stays the same through the fold, save a report on a custom first column, which the plan sends to New", async () => {
+  await check("[fold] a visitor's stage stays the same through the fold, a report on a custom first column included", async () => {
     const db = seeded(root);
     const before = stages(db);
     fold(root, db);
     const after = stages(db);
     const changed = Object.fromEntries(Object.keys(before).filter((id) => before[id] !== after[id]).map((id) => [id, [before[id], after[id]]]));
-    assert.deepEqual(changed, { 6: ["in_progress", "received"] });
+    assert.deepEqual(changed, {});
+    assert.equal(after[6], "in_progress");
+    assert.equal(after[1], "received");
   });
 
   await check("[fold] the archived boards stay as they were at the fold when items close, reopen or are filed afterwards", async () => {
@@ -509,7 +529,6 @@ export async function foldChecks({ check, root }) {
     fold(root, db);
     const read = () => db.prepare(ARCHIVED_CARDS).all(1, null, null).map((r) => [r.board_id, r.id, r.label]);
     const atFold = read();
-    assert.equal(atFold.some((r) => r[1] === 15), false);
     const after = "(SELECT at FROM archived WHERE kind = 'fold')";
     db.exec(`
       UPDATE items SET label_id = ${label("Done")}, open = 0, resolution = 'fixed', closed_at = ${after} WHERE id = 15;

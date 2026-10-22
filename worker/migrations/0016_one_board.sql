@@ -12,6 +12,12 @@ SELECT 'Cards', NULL, (SELECT email FROM codes WHERE manager = 1 AND revoked_at 
   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1
 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE cards = 1);
 
+DELETE FROM board_columns
+WHERE board_id = (SELECT id FROM boards WHERE cards = 1)
+  AND NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold')
+  AND ((SELECT count(*) FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1) NOT IN (6, 7)
+    OR ((SELECT count(*) FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1) = 6 AND EXISTS (SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 AND l.name = 'Needs you')));
+
 INSERT INTO labels (name, color, created_at)
 SELECT json_extract(j.value, '$.name'), json_extract(j.value, '$.color'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 FROM json_each('[{"name":"New","color":"#539bf5"},{"name":"Planned","color":"#986ee2"},{"name":"In progress","color":"#c69026"},{"name":"Needs you","color":"#e0823d"},{"name":"Stuck","color":"#e5534b"},{"name":"Landed","color":"#39a5a0"}]') j
@@ -67,11 +73,6 @@ SELECT i.id AS item_id, i.label_id AS from_id, l.name AS from_name,
     WHEN i.open = 0 THEN 6
     WHEN l.role = 'inbox' THEN 0
     WHEN l.role = 'review' THEN 5
-    WHEN l.role IS NULL AND (
-      SELECT bc.position = (SELECT min(c2.position) FROM board_columns c2 WHERE c2.board_id = bc.board_id)
-      FROM board_columns bc JOIN one_rank r ON r.board_id = bc.board_id
-      WHERE bc.label_id = l.id ORDER BY r.rank LIMIT 1
-    ) THEN 0
     ELSE 2
   END) AS to_id
 FROM items i JOIN labels l ON l.id = i.label_id
