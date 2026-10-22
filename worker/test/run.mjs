@@ -16,7 +16,10 @@ import { widgetStories } from "./stories/widget.mjs";
 import { triageStories } from "./stories/triage.mjs";
 import { licenceStories } from "./stories/licence.mjs";
 import { safetyStories } from "./stories/safety.mjs";
+import { criticalChecks } from "./critical.mjs";
+import { coverWorker } from "./inspect.mjs";
 
+if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const wrangler = join(root, "node_modules", ".bin", "wrangler");
 const work = join(root, ".wrangler");
@@ -354,6 +357,8 @@ async function main() {
 
 async function startDev(at, vars, logName) {
   const log = openSync(join(work, logName), "w");
+  const covering = process.env.P99_COVERAGE;
+  const inspector = covering ? ["--inspector-port", String(at + 1000)] : [];
   const child = spawn(
     wrangler,
     [
@@ -366,6 +371,7 @@ async function startDev(at, vars, logName) {
       "--persist-to",
       state,
       "--show-interactive-dev-session=false",
+      ...inspector,
       "--var",
       ...vars,
     ],
@@ -377,7 +383,13 @@ async function startDev(at, vars, logName) {
       process.kill(-child.pid, name);
     } catch {}
   };
+  let cover = null;
   const stop = async () => {
+    if (cover) {
+      const taking = cover;
+      cover = null;
+      await taking.save(join(covering, `worker-${at}.json`)).catch((error) => console.error(`coverage: ${error.message}`));
+    }
     signal("SIGTERM");
     const late = setTimeout(() => signal("SIGKILL"), 10000);
     await exited;
@@ -385,6 +397,7 @@ async function startDev(at, vars, logName) {
   };
   try {
     await waitForHealth(child, `http://127.0.0.1:${at}`, logName);
+    if (covering) cover = await coverWorker(at + 1000, work);
   } catch (error) {
     await stop();
     throw error;
@@ -1211,6 +1224,7 @@ async function run() {
     for (const name of ["capture", "elementsAt", "context"]) assert.equal(typeof module[name], "function", name);
   });
 
+  await criticalChecks({ base, call, browse, mint, check, issueBody, here, sha256, keys, sign, actorHeader });
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });

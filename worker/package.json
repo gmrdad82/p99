@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "wrangler dev --local",
     "test": "node test/run.mjs",
-    "test:csp": "node test/csp.mjs"
+    "test:csp": "node test/csp.mjs",
+    "coverage": "node test/coverage.mjs",
+    "test:unit": "node --test test/coverage-lines.test.mjs"
   },
   "devDependencies": {
     "wrangler": "4.145.0"
