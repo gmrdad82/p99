@@ -98,6 +98,10 @@ impl Worker {
 }
 
 fn config(name: &str, url: &str) -> PathBuf {
+    config_with(name, url, "", "")
+}
+
+fn config_with(name: &str, url: &str, me: &str, account: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
         .join("stories_cards")
         .join(name);
@@ -106,7 +110,7 @@ fn config(name: &str, url: &str) -> PathBuf {
     std::fs::write(
         &file,
         format!(
-            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n\n[accounts.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n\n[hosts.\"shop.example.com\"]\naccount = \"main\"\nenv = \"production\"\n"
+            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[accounts.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\naccount = \"main\"\nenv = \"production\"\n"
         ),
     )
     .unwrap();
@@ -232,7 +236,7 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"card":made})
         }
         ("PATCH", "/v1/issues/12") => {
-            json!({"issue":{"id":12,"key":"BUG-12","kind":"bug","title":"Broken"},"comments":[],"events":[]})
+            json!({"id":12,"key":"BUG-12","kind":"bug","title":"Broken","status":"open","stage":"inbox"})
         }
         _ => return (404, r#"{"message":"no such route"}"#.into()),
     };
@@ -253,7 +257,7 @@ fn old_worker(_: &str, _: &str, _: &Value) -> (u16, String) {
 fn old_issue_patch(_: &str, _: &str, _: &Value) -> (u16, String) {
     (
         200,
-        r#"{"issue":{"id":12,"key":"BUG-12"},"comments":[],"events":[]}"#.into(),
+        r#"{"id":12,"key":"BUG-12","kind":"bug","title":"Broken"}"#.into(),
     )
 }
 
@@ -735,7 +739,7 @@ fn card_status_moves_with_an_optional_note_from_stdin() {
     );
     assert_eq!(
         text.stdout,
-        "FEAT-41 is now Stuck (stuck, #3 in its lane)\nwith a note\n"
+        "FEAT-41 is now Stuck (stuck, #3 in its lane), with a note\n"
     );
 }
 
@@ -810,7 +814,10 @@ fn edit_turns_an_item_into_a_card_and_back() {
         "edit",
         &["edit", "BUG-12", "--no-project", "--json"],
     ));
-    assert_eq!(back["issue"]["key"], "BUG-12");
+    assert_eq!(back["key"], "BUG-12");
+    assert_eq!(back["title"], "Broken");
+    assert_eq!(back["id"], 12);
+    assert!(back.get("issue").is_none());
     assert_eq!(worker.last().body, json!({"project":null}));
     let text = run(&worker, "edit", &["edit", "BUG-12", "--no-project"]);
     assert_eq!(text.stdout, "BUG-12 is a plain item again, back in Inbox\n");
@@ -870,4 +877,163 @@ fn the_agent_forms_reach_the_signed_actor_in_their_order() {
         actor_for(&worker, &["--agent= \u{1}pci "], &[]),
         marked(Some("pci"))
     );
+}
+
+fn no_hosts(method: &str, path: &str, body: &Value) -> (u16, String) {
+    match (method, path) {
+        ("GET", "/v1/hosts") => (200, r#"{"hosts":[]}"#.into()),
+        _ => answers(method, path, body),
+    }
+}
+
+fn nobody_changed(method: &str, path: &str, body: &Value) -> (u16, String) {
+    let route = path.split('?').next().unwrap_or(path);
+    let mut system = card();
+    system["key"] = json!("FEAT-42");
+    system["changed_by"] = Value::Null;
+    match (method, route) {
+        ("GET", "/v1/cards") => (
+            200,
+            json!({"cards":[card(), system],"next_cursor":null}).to_string(),
+        ),
+        ("GET", "/v1/cards/FEAT-42") => {
+            system["body"] = json!("");
+            (
+                200,
+                json!({"card":system,"comments":[],"events":[
+                    {"kind":"link","detail":{"ref":"https://github.com/example/shop/pull/1"},"by":null,"at":"2026-10-22T09:12:00.000Z"}
+                ]})
+                .to_string(),
+            )
+        }
+        _ => answers(method, path, body),
+    }
+}
+
+#[test]
+fn p99_agent_zero_unmarks_a_person_whose_config_says_agent() {
+    let worker = Worker::start(answers);
+    let ada = json!({"email":"ada@example.com","name":"Ada Lovelace"});
+    let marked = json!({"email":"ada@example.com","name":"Ada Lovelace","agent":true});
+    for (name, me, account) in [
+        ("agent_me", "agent = true\n", ""),
+        ("agent_account", "", "\n[accounts.main.me]\nagent = true\n"),
+    ] {
+        let file = config_with(name, &worker.url, me, account);
+        let args = ["card", "comment", "FEAT-41", "mine", "--json"];
+        json_of(&p99(&file, &args, &[], None));
+        assert_eq!(worker.last().actor, marked, "{name}");
+        json_of(&p99(&file, &args, &[("P99_AGENT", "0")], None));
+        assert_eq!(worker.last().actor, ada, "{name}");
+        json_of(&p99(&file, &args, &[("P99_AGENT", "")], None));
+        assert_eq!(worker.last().actor, marked, "{name}");
+        json_of(&p99(&file, &args, &[("P99_AGENT", "false")], None));
+        assert_eq!(worker.last().actor, ada, "{name}");
+        let mut flagged = vec!["--agent=pci"];
+        flagged.extend(args);
+        json_of(&p99(&file, &flagged, &[("P99_AGENT", "0")], None));
+        let mut labelled = marked.clone();
+        labelled["via"] = json!("pci");
+        assert_eq!(worker.last().actor, labelled, "{name}");
+    }
+}
+
+#[test]
+fn a_card_whose_last_change_has_no_person_lists_and_shows_as_p99() {
+    let worker = Worker::start(nobody_changed);
+    let list = json_of(&run(&worker, "nobody", &["cards", "--json"]));
+    assert_eq!(list["cards"][1]["changed_by"], Value::Null);
+    assert_eq!(list["cards"][0]["changed_by"]["via"], "pci·splicer·writer");
+    let text = run(&worker, "nobody", &["cards"]);
+    assert_eq!(text.code, Some(0), "{}", text.stderr);
+    let lines: Vec<&str> = text.stdout.lines().collect();
+    assert_eq!(lines.len(), 2, "{}", text.stdout);
+    assert!(lines[1].starts_with("FEAT-42 "), "{}", lines[1]);
+    assert!(lines[1].contains("  P99 "), "{}", lines[1]);
+    let shown = run(&worker, "nobody", &["card", "show", "FEAT-42"]);
+    assert_eq!(shown.code, Some(0), "{}", shown.stderr);
+    assert!(
+        shown.stdout.contains("\nchanged by P99 "),
+        "{}",
+        shown.stdout
+    );
+    assert!(
+        shown
+            .stdout
+            .ends_with("linked https://github.com/example/shop/pull/1  P99\n"),
+        "{}",
+        shown.stdout
+    );
+    let thread = json_of(&run(
+        &worker,
+        "nobody",
+        &["card", "show", "FEAT-42", "--json"],
+    ));
+    assert_eq!(thread["card"]["changed_by"], Value::Null);
+}
+
+#[test]
+fn cards_lowercases_its_host_for_the_account_and_the_query() {
+    let worker = Worker::start(answers);
+    json_of(&run(
+        &worker,
+        "cards_host",
+        &[
+            "cards",
+            "--host",
+            " Shop.Example.COM ",
+            "--source",
+            "human",
+            "--json",
+        ],
+    ));
+    assert_eq!(
+        worker.last().path,
+        "/v1/cards?source=human&host=shop.example.com&limit=200"
+    );
+}
+
+#[test]
+fn card_new_on_an_account_with_no_host_says_add_one() {
+    let worker = Worker::start(no_hosts);
+    for json in [false, true] {
+        let mut args = vec!["card", "new", "--project", "Splicer", "--title", "x"];
+        if json {
+            args.push("--json");
+        }
+        refused(
+            &run(&worker, "no_hosts", &args),
+            "the account main has no host yet; p99 hosts add",
+        );
+    }
+    assert!(worker.seen().iter().all(|s| s.path == "/v1/hosts"));
+}
+
+#[test]
+fn a_comment_on_an_item_that_is_not_a_card_is_refused() {
+    let worker = Worker::start(answers);
+    refused(
+        &run(
+            &worker,
+            "not_a_card",
+            &["card", "comment", "BUG-12", "hi", "--json"],
+        ),
+        "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>",
+    );
+}
+
+#[test]
+fn edit_no_project_prints_the_items_summary_typed() {
+    let worker = Worker::start(old_issue_patch);
+    let back = json_of(&run(
+        &worker,
+        "no_project",
+        &["edit", "BUG-12", "--no-project", "--json"],
+    ));
+    assert_eq!(back["key"], "BUG-12");
+    assert_eq!(back["kind"], "bug");
+    assert_eq!(back["comments"], 0);
+    let text = run(&worker, "no_project", &["edit", "12", "--no-project"]);
+    assert_eq!(text.stdout, "BUG-12 is a plain item again, back in Inbox\n");
+    assert_eq!(worker.last().body, json!({"project":null}));
 }

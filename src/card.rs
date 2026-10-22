@@ -74,7 +74,7 @@ pub struct Card {
     pub reporter: Person,
     pub created_at: String,
     pub changed_at: String,
-    pub changed_by: Person,
+    pub changed_by: Option<Person>,
     pub comments: u64,
     #[serde(default)]
     pub links: Vec<Link>,
@@ -230,7 +230,10 @@ pub fn project(raw: &str) -> Result<String, String> {
 pub fn since(text: &str, now: i64) -> Result<String, String> {
     let text = text.trim();
     if let Some(at) = age(text) {
-        return Ok(iso(now - at));
+        return match now - at {
+            t if t < 0 => Err(SINCE_RULE.to_owned()),
+            t => Ok(iso(t)),
+        };
     }
     rfc3339(text).map(iso).ok_or_else(|| SINCE_RULE.to_owned())
 }
@@ -482,6 +485,31 @@ mod tests {
     }
 
     #[test]
+    fn an_age_reaching_before_1970_is_refused_with_the_since_line() {
+        for bad in ["999999d", "999999h"] {
+            assert_eq!(since(bad, NOW), Err(SINCE_RULE.to_owned()), "{bad}");
+        }
+        assert_eq!(since("6h", 21_600), Ok("1970-01-01T00:00:00Z".to_owned()));
+        assert_eq!(since("6h", 21_599), Err(SINCE_RULE.to_owned()));
+    }
+
+    #[test]
+    fn a_card_whose_last_change_has_no_person_reads_and_round_trips() {
+        let mut raw: Value = serde_json::from_str(CARD).unwrap();
+        raw["changed_by"] = Value::Null;
+        let card: Card = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(card.changed_by, None);
+        assert_eq!(serde_json::to_value(&card).unwrap(), raw);
+        let list: CardList = serde_json::from_value(serde_json::json!({
+            "cards": [raw.clone(), serde_json::from_str::<Value>(CARD).unwrap()],
+            "next_cursor": null
+        }))
+        .unwrap();
+        assert_eq!(list.cards.len(), 2);
+        assert!(list.cards[1].changed_by.is_some());
+    }
+
+    #[test]
     fn ages_print_short() {
         assert_eq!(ago("2026-10-22T08:00:00.000Z", NOW), "now");
         assert_eq!(ago("2026-10-22T07:58:59Z", NOW), "1m");
@@ -592,7 +620,10 @@ mod tests {
         let card: Card = serde_json::from_value(raw.clone()).unwrap();
         assert_eq!(card.status, Lane::Stuck);
         assert_eq!(card.lane, Some(3));
-        assert_eq!(card.changed_by.via.as_deref(), Some("pci·splicer·writer"));
+        assert_eq!(
+            card.changed_by.as_ref().and_then(|p| p.via.as_deref()),
+            Some("pci·splicer·writer")
+        );
         assert_eq!(card.links[0].reference, "pci#2700");
         assert_eq!(serde_json::to_value(&card).unwrap(), raw);
     }

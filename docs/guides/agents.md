@@ -15,9 +15,9 @@ Any one of these marks the commands:
 | --- | --- |
 | `--agent` | one command |
 | `--agent=<label>` | one command, with a label that says which agent (the `=` is needed) |
-| `P99_AGENT=<label>` in the environment | every command of that shell or process, with the label; `1` or `true` marks with no label, empty or `0` marks nothing |
-| `agent = true` in the config's `[me]` table | every command; `P99_AGENT=0` turns it off for one shell |
-| `agent = true` in `[accounts.<name>.me]` | every command on that account; `P99_AGENT=0` turns it off for one shell |
+| `P99_AGENT=<label>` in the environment | every command of that shell or process, with the label; `1` or `true` marks with no label, `0` or `false` turns the mark off, empty is as if unset |
+| `agent = true` in the config's `[me]` table | every command; `P99_AGENT=0` (or `false`) turns it off for one shell |
+| `agent = true` in `[accounts.<name>.me]` | every command on that account; `P99_AGENT=0` (or `false`) turns it off for one shell |
 
 `--agent=<label>` wins over `P99_AGENT`, and a bare `--agent` keeps `P99_AGENT`'s label. A label has up to 80 characters (longer ones are cut, control characters dropped) and shows in the thread's details, so you can tell which agent did what. Give the agent `P99_AGENT` in the environment it runs in, so it can't forget the flag:
 

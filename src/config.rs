@@ -453,16 +453,18 @@ pub fn agent_from(
     me: &Me,
 ) -> (bool, Option<String>) {
     let from_env = match variable.map(str::trim) {
-        None | Some("" | "0") => None,
-        Some(word) if word.eq_ignore_ascii_case("false") => None,
-        Some(word) if word == "1" || word.eq_ignore_ascii_case("true") => Some(None),
-        Some(label) => Some(crate::card::via(label)),
+        None | Some("") => None,
+        Some(word) if word == "0" || word.eq_ignore_ascii_case("false") => Some(None),
+        Some(word) if word == "1" || word.eq_ignore_ascii_case("true") => Some(Some(None)),
+        Some(label) => Some(Some(crate::card::via(label))),
     };
+    let label = from_env.clone().flatten().flatten();
     match flag {
-        Some(Some(label)) => (true, crate::card::via(label).or(from_env.flatten())),
-        Some(None) => (true, from_env.flatten()),
+        Some(Some(given)) => (true, crate::card::via(given).or(label)),
+        Some(None) => (true, label),
         None => match from_env {
-            Some(label) => (true, label),
+            Some(Some(label)) => (true, label),
+            Some(None) => (false, None),
             None => (me.agent, None),
         },
     }
@@ -1092,6 +1094,43 @@ mod tests {
         assert_eq!(marked(None, Some("  "), false), (false, None));
         assert_eq!(marked(None, Some("0"), false), (false, None));
         assert_eq!(marked(None, Some("false"), false), (false, None));
+    }
+
+    #[test]
+    fn p99_agent_zero_turns_off_the_configs_agent_mark() {
+        assert_eq!(marked(None, Some("0"), true), (false, None));
+        assert_eq!(marked(None, Some(" 0 "), true), (false, None));
+        assert_eq!(marked(None, Some("false"), true), (false, None));
+        assert_eq!(marked(None, Some("FALSE"), true), (false, None));
+        assert_eq!(marked(None, Some(""), true), (true, None));
+        assert_eq!(marked(Some(None), Some("0"), true), (true, None));
+        assert_eq!(
+            marked(Some(Some("pci")), Some("false"), false),
+            (true, Some("pci".into()))
+        );
+    }
+
+    #[test]
+    fn p99_agent_zero_turns_off_an_accounts_agent_mark() {
+        let config: Config = toml::from_str(
+            r#"
+            [me]
+            name = "Ada Lovelace"
+            email = "ada@example.com"
+
+            [accounts.shop]
+            account_id = "a"
+            token = ""
+
+            [accounts.shop.me]
+            agent = true
+            "#,
+        )
+        .unwrap();
+        let me = config.me_for("shop");
+        assert!(me.agent);
+        assert_eq!(agent_from(&None, Some("0"), &me), (false, None));
+        assert_eq!(agent_from(&None, None, &me), (true, None));
     }
 
     #[test]

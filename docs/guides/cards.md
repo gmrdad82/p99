@@ -39,7 +39,7 @@ p99 edit BUG-12 --no-project
 - `p99 cards` lists cards in lane order, every lane but `done` unless you name `--status`. `--project` and `--status` repeat. `--since` takes a time (`2026-10-22T08:00:00Z`) or an age (`90m`, `6h`, `2d`); `--source human` or `--source agent` keeps the cards whose last change was a person's or an agent's; `--limit` is 200 by default, up to 500, and `--cursor` reads on from `next_cursor`.
 - `p99 card new` files the card in lane `new`; `--kind` is `feature` by default and `--host` the account's oldest host.
 - `p99 card status` moves the card to the top of that lane; a card already there keeps its place. `--note` adds a comment in the same write.
-- `--body`, a comment's text and `--note` take `-` to read standard input.
+- `card new --body`, `card comment`'s text and `card status --note` take `-` to read standard input.
 - A project name has 1 to 40 characters and is matched without regard to case; the first spelling used is kept.
 - `p99 edit --project` turns any item into a card in lane `new`, and `--no-project` turns it back into a plain item, in Inbox.
 

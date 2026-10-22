@@ -181,12 +181,13 @@ pub fn card_line(card: &Card, now: i64) -> String {
         card.status.word(),
         card.project,
         card.title,
-        who(&card.changed_by),
+        changer(&card.changed_by),
         ago(&card.changed_at, now)
     )
 }
 
 pub fn cards(config: &Config, global: &Global, args: &CardsArgs) -> Result<(), String> {
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let projects = args
         .project
         .iter()
@@ -202,11 +203,11 @@ pub fn cards(config: &Config, global: &Global, args: &CardsArgs) -> Result<(), S
         statuses: args.status.clone(),
         since,
         source: args.source,
-        host: args.host.clone(),
+        host: host.clone(),
         limit: args.limit,
         cursor: args.cursor.clone(),
     };
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
+    let (client, _) = client_for(config, global, host.as_deref())?;
     let list: CardList = ask(
         &client,
         "GET",
@@ -273,7 +274,7 @@ pub fn thread_lines(thread: &CardThread, now: i64) -> Vec<String> {
             card.host,
             crate::cli::when(&card.created_at)
         ),
-        format!("changed by {} {}", who(&card.changed_by), {
+        format!("changed by {} {}", changer(&card.changed_by), {
             match ago(&card.changed_at, now).as_str() {
                 "now" => "just now".to_owned(),
                 age => format!("{age} ago"),
@@ -313,6 +314,10 @@ pub fn thread_lines(thread: &CardThread, now: i64) -> Vec<String> {
         }
     }
     lines
+}
+
+fn changer(person: &Option<Person>) -> String {
+    person.as_ref().map(who).unwrap_or_else(|| "P99".to_owned())
 }
 
 fn detail(person: &Person) -> String {
@@ -438,10 +443,16 @@ fn status(config: &Config, global: &Global, args: &CardStatusArgs) -> Result<(),
     if global.json {
         return print_json(&reply);
     }
-    out!("{} is now {}", reply.card.key, status_text(&reply.card));
-    if reply.comment.is_some() {
-        out!("with a note");
-    }
+    out!(
+        "{} is now {}{}",
+        reply.card.key,
+        status_text(&reply.card),
+        if reply.comment.is_some() {
+            ", with a note"
+        } else {
+            ""
+        }
+    );
     Ok(())
 }
 
@@ -531,17 +542,11 @@ pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result
         );
         return Ok(());
     }
-    let issue: Value = ask(&client, "PATCH", &pq, Some(body))?;
+    let issue: crate::wire::Issue = ask(&client, "PATCH", &pq, Some(body))?;
     if global.json {
         return print_json(&issue);
     }
-    let shown = issue
-        .pointer("/issue/key")
-        .or_else(|| issue.get("key"))
-        .and_then(Value::as_str)
-        .unwrap_or(args.key.as_str())
-        .to_owned();
-    out!("{shown} is a plain item again, back in Inbox");
+    out!("{} is a plain item again, back in Inbox", issue.key);
     Ok(())
 }
 
@@ -608,7 +613,7 @@ mod tests {
         t.card.card.status = Lane::Done;
         t.card.card.label = "Done".into();
         t.card.card.changed_at = crate::card::iso(NOW);
-        t.card.card.changed_by.agent = false;
+        t.card.card.changed_by.as_mut().unwrap().agent = false;
         t.card.body.clear();
         t.card.card.links.clear();
         t.comments.clear();
@@ -618,6 +623,18 @@ mod tests {
         assert_eq!(lines[3], "changed by Ada Lovelace just now");
         assert_eq!(lines.len(), 4);
         assert_eq!(status_text(&t.card.card), "Done (done)");
+    }
+
+    #[test]
+    fn a_change_with_no_person_shows_as_p99_in_the_line_and_the_thread() {
+        let mut t = thread();
+        t.card.card.changed_by = None;
+        let line = card_line(&t.card.card, NOW);
+        assert!(
+            line.ends_with("Export keeps every audio track  P99 13m"),
+            "{line}"
+        );
+        assert_eq!(thread_lines(&t, NOW)[3], "changed by P99 13m ago");
     }
 
     #[test]
