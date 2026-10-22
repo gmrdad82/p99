@@ -27,6 +27,7 @@ import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
+import { chars, fold, isChars, searchMatch } from "./text.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -64,6 +65,7 @@ const MAX_JSON_BYTES = 256 * 1024;
 const MAX_BUILD_BYTES = 1024 * 1024;
 const MAX_TITLE_CHARS = 200;
 const MAX_BODY_CHARS = 20000;
+const MAX_QUERY_CHARS = 200;
 const MAX_CONTEXT_BYTES = 64 * 1024;
 const MAX_CONFIG_BYTES = 32 * 1024;
 const MAX_MARKS = 10;
@@ -361,7 +363,7 @@ function clean(value) {
 }
 
 function isText(value, min, max) {
-  return typeof value === "string" && value.length >= min && value.length <= max;
+  return isChars(value, min, max);
 }
 
 function isNumber(value) {
@@ -688,13 +690,6 @@ function eventStatement(c, itemId, actorEmail, kind, detail, internal = false) {
     `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
   ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c));
-}
-
-function fold(text) {
-  return String(text ?? "")
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
 }
 
 function searchText(title, body) {
@@ -1245,7 +1240,7 @@ function validMarks(marks) {
 function validTitle(value) {
   if (typeof value !== "string") return null;
   const title = clean(value).replace(/\s+/g, " ").trim();
-  return title.length >= 1 && title.length <= MAX_TITLE_CHARS ? title : null;
+  return isChars(title, 1, MAX_TITLE_CHARS) ? title : null;
 }
 
 function validStringMap(value, unsafe) {
@@ -1578,7 +1573,7 @@ async function listIssues(c) {
   }
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
-  labelFilters(c, params, q, where);
+  await labelFilters(c, params, q, where);
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1595,10 +1590,9 @@ async function listIssues(c) {
     where.push(`i.kind = ${q.bind(kind)}`);
   }
   const text = (params.get("q") || "").trim();
-  if (text.length > 200) fail(400, "q must be at most 200 characters");
+  if (chars(text) > MAX_QUERY_CHARS) fail(400, `q must be at most ${MAX_QUERY_CHARS} characters`);
   if (text.length > 0) {
-    const like = q.bind(`%${fold(text).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`);
-    const match = `i.search_text LIKE ${like} ESCAPE '\\'`;
+    const match = searchMatch("i.search_text", text, (v) => q.bind(v));
     const id = parseKey(text);
     where.push(id !== null ? `(i.id = ${q.bind(id)} OR ${match})` : `(${match})`);
   }
@@ -2014,7 +2008,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(existing, c, await commentAttachmentIds(c, row.id, existing.id)));
   }
   const text = clean(body.body);
-  if (typeof text !== "string" || text.trim().length === 0 || text.length > MAX_BODY_CHARS) {
+  if (typeof text !== "string" || text.trim().length === 0 || !isChars(text, 0, MAX_BODY_CHARS)) {
     fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
   }
   const internal = body.internal === true;
@@ -2833,7 +2827,7 @@ function importRecord(r, host) {
   if (r.type === "comment") {
     const uid = importUid(r.uid);
     const body = clean(r.body);
-    if (typeof body !== "string" || body.trim().length === 0 || body.length > MAX_BODY_CHARS) {
+    if (typeof body !== "string" || body.trim().length === 0 || !isChars(body, 0, MAX_BODY_CHARS)) {
       fail(400, `body must be 1 to ${MAX_BODY_CHARS} characters`);
     }
     return {

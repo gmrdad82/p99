@@ -293,7 +293,7 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     ]);
   });
 
-  await red("triage: a label filter finds a label whatever its case, accents included, as a move does", "a list filtered by an accented label in another case finds nothing, though a move to it works", async () => {
+  await check("triage: a label filter finds a label whatever its case, accents included, as a move does", async () => {
     const accents = await call("POST", `/_p99/v1/boards?host=${HOST}`, {
       actor: ADA,
       body: { name: "Accents", columns: [inbox, "Évalué", done] },
@@ -303,9 +303,28 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     assert.equal((await ada.move({ key, from: inbox, to: "évalué", board: accents.json.id })).status, 200);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("évalué")}`)), [key]);
+    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("EVALUE")}`)), [key]);
+    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("  évalué ")}`)), [key]);
+    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évaluée")}`)), []);
+    assert.equal((await ada.move({ key, from: "ÉVALUÉ", to: inbox, board: accents.json.id })).status, 200);
+    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), []);
   });
 
-  await red("triage: a search for a whole sentence, up to the 200 characters q takes, answers with results, never a 500", "a search over about 48 characters answers 500: D1 refuses a LIKE pattern over 50 bytes", async () => {
+  await check("triage: a filter or a move by a lane's name in another case with a dotted capital or a diaeresis finds that lane", async () => {
+    assert.ok(/i/i.test(doing) && /i/i.test(review), JSON.stringify([doing, review]));
+    const shouted = doing.toUpperCase().replace(/I/g, "İ");
+    const marked = review.toLowerCase().replace(/i/g, "ï");
+    const key = await filed(ada, { title: "Dotted capitals" });
+    assert.equal((await ada.move({ key, from: inbox, to: shouted })).status, 200);
+    const byShout = keysOf(await ada.list(`label=${encodeURIComponent(shouted)}`));
+    assert.ok(byShout.includes(key), JSON.stringify(byShout));
+    assert.deepEqual(byShout, keysOf(await ada.list(`label=${encodeURIComponent(doing)}`)));
+    assert.equal((await ada.move({ key, from: shouted.toLowerCase(), to: marked })).status, 200);
+    assert.ok(keysOf(await ada.list(`label=${encodeURIComponent(marked)}`)).includes(key));
+    assert.ok(!keysOf(await ada.list(`label=${encodeURIComponent(shouted)}`)).includes(key));
+  });
+
+  await check("triage: a search for a whole sentence, up to the 200 characters q takes, answers with results, never a 500", async () => {
     const title = "Pay stays grey after the card is accepted on the checkout page";
     const key = await filed(ada, { title });
     const answer = await ada.list(`q=${encodeURIComponent(title)}`);
@@ -314,10 +333,51 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     assert.deepEqual(keysOf(await ada.list(`q=${"x".repeat(200)}`)), []);
   });
 
-  await red("triage: a 200-character title is taken whatever its script, emoji included", "a title of 200 emoji is refused as too long", async () => {
+  await check("triage: a search of 1, 49, 50, 51 or 200 characters, multibyte or with % _ and \\, finds its item; 201 characters is refused plainly", async () => {
+    const sentence =
+      "ʬ Grüße aus Zürich: the 🚀 total jumps from 10% to 100% when the snake_case field holds a back\\slash, " +
+      "שָׁלוֹם and زرّ show beside it, and Ada Lovelace waits for the receipt mail that Grace Hopper sent from the checkout page";
+    const points = [...sentence];
+    assert.ok(points.length >= 201, String(points.length));
+    const key = await filed(ada, { title: "Long search", body: sentence });
+    const found = async (q) => keysOf(await ada.list(`q=${encodeURIComponent(q)}`));
+    assert.ok(new TextEncoder().encode(points.slice(0, 49).join("")).length > 50);
+    for (const n of [1, 49, 50, 51, 200]) {
+      const q = points.slice(0, n).join("");
+      assert.deepEqual(await found(q), [key], `${n} characters`);
+    }
+    const tail = points.slice(points.length - 120).join("");
+    assert.deepEqual(await found(tail.toUpperCase()), [key]);
+    assert.deepEqual(await found(points.slice(10, 80).join("")), [key]);
+    assert.deepEqual(await found(points.slice(0, 80).join("").replace("snake_case", "snakeXcase")), []);
+    assert.deepEqual(await found(points.slice(0, 80).join("").replace("10% to", "10X to")), []);
+    assert.deepEqual(await found(points.slice(0, 80).join("").replace("snake_case", "snake%case")), []);
+    assert.deepEqual(await found("GRUßE AUS ZURICH: THE"), [key]);
+    assert.deepEqual(await found("%".repeat(60)), []);
+    assert.deepEqual(await found("_".repeat(60)), []);
+    assert.deepEqual(await found("🚀".repeat(200)), []);
+    for (const q of ["x".repeat(201), "🚀".repeat(201), `${points.slice(0, 200).join("")}z`]) {
+      const refused = await ada.list(`q=${encodeURIComponent(q)}`);
+      assert.equal(refused.status, 400, JSON.stringify(refused.json));
+      assert.match(JSON.stringify(refused.json), /q must be at most 200 characters/);
+    }
+    assert.deepEqual(await found(`  ${points.slice(0, 200).join("")}  `), [key]);
+  });
+
+  await check("triage: a 200-character title is taken whatever its script, emoji included; 201 is refused", async () => {
     const emoji = "🚀".repeat(200);
     const made = await ada.file({ title: emoji });
     assert.equal(made.status, 201, `200 emoji were refused: ${JSON.stringify(made.json)}`);
     assert.equal((await ada.get(made.json.key)).json.issue.title, emoji);
+    const script = await ada.file({ title: "𝒜".repeat(200) });
+    assert.equal(script.status, 201, JSON.stringify(script.json));
+    for (const title of ["🚀".repeat(201), "a".repeat(201), `${"🚀".repeat(200)}a`]) {
+      const refused = await ada.file({ title });
+      assert.equal(refused.status, 400, JSON.stringify(refused.json));
+      assert.match(JSON.stringify(refused.json), /title must be 1 to 200 characters/);
+    }
+    const key = await filed(ada, { title: "Renamed to emoji" });
+    assert.equal((await ada.patch(key, { title: "🎉".repeat(200) })).status, 200);
+    assert.equal((await ada.patch(key, { title: "🎉".repeat(201) })).status, 400);
   });
 }
