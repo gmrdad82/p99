@@ -38,7 +38,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0, badged: false };
+const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, seq: 0, badged: false };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -315,7 +315,7 @@ function signOut() {
 }
 
 function panelModule() {
-  if (!S.panel) S.panel = import("/_p99/panel.js?v=" + V).catch((e) => { S.panel = null; throw e; });
+  if (!S.panel) S.panel = import("/_p99/panel.js?v=" + V + (S.panelTries ? "&try=" + S.panelTries : "")).catch((e) => { S.panel = null; S.panelTries++; throw e; });
   return S.panel;
 }
 

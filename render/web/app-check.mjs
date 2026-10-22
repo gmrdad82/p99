@@ -292,7 +292,9 @@ async function check(back) {
     assert.equal(await g.p.locator("p99-root").count(), 0);
     ok("a space whose panel fails to load says so and leaves no panel behind");
     await g.p.unroute(isPanel);
+    const reloaded = g.p.waitForResponse((r) => isPanel(new URL(r.url())) && r.status() === 200);
     await g.p.click(".app-problem button");
+    await reloaded;
     await waitScreen(g.p, "space");
     await g.p.waitForFunction(() => document.querySelectorAll("p99-root").length === 1 && !document.querySelector(".app-wait"));
     ok("Try again after a failed panel load loads the panel and mounts it once");
