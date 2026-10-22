@@ -36,6 +36,9 @@ struct Cloud {
     denied: Vec<&'static str>,
     broken: Option<(&'static str, &'static str)>,
     sick: bool,
+    zoneless: bool,
+    status: Option<&'static str>,
+    account_token: bool,
 }
 
 impl Cloud {
@@ -107,7 +110,11 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
         && req.method == method
         && path.ends_with(end)
     {
-        return Reply::raw(502, "text/html", b"<html><body>502 Bad Gateway</body></html>");
+        return Reply::raw(
+            502,
+            "text/html",
+            b"<html><body>502 Bad Gateway</body></html>",
+        );
     }
     if cf.refuse {
         return Reply::cf_error(401, 1000, "Invalid API Token");
@@ -118,7 +125,12 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
     let s: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     let body = req.json();
     match (req.method.as_str(), s.as_slice()) {
-        ("GET", ["user", "tokens", "verify"]) => Reply::cf(json!({"status": "active"})),
+        ("GET", ["user", "tokens", "verify"]) if cf.account_token => {
+            Reply::cf_error(401, 1000, "Invalid API Token")
+        }
+        ("GET", ["user", "tokens", "verify"]) | ("GET", ["accounts", _, "tokens", "verify"]) => {
+            Reply::cf(json!({"status": cf.status.unwrap_or("active")}))
+        }
         ("GET", ["accounts"]) => listed(
             cf.accounts
                 .iter()
@@ -160,6 +172,12 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
             let meta = metadata(&req.text());
             cf.worker = true;
             cf.bindings = meta["bindings"].as_array().cloned().unwrap_or_default();
+            let keeps = meta["keep_bindings"]
+                .as_array()
+                .is_some_and(|k| k.iter().any(|t| t == "secret_text"));
+            if !keeps {
+                cf.secrets.clear();
+            }
             if let Some(tag) = meta["migrations"]["new_tag"].as_str() {
                 cf.tag = Some(tag.to_owned());
             }
@@ -187,6 +205,7 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
                 .push(body["name"].as_str().unwrap_or_default().to_owned());
             Reply::cf(json!({}))
         }
+        ("GET", ["zones"]) if cf.zoneless => listed(Vec::new()),
         ("GET", ["zones"]) => listed(vec![json!({"id": "z1", "name": "example.com"})]),
         ("GET", ["zones", _, "workers", "routes"]) => Reply::cf(Value::Array(
             cf.routes
@@ -364,9 +383,7 @@ fn a_fresh_account_gets_its_database_bucket_schema_worker_secrets_and_route_in_o
     }
 
     assert_eq!(
-        h.stub
-            .call("POST", "/cf/accounts/acc1/d1/database")
-            .json()["name"],
+        h.stub.call("POST", "/cf/accounts/acc1/d1/database").json()["name"],
         "p99"
     );
     assert_eq!(
@@ -431,8 +448,9 @@ fn a_fresh_account_gets_its_database_bucket_schema_worker_secrets_and_route_in_o
         assert!(out.stdout.contains(line), "{line} missing:\n{}", out.stdout);
     }
     assert!(
-        out.stdout
-            .contains(&format!("https://shop.example.com/_p99/health answers {VERSION}")),
+        out.stdout.contains(&format!(
+            "https://shop.example.com/_p99/health answers {VERSION}"
+        )),
         "{}",
         out.stdout
     );
@@ -562,7 +580,11 @@ fn running_setup_again_finds_everything_there_and_changes_nothing_it_made() {
         "  ok  secret CODE_PEPPER is kept as it is",
         "  ok  the route shop.example.com/_p99/* is there",
     ] {
-        assert!(again.stdout.contains(line), "{line} missing:\n{}", again.stdout);
+        assert!(
+            again.stdout.contains(line),
+            "{line} missing:\n{}",
+            again.stdout
+        );
     }
     never_shows(&[&first, &again], &[key.as_str(), pepper.as_str()]);
 }
@@ -587,15 +609,24 @@ fn a_database_and_bucket_already_there_are_adopted_not_made_again() {
             .calls("POST", "/cf/accounts/acc1/d1/database")
             .is_empty()
     );
-    assert!(h.stub.calls("POST", "/cf/accounts/acc1/r2/buckets").is_empty());
-    assert!(out.stdout.contains("  ok  D1 database p99 (db-kept) is there"));
+    assert!(
+        h.stub
+            .calls("POST", "/cf/accounts/acc1/r2/buckets")
+            .is_empty()
+    );
+    assert!(
+        out.stdout
+            .contains("  ok  D1 database p99 (db-kept) is there")
+    );
     assert!(out.stdout.contains("  ok  R2 bucket p99 is there"));
     assert!(out.stdout.contains("no host is named yet"));
     assert_eq!(inserted(&h), shipped());
     assert_eq!(cf.lock().unwrap().binding("DB")["database_id"], "db-kept");
-    assert!(h.toml().get("hosts").is_none_or(|t| t
-        .as_table()
-        .is_some_and(toml::map::Map::is_empty)));
+    assert!(
+        h.toml()
+            .get("hosts")
+            .is_none_or(|t| t.as_table().is_some_and(toml::map::Map::is_empty))
+    );
 
     let mut cloud = fresh();
     cloud.databases = vec![
@@ -612,13 +643,25 @@ fn a_database_and_bucket_already_there_are_adopted_not_made_again() {
     let main = &h.toml()["accounts"]["main"];
     assert_eq!(main["database_id"].as_str(), Some("db-else"));
     assert_eq!(main["bucket"].as_str(), Some("photos"));
-    assert!(h.stub.calls("POST", "/cf/accounts/acc1/r2/buckets").is_empty());
-    assert_eq!(cf.lock().unwrap().binding("BUCKET")["bucket_name"], "photos");
+    assert!(
+        h.stub
+            .calls("POST", "/cf/accounts/acc1/r2/buckets")
+            .is_empty()
+    );
+    assert_eq!(
+        cf.lock().unwrap().binding("BUCKET")["bucket_name"],
+        "photos"
+    );
 }
 
-fn lacks(name: &str, denied: &[&'static str], hosts: &[&str], said: &str) -> Home {
-    let mut cloud = fresh();
-    cloud.denied = denied.to_vec();
+fn denying(denied: &[&'static str]) -> Cloud {
+    Cloud {
+        denied: denied.to_vec(),
+        ..fresh()
+    }
+}
+
+fn lacks(name: &str, cloud: Cloud, hosts: &[&str], said: &str) -> Home {
     let (h, _cf) = blank(name, cloud);
     let mut extra = vec!["--no-mail"];
     for host in hosts {
@@ -626,13 +669,19 @@ fn lacks(name: &str, denied: &[&'static str], hosts: &[&str], said: &str) -> Hom
     }
     let out = setup(&h, &extra);
     out.refused(said);
-    assert!(out.stdout.contains("  !!  The token lacks:"), "{}", out.stdout);
+    assert!(
+        out.stdout.contains("  !!  The token lacks:"),
+        "{}",
+        out.stdout
+    );
     assert!(cf_writes(&h).is_empty(), "{:?}", cf_writes(&h));
     let config = h.toml();
     assert_eq!(config["me"]["email"].as_str(), Some("ada@example.com"));
-    assert!(config.get("accounts").is_none_or(|t| t
-        .as_table()
-        .is_some_and(toml::map::Map::is_empty)));
+    assert!(
+        config
+            .get("accounts")
+            .is_none_or(|t| t.as_table().is_some_and(toml::map::Map::is_empty))
+    );
     never_shows(&[&out], &[]);
     h
 }
@@ -641,25 +690,34 @@ fn lacks(name: &str, denied: &[&'static str], hosts: &[&str], said: &str) -> Hom
 fn a_token_without_the_zone_permissions_is_refused_before_anything_is_made() {
     lacks(
         "lacks-routes",
-        &["/workers/routes"],
+        denying(&["/workers/routes"]),
         &["shop.example.com"],
         "the token lacks Zone › Workers Routes: Edit on example.com (for shop.example.com)",
     );
     lacks(
         "lacks-zones",
-        &["/zones"],
-        &["shop.example.com"],
-        "the token lacks Zone › Zone: Read, Zone › Zone: Read on the zone of shop.example.com",
+        denying(&["/zones"]),
+        &["shop.example.com", "blog.example.com"],
+        "the token lacks Zone › Zone: Read",
+    );
+    lacks(
+        "lacks-zone-of-host",
+        Cloud {
+            zoneless: true,
+            ..fresh()
+        },
+        &["shop.example.com", "www.example.org"],
+        "the token lacks Zone › Zone: Read on the zone of shop.example.com, Zone › Zone: Read on the zone of www.example.org",
     );
     lacks(
         "lacks-d1",
-        &["/d1/database"],
+        denying(&["/d1/database"]),
         &[],
         "the token lacks Account › D1: Edit",
     );
     lacks(
         "lacks-all",
-        &["/workers/scripts", "/d1/database", "/r2/buckets"],
+        denying(&["/workers/scripts", "/d1/database", "/r2/buckets"]),
         &[],
         "the token lacks Account › Workers Scripts: Edit, Account › D1: Edit, Account › Workers R2 Storage: Edit",
     );
@@ -669,11 +727,17 @@ fn a_token_without_the_zone_permissions_is_refused_before_anything_is_made() {
     let (h, cf) = blank("lacks-routes-no-host", cloud);
     let out = setup(&h, &["--no-mail"]);
     out.ok();
-    assert!(out.stdout.contains(
-        "  --  no host is named yet; zones and routes are checked when hosts are added"
-    ));
+    assert!(
+        out.stdout.contains(
+            "  --  no host is named yet; zones and routes are checked when hosts are added"
+        )
+    );
     assert!(cf.lock().unwrap().worker);
-    assert!(h.stub.calls("POST", "/cf/zones/z1/workers/routes").is_empty());
+    assert!(
+        h.stub
+            .calls("POST", "/cf/zones/z1/workers/routes")
+            .is_empty()
+    );
 }
 
 fn refuses(name: &str, cloud: Cloud, args: &[&str], token: bool, said: &str) -> (Home, Shared) {
@@ -682,7 +746,10 @@ fn refuses(name: &str, cloud: Cloud, args: &[&str], token: bool, said: &str) -> 
     let out = h.p99_env(args, envs);
     out.refused(said);
     assert_eq!(
-        out.stderr.lines().filter(|l| l.starts_with("p99: ")).count(),
+        out.stderr
+            .lines()
+            .filter(|l| l.starts_with("p99: "))
+            .count(),
         1,
         "{}",
         out.stderr
@@ -709,6 +776,27 @@ fn each_setup_refusal_is_one_line_and_makes_nothing_on_cloudflare() {
             me(&[]),
             true,
             "Cloudflare doesn't accept this token (Cloudflare /accounts: Invalid API Token (1000))",
+        ),
+        (
+            "refuse-disabled-token",
+            Cloud {
+                status: Some("disabled"),
+                ..fresh()
+            },
+            me(&[]),
+            true,
+            "the token is disabled",
+        ),
+        (
+            "refuse-expired-account-token",
+            Cloud {
+                account_token: true,
+                status: Some("expired"),
+                ..fresh()
+            },
+            me(&[]),
+            true,
+            "the token is expired",
         ),
         (
             "refuse-no-token",
@@ -783,7 +871,11 @@ fn each_setup_refusal_is_one_line_and_makes_nothing_on_cloudflare() {
         "Zone › Workers Routes: Edit",
         "Zone › Zone: Read",
     ] {
-        assert!(out.stdout.contains(permission), "{permission}: {}", out.stdout);
+        assert!(
+            out.stdout.contains(permission),
+            "{permission}: {}",
+            out.stdout
+        );
     }
 }
 
@@ -811,12 +903,55 @@ fn a_worker_of_the_same_name_on_another_database_is_left_alone() {
     );
     assert!(h.stub.calls("PUT", UPLOAD).is_empty());
     assert!(cf.lock().unwrap().secrets.is_empty());
-    assert_eq!(
-        cf.lock().unwrap().binding("DB")["database_id"],
-        "db-other"
-    );
+    assert_eq!(cf.lock().unwrap().binding("DB")["database_id"], "db-other");
     let main = &h.toml()["accounts"]["main"];
     assert_eq!(main["database_id"].as_str(), Some("db-made"));
+    assert_eq!(
+        h.stub.calls("POST", "/cf/accounts/acc1/d1/database").len(),
+        1
+    );
+    assert_eq!(inserted(&h), shipped());
+    assert_eq!(cf.lock().unwrap().buckets, ["p99"]);
+    assert!(main["key"].as_str().is_some_and(is_hex));
+    let again = h.p99_env(
+        &["setup", "--yes", "--no-mail", "--worker", "p99-site"],
+        &[("P99_TOKEN", TOKEN)],
+    );
+    again.ok();
+    assert_eq!(
+        h.stub.calls("POST", "/cf/accounts/acc1/d1/database").len(),
+        1
+    );
+    assert_eq!(inserted(&h), shipped());
+    assert_eq!(cf.lock().unwrap().buckets, ["p99"]);
+    assert_eq!(
+        h.stub
+            .calls("PUT", "/cf/accounts/acc1/workers/scripts/p99-site")
+            .len(),
+        1
+    );
+    assert_eq!(cf.lock().unwrap().binding("DB")["database_id"], "db-made");
+}
+
+#[test]
+fn an_account_scoped_token_is_verified_on_its_account_and_setup_goes_on() {
+    let (h, cf) = blank(
+        "setup-account-token",
+        Cloud {
+            account_token: true,
+            ..fresh()
+        },
+    );
+    let out = setup(&h, &["--no-mail"]);
+    out.ok();
+    assert_eq!(h.stub.calls("GET", "/cf/user/tokens/verify").len(), 1);
+    assert_eq!(
+        h.stub.calls("GET", "/cf/accounts/acc1/tokens/verify").len(),
+        1
+    );
+    assert!(out.stdout.contains("  ok  Cloudflare accepts the token"));
+    assert!(cf.lock().unwrap().worker);
+    never_shows(&[&out], &[]);
 }
 
 #[test]
@@ -837,12 +972,16 @@ fn a_route_another_worker_holds_is_named_and_the_host_is_not_added() {
         "{}",
         out.stderr
     );
-    assert!(out.stderr.contains(
-        "Not added: shop.example.com. Fix what's named above and run p99 setup again."
-    ));
-    assert!(h.toml().get("hosts").is_none_or(|t| t
-        .as_table()
-        .is_some_and(toml::map::Map::is_empty)));
+    assert!(
+        out.stderr.contains(
+            "Not added: shop.example.com. Fix what's named above and run p99 setup again."
+        )
+    );
+    assert!(
+        h.toml()
+            .get("hosts")
+            .is_none_or(|t| t.as_table().is_some_and(toml::map::Map::is_empty))
+    );
     assert_eq!(
         cf.lock().unwrap().routes,
         [("shop.example.com/_p99/*".to_owned(), "shop-www".to_owned())]
@@ -852,73 +991,6 @@ fn a_route_another_worker_holds_is_named_and_the_host_is_not_added() {
             .iter()
             .any(|(s, _)| s.starts_with("INSERT INTO hosts"))
     );
-}
-
-#[test]
-fn deploy_on_a_live_account_uploads_keeps_the_secrets_and_routes_every_host() {
-    let (h, cf) = configured("deploy-live", live());
-    let out = h.p99(&["deploy"]);
-    out.ok();
-    assert!(inserted(&h).is_empty());
-    let state = cf.lock().unwrap();
-    assert_eq!(state.binding("VERSION")["text"], VERSION);
-    assert_eq!(state.binding("RATE")["namespace_id"], "1003");
-    assert_eq!(state.binding("DB")["database_id"], "db1");
-    assert_eq!(state.binding("APP_HOST")["text"], "p99.example.workers.dev");
-    assert_eq!(state.secret("KEY_P99").as_deref(), Some(KEY));
-    assert_eq!(state.secret("MANAGERS").as_deref(), Some("ada@example.com"));
-    assert!(state.secret("CODE_PEPPER").is_some_and(|p| is_hex(&p)));
-    let mut routes = state.routes.clone();
-    routes.sort();
-    assert_eq!(
-        routes,
-        [
-            ("dev.example.com/_p99/*".to_owned(), "p99".to_owned()),
-            ("shop.example.com/_p99/*".to_owned(), "p99".to_owned()),
-        ]
-    );
-    drop(state);
-    let secrets: Vec<String> = h
-        .stub
-        .writes()
-        .iter()
-        .filter(|r| r.path.ends_with("/secrets"))
-        .map(|r| r.json()["name"].as_str().unwrap_or_default().to_owned())
-        .collect();
-    assert_eq!(secrets, ["CODE_PEPPER"]);
-    assert!(
-        h.stub
-            .calls("GET", "/cf/accounts/acc1/workers/scripts/shop-www/settings")
-            .is_empty()
-    );
-    assert_eq!(
-        h.stub
-            .calls("POST", "/cf/accounts/acc1/workers/scripts/p99/subdomain")
-            .len(),
-        1
-    );
-    assert_eq!(h.stub.under("GET", "/health/").len(), 2);
-    let deploying = format!("Deploying P99 {VERSION} to the account main (acc1):");
-    let shop = format!("  ok  https://shop.example.com/_p99/health answers {VERSION}");
-    let dev = format!("  ok  https://dev.example.com/_p99/health answers {VERSION}");
-    for line in [
-        deploying.as_str(),
-        "  ok  every migration is applied",
-        "  ok  secrets kept",
-        "  ok  secret CODE_PEPPER",
-        "  ok  the P99 page answers on https://p99.example.workers.dev/",
-        shop.as_str(),
-        dev.as_str(),
-    ] {
-        assert!(out.stdout.contains(line), "{line} missing:\n{}", out.stdout);
-    }
-    assert!(
-        h.stub
-            .under("PUT", "/cf/")
-            .iter()
-            .all(|r| r.header("authorization") == Some("Bearer cf-token"))
-    );
-    never_shows(&[&out], &[KEY, "cf-token"]);
 }
 
 #[test]
@@ -969,6 +1041,8 @@ fn a_cloudflare_5xx_after_the_upload_stops_the_deploy_and_the_next_one_finishes_
     {
         let state = cf.lock().unwrap();
         assert_eq!(state.binding("VERSION")["text"], VERSION);
+        assert_eq!(state.secret("KEY_P99").as_deref(), Some(KEY));
+        assert_eq!(state.secret("MANAGERS").as_deref(), Some("ada@example.com"));
         assert!(state.secret("CODE_PEPPER").is_none());
         assert!(state.routes.is_empty());
     }
@@ -981,8 +1055,22 @@ fn a_cloudflare_5xx_after_the_upload_stops_the_deploy_and_the_next_one_finishes_
     assert_eq!(report["ok"], true);
     assert!(report.get("error").is_none());
     let state = cf.lock().unwrap();
-    assert!(state.secret("CODE_PEPPER").is_some());
-    assert_eq!(state.routes.len(), 2);
+    assert!(state.secret("CODE_PEPPER").is_some_and(|p| is_hex(&p)));
+    assert_eq!(state.secret("KEY_P99").as_deref(), Some(KEY));
+    assert_eq!(state.secret("MANAGERS").as_deref(), Some("ada@example.com"));
+    assert_eq!(state.binding("RATE")["namespace_id"], "1003");
+    assert_eq!(state.binding("DB")["database_id"], "db1");
+    let mut routes = state.routes.clone();
+    routes.sort();
+    assert_eq!(
+        routes,
+        [
+            ("dev.example.com/_p99/*".to_owned(), "p99".to_owned()),
+            ("shop.example.com/_p99/*".to_owned(), "p99".to_owned()),
+        ]
+    );
+    drop(state);
+    never_shows(&[&out, &again], &[KEY, "cf-token"]);
 }
 
 #[test]
@@ -1022,15 +1110,22 @@ fn deploy_json_with_a_token_cloudflare_refuses_says_ok_false_and_why() {
     let out = h.p99(&["deploy", "--json"]);
     assert_eq!(out.code, Some(1));
     let said = "Cloudflare /accounts/acc1/workers/scripts/p99/settings: Invalid API Token (1000)";
-    assert!(out.stderr.ends_with(&format!("p99: {said}\n")), "{}", out.stderr);
+    assert!(
+        out.stderr.ends_with(&format!("p99: {said}\n")),
+        "{}",
+        out.stderr
+    );
     let report = out.json();
     assert_eq!(report["ok"], false);
     assert_eq!(report["error"], said);
     assert_eq!(report["account"], "main");
     assert_eq!(report["worker"], "p99");
     assert_eq!(report["migrations"]["applied"], json!([]));
+    let plain = h.p99(&["deploy"]);
+    plain.refused(said);
+    assert!(!plain.stdout.contains("\"ok\""), "{}", plain.stdout);
     assert!(cf_writes(&h).is_empty(), "{:?}", cf_writes(&h));
-    never_shows(&[&out], &["cf-token", KEY]);
+    never_shows(&[&out, &plain], &["cf-token", KEY]);
 }
 
 #[test]
@@ -1052,10 +1147,10 @@ fn deploy_accept_plan_takes_the_right_hash_in_any_case_and_refuses_a_wrong_one()
     wrong.refused(
         "the plan changed since that hash was taken (the database moved on): read `p99 migrate --plan` again and run with its new hash",
     );
-    let short = h.p99(&["deploy", "--accept-plan", "abc"]);
-    short.refused(
-        "the plan changed since that hash was taken (the database moved on): read `p99 migrate --plan` again and run with its new hash",
-    );
+    for malformed in ["abc", &"g".repeat(64), &"0".repeat(65)] {
+        h.p99(&["deploy", "--accept-plan", malformed])
+            .refused("--accept-plan takes the 64-character hash `p99 migrate --plan` ends with");
+    }
     assert!(inserted(&h).is_empty());
     assert!(h.stub.calls("PUT", UPLOAD).is_empty());
     assert_eq!(cf.lock().unwrap().applied, at_1_7);

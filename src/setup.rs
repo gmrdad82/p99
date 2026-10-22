@@ -634,7 +634,7 @@ fn reach(cf: &Cloudflare) -> Result<Vec<Named>, String> {
         Ok(v) if v["status"].as_str().is_none_or(|s| s == "active") => {
             return cf.accounts().map_err(String::from);
         }
-        Ok(v) => return Err(format!("the token is {}", v["status"])),
+        Ok(v) => return Err(inactive(&v)),
         Err(_) => {}
     }
     let accounts = cf
@@ -645,10 +645,17 @@ fn reach(cf: &Cloudflare) -> Result<Vec<Named>, String> {
             if v["status"].as_str().is_none_or(|s| s == "active") {
                 return Ok(accounts);
             }
-            return Err(format!("the token is {}", v["status"]));
+            return Err(inactive(&v));
         }
     }
     Err("Cloudflare doesn't accept this token".into())
+}
+
+fn inactive(verified: &Value) -> String {
+    format!(
+        "the token is {}",
+        verified["status"].as_str().unwrap_or("not active")
+    )
 }
 
 fn probe(cf: &Cloudflare, account: &str, hosts: &[String]) -> Result<Vec<String>, String> {
@@ -670,7 +677,11 @@ fn probe(cf: &Cloudflare, account: &str, hosts: &[String]) -> Result<Vec<String>
     }
     let zones = cf.zones(account);
     let found = zones.as_ref().map(|z| z.to_vec()).unwrap_or_default();
+    let listed = zones.is_ok();
     check(zones.map(drop), PERMISSIONS[4].0.into())?;
+    if !listed {
+        return Ok(missing);
+    }
     let mut seen = Vec::new();
     let mut blind = Vec::new();
     for host in hosts {
@@ -981,6 +992,9 @@ fn parse_host(spec: &str) -> Result<HostSpec, String> {
     let (host, rest) = spec.split_once('=').unwrap_or((spec, ""));
     let (env, kind) = rest.split_once(':').unwrap_or((rest, ""));
     let host = host.trim().to_ascii_lowercase();
+    if host.is_empty() {
+        return Err(format!("the host is missing in --host {spec:?}"));
+    }
     if !is_hostname(&host) {
         return Err(format!("{host} is not a hostname"));
     }
@@ -1930,7 +1944,15 @@ mod tests {
             three("shop.example.com", "production", "development")
         );
         assert_eq!(spec("shop"), Err("shop is not a hostname".into()));
-        assert_eq!(spec("=dev"), Err(" is not a hostname".into()));
+        assert_eq!(
+            spec("=dev"),
+            Err("the host is missing in --host \"=dev\"".into())
+        );
+        assert_eq!(spec(""), Err("the host is missing in --host \"\"".into()));
+        assert_eq!(
+            spec("  =dev:release"),
+            Err("the host is missing in --host \"  =dev:release\"".into())
+        );
         assert_eq!(
             spec("shop.example.com=dev:beta"),
             Err("beta is not an environment kind; use release or development".into())
@@ -1952,6 +1974,7 @@ mod tests {
             ("http://shop.example.com", "shop.example.com"),
             ("*.example.com/*", "shop.example.com"),
             ("*example.com/*", "example.com"),
+            ("*example.com/*", "shop.example.com"),
         ] {
             assert!(covers(pattern, host), "{pattern} should cover {host}");
         }
@@ -1963,6 +1986,16 @@ mod tests {
         ] {
             assert!(!covers(pattern, host), "{pattern} should not cover {host}");
         }
+    }
+
+    #[test]
+    fn an_inactive_token_is_named_by_its_status_without_quotes() {
+        assert_eq!(
+            inactive(&json!({"status": "disabled"})),
+            "the token is disabled"
+        );
+        assert_eq!(inactive(&json!({"status": 3})), "the token is not active");
+        assert_eq!(inactive(&json!({})), "the token is not active");
     }
 
     #[test]
@@ -2087,7 +2120,10 @@ mod tests {
         let a = new_key().unwrap();
         let b = new_key().unwrap();
         assert_eq!(a.len(), 64);
-        assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert!(
+            a.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+        );
         assert_ne!(a, b);
     }
 }

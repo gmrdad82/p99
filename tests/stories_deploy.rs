@@ -355,7 +355,16 @@ impl Home {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        for keep in ["PATH", "SYSTEMROOT", "TMPDIR", "TEMP", "TMP"] {
+        for keep in [
+            "PATH",
+            "SYSTEMROOT",
+            "TMPDIR",
+            "TEMP",
+            "TMP",
+            "LLVM_PROFILE_FILE",
+            "CARGO_LLVM_COV",
+            "CARGO_LLVM_COV_TARGET_DIR",
+        ] {
             if let Some(value) = std::env::var_os(keep) {
                 cmd.env(keep, value);
             }

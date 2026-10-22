@@ -140,6 +140,11 @@ pub fn gate(
             pending.join(", ")
         ));
     };
+    if given.len() != 64 || !given.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(
+            "--accept-plan takes the 64-character hash `p99 migrate --plan` ends with".into(),
+        );
+    }
     let now = hash(&plan(cf, account, applied)?);
     if given != now {
         return Err(
@@ -1079,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn fold_lowers_strips_accents_joins_words_and_caps_at_26() {
+    fn fold_lowers_strips_accents_joins_words_and_caps_at_26_as_0012_people_sql_does() {
         for (raw, folded) in [
             ("  Ada Lovelace ", "ada.lovelace"),
             ("Grâce Hopper", "grace.hopper"),
@@ -1093,8 +1098,14 @@ mod tests {
             ("x__y--z", "x_y-z"),
             ("ada\tbyron", "ada.byron"),
             ("ada .- byron", "ada-.byron"),
+            ("a---b", "a--b"),
+            ("a___b", "a__b"),
+            ("a....b", "a.b"),
             ("日本", ""),
-            ("abcdefghijklmnopqrstuvwxyz1234", "abcdefghijklmnopqrstuvwxyz"),
+            (
+                "abcdefghijklmnopqrstuvwxyz1234",
+                "abcdefghijklmnopqrstuvwxyz",
+            ),
             ("abcdefghijklmnopqrstuvwxy.z", "abcdefghijklmnopqrstuvwxy"),
         ] {
             assert_eq!(fold(raw), folded, "{raw:?}");

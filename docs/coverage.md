@@ -155,7 +155,7 @@ JavaScript, for the first time in part: the worker suite now loads some Worker m
 
 ## w201 setup stories, 2026-10-22 (agent/cov-setup)
 
-tests/stories_setup.rs runs `p99 setup --yes` and `p99 deploy` through the binary against a stateful Cloudflare stub built on tests/cli/fake.rs: a fresh account, a second run that finds everything there, a D1 database and R2 bucket adopted by name, tokens lacking the zone, D1 or account permissions, every setup refusal, a Worker of the same name on another database, a route another Worker holds, and for deploy a live account, `--no-check`, a 502 after and on the upload, a refused token with `--json`, and `--accept-plan` with a right, wrong and short hash. Its runs keep the environment, so the coverage profile counts them, unlike tests/stories_deploy.rs. New unit tests cover setup.rs's hostname, host spec, route, binding and `--yes` helpers and migrate.rs's fold, skeleton, plan words and read-only guard.
+tests/stories_setup.rs runs `p99 setup --yes` and `p99 deploy` through the binary against a stateful Cloudflare stub built on tests/cli/fake.rs, which drops a Worker's secrets on an upload that doesn't keep them, as Cloudflare does: a fresh account, a second run that finds everything there, a D1 database and R2 bucket adopted by name, tokens lacking the zone list, a host's zone, D1 or account permissions, a disabled token and an account-scoped one, the setup refusals named in the story, a Worker of the same name on another database, a route another Worker holds, and for deploy `--no-check`, a 502 after and on the upload, a refused token in plain text and with `--json`, and `--accept-plan` with a right, wrong and malformed hash. Its runs keep the environment, so the coverage profile counts them; tests/stories_deploy.rs now keeps `LLVM_PROFILE_FILE` through its cleared environment, so its stories (a fresh deploy, an account at 0014, no Worker yet, the 1.7 and 1.8 plans, a migration failing midway) count too. New unit tests cover setup.rs's hostname, host spec, route, binding, token status and `--yes` helpers and migrate.rs's fold, skeleton, plan words and read-only guard. Still untested in setup: the missing `--mail-from` with a Resend key, the rate-namespace refusals, and the interactive walk.
 
 | File | Lines covered | Lines | w197 |
 |---|---|---|---|
@@ -164,7 +164,7 @@ tests/stories_setup.rs runs `p99 setup --yes` and `p99 deploy` through the binar
 
 ## Uncovered critical paths, first in line
 
-- Setup's interactive walk (setup.rs, 27%), migrate (34%) and import (42%).
+- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 27% before w201; the integrator refreshes it), migrate (34%) and import (42%).
 - Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
 - delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
 - The Worker, the loader, the panel and the board (JavaScript): not measured yet; the worker suite and the browser checks exercise them heavily without numbers.
