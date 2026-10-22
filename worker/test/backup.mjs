@@ -215,6 +215,15 @@ export async function backupChecks({ check, root }) {
     assert.equal(pageQuery(BACKUP_TABLES.find((t) => t.name === "labels"), marks, 0).binds.length, 3);
   });
 
+  await check("[backup] every table the migrations make is backed up, save the session, usage, delivery and run logs", async () => {
+    const db = migrated(root);
+    const made = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all().map((r) => r.name);
+    const skipped = ["app_sessions", "app_tries", "backup_runs", "github_deliveries", "usage"];
+    assert.deepEqual(made.filter((n) => !skipped.includes(n)), BACKUP_TABLES.map((t) => t.name).sort());
+    assert.ok(skipped.every((n) => made.includes(n)), JSON.stringify(made));
+    assert.ok(made.includes("archived"));
+  });
+
   await check("[backup] every table is paged after every table it points at, the lanes first and the key counters last", async () => {
     const names = BACKUP_TABLES.map((t) => t.name);
     assert.equal(names[names.length - 1], "sqlite_sequence");

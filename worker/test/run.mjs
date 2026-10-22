@@ -24,6 +24,9 @@ import { coverWorker } from "./inspect.mjs";
 import { cardReadChecks } from "./cards-read.mjs";
 import { cardWriteChecks } from "./cards-write.mjs";
 import { markChecks } from "./marks.mjs";
+import { foldChecks } from "./fold.mjs";
+import { oneBoardChecks } from "./one-board.mjs";
+import { LANE_NAMES } from "../src/cards.js";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -582,9 +585,9 @@ async function run() {
     assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&priority=urgent`)).status, 400);
     assert.equal((await call("GET", `/_p99/v1/issues?scope=all&host=*&status=shelved`)).status, 400);
     assert.equal((await browse("GET", "/issues?scope=mine&label=Inbox", adaHere.secret)).status, 403);
-    const inbox = await call("GET", `/_p99/v1/issues?scope=all&host=${here}&label=Inbox`);
+    const inbox = await call("GET", `/_p99/v1/issues?scope=all&host=${here}&label=New`);
     assert.ok(inbox.json.issues.some((i) => i.key === key));
-    assert.ok(inbox.json.issues.every((i) => i.label === "Inbox"));
+    assert.ok(inbox.json.issues.every((i) => i.label === "New"));
     const answers = [
       (await call("GET", `/_p99/v1/issues/${key}?host=${here}`)).json,
       (await call("GET", `/_p99/v1/issues?scope=all&host=*`)).json,
@@ -736,13 +739,13 @@ async function run() {
     assert.equal(said.includes("ada@example.com"), false);
     assert.equal(said.includes("<!channel>"), false);
 
-    assert.equal((await call("GET", `/_p99/v1/boards?host=${here}`)).status, 200);
+    assert.equal((await call("GET", `/_p99/v1/board?host=${here}`)).status, 200);
     hookHits.length = 0;
-    const moved = await call("POST", `/_p99/v1/move?host=${here}`, { body: { key: filed.json.key, from: "Inbox", to: "Building" } });
+    const moved = await call("POST", `/_p99/v1/move?host=${here}`, { body: { key: filed.json.key, from: "New", to: "in-progress" } });
     assert.equal(moved.status, 200, JSON.stringify(moved.json));
     await new Promise((r) => setTimeout(r, 500));
     assert.equal(hookHits.length, 0);
-    const closed = await call("POST", `/_p99/v1/move?host=${here}`, { body: { key: filed.json.key, from: "Building", to: "Done" } });
+    const closed = await call("POST", `/_p99/v1/move?host=${here}`, { body: { key: filed.json.key, from: "In progress", to: "Done" } });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
     for (let i = 0; i < 50 && hookHits.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
     assert.equal(hookHits.length, 1);
@@ -882,10 +885,10 @@ async function run() {
 
   await check("0004 and 0011 map every old status to its label and resolution, and keep the item's thread and its old tags", async () => {
     const want = {
-      901: ["Inbox", "received", null],
-      902: ["Building", "in_progress", null],
-      903: ["Building", "in_progress", null],
-      904: ["review", "in_progress", null],
+      901: ["New", "received", null],
+      902: ["In progress", "in_progress", null],
+      903: ["In progress", "in_progress", null],
+      904: ["Landed", "in_progress", null],
       905: ["Done", "fixed", "fixed"],
       906: ["Done", "dropped", "abandoned"],
       907: ["Done", "duplicate", "duplicate"],
@@ -901,131 +904,25 @@ async function run() {
     const old = await call("GET", "/_p99/v1/issues/BUG-905?host=*");
     assert.ok(old.json.events.some((e) => e.kind === "status" && e.detail.to === "resolved"));
     const labels = (await call("GET", "/_p99/v1/labels")).json.labels;
-    assert.deepEqual(labels.slice(0, 4).map((l) => [l.name, l.closes]), [["Inbox", false], ["Building", false], ["review", false], ["Done", true]]);
+    assert.deepEqual(labels.map((l) => [l.name, l.closes]), LANE_NAMES.map((name) => [name, name === "Done"]));
     assert.equal(labels.some((l) => l.name === "legacy tag"), false);
     assert.equal(await d1count("SELECT count(*) AS n FROM item_labels WHERE item_id IN (951, 952)"), 3);
     assert.equal(await d1count(TAG_COUNT), 2);
   });
 
-  await check("the lane migration keeps each lane in its old priority order, then its old place, and flattens nested boards", async () => {
-    const boards = await call("GET", "/_p99/v1/boards");
-    assert.equal(boards.status, 200, JSON.stringify(boards.json));
-    const lanes = boards.json.boards.find((b) => b.id === 950);
-    const nested = boards.json.boards.find((b) => b.id === 951);
-    assert.ok(lanes && nested, JSON.stringify(boards.json));
-    assert.equal(lanes.mine, true);
-    assert.deepEqual(lanes.columns.map((col) => col.label), ["Inbox", "Building", "review", "Done"]);
-    const board = await call("GET", "/_p99/v1/boards/950");
-    assert.equal(board.status, 200, JSON.stringify(board.json));
-    const lane = board.json.cards.filter((cd) => cd.label === "Inbox").map((cd) => cd.key);
-    assert.deepEqual(lane, ["BUG-953", "BUG-955", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
-    assert.ok(board.json.cards.every((cd) => cd.key.startsWith("BUG-95")));
-    const flat = await call("GET", "/_p99/v1/boards/951");
-    assert.equal(flat.json.cards.length, 7);
-    const legacy = boards.json.boards.find((b) => b.name === "legacy.example");
-    const building = (await call("GET", `/_p99/v1/boards/${legacy.id}`)).json.cards.filter((cd) => cd.label === "Building").map((cd) => cd.key);
-    assert.deepEqual(building, ["BUG-903", "BUG-902"]);
-    const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*");
-    assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
-  });
-
-  const kate = await mint("Margaret Hamilton", "margaret@example.com", [here], true);
   const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
   const fileOn = async (title) => (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title }) })).json.key;
-  const mineHere = (await call("GET", `/_p99/v1/boards?host=${here}`)).json.boards.find((b) => b.mine);
   const move = (body) => call("POST", `/_p99/v1/move?host=${here}`, { body });
-  const cards = async (id, as) => (as ? await browse("GET", `/boards/${id}`, as) : await call("GET", `/_p99/v1/boards/${id}?host=${here}`)).json.cards;
 
-  await check("a manager gets one board on first use; a move replaces the label, a stale one is 409, and each item shows at most once", async () => {
-    assert.ok(mineHere, "grace's board here");
-    assert.deepEqual(mineHere.columns.map((col) => col.label), ["Inbox", "Building", "review", "Done"]);
-    assert.equal((await call("GET", `/_p99/v1/boards?host=${here}`)).json.boards.filter((b) => b.mine).length, 1);
-    const [a, b, c] = [await fileOn("Card A"), await fileOn("Card B"), await fileOn("Card C")];
-    const moved = await move({ key: a, from: "Inbox", to: "Building", board: mineHere.id });
-    assert.equal(moved.status, 200, JSON.stringify(moved.json));
-    assert.equal(moved.json.card.label, "Building");
-    assert.match(moved.json.card.order, /^[0-9A-Za-z]+$/);
-    const stale = await move({ key: a, from: "Inbox", to: "review", board: mineHere.id });
-    assert.equal(stale.status, 409);
-    assert.deepEqual(stale.json, { error: "moved", message: "this card moved; refreshed" });
-    assert.equal((await call("GET", `/_p99/v1/issues/${a}?host=${here}`)).json.issue.label, "Building");
-    assert.equal((await move({ key: b, from: "Inbox", to: "Building", board: mineHere.id, after: a })).status, 200);
-    assert.equal((await move({ key: c, from: "Inbox", to: "Building", board: mineHere.id, before: a })).status, 200);
-    const ours = (list) => list.filter((cd) => cd.label === "Building" && [a, b, c].includes(cd.key)).map((cd) => cd.key);
-    let lane = ours(await cards(mineHere.id));
-    assert.deepEqual(lane, [c, a, b]);
-    assert.equal((await move({ key: c, from: "Building", to: "Building", board: mineHere.id, after: b })).status, 200);
-    lane = ours(await cards(mineHere.id));
-    assert.deepEqual(lane, [a, b, c]);
-    const qa = await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "QA", columns: [{ label: "Building" }, { label: "QA ready" }, { label: "Done", closes: true }] } });
-    assert.equal(qa.status, 201, JSON.stringify(qa.json));
-    assert.deepEqual(qa.json.columns, [{ label: "Building", closes: false }, { label: "QA ready", closes: false }, { label: "Done", closes: true }]);
-    assert.equal((await move({ key: a, from: "Building", to: "QA ready", board: qa.json.id })).status, 200);
-    const onQa = await cards(qa.json.id);
-    const onMine = await cards(mineHere.id);
-    assert.ok(onQa.some((cd) => cd.key === a && cd.label === "QA ready"));
-    assert.equal(onMine.some((cd) => cd.key === a), false);
-    for (const list of [onQa, onMine]) {
-      assert.equal(new Set(list.map((cd) => cd.key)).size, list.length);
-      const labels = new Set(list.map((cd) => cd.label));
-      assert.ok([...labels].every((l) => (list === onQa ? ["Building", "QA ready", "Done"] : ["Inbox", "Building", "review", "Done"]).includes(l)));
-    }
-    assert.equal(onQa.some((cd) => cd.label === "Inbox"), false);
-    const none = await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "Too few", columns: ["Inbox", "Done"] } });
-    assert.equal(none.status, 400);
-    assert.equal((await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "Third", columns: ["Inbox", "Building", "Done"] } })).status, 201);
-    assert.equal((await call("POST", `/_p99/v1/boards?host=${here}`, { body: { name: "Fourth", columns: ["Inbox", "Building", "Done"] } })).status, 409);
-  });
-
-  await check("watchers see the owner's exact view and can't drag; any manager sets a label through their own boards; reporters can't", async () => {
-    const owner = await cards(mineHere.id);
-    const listed = await browse("GET", "/boards", kate.secret);
-    assert.equal(listed.status, 200, JSON.stringify(listed.json));
-    assert.ok(listed.json.boards[0].mine);
-    const watched = listed.json.boards.find((b) => b.id === mineHere.id);
-    assert.equal(watched.mine, false);
-    assert.deepEqual(await cards(mineHere.id, kate.secret), owner);
-    const card = owner.find((cd) => cd.label === "Building");
-    const refused = await browse("POST", "/move", kate.secret, { key: card.key, from: "Building", to: "review", board: mineHere.id });
-    assert.equal(refused.status, 403);
-    assert.equal((await browse("PUT", `/boards/${mineHere.id}`, kate.secret, { name: "Mine now" })).status, 403);
-    assert.equal((await browse("DELETE", `/boards/${mineHere.id}`, kate.secret)).status, 403);
-    assert.equal((await browse("POST", "/move", kate.secret, { key: card.key, from: "Building", to: "QA ready" })).status, 400);
-    const set = await browse("POST", "/move", kate.secret, { key: card.key, from: "Building", to: "review" });
-    assert.equal(set.status, 200, JSON.stringify(set.json));
-    assert.equal(set.json.card.label, "review");
-    assert.equal((await browse("GET", "/boards", adaHere.secret)).status, 403);
-    assert.equal((await browse("GET", `/boards/${mineHere.id}`, adaHere.secret)).status, 403);
-    assert.equal((await browse("GET", "/labels", adaHere.secret)).status, 403);
-    assert.equal((await browse("POST", "/move", adaHere.secret, { key, from: "Inbox", to: "Building" })).status, 403);
-    assert.equal((await browse("POST", "/stream-ticket", adaHere.secret)).status, 403);
-  });
-
-  await check("a board, a watch and a move of another host are a 404, and only the owner deletes a board, never their last", async () => {
-    const away = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Over there", columns: ["Inbox", "Building", "Done"] } });
-    assert.equal(away.status, 201, JSON.stringify(away.json));
-    assert.equal((await browse("GET", "/boards", boss.secret)).json.boards.some((b) => b.id === away.json.id), false);
-    assert.equal((await browse("GET", `/boards/${away.json.id}`, boss.secret)).status, 404);
-    assert.equal((await browse("POST", "/move", boss.secret, { key, from: "Inbox", to: "Building", board: away.json.id })).status, 404);
-    assert.equal((await browse("PUT", `/boards/${away.json.id}`, boss.secret, { name: "Mine" })).status, 404);
-    assert.equal((await browse("DELETE", `/boards/${away.json.id}`, boss.secret)).status, 404);
-    const elsewhere = (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title: "Far away" }) })).json.key;
-    assert.equal((await browse("POST", "/move", boss.secret, { key: elsewhere, from: "Inbox", to: "Building" })).status, 404);
-    assert.equal((await browse("GET", `/boards/${mineHere.id}`, boss.secret)).status, 200);
-    const own = (await call("GET", `/_p99/v1/boards?host=${there}`)).json.boards.filter((b) => b.mine);
-    assert.deepEqual(own.map((b) => b.id), [away.json.id]);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${away.json.id}?host=${there}`)).status, 409);
-    assert.equal((await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Spare", columns: ["Inbox", "Building", "Done"] } })).status, 201);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${away.json.id}?host=${there}`)).status, 204);
-  });
+  await oneBoardChecks({ call, browse, mint, check, issueBody, here, there, d1count });
 
   await check("a closing label closes the item and mails its reporter; other label changes mail no one", async () => {
     const mailed = (k) => sent.filter((m) => m.to[0] === "ada@example.com" && m.subject.startsWith(`[${k}]`)).length;
     const filed = (await browse("POST", "/issues", adaHere.secret, issueBody({ title: "Close me" }))).json.key;
-    assert.equal((await move({ key: filed, from: "Inbox", to: "Building", board: mineHere.id })).status, 200);
-    assert.equal((await move({ key: filed, from: "Building", to: "review", board: mineHere.id })).status, 200);
+    assert.equal((await move({ key: filed, from: "New", to: "in-progress" })).status, 200);
+    assert.equal((await move({ key: filed, from: "In progress", to: "landed" })).status, 200);
     assert.equal((await browse("GET", `/issues/${filed}`, adaHere.secret)).json.issue.stage, "in_progress");
-    const closed = await move({ key: filed, from: "review", to: "Done", board: mineHere.id });
+    const closed = await move({ key: filed, from: "Landed", to: "Done" });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
     const issue = (await browse("GET", `/issues/${filed}`, adaHere.secret)).json.issue;
     assert.deepEqual([issue.stage, issue.resolution, Boolean(issue.closed_at)], ["fixed", "fixed", true]);
@@ -1052,86 +949,11 @@ async function run() {
     assert.deepEqual([reopened.status, reopened.json.stage], [200, "received"]);
     assert.equal((await mine({ status: "doing" })).status, 403);
     const doing = await call("PATCH", `/_p99/v1/issues/${filed}?host=${here}`, { body: { status: "doing" } });
-    assert.deepEqual([doing.json.label, doing.json.stage], ["Building", "in_progress"]);
+    assert.deepEqual([doing.json.label, doing.json.stage], ["In progress", "in_progress"]);
     const keys = async (status) => (await call("GET", `/_p99/v1/issues?scope=all&host=${here}&status=${status}`)).json.issues.map((i) => i.key);
     assert.ok((await keys("doing")).includes(filed));
     assert.equal((await keys("inbox")).includes(filed), false);
     assert.ok((await browse("GET", "/issues?scope=mine&status=doing", adaHere.secret)).json.issues.some((i) => i.key === filed));
-  });
-
-  await check("a label rename changes the name on every board, and a one-host manager can't rename a label other hosts use", async () => {
-    const labels = (await call("GET", `/_p99/v1/labels?host=${here}`)).json.labels;
-    const qa = labels.find((l) => l.name === "QA ready");
-    assert.ok(qa.boards.some((b) => b.name === "QA"));
-    const done = labels.find((l) => l.name === "Done");
-    assert.equal((await browse("PATCH", `/labels/${done.id}`, boss.secret, { name: "Shipped" })).status, 403);
-    const renamed = await call("PATCH", `/_p99/v1/labels/${qa.id}`, { body: { name: "Ready for QA" } });
-    assert.equal(renamed.status, 200, JSON.stringify(renamed.json));
-    const qaBoard = (await call("GET", `/_p99/v1/boards?host=${here}`)).json.boards.find((b) => b.name === "QA");
-    assert.deepEqual(qaBoard.columns.map((col) => col.label), ["Building", "Ready for QA", "Done"]);
-    assert.equal((await call("PATCH", `/_p99/v1/labels/${qa.id}`, { body: { name: "inbox" } })).status, 409);
-  });
-
-  await check("a one-host manager can't close or rename a label that items of another host carry, even off every board", async () => {
-    const far = (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title: "Parked far away" }) })).json.key;
-    const park = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Park", columns: ["Inbox", "Parked", "Done"] } });
-    assert.equal(park.status, 201, JSON.stringify(park.json));
-    const moved = await call("POST", `/_p99/v1/move?host=${there}`, { body: { key: far, from: "Inbox", to: "Parked", board: park.json.id } });
-    assert.equal(moved.status, 200, JSON.stringify(moved.json));
-    assert.equal((await call("PUT", `/_p99/v1/boards/${park.json.id}?host=${there}`, { body: { columns: ["Inbox", "Building", "Done"] } })).status, 200);
-    const parked = (await call("GET", "/_p99/v1/labels")).json.labels.find((l) => l.name === "Parked");
-    const closing = await browse("POST", "/boards", boss.secret, { name: "Closer", columns: ["Inbox", { label: "Parked", closes: true }, "Done"] });
-    assert.equal(closing.status, 403, JSON.stringify(closing.json));
-    assert.equal((await browse("PATCH", `/labels/${parked.id}`, boss.secret, { name: "Gone" })).status, 403);
-    const still = (await call("GET", `/_p99/v1/issues/${far}?host=${there}`)).json.issue;
-    assert.deepEqual([still.label, still.stage], ["Parked", "in_progress"]);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${park.json.id}?host=${there}`)).status, 204);
-  });
-
-  await check("a move finds its column in any case and keeps the card among its neighbours", async () => {
-    const accents = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Accents", columns: ["Inbox", "Évalué", "Done"] } });
-    assert.equal(accents.status, 201, JSON.stringify(accents.json));
-    const fileThere = async (title) => (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title }) })).json.key;
-    const [x, y] = [await fileThere("Accent X"), await fileThere("Accent Y")];
-    const moveThere = (body) => call("POST", `/_p99/v1/move?host=${there}`, { body: { board: accents.json.id, ...body } });
-    assert.equal((await moveThere({ key: x, from: "Inbox", to: "Évalué" })).status, 200);
-    const after = await moveThere({ key: y, from: "Inbox", to: "évalué", after: x });
-    assert.equal(after.status, 200, JSON.stringify(after.json));
-    const lane = (await call("GET", `/_p99/v1/boards/${accents.json.id}?host=${there}`)).json.cards.filter((cd) => cd.label === "Évalué").map((cd) => cd.key);
-    assert.deepEqual(lane, [x, y]);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${accents.json.id}?host=${there}`)).status, 204);
-  });
-
-  await check("a one-host manager sees and hears only the labels of their host and the defaults; labels on no board and no item go and don't count", async () => {
-    const far = await call("POST", `/_p99/v1/boards?host=${there}`, { body: { name: "Far", columns: ["Inbox", "Far only", "Done"] } });
-    assert.equal(far.status, 201, JSON.stringify(far.json));
-    const all = (await call("GET", "/_p99/v1/labels")).json.labels;
-    const farOnly = all.find((l) => l.name === "Far only");
-    assert.ok(farOnly && all.some((l) => l.name === "Parked"));
-    const seen = (await browse("GET", "/labels", boss.secret)).json.labels.map((l) => l.name);
-    assert.equal(seen.includes("Far only") || seen.includes("Parked"), false, JSON.stringify(seen));
-    assert.deepEqual(seen.slice(0, 4), all.slice(0, 4).map((l) => l.name));
-    assert.ok(seen.includes("Ready for QA"));
-    const heard = [];
-    const socket = await ticketSocket((await browse("POST", "/stream-ticket", boss.secret)).json.ticket, heard);
-    assert.equal((await call("PATCH", `/_p99/v1/labels/${farOnly.id}`, { body: { name: "Far away only" } })).status, 200);
-    const qa = all.find((l) => l.name === "Ready for QA");
-    assert.equal((await call("PATCH", `/_p99/v1/labels/${qa.id}`, { body: { name: "QA ready" } })).status, 200);
-    await until("the rename here", () => heard.some((e) => e.type === "labels" && e.names[1] === "QA ready"));
-    socket.close();
-    assert.equal(heard.some((e) => e.type === "labels" && e.names[1] === "Far away only"), false, JSON.stringify(heard));
-    assert.equal(heard.some((e) => "hosts" in e), false);
-    wranglerSync([
-      "d1", "execute", "DB", "--local", "--persist-to", state, "--command",
-      "INSERT INTO labels (name, color, created_at) WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 250) SELECT 'Orphan ' || i, '#539bf5', '2026-10-20T00:00:00Z' FROM n",
-    ]);
-    const changed = await call("PUT", `/_p99/v1/boards/${far.json.id}?host=${there}`, { body: { columns: ["Inbox", "Fresh one", "Done"] } });
-    assert.equal(changed.status, 200, JSON.stringify(changed.json));
-    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name LIKE 'Orphan %' OR name = 'Far away only'"), 0);
-    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE role IS NOT NULL"), 4);
-    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name IN ('Fresh one', 'Parked')"), 2);
-    assert.equal((await call("DELETE", `/_p99/v1/boards/${far.json.id}?host=${there}`)).status, 204);
-    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name = 'Fresh one'"), 0);
   });
 
   await check("a stream ticket opens one socket, once, and expires; a move is heard as a label change and an order", async () => {
@@ -1143,18 +965,49 @@ async function run() {
     assert.ok(socket, "the first use opens");
     assert.equal(await ticketSocket(first.json.ticket), null, "the second use is refused");
     const filed = await fileOn("Heard on the ticket");
-    await move({ key: filed, from: "Inbox", to: "review", board: mineHere.id });
+    await move({ key: filed, from: "New", to: "landed" });
     for (let i = 0; i < 50 && !heard.some((e) => e.type === "order" && e.key === filed); i++) await new Promise((r) => setTimeout(r, 100));
     socket.close();
     const label = heard.find((e) => e.type === "label" && e.key === filed);
     const order = heard.find((e) => e.type === "order" && e.key === filed);
     assert.ok(label && order, JSON.stringify(heard));
-    assert.deepEqual([label.from, label.to, label.host], ["Inbox", "review", here]);
-    assert.deepEqual([order.board, typeof order.order, order.host], [mineHere.id, "string", here]);
+    assert.deepEqual([label.from, label.to, label.host], ["New", "Landed", here]);
+    assert.deepEqual([order.board, typeof order.order, order.host], [d1count("SELECT id AS n FROM boards WHERE cards = 1"), "string", here]);
     const late = await browse("POST", "/stream-ticket", boss.secret);
     await new Promise((r) => setTimeout(r, 1700));
     assert.equal(await ticketSocket(late.json.ticket), null, "an expired ticket is refused");
     assert.equal(await ticketSocket("0".repeat(48)), null);
+  });
+
+  await check("a lane rename is heard on every socket, a one-host Owner's included, and a board short of seven lanes refuses a move", async () => {
+    const lanes = (await call("GET", "/_p99/v1/labels")).json.labels;
+    const planned = lanes[1];
+    const heard = [];
+    const socket = await ticketSocket((await browse("POST", "/stream-ticket", boss.secret)).json.ticket, heard);
+    assert.ok(socket, "the ticket opens");
+    try {
+      assert.equal((await call("PATCH", `/_p99/v1/labels/${planned.id}`, { body: { name: "Up next" } })).status, 200);
+      const rename = await until("the lane rename", () => heard.find((e) => e.type === "labels" && e.names[1] === "Up next"));
+      assert.deepEqual([rename.action, rename.names[0], rename.host], ["renamed", planned.name, null]);
+    } finally {
+      socket.close();
+      await call("PATCH", `/_p99/v1/labels/${planned.id}`, { body: { name: planned.name } });
+    }
+    const cards = d1count("SELECT id AS n FROM boards WHERE cards = 1");
+    const needs = lanes[3];
+    const position = d1count(`SELECT position AS n FROM board_columns WHERE board_id = ${cards} AND label_id = ${needs.id}`);
+    const key = await fileOn("Short of a lane");
+    wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `DELETE FROM board_columns WHERE board_id = ${cards} AND label_id = ${needs.id}`]);
+    try {
+      const short = await move({ key, from: "New", to: "planned" });
+      assert.deepEqual([short.status, short.json.message], [409, "this account's board has no seven lanes yet; run p99 deploy"]);
+    } finally {
+      wranglerSync([
+        "d1", "execute", "DB", "--local", "--persist-to", state, "--command",
+        `INSERT INTO board_columns (board_id, label_id, position) VALUES (${cards}, ${needs.id}, ${position})`,
+      ]);
+    }
+    assert.equal((await move({ key, from: "New", to: "planned" })).status, 200);
   });
 
   await check("a reporter's mail opens their item with their code, its opt-out works only for that item, and an opted-out reporter gets no more mail", async () => {
@@ -1242,6 +1095,7 @@ async function run() {
   await safetyStories({ base, call, browse, mint, check, red, issueBody, here, there, keys, root, wrangler, work });
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
+  await foldChecks({ check, root });
   await backupChecks({ check, root });
   await ticketChecks({ check });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });

@@ -249,7 +249,7 @@ export async function migrateChecks({ check, root, work }) {
       first = await plan();
       const p = first.plan;
       assert.equal(first.hash, createHash("sha256").update(canonical(p)).digest("hex"));
-      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013"]);
+      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016"]);
       assert.deepEqual(
         p.labels.map((l) => [l.status, l.label, l.open, l.items]),
         [["inbox", "Inbox", 4, 4], ["doing", "Doing", 1, 1], ["review", "QA", 1, 1], ["done", "Done", 0, 1]],
@@ -327,7 +327,7 @@ export async function migrateChecks({ check, root, work }) {
       old = await plan();
       const p = old.plan;
       assert.equal(old.hash, createHash("sha256").update(canonical(p)).digest("hex"));
-      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0004", "0011", "0012", "0013"]);
+      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0004", "0011", "0012", "0013", "0016"]);
       assert.deepEqual(
         p.statuses.map((s) => [s.status, s.label, s.stage, s.open, s.items]),
         [
@@ -384,22 +384,22 @@ export async function migrateChecks({ check, root, work }) {
       assert.equal(ok.status, 0, ok.stderr);
       assert.equal(JSON.parse(ok.stdout).migrations.accepted, old.hash);
       const items = state.db
-        .prepare("SELECT i.id, l.name AS label, i.resolution, i.open, i.duplicate_of, b.name AS board FROM items i JOIN labels l ON l.id = i.label_id JOIN board_positions p ON p.item_id = i.id JOIN boards b ON b.id = p.board_id ORDER BY i.id")
+        .prepare("SELECT i.id, l.name AS label, i.resolution, i.open, i.duplicate_of, b.name AS board FROM items i JOIN labels l ON l.id = i.label_id JOIN board_positions p ON p.item_id = i.id JOIN boards b ON b.id = p.board_id AND b.cards = 0 ORDER BY i.id")
         .all()
         .map((r) => [r.id, r.label, r.resolution, r.open, r.duplicate_of, r.board]);
       assert.deepEqual(items, [
-        [1, "Inbox", null, 1, null, "example.com"],
-        [2, "Inbox", null, 1, null, "example.com"],
-        [3, "Doing", null, 1, null, "example.com"],
-        [4, "Doing", null, 1, null, "shop.example.com"],
-        [5, "Review", null, 1, null, "shop.example.com"],
+        [1, "New", null, 1, null, "example.com"],
+        [2, "New", null, 1, null, "example.com"],
+        [3, "In progress", null, 1, null, "example.com"],
+        [4, "In progress", null, 1, null, "shop.example.com"],
+        [5, "Landed", null, 1, null, "shop.example.com"],
         [6, "Done", "fixed", 0, null, "example.com"],
         [7, "Done", "abandoned", 0, null, "example.com"],
         [8, "Done", "duplicate", 0, 6, "shop.example.com"],
         [9, "Done", "fixed", 0, null, "old.example.com"],
       ]);
       assert.deepEqual(
-        state.db.prepare("SELECT name, owner FROM boards ORDER BY name").all().map((r) => [r.name, r.owner]),
+        state.db.prepare("SELECT name, owner FROM boards WHERE cards = 0 ORDER BY name").all().map((r) => [r.name, r.owner]),
         old.plan.boards.map((b) => [b.name, old.plan.owner.email]),
       );
       const inbox = state.db
@@ -407,6 +407,13 @@ export async function migrateChecks({ check, root, work }) {
         .all()
         .map((r) => r.item_id);
       assert.deepEqual(inbox, [2, 1]);
+      const lane = state.db
+        .prepare("SELECT p.item_id FROM board_positions p JOIN boards b ON b.id = p.board_id AND b.cards = 1 JOIN labels l ON l.id = p.label_id WHERE l.name = 'New' ORDER BY p.key")
+        .all()
+        .map((r) => r.item_id);
+      assert.deepEqual(lane, [2, 1]);
+      assert.deepEqual(state.db.prepare("SELECT name, owner FROM boards WHERE cards = 1").all().map((r) => [r.name, r.owner]), [["Cards", old.plan.owner.email]]);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM archived WHERE kind = 'board'").get().n, old.plan.boards.length);
       const people = Object.fromEntries(state.db.prepare("SELECT email, username FROM people").all().map((r) => [r.email, r.username]));
       assert.equal(Object.keys(people).length, old.plan.people.rows);
       for (const u of old.plan.people.usernames) assert.equal(people[u.email], u.username, u.email);
@@ -422,7 +429,8 @@ export async function migrateChecks({ check, root, work }) {
       assert.match(none.plan.decisions.join("\n"), /no live manager code exists to own the boards/);
       const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", none.hash]);
       assert.equal(ok.status, 0, ok.stderr);
-      assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards").get().n, none.plan.boards.length);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 0").get().n, none.plan.boards.length);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 1").get().n, 1);
       assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE owner IS NOT NULL").get().n, 0);
     });
 
@@ -437,7 +445,7 @@ export async function migrateChecks({ check, root, work }) {
       assert.deepEqual(names, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
       assert.equal(state.uploads, uploads);
       const now = await plan();
-      assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013"]);
+      assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016"]);
     });
   } finally {
     server.close();
@@ -446,5 +454,5 @@ export async function migrateChecks({ check, root, work }) {
 }
 
 function gatedBundled(bundled) {
-  return ["0011", "0012", "0013"].every((g) => bundled.some((n) => n.startsWith(`${g}_`)));
+  return ["0011", "0012", "0013", "0016"].every((g) => bundled.some((n) => n.startsWith(`${g}_`)));
 }
