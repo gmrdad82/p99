@@ -1,4 +1,4 @@
-use std::io::{BufRead, BufReader, ErrorKind, Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -609,7 +609,6 @@ struct Trap {
 impl Trap {
     fn new() -> Trap {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         Trap { listener, url }
     }
@@ -636,11 +635,13 @@ impl Trap {
     }
 
     fn knocks(&self) -> usize {
+        let probe = TcpStream::connect(self.listener.local_addr().unwrap()).unwrap();
+        let sentinel = probe.local_addr().unwrap();
         let mut count = 0;
         loop {
             match self.listener.accept() {
+                Ok((_, peer)) if peer == sentinel => return count,
                 Ok(_) => count += 1,
-                Err(error) if error.kind() == ErrorKind::WouldBlock => return count,
                 Err(error) => panic!("trap: {error}"),
             }
         }

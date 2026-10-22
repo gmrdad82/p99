@@ -268,3 +268,159 @@ pub fn websocket_base(base: &str) -> String {
         base.to_owned()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    fn serve(answer: impl FnOnce(TcpStream) + Send + 'static) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            if let Ok((tcp, _)) = listener.accept() {
+                answer(tcp);
+            }
+        });
+        format!("ws://{address}/_p99/v1/stream")
+    }
+
+    fn failed(opening: Result<Stream, Opening>) -> String {
+        match opening {
+            Err(Opening::Failed(why)) => why,
+            Err(Opening::Refused(r)) => panic!("refused with {}", r.status),
+            Ok(_) => panic!("opened"),
+        }
+    }
+
+    #[test]
+    fn websocket_base_swaps_the_scheme_only() {
+        assert_eq!(
+            websocket_base("https://shop.example.com/_p99"),
+            "wss://shop.example.com/_p99"
+        );
+        assert_eq!(
+            websocket_base("http://127.0.0.1:8787/_p99"),
+            "ws://127.0.0.1:8787/_p99"
+        );
+        assert_eq!(
+            websocket_base("wss://already.example.com"),
+            "wss://already.example.com"
+        );
+        assert_eq!(websocket_base(""), "");
+    }
+
+    #[test]
+    fn open_reads_text_skips_pongs_and_ends_on_close() {
+        let url = serve(|tcp| {
+            let mut ws = tungstenite::accept(tcp).unwrap();
+            ws.send(Message::text("pong")).unwrap();
+            ws.send(Message::binary(vec![1, 2, 3])).unwrap();
+            ws.send(Message::text("{\"type\":\"issue\"}")).unwrap();
+            ws.send(Message::text("second")).unwrap();
+            let _ = ws.close(None);
+            let _ = ws.flush();
+            let _ = ws.read();
+        });
+        let mut stream = open(&url, &[("x-p99-test", "yes".to_owned())])
+            .unwrap_or_else(|o| panic!("{}", failed(Err(o))));
+        assert_eq!(stream.next().unwrap(), "{\"type\":\"issue\"}");
+        assert_eq!(stream.next().unwrap(), "second");
+        assert_eq!(stream.next().unwrap_err(), "the Worker closed the stream");
+    }
+
+    #[test]
+    #[allow(clippy::result_large_err)]
+    fn open_sends_the_headers_it_was_given() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let url = serve(move |tcp| {
+            let callback =
+                |request: &tungstenite::handshake::server::Request,
+                 response: tungstenite::handshake::server::Response| {
+                    let header = request
+                        .headers()
+                        .get("x-p99-auth")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_owned();
+                    let _ = tx.send((request.uri().to_string(), header));
+                    Ok(response)
+                };
+            let _ = tungstenite::accept_hdr(tcp, callback);
+        });
+        let opened = open(
+            &format!("{url}?host=shop.example.com"),
+            &[("x-p99-auth", "v1 ts=1,sig=ab".to_owned())],
+        );
+        assert!(opened.is_ok());
+        let (uri, auth) = rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert_eq!(uri, "/_p99/v1/stream?host=shop.example.com");
+        assert_eq!(auth, "v1 ts=1,sig=ab");
+    }
+
+    #[test]
+    fn a_refusal_carries_its_status_type_location_and_body() {
+        let url = serve(|mut tcp| {
+            let mut buf = [0u8; 4096];
+            let _ = tcp.read(&mut buf);
+            let _ = tcp.write_all(
+                b"HTTP/1.1 302 Found\r\nlocation: https://team.cloudflareaccess.com/cdn-cgi/access/login\r\ncontent-type: text/plain\r\ncontent-length: 5\r\nconnection: close\r\n\r\nmoved",
+            );
+        });
+        match open(&url, &[]) {
+            Err(Opening::Refused(r)) => {
+                assert_eq!(r.status, 302);
+                assert_eq!(r.content_type, "text/plain");
+                assert_eq!(
+                    r.location,
+                    "https://team.cloudflareaccess.com/cdn-cgi/access/login"
+                );
+                assert_eq!(r.body, b"moved");
+            }
+            other => panic!("{}", failed(other)),
+        }
+    }
+
+    #[test]
+    fn a_connection_dropped_mid_handshake_fails() {
+        let url = serve(|mut tcp| {
+            let mut buf = [0u8; 4096];
+            let _ = tcp.read(&mut buf);
+        });
+        assert!(!failed(open(&url, &[])).is_empty());
+    }
+
+    #[test]
+    fn a_closed_port_fails_to_connect() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        assert!(!failed(open(&format!("ws://{address}/x"), &[])).is_empty());
+    }
+
+    #[test]
+    fn a_bad_url_or_header_fails_before_connecting() {
+        assert!(!failed(open("not a url", &[])).is_empty());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}/x", listener.local_addr().unwrap());
+        for header in [
+            ("bad header", "v".to_owned()),
+            ("x-ok", "bad\nvalue".to_owned()),
+        ] {
+            assert!(!failed(open(&url, &[header])).is_empty());
+        }
+        let probe = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (_, peer) = listener.accept().unwrap();
+        assert_eq!(peer, probe.local_addr().unwrap());
+    }
+
+    #[test]
+    fn a_stream_the_server_drops_ends_with_a_reason() {
+        let url = serve(|tcp| {
+            let ws = tungstenite::accept(tcp).unwrap();
+            drop(ws);
+        });
+        let mut stream = open(&url, &[]).unwrap_or_else(|o| panic!("{}", failed(Err(o))));
+        assert!(!stream.next().unwrap_err().is_empty());
+    }
+}

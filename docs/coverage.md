@@ -113,10 +113,34 @@ Rust: **61.4% of lines** (59.9% of regions, 64.4% of functions), up from 48.3%. 
 
 What is left in the TUI: tui.rs's real terminal run, its mouse-capture switch and the `--capture`/`--compare` error lines; source.rs's live stream thread, whose relay the tests drive directly; and demo/boards.rs's `const fn` sample rows, which the compiler evaluates, so no test run can count them.
 
+## w197 CLI tests, 2026-10-22 (agent/cov-cli-i2, main edf87c6 plus the CLI tests)
+
+Rust: **77.3% of lines** (76.0% of regions, 78.7% of functions) for the combined tree, up from 61.4% with the TUI tests alone; the CLI tests alone took it from 48.3% to 65.2%. tests/cli_*.rs run the real `p99` binary against an in-test HTTP stub that plays the signed Worker, Cloudflare, GitHub and Resend, with drops, 4xx, 5xx and garbled answers; `watch` runs against a local WebSocket stub, and the vault against a fake `op` on PATH. 442 tests pass; the same 10 stories stay known red and ignored.
+
+| File | Lines covered | Lines | w195 |
+|---|---|---|---|
+| src/cli.rs | 88.32% | 1104 | 33.21% |
+| src/cli/delete.rs | 56.92% | 65 | 0.00% |
+| src/cli/merge.rs | 100.00% | 100 | 0.00% |
+| src/client.rs | 87.92% | 687 | 60.84% |
+| src/cloudflare.rs | 86.51% | 541 | 65.99% |
+| src/config.rs | 93.08% | 318 | 84.40% |
+| src/email.rs | 94.81% | 231 | 1.75% |
+| src/github.rs | 99.38% | 325 | 11.76% |
+| src/hooks.rs | 97.25% | 109 | 0.00% |
+| src/links.rs | 84.91% | 285 | 21.75% |
+| src/setup.rs | 27.18% | 1431 | 23.69% |
+| src/stream.rs | 78.43% | 306 | 43.02% |
+| src/vault.rs | 54.39% | 114 | 7.95% |
+| src/wire.rs | 88.20% | 161 | 81.37% |
+
+What is left in the CLI: delete's confirmation on a terminal (the tests have no TTY, so only `--yes` and the piped refusal run); setup's interactive walk; `watch`'s settle and longest-wait limits, since its reconnect tests wait out the real 1 s and 2 s backoff; and the deploy story's own runs, which clear the environment and so drop the coverage profile, slightly undercounting setup.rs and cloudflare.rs.
+
 ## Uncovered critical paths, first in line
 
-- The CLI commands no story runs: cli/delete.rs, cli/merge.rs, hooks.rs and email.rs (0–2%), github.rs (12%) and links.rs (22%). Setup is at 24%.
-- Secrets (vault.rs, 8%) and import (42%).
+- Setup's interactive walk (setup.rs, 27%), migrate (34%) and import (42%).
+- Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
+- delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
 - The Worker, the loader, the panel and the board (JavaScript): see [JavaScript](#javascript).
 
 ## JavaScript

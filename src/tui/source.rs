@@ -78,6 +78,7 @@ pub enum Source {
 pub struct Live {
     config: Config,
     accounts: Vec<String>,
+    holder: Option<String>,
     agent: bool,
     clients: OnceLock<Result<Vec<Client>, String>>,
     listeners: Mutex<Vec<Waker<Msg>>>,
@@ -104,9 +105,17 @@ impl Source {
         if accounts.is_empty() {
             return Source::Broken("no account yet; p99 setup makes one".into());
         }
+        let holder = match account {
+            Some(name) => Some(name.to_owned()),
+            None => match crate::config::key_holder(&config, None) {
+                Ok(holder) => holder,
+                Err(why) => return Source::Broken(why),
+            },
+        };
         Source::Live(Arc::new(Live {
             config,
             accounts,
+            holder,
             agent,
             clients: OnceLock::new(),
             listeners: Mutex::new(Vec::new()),
@@ -321,7 +330,9 @@ impl Live {
             .get_or_init(|| {
                 self.accounts
                     .iter()
-                    .map(|name| Client::for_account(&self.config, name, self.agent))
+                    .map(|name| {
+                        Client::among(&self.config, name, self.holder.as_deref(), self.agent)
+                    })
                     .collect()
             })
             .as_deref()

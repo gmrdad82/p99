@@ -294,6 +294,47 @@ pub fn token(account: &Account) -> Result<String, String> {
     }
 }
 
+pub fn key(account: &Account, in_use: bool) -> Result<String, String> {
+    key_from(env::var_os("P99_KEY").filter(|_| in_use), &account.key)
+}
+
+pub fn key_holder(config: &Config, named: Option<&str>) -> Result<Option<String>, String> {
+    holder_from(env::var_os("P99_KEY"), config, named)
+}
+
+fn holder_from(
+    given: Option<std::ffi::OsString>,
+    config: &Config,
+    named: Option<&str>,
+) -> Result<Option<String>, String> {
+    if given.is_none() {
+        return Ok(None);
+    }
+    key_from(given, "")?;
+    match config.account(named) {
+        Ok((name, _)) => Ok(Some(name.to_owned())),
+        Err(_) if named.is_none() && config.accounts.len() > 1 => {
+            Err("P99_KEY signs one account; name it with --account".to_owned())
+        }
+        Err(why) => Err(why),
+    }
+}
+
+pub fn key_overridden() -> bool {
+    env::var_os("P99_KEY").is_some()
+}
+
+fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
+    let Some(given) = given else {
+        return secret(configured);
+    };
+    match given.into_string() {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        Ok(_) => Err("P99_KEY is set but empty; unset it or give the key".to_owned()),
+        Err(_) => Err("P99_KEY is not text; unset it or give the key".to_owned()),
+    }
+}
+
 pub fn agent(flag: bool, me: &Me) -> bool {
     if flag {
         return true;
@@ -396,5 +437,225 @@ mod tests {
             ("Grace Hopper", "grace@example.org")
         );
         assert_eq!(config.me_for("custom").email, "ada@example.com");
+    }
+
+    #[test]
+    fn p99_key_comes_first_over_an_inline_key_and_a_reference() {
+        let given = |v: &str| Some(std::ffi::OsString::from(v));
+        assert_eq!(key_from(given("from-env"), "inline").unwrap(), "from-env");
+        assert_eq!(
+            key_from(given("from-env"), "op://Example/p99/key").unwrap(),
+            "from-env"
+        );
+        assert_eq!(key_from(given(" padded "), "inline").unwrap(), " padded ");
+    }
+
+    #[test]
+    fn without_p99_key_the_configured_key_is_used() {
+        assert_eq!(key_from(None, "inline").unwrap(), "inline");
+    }
+
+    #[test]
+    fn an_empty_p99_key_is_refused_without_the_configured_key() {
+        for empty in ["", " ", "\t\n  "] {
+            assert_eq!(
+                key_from(Some(empty.into()), "inline").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+            assert_eq!(
+                key_from(Some(empty.into()), "op://Example/p99/key").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+        }
+    }
+
+    fn accounts(default: Option<&str>, names: &[&str]) -> Config {
+        let mut text = default
+            .map(|d| format!("default_account = \"{d}\"\n"))
+            .unwrap_or_default();
+        for name in names {
+            text.push_str(&format!(
+                "[accounts.{name}]\naccount_id = \"{name}\"\ntoken = \"\"\n"
+            ));
+        }
+        toml::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn p99_key_signs_only_the_account_in_use() {
+        let account = Account {
+            key: "inline".into(),
+            ..Account::default()
+        };
+        assert_eq!(key(&account, false).unwrap(), "inline");
+        let given = || Some(std::ffi::OsString::from("from-env"));
+        let one = accounts(None, &["main"]);
+        assert_eq!(holder_from(None, &one, None).unwrap(), None);
+        assert_eq!(
+            holder_from(given(), &one, None).unwrap().as_deref(),
+            Some("main")
+        );
+        let two = accounts(Some("other"), &["main", "other"]);
+        assert_eq!(
+            holder_from(given(), &two, None).unwrap().as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("main")).unwrap().as_deref(),
+            Some("main")
+        );
+    }
+
+    #[test]
+    fn p99_key_with_several_accounts_and_no_default_needs_one_named() {
+        let given = || Some(std::ffi::OsString::from("from-env"));
+        let two = accounts(None, &["main", "other"]);
+        assert_eq!(holder_from(None, &two, None).unwrap(), None);
+        assert_eq!(
+            holder_from(given(), &two, None).unwrap_err(),
+            "P99_KEY signs one account; name it with --account"
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("other"))
+                .unwrap()
+                .as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("gone")).unwrap_err(),
+            "no account is called gone"
+        );
+        assert_eq!(
+            holder_from(Some(" ".into()), &two, None).unwrap_err(),
+            "P99_KEY is set but empty; unset it or give the key"
+        );
+        assert_eq!(
+            holder_from(given(), &accounts(None, &[]), None).unwrap_err(),
+            "no account yet; run p99 setup"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_p99_key_that_is_not_text_is_refused_without_echoing_it() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'k', 0xff, b'y']);
+        let why = key_from(Some(raw), "inline").unwrap_err();
+        assert_eq!(why, "P99_KEY is not text; unset it or give the key");
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("tmp")
+            .join(format!("p99-config-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn written(dir: &Path, text: &str, mode: u32) -> PathBuf {
+        let file = dir.join("config.toml");
+        fs::write(&file, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&file, fs::Permissions::from_mode(mode)).unwrap();
+        }
+        #[cfg(not(unix))]
+        let _ = mode;
+        file
+    }
+
+    const INLINE: &str = r#"
+        [accounts.main]
+        account_id = "a"
+        token = "cf-inline-token"
+        key = "op://Vault/P99/key"
+        "#;
+
+    const REFERENCES: &str = r#"
+        [accounts.main]
+        account_id = "a"
+        token = "op://Vault/Cloudflare/token"
+        key = "op://Vault/P99/key"
+        "#;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_config_holding_a_secret_others_can_read_is_refused() {
+        let dir = scratch("readable");
+        for mode in [0o644, 0o640, 0o604] {
+            let file = written(&dir, INLINE, mode);
+            assert_eq!(
+                Config::load_from(&file).err().unwrap(),
+                format!(
+                    "{} holds a secret and others can read it; run chmod 600 on it",
+                    file.display()
+                )
+            );
+        }
+        let file = written(&dir, INLINE, 0o600);
+        assert_eq!(
+            Config::load_from(&file).unwrap().accounts["main"].token,
+            "cf-inline-token"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_readable_config_of_references_only_still_loads() {
+        let dir = scratch("references");
+        let file = written(&dir, REFERENCES, 0o644);
+        let config = Config::load_from(&file).unwrap();
+        assert_eq!(config.accounts["main"].token, "op://Vault/Cloudflare/token");
+        assert!(!config.has_inline_secret());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_licence_key_counts_as_an_inline_secret() {
+        let config: Config =
+            toml::from_str(&format!("license = \"P99-KEY\"\n{REFERENCES}")).unwrap();
+        assert!(config.has_inline_secret());
+        let config: Config = toml::from_str(INLINE).unwrap();
+        assert!(config.has_inline_secret());
+    }
+
+    #[test]
+    fn malformed_toml_is_named_with_its_file() {
+        let dir = scratch("malformed");
+        let file = written(&dir, "key = \n", 0o600);
+        let error = Config::load_from(&file).err().unwrap();
+        assert!(
+            error.starts_with(&format!("{}: ", file.display())),
+            "{error}"
+        );
+        assert!(
+            error.len() > file.display().to_string().len() + 2,
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_config_that_cannot_be_read_is_named_with_its_file() {
+        let dir = scratch("unreadable");
+        let file = dir.join("config.toml");
+        fs::create_dir_all(&file).unwrap();
+        let error = Config::load_from(&file).err().unwrap();
+        assert!(
+            error.starts_with(&format!("{}: ", file.display())),
+            "{error}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_config_is_the_empty_default() {
+        let dir = scratch("missing");
+        let config = Config::load_from(&dir.join("config.toml")).unwrap();
+        assert!(config.accounts.is_empty() && config.hosts.is_empty());
+        let _ = fs::remove_dir_all(&dir);
     }
 }
