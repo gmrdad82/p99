@@ -30,7 +30,9 @@ const boards = [
   { id: "1", name: "Shop", owner: ADA, columns: [col("Inbox"), col("Doing"), col("QA ready"), col("Done", true)] },
   { id: "2", name: "Launch", owner: ADA, columns: [col("Inbox"), col("Doing"), col("Done", true)] },
   { id: "3", name: "QA", owner: GRACE, columns: [col("QA ready"), col("Testing"), col("Done", true)] },
+  { id: "4", name: "Long", owner: ADA, columns: [col("Backlog"), col("Review"), col("Shipped", true)] },
 ];
+const long = (label, tag) => Array.from({ length: 30 }, (_, i) => [`${tag}-${i + 1}`, "task", `${label} card ${i + 1}`, label, null]);
 const items = [
   ["BUG-14", "bug", "The cart total doesn't update after removing a bag", "Inbox", GRACE],
   ["FEAT-9", "feature", "Let returning customers reorder from a receipt", "Inbox", null],
@@ -42,6 +44,8 @@ const items = [
   ["BUG-12", "bug", "Apple Pay sheet closes on the second tap", "Testing", ADA],
   ["BUG-7", "bug", "Order confirmation mail shows the wrong delivery date", "Done", ADA],
   ["FEAT-5", "feature", "Show the roast date on every bag", "Done", LIN],
+  ...long("Backlog", "LB"),
+  ...long("Review", "LR"),
 ].map(([key, kind, title, label, assignee]) => ({ key, kind, title, label, assignee, reporter: GRACE }));
 const orders = new Map(boards.map((b) => [b.id, new Map()]));
 for (const b of boards) {
@@ -171,6 +175,7 @@ async function worker() {
   const migrated = spawnSync(wrangler, ["d1", "migrations", "apply", "DB", "--local", "--persist-to", state], { cwd: join(repo, "worker"), stdio: ["ignore", "ignore", "inherit"], env });
   if (migrated.status !== 0) throw new Error("board: the migrations did not apply");
   const dev = spawn(wrangler, ["dev", "--ip", "127.0.0.1", "--port", String(UPSTREAM), "--persist-to", state, "--var", `KEY_P99:${secret}`, "--var", "CODE_PEPPER:board-check", "--show-interactive-dev-session=false", "--log-level", "warn"], { cwd: join(repo, "worker"), stdio: ["ignore", "inherit", "inherit"], env });
+  process.on("exit", () => dev.kill("SIGTERM"));
   const upstream = `http://127.0.0.1:${UPSTREAM}`;
   for (let i = 0; ; i++) {
     try {
@@ -653,6 +658,158 @@ async function check(back) {
     assert.equal(await pair(K("BUG-11"), K("IMP-6")), true);
     assert.equal(await ghosted(), false);
     ok("a host page that stops pointerup on its document still lets my drop land, and the next press lifts");
+
+    await pick(p, "Long");
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "Long");
+    await settle(p);
+    const lane = (l) => `p99-root .p99-col[data-label="${l}"] .p99-cards`;
+    const roll = (l, y) => R(p, ([x, v]) => {
+      const e = document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-label="${x}"] .p99-cards`);
+      if (v != null) e.scrollTop = v;
+      return e.scrollTop;
+    }, [l, y]);
+    const calm = () => p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.getAnimations().every((a) => a.playState !== "running" || a.effect.getTiming().iterations === Infinity));
+    const spot = (l, off, skip) => R(p, ([x, o, s]) => {
+      const e = document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-label="${x}"] .p99-cards`);
+      const top = e.getBoundingClientRect().top;
+      const c = Array.from(e.children).find((n) => n.dataset.id !== s && n.getBoundingClientRect().top >= top + o);
+      const b = c.getBoundingClientRect();
+      return { id: c.dataset.id, x: b.left + b.width / 2, y: b.top + b.height / 4, h: b.height };
+    }, [l, off, skip || null]);
+    const glide = async (x0, y0, x1, y1, n = 12) => {
+      for (let i = 1; i <= n; i++) {
+        await p.mouse.move(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n);
+        await p.waitForTimeout(16);
+      }
+    };
+    const tally = () => R(p, () => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      const ids = Array.from(r.querySelectorAll(".p99-card"), (e) => e.dataset.id);
+      return {
+        counts: Array.from(r.querySelectorAll(".p99-col"), (c) => Number(c.querySelector(".p99-count").textContent) === c.querySelectorAll(".p99-card").length),
+        once: new Set(ids).size === ids.length,
+        stray: Array.from(r.querySelectorAll(".p99-card")).filter((e) => e.style.translate || e.classList.contains("is-placeholder") || e.classList.contains("is-lifted")).length,
+        ghost: !!r.querySelector(".p99-ghost"),
+      };
+    });
+    const tidy = { counts: [true, true, true], once: true, stray: 0, ghost: false };
+    const ahead = (list, id, at) => { const l = list.filter((x) => x !== id); l.splice(l.indexOf(at), 0, id); return l; };
+
+    const back0 = await column(p, "Backlog"), rev0 = await column(p, "Review");
+    assert.deepEqual([back0.length, rev0.length], [30, 30]);
+    const lb = await p.locator(lane("Backlog")).boundingBox();
+    const lifted0 = await p.locator(card(back0[1])).boundingBox();
+    assert.ok(30 * lifted0.height > 2 * lb.height, `Backlog overflows: ${30 * lifted0.height} in ${lb.height}`);
+    const sentL = moves().length;
+    const ax = lifted0.x + lifted0.width / 2, ay = lifted0.y + 20, cx = lb.x + lb.width / 2;
+    await p.mouse.move(ax, ay);
+    await p.mouse.down();
+    await glide(ax, ay, cx, lb.y + lb.height - 16);
+    const far = 5 * lifted0.height;
+    await p.waitForFunction(([sel, v]) => document.querySelector("p99-root").shadowRoot.querySelector(sel).scrollTop >= v, ['.p99-col[data-label="Backlog"] .p99-cards', far]);
+    await glide(cx, lb.y + lb.height - 16, cx, lb.y + lb.height / 2, 4);
+    await calm();
+    const rolled = await roll("Backlog");
+    const t1 = await spot("Backlog", 100, back0[1]);
+    await glide(cx, lb.y + lb.height / 2, t1.x, t1.y);
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await settle(p);
+    assert.ok(rolled >= far && back0.indexOf(t1.id) >= 6, `autoscrolled ${rolled}px to ${t1.id}`);
+    assert.equal(moves().length, sentL + 1);
+    assert.deepEqual(lastMove(), { key: back0[1], from: "Backlog", to: "Backlog", board: back.board("4"), before: t1.id });
+    assert.deepEqual(await column(p, "Backlog"), ahead(back0, back0[1], t1.id));
+    assert.deepEqual(await tally(), tidy);
+    ok(`a long column autoscrolls under a held drag (${Math.round(rolled)}px) and the drop lands on the card under the pointer`);
+
+    const back1 = await column(p, "Backlog");
+    await roll("Backlog", 3 * lifted0.height);
+    await roll("Review", 0);
+    const s2 = await spot("Backlog", 150);
+    const lr = await p.locator(lane("Review")).boundingBox();
+    await p.mouse.move(s2.x, s2.y);
+    await p.mouse.down();
+    await glide(s2.x, s2.y, s2.x, s2.y + 12, 3);
+    await p.waitForFunction(() => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-ghost"));
+    const scrolledTo = await roll("Review", 6 * lifted0.height);
+    await p.waitForTimeout(100);
+    const t2 = await spot("Review", 100);
+    await glide(s2.x, s2.y + 12, t2.x, t2.y);
+    await p.waitForTimeout(260);
+    const kept = await roll("Review");
+    await p.mouse.up();
+    await settle(p);
+    assert.ok(scrolledTo >= 5 * lifted0.height && rev0.indexOf(t2.id) >= 6, `Review scrolled ${scrolledTo}px to ${t2.id}`);
+    assert.equal(moves().length, sentL + 2);
+    assert.deepEqual(lastMove(), { key: s2.id, from: "Backlog", to: "Review", board: back.board("4"), before: t2.id });
+    assert.deepEqual(await column(p, "Backlog"), back1.filter((x) => x !== s2.id));
+    assert.deepEqual(await column(p, "Review"), ahead(rev0, s2.id, t2.id));
+    assert.deepEqual(await tally(), tidy);
+    ok(`a column scrolled mid-drag takes the cross on the card under the pointer (scrolled ${Math.round(scrolledTo)}px, ${Math.round(kept)}px at the drop)`);
+
+    const back2 = await column(p, "Backlog"), rev2 = await column(p, "Review");
+    await roll("Backlog", 0);
+    await roll("Review", 0);
+    const a3 = await p.locator(card(back2[1])).boundingBox();
+    const r3 = await spot("Review", 0);
+    await p.mouse.move(a3.x + a3.width / 2, a3.y + 20);
+    await p.mouse.down();
+    await glide(a3.x + a3.width / 2, a3.y + 20, r3.x, r3.y + 2 * r3.h);
+    await glide(r3.x, r3.y + 2 * r3.h, r3.x, r3.y + 4 * r3.h, 6);
+    await p.waitForTimeout(260);
+    const crossed = await R(p, (id) => { const r = document.querySelector("p99-root").shadowRoot; return { col: r.querySelector(`.p99-card[data-id="${id}"]`).closest(".p99-col").dataset.label, focus: r.activeElement && r.activeElement.dataset.id }; }, back2[1]);
+    await p.keyboard.press("Escape");
+    await settle(p);
+    await p.mouse.up();
+    await settle(p);
+    await shutPanel(p);
+    assert.deepEqual(crossed, { col: "Review", focus: back2[1] });
+    assert.equal(await hidden(p), false);
+    assert.equal(moves().length, sentL + 2);
+    assert.deepEqual(await column(p, "Backlog"), back2);
+    assert.deepEqual(await column(p, "Review"), rev2);
+    assert.deepEqual(await tally(), tidy);
+    ok("Escape on a mouse drag that crossed columns puts the card home, sends nothing, and both counts match");
+
+    const back3 = await column(p, "Backlog"), rev3 = await column(p, "Review");
+    const a4 = await p.locator(card(back3[0])).boundingBox();
+    const ax4 = a4.x + a4.width / 2, ay4 = a4.y + 20;
+    await p.mouse.move(ax4, ay4);
+    await p.mouse.down();
+    await glide(ax4, ay4, ax4, ay4 + 3 * a4.height);
+    await calm();
+    const slid = await R(p, (id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`).style.translate, back3[0]);
+    await p.setViewportSize({ width: 700, height: VIEW.height });
+    await p.waitForTimeout(200);
+    await calm();
+    const t4b = await p.locator(card(rev3[1])).boundingBox();
+    await glide(ax4, ay4 + 3 * a4.height, t4b.x + t4b.width / 2, t4b.y + t4b.height / 4);
+    await p.waitForTimeout(260);
+    await p.mouse.up();
+    await settle(p);
+    const narrow = await p.locator(lane("Review")).boundingBox();
+    const a5 = await p.locator(card(back3[2])).boundingBox();
+    await p.mouse.move(a5.x + a5.width / 2, a5.y + 20);
+    await p.mouse.down();
+    await glide(a5.x + a5.width / 2, a5.y + 20, a5.x + a5.width / 2, a5.y + 40, 3);
+    await p.waitForTimeout(100);
+    const relift = await ghosted();
+    await p.keyboard.press("Escape");
+    await settle(p);
+    await p.mouse.up();
+    await settle(p);
+    await shutPanel(p);
+    await p.setViewportSize(VIEW);
+    await p.waitForTimeout(200);
+    assert.ok(parseFloat(slid.split(" ")[1]) >= 2 * a4.height, `two slots down: ${slid}`);
+    assert.ok(narrow.x < lb.x + lb.width, `the narrow layout moved Review under where Backlog was (${narrow.x})`);
+    assert.equal(relift, true);
+    assert.equal(moves().length, sentL + 3);
+    assert.deepEqual(lastMove(), { key: back3[0], from: "Backlog", to: "Review", board: back.board("4"), before: rev3[1] });
+    assert.deepEqual(await column(p, "Backlog"), back3.slice(1));
+    assert.deepEqual(await column(p, "Review"), ahead(rev3, back3[0], rev3[1]));
+    assert.deepEqual(await tally(), tidy);
+    ok("a window resized mid-drag measures again: the drop lands where the pointer is in the new layout, and the next press lifts");
 
     await pick(p, "@" + GRACE.username);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "QA");
