@@ -218,7 +218,7 @@ function spaces() {
       h("li", null, h("a", { class: "app-space", href: "#space=" + encodeURIComponent(s.host) },
         h("b", { class: "app-host", text: s.host }),
         s.manager ? h("small", { class: "app-role", text: say("manager") }) : null,
-        h("span", { class: "app-count", "data-open": s.open > 0, text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
+        h("span", { class: "app-count", "data-open": String(s.open > 0), text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
     const title = h("h1", { tabindex: "-1", text: say("spaces") });
     const view = h("div", { class: "app-screen" }, bar(""),
       h("section", { class: "app-card app-list" }, h("div", { class: "app-head" }, title, h("p", { class: "app-note", text: say("spaces_help") })),
