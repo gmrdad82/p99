@@ -651,7 +651,7 @@ try {
     await write(p, title);
     await p.locator(SEND).click();
     await until("the held upload", () => held >= 1);
-    await p.locator("p99-root >> .w .b:not(.f)").click();
+    await p.locator("p99-root >> .w .b:not(.f)").dispatchEvent("click");
     await p.locator(S("[data-view=list]")).waitFor({ timeout: 20000 });
     const refresh = p.waitForRequest((r) => new URL(r.url()).pathname === "/_p99/api/me", { timeout: 20000 });
     uploading.open();

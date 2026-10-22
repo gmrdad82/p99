@@ -110,11 +110,13 @@ async function until(what, fn, ms = 10000) {
 
 function socketOf(url, heard, headers) {
   const socket = headers ? new WebSocket(url, { headers }) : new WebSocket(url);
-  const state = { socket, closed: false };
+  const state = {
+    socket,
+    get closed() {
+      return socket.readyState >= WebSocket.CLOSING;
+    },
+  };
   socket.addEventListener("message", (message) => heard.push(JSON.parse(message.data)));
-  socket.addEventListener("close", () => {
-    state.closed = true;
-  });
   return new Promise((resolve) => {
     socket.addEventListener("open", () => resolve(state));
     socket.addEventListener("error", () => resolve(null));

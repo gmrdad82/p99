@@ -3,7 +3,7 @@ use std::io::{BufRead, IsTerminal, Write};
 use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
-use crate::wire::{BoardSpec, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
+use crate::wire::{BoardSpec, Issue, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
@@ -116,8 +116,12 @@ pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
     if !error.ends_with("(409)") {
         return error;
     }
-    match client.thread(key).map(|thread| thread.issue.label) {
-        Ok(Some(now)) => meanwhile(key, &now, to),
+    match client.thread(key).map(|thread| thread.issue) {
+        Ok(Issue {
+            key,
+            label: Some(now),
+            ..
+        }) => meanwhile(&key, &now, to),
         _ => error,
     }
 }
