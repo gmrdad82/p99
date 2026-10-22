@@ -321,9 +321,11 @@ mod tests {
         for millis in [60, 120, 210, 300] {
             badge.moment(start + Duration::from_millis(millis));
             let shown = text(&badge).chars().filter(|c| *c != '─').count();
-            let linear =
-                (millis as f32 / EASE.as_millis() as f32 * total as f32).round() as usize;
-            assert!(shown > linear, "{millis} ms: {shown} shown, {linear} linear");
+            let linear = (millis as f32 / EASE.as_millis() as f32 * total as f32).round() as usize;
+            assert!(
+                shown > linear,
+                "{millis} ms: {shown} shown, {linear} linear"
+            );
         }
     }
 
