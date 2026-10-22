@@ -6,7 +6,7 @@ All notable changes to P99 are listed here, newest first.
 
 ### Added
 
-- Cards: an item with a project is a card, on one Cards board per account whose lanes are its statuses (new, planned, in progress, stuck, landed, done), the place in a lane its priority. Only Owners (managers) see them; a site's visitors never do.
+- Cards: an item with a project is a card, on one Cards board per account whose lanes are its statuses (`new`, `planned`, `in-progress`, `stuck`, `landed`, `done`), the place in a lane its priority. Only Owners (managers) see them; a site's visitors never do.
 - `p99 cards`, `p99 card show|new|comment|status|link`, `p99 projects` and `p99 edit --project|--no-project`, each with `--json`; [the cards guide](docs/guides/cards.md) has the whole contract.
 - An agent's action is shown as the person's name with 🤖, and `--agent=<label>` or `P99_AGENT=<label>` names which agent in the details; an agent can't close a card.
 - The panel's "…" menu filters the list and the board: All, Only this website, Projects, Landed waiting for your check, and Everyone, People or Agents.
