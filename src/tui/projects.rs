@@ -140,7 +140,7 @@ pub fn hints() -> [Hint<'static>; 3] {
     [
         Hint::new("enter", "choose or drop"),
         Hint::new("↑↓", "move"),
-        Hint::new("esc", "done"),
+        Hint::new("esc", "close"),
     ]
 }
 

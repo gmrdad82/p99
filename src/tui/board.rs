@@ -26,6 +26,7 @@ const SLIDE: Duration = Duration::from_millis(180);
 const LANES: usize = 7;
 const QUIET: Duration = Duration::from_millis(250);
 const NOTES: u16 = 3;
+const ROOMY: u16 = 120;
 
 struct Lift {
     id: String,
@@ -109,6 +110,7 @@ pub struct Board {
     spots: HashMap<String, Spot>,
     area: Rect,
     lanes: [Rect; LANES],
+    visible: Vec<usize>,
     hits: Vec<(String, Rect)>,
     sending: usize,
     reader: Inbox,
@@ -142,6 +144,7 @@ impl Board {
             spots: HashMap::new(),
             area: Rect::default(),
             lanes: [Rect::default(); LANES],
+            visible: Vec::new(),
             hits: Vec::new(),
             sending: 0,
             badge: Badge::off(),
@@ -174,6 +177,22 @@ impl Board {
             }
         }
         lanes
+    }
+
+    fn showing(&self, roomy: bool) -> Vec<usize> {
+        let count = self.lanes();
+        if roomy {
+            return (0..count).collect();
+        }
+        let lanes = self.lane_ids();
+        let carried = self.lift.as_ref().map(|l| (l.from.0, l.to.0));
+        (0..count)
+            .filter(|&column| {
+                !lanes[column].is_empty()
+                    || column == self.column
+                    || carried.is_some_and(|(from, to)| column == from || column == to)
+            })
+            .collect()
     }
 
     fn card_at(&self, column: usize, row: usize) -> Option<&Card> {
@@ -386,11 +405,12 @@ impl Board {
     }
 
     fn lane_of(&self, x: u16) -> usize {
-        self.lanes
+        let last = self.visible.last().copied().unwrap_or_default();
+        self.visible
             .iter()
-            .take(self.lanes())
-            .position(|lane| x < lane.x + lane.width + 1)
-            .unwrap_or(self.lanes() - 1)
+            .copied()
+            .find(|&column| x < self.lanes[column].x + self.lanes[column].width + 1)
+            .unwrap_or(last)
     }
 
     fn row_in(&self, column: usize, y: i32) -> usize {
@@ -499,7 +519,6 @@ impl Board {
         }
     }
 
-    #[allow(clippy::needless_range_loop)]
     fn draw_board(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
         let area = self.draw_notes(frame.buffer_mut(), area, palette);
         if area != self.area {
@@ -507,13 +526,16 @@ impl Board {
             self.area = area;
         }
         let gap = 1u16;
-        let count = self.lanes();
+        self.visible = self.showing(frame.area().width >= ROOMY);
+        let shown = self.visible.clone();
+        let count = shown.len().max(1);
         let room = area.width.saturating_sub(gap * (count as u16 - 1));
         let (width, spare) = (room / count as u16, room % count as u16);
         let mut x = area.x;
-        for (at, lane) in self.lanes.iter_mut().enumerate().take(count) {
+        self.lanes = [Rect::default(); LANES];
+        for (at, &column) in shown.iter().enumerate() {
             let wide = width + u16::from((at as u16) < spare);
-            *lane = Rect::new(x, area.y, wide, area.height);
+            self.lanes[column] = Rect::new(x, area.y, wide, area.height);
             x += wide + gap;
         }
         let region_height = area.height.saturating_sub(2);
@@ -522,7 +544,7 @@ impl Board {
         let lifted = self.lift.as_ref().map(|l| (l.id.clone(), l.to, l.mouse));
         self.hits.clear();
         let mut floating = None;
-        for column in 0..count {
+        for column in shown {
             self.scroll(column);
             let lane = self.lanes[column];
             let region = Rect::new(lane.x, lane.y + 2, lane.width, region_height);
@@ -791,7 +813,9 @@ fn edge(
     let used: usize = parts.iter().chain(tail).map(|(t, _)| text::cells(t)).sum();
     let fill = inner.saturating_sub(used + 2);
     let mut at = put(buf, clip, x, y, ends[0], 1, style);
-    at = put(buf, clip, at, y, ends[1], 1, style);
+    if inner > used {
+        at = put(buf, clip, at, y, ends[1], 1, style);
+    }
     for (part, look) in parts {
         at = put(buf, clip, at, y, part, inner, *look);
     }
@@ -857,7 +881,7 @@ fn draw_card(
         );
         put(buf, clip, x + w as i32 - 1, y + row, edges.side, 1, frame);
     }
-    let key = if text::cells(&card.key) + 5 <= w {
+    let key = if text::cells(&card.key) + 4 <= w {
         format!(" {} ", card.key)
     } else {
         card.key.clone()

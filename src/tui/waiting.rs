@@ -393,7 +393,6 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                     self.shared.toggle(&name);
                     self.apply(cx);
                 }
-                self.offer_projects(at, cx);
             }
             (Some(Picking::Waiting(rows)), Some(at)) => {
                 if let Some((account, key)) = rows.into_iter().nth(at) {

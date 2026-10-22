@@ -306,20 +306,20 @@ fn p_narrows_the_inbox_and_the_board_to_the_projects_chosen() {
             assert!(pick.contains(said), "{size} {said}:\n{pick}");
         }
     }
-    let one = dump("120x34", "p down enter esc");
+    let one = dump("120x34", "p down enter");
     assert!(one.contains("2 of 28 items"), "{one}");
     assert!(one.contains("Mobile app"), "{one}");
     assert!(!one.contains("BUG-11"), "{one}");
-    let several = dump("120x34", "p down enter down enter esc");
+    let several = dump("120x34", "p down enter p down down enter");
     assert!(several.contains("5 of 28 items"), "{several}");
-    let board = dump("120x34", "p down enter esc tab");
+    let board = dump("120x34", "p down enter tab");
     assert!(board.contains("2 items"), "{board}");
     assert!(
         board.contains("TASK-24") && board.contains("FEAT-27"),
         "{board}"
     );
     assert!(!board.contains("FEAT-9"), "{board}");
-    let cleared = dump("120x34", "p down enter esc esc");
+    let cleared = dump("120x34", "p down enter esc");
     assert!(cleared.contains("21 of 28 items"), "{cleared}");
 }
 

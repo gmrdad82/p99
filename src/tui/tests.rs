@@ -385,17 +385,21 @@ fn w_while_typing_a_filter_types_it() {
 }
 
 #[test]
-fn p_offers_every_project_and_one_chosen_narrows_the_inbox() {
+fn p_offers_every_project_and_enter_narrows_the_inbox_and_closes_the_picker() {
     let mut app = run(sample());
     settled(&mut app);
     let pick = app.press("p");
     for said in ["Projects", "All projects", "Mobile app", "Storefront"] {
         assert!(pick.contains(said), "{said}:\n{pick}");
     }
-    let ticked = app.press("down enter");
+    let narrowed = app.press("down enter");
+    assert!(!narrowed.contains("All projects"), "{narrowed}");
+    assert!(narrowed.contains("All hosts · Mobile app"), "{narrowed}");
+    let ticked = app.press("p");
     assert!(ticked.contains("✓ Mobile app"), "{ticked}");
     assert!(!ticked.contains("✓ Storefront"), "{ticked}");
     let kept = app.press("esc");
+    assert!(!kept.contains("All projects"), "{kept}");
     assert!(kept.contains("All hosts · Mobile app"), "{kept}");
     assert!(kept.contains("2 of 28 items"), "{kept}");
     for key in ["TASK-24 ", "FEAT-27 "] {
@@ -408,7 +412,7 @@ fn p_offers_every_project_and_one_chosen_narrows_the_inbox() {
 fn several_projects_narrow_every_tab_and_esc_clears_them() {
     let mut app = run(sample());
     settled(&mut app);
-    let both = app.press("p down enter down enter esc");
+    let both = app.press("p down enter p down down enter");
     assert!(
         both.contains("All hosts · Mobile app, Storefront"),
         "{both}"
@@ -440,7 +444,7 @@ fn several_projects_narrow_every_tab_and_esc_clears_them() {
 fn the_needs_you_list_honours_the_projects_chosen() {
     let mut app = run(sample());
     settled(&mut app);
-    app.press("p down enter esc");
+    app.press("p down enter");
     let list = app.press("w");
     assert!(list.contains("Needs you · 1"), "{list}");
     assert!(list.contains("FEAT-27"), "{list}");
@@ -456,7 +460,7 @@ fn the_needs_you_list_honours_the_projects_chosen() {
 fn all_projects_clears_the_choice_and_closes_the_picker() {
     let mut app = run(sample());
     settled(&mut app);
-    app.press("p down enter esc");
+    app.press("p down enter");
     let all = app.press("p enter");
     assert!(!all.contains("Projects"), "{all}");
     assert!(all.contains("21 of 28 items"), "{all}");
@@ -529,7 +533,7 @@ fn a_late_project_answer_leaves_the_host_picker_and_its_choice_alone() {
 fn esc_clears_the_text_filter_first_and_the_projects_on_the_next_esc() {
     let mut app = run(sample());
     settled(&mut app);
-    let chosen = app.press("p down enter esc");
+    let chosen = app.press("p down enter");
     assert!(chosen.contains("esc all projects"), "{chosen}");
     let both = app.press("/ t a s k enter");
     assert!(both.contains("esc clear filter"), "{both}");

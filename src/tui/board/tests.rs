@@ -1145,7 +1145,7 @@ fn an_answer_for_an_older_filter_never_replaces_the_board_shown() {
     let mut app = run(sample());
     app.text();
     app.advance(Duration::from_secs(1));
-    app.press("p down enter esc");
+    app.press("p down enter");
     let shown = app.go(BOARD);
     let want = mobile(&app);
     assert_eq!(cards(&app), want, "{shown}");
@@ -1180,4 +1180,91 @@ fn a_move_made_in_a_thread_opened_from_w_reaches_the_board_underneath() {
         !lane(&app, "Needs you").contains(&"BUG-25".to_owned()),
         "{back}"
     );
+}
+
+#[test]
+fn below_120_columns_only_the_lanes_with_cards_and_the_focused_one_show() {
+    let mut app = shown();
+    let view = BoardView {
+        lanes: default_lanes(),
+        cards: vec![card("BUG-1", "New", None), card("TASK-24", "Landed", None)],
+        missing: Vec::new(),
+    };
+    app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
+    let narrow = dump::text(&app.tui.frame(80, 24));
+    assert_eq!(board(&app).visible, [0, 5], "{narrow}");
+    assert!(
+        narrow.contains("New 1") && narrow.contains("Landed 1"),
+        "{narrow}"
+    );
+    for hidden in [
+        "Planned 0",
+        "In progress 0",
+        "Needs you 0",
+        "Stuck 0",
+        "Done 0",
+    ] {
+        assert!(!narrow.contains(hidden), "{hidden}:\n{narrow}");
+    }
+    let new = board(&app).lanes[0];
+    let landed = board(&app).lanes[5];
+    assert!(new.width >= 38 && landed.width >= 38, "{new:?} {landed:?}");
+    assert_eq!(board(&app).lane_of(landed.x + 2), 5);
+    assert_eq!(board(&app).lane_of(new.x + 2), 0);
+    tap(&mut app, "right");
+    let focused = dump::text(&app.tui.frame(80, 24));
+    assert_eq!(board(&app).visible, [0, 1, 5], "{focused}");
+    assert!(
+        focused.contains("Planned 0") && focused.contains("no cards"),
+        "{focused}"
+    );
+    let roomy = dump::text(&app.tui.frame(120, 24));
+    assert_eq!(board(&app).visible, [0, 1, 2, 3, 4, 5, 6], "{roomy}");
+    assert!(
+        roomy.contains("Done 0") && roomy.contains("Stuck 0"),
+        "{roomy}"
+    );
+}
+
+#[test]
+fn a_carried_card_keeps_its_own_lane_and_its_target_on_a_narrow_board() {
+    let mut app = shown();
+    let view = BoardView {
+        lanes: default_lanes(),
+        cards: vec![card("BUG-1", "New", None)],
+        missing: Vec::new(),
+    };
+    app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
+    app.tui.frame(80, 24);
+    tap(&mut app, "space right right");
+    let carried = dump::text(&app.tui.frame(80, 24));
+    assert_eq!(board(&app).visible, [0, 2], "{carried}");
+    assert!(carried.contains("In progress 1"), "{carried}");
+}
+
+#[test]
+fn a_narrow_card_keeps_one_space_round_its_key_before_it_drops_the_rule() {
+    let palette = palette();
+    let card = card("TASK-24", "Planned", None);
+    for (width, want) in [
+        (12u16, "╭─ TASK-24 ╮"),
+        (11, "╭ TASK-24 ╮"),
+        (10, "╭─TASK-24╮"),
+        (9, "╭TASK-24╮"),
+    ] {
+        let area = Rect::new(0, 0, width, TALL as u16);
+        let mut buf = Buffer::empty(area);
+        draw_card(
+            &mut buf,
+            area,
+            0,
+            0,
+            width,
+            (&card, None),
+            (false, false, false),
+            &palette,
+        );
+        let top: String = (0..width).map(|x| buf[(x, 0)].symbol()).collect();
+        assert_eq!(top, want, "{width}");
+    }
 }
