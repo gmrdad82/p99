@@ -137,6 +137,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
   });
 
   let annieToken;
+  let annieDigits;
   await check("a session is an HttpOnly, Secure, SameSite=Strict cookie for 30 days, rotated on sign-in and gone on sign-out", async () => {
     const first = await signIn("Annie.Page@Example.com", totpOf(annie.totp_key));
     assert.equal(first.status, 200, first.text);
@@ -150,7 +151,8 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal(spaces.json.spaces[0].role, "user");
     assert.equal(typeof spaces.json.spaces[0].open, "number");
     assert.equal(spaces.json.license, LICENSE_STATE);
-    const second = await signIn("annie.page@example.com", totpOf(annie.totp_key, 1), one);
+    annieDigits = totpOf(annie.totp_key, 1);
+    const second = await signIn("annie.page@example.com", annieDigits, one);
     assert.equal(second.status, 200, second.text);
     const two = tokenOf(second);
     assert.notEqual(two, one);
@@ -163,7 +165,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
   });
 
   await check("a code's 30-second step signs in once; the same digits again are refused", async () => {
-    const replay = await signIn("annie.page@example.com", totpOf(annie.totp_key, 1));
+    const replay = await signIn("annie.page@example.com", annieDigits);
     assert.equal(replay.status, 401, replay.text);
   });
 

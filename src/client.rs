@@ -879,4 +879,204 @@ mod tests {
         );
         assert_eq!(classify(403, "application/json", ""), Outcome::Answer);
     }
+
+    fn client_on(bases: &[&str]) -> Client {
+        Client {
+            account: "main".to_owned(),
+            bases: bases
+                .iter()
+                .map(|b| (*b).to_owned())
+                .collect::<Vec<_>>()
+                .into(),
+            target: None,
+            answered: Arc::new(AtomicUsize::new(0)),
+            key: b"test-secret".to_vec(),
+            actor: Actor {
+                email: "ada@example.com".to_owned(),
+                name: "Ada Lovelace".to_owned(),
+                agent: false,
+                via: None,
+            },
+            host: None,
+            access: None,
+            quick: http(TIMEOUT),
+            slow: http(TRANSFER),
+        }
+    }
+
+    const SHOP: &str = "https://shop.example.com/_p99";
+    const DEV: &str = "https://dev.example.com/_p99";
+
+    #[test]
+    fn a_host_is_asked_first_at_its_own_address() {
+        let both = client_on(&[SHOP, DEV]);
+        assert_eq!(both.order(), [0, 1]);
+        let aimed = both.clone().aimed(Some("dev.example.com"));
+        assert_eq!(aimed.order(), [1, 0]);
+        assert_eq!(aimed.host, None);
+        let held = both.clone().with_host(Some("dev.example.com"));
+        assert_eq!(held.order(), [1, 0]);
+        assert_eq!(held.host.as_deref(), Some("dev.example.com"));
+        let unknown = both.clone().with_host(Some("other.example.com"));
+        assert_eq!(unknown.order(), [0, 1]);
+        assert_eq!(unknown.host.as_deref(), Some("other.example.com"));
+        let none = both.with_host(None);
+        assert_eq!(none.order(), [0, 1]);
+        assert_eq!(none.host, None);
+    }
+
+    #[test]
+    fn the_host_that_answered_last_is_asked_before_the_aimed_one() {
+        let aimed =
+            client_on(&[SHOP, DEV, "https://www.example.com/_p99"]).aimed(Some("www.example.com"));
+        assert_eq!(aimed.order(), [2, 0, 1]);
+        aimed.answered.store(2, Ordering::Relaxed);
+        assert_eq!(aimed.order(), [1, 2, 0]);
+        aimed.answered.store(3, Ordering::Relaxed);
+        assert_eq!(aimed.order(), [2, 0, 1]);
+        aimed.answered.store(9, Ordering::Relaxed);
+        assert_eq!(aimed.order(), [2, 0, 1]);
+    }
+
+    type Asked = Arc<std::sync::Mutex<Vec<String>>>;
+
+    fn answering(replies: Vec<(u16, &'static str, &'static str, &'static str)>) -> (String, Asked) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/_p99", listener.local_addr().unwrap());
+        let asked: Asked = Arc::default();
+        let log = asked.clone();
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut first = String::new();
+                let _ = reader.read_line(&mut first);
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) && line != "\r\n" {
+                    line.clear();
+                }
+                log.lock().unwrap().push(first.trim().to_owned());
+                let (status, kind, location, body) = replies[n.min(replies.len() - 1)];
+                let mut head = format!(
+                    "HTTP/1.1 {status} X\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n",
+                    body.len()
+                );
+                if !location.is_empty() {
+                    head.push_str(&format!("Location: {location}\r\n"));
+                }
+                let _ = stream.write_all(format!("{head}\r\n{body}").as_bytes());
+            }
+        });
+        (base, asked)
+    }
+
+    const LOGIN: &str = "https://team.cloudflareaccess.com/cdn-cgi/access/login/shop.example.com";
+    const HOSTS: (u16, &str, &str, &str) = (200, "application/json", "", r#"{"hosts":[]}"#);
+    const ACCESS: (u16, &str, &str, &str) = (302, "text/html", LOGIN, "");
+
+    fn asked(log: &Asked) -> Vec<String> {
+        log.lock().unwrap().clone()
+    }
+
+    #[test]
+    fn a_host_behind_access_falls_through_to_the_next_host_which_is_then_asked_first() {
+        let (closed, closed_log) = answering(vec![ACCESS]);
+        let (open, open_log) = answering(vec![HOSTS]);
+        let client = client_on(&[&closed, &open]);
+        let first: Value = client.json("GET", "/v1/hosts", None).unwrap();
+        assert_eq!(first, json!({"hosts": []}));
+        assert_eq!(asked(&closed_log), ["GET /_p99/v1/hosts HTTP/1.1"]);
+        assert_eq!(asked(&open_log), ["GET /_p99/v1/hosts HTTP/1.1"]);
+        let _: Value = client.json("GET", "/v1/hosts", None).unwrap();
+        assert_eq!(
+            asked(&closed_log).len(),
+            1,
+            "the closed host was asked again"
+        );
+        assert_eq!(asked(&open_log).len(), 2);
+    }
+
+    #[test]
+    fn a_web_page_where_p99_should_answer_is_named_when_no_host_answers() {
+        let (page, _) = answering(vec![(
+            200,
+            "text/html; charset=utf-8",
+            "",
+            "<html>shop</html>",
+        )]);
+        let (closed, _) = answering(vec![ACCESS]);
+        let client = client_on(&[&page, &closed]);
+        let said = client.json::<Value>("GET", "/v1/hosts", None).unwrap_err();
+        assert_eq!(
+            said,
+            format!(
+                "{} answered with a web page instead of answering as P99",
+                host_of(&page)
+            )
+        );
+    }
+
+    #[test]
+    fn a_redirect_elsewhere_is_named_when_no_host_answers() {
+        let (moved, _) = answering(vec![(
+            301,
+            "text/plain",
+            "https://www.example.com/_p99/v1/hosts",
+            "",
+        )]);
+        let (page, _) = answering(vec![(404, "text/html", "", "<html>not here</html>")]);
+        let client = client_on(&[&moved, &page]);
+        let said = client.json::<Value>("GET", "/v1/hosts", None).unwrap_err();
+        assert_eq!(
+            said,
+            format!(
+                "{} redirected to www.example.com instead of answering as P99",
+                host_of(&moved)
+            )
+        );
+    }
+
+    #[test]
+    fn every_host_behind_access_says_how_to_get_past_it() {
+        let (one, _) = answering(vec![ACCESS]);
+        let (two, _) = answering(vec![ACCESS]);
+        let said = client_on(&[&one, &two])
+            .json::<Value>("GET", "/v1/hosts", None)
+            .unwrap_err();
+        assert!(
+            said.starts_with("every host of the account main is behind Cloudflare Access"),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn a_host_that_answers_as_p99_with_an_error_is_not_passed_over() {
+        let (refusing, _) = answering(vec![(
+            403,
+            "application/json",
+            "",
+            r#"{"message":"this code can't see that host"}"#,
+        )]);
+        let (open, open_log) = answering(vec![HOSTS]);
+        let said = client_on(&[&refusing, &open])
+            .json::<Value>("GET", "/v1/hosts", None)
+            .unwrap_err();
+        assert_eq!(said, "this code can't see that host (403)");
+        assert!(asked(&open_log).is_empty());
+    }
+
+    #[test]
+    fn a_host_that_cannot_be_reached_stops_the_call_with_its_address() {
+        let gone = "http://127.0.0.1:1/_p99".to_string();
+        let (open, open_log) = answering(vec![HOSTS]);
+        let said = client_on(&[&gone, &open])
+            .json::<Value>("GET", "/v1/hosts", None)
+            .unwrap_err();
+        assert!(
+            said.starts_with(&format!("cannot reach {gone}: ")),
+            "{said}"
+        );
+        assert!(asked(&open_log).is_empty());
+    }
 }

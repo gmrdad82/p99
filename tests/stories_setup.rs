@@ -1218,3 +1218,302 @@ fn deploy_accept_plan_takes_the_right_hash_in_any_case_and_refuses_a_wrong_one()
             .any(|r| r.json()["sql"].as_str().and_then(recorded).is_some())
     );
 }
+
+#[cfg(unix)]
+mod vault {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+
+    const MADE: &str = r#"printf '{"id":"item%s","vault":{"id":"vlt1"}}' "$n""#;
+
+    fn op(dir: &Path, made: &str) -> PathBuf {
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let file = bin.join("op");
+        std::fs::write(
+            &file,
+            format!(
+                r#"#!/bin/sh
+d="$(dirname "$0")"
+printf '%s\n' "$*" >> "$d/asked"
+case "$1" in
+item)
+  n=$(( $(cat "$d/count" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$d/count"
+  cat > "$d/item$n"
+  {made}
+  ;;
+read)
+  item=$(printf '%s' "$3" | cut -d/ -f4)
+  sed 's/.*"value":"\([^"]*\)".*/\1/' "$d/$item" | tr -d '\n'
+  ;;
+*)
+  exit 9
+  ;;
+esac
+"#
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bin
+    }
+
+    fn path(bin: &Path) -> String {
+        format!("{}:/usr/bin:/bin", bin.display())
+    }
+
+    fn run(h: &Home, bin: &Path, token: bool, extra: &[&str]) -> Out {
+        run_on(h, &path(bin), token, extra)
+    }
+
+    fn run_on(h: &Home, path: &str, token: bool, extra: &[&str]) -> Out {
+        let mut args = vec!["setup", "--yes"];
+        args.extend(ME);
+        args.extend(extra);
+        let mut envs = vec![("PATH", path)];
+        if token {
+            envs.push(("P99_TOKEN", TOKEN));
+        }
+        h.p99_env(&args, &envs)
+    }
+
+    fn item(bin: &Path, n: u32) -> Value {
+        serde_json::from_str(&std::fs::read_to_string(bin.join(format!("item{n}"))).unwrap())
+            .unwrap()
+    }
+
+    fn asked(bin: &Path) -> Vec<String> {
+        std::fs::read_to_string(bin.join("asked"))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+
+    #[test]
+    fn setup_with_a_vault_keeps_the_token_and_the_key_there_and_writes_only_references() {
+        let (h, cf) = blank("setup-vault", fresh());
+        let bin = op(&h.dir, MADE);
+        let out = run(
+            &h,
+            &bin,
+            true,
+            &[
+                "--vault",
+                "Example",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
+        );
+        out.ok();
+
+        let config = h.toml();
+        let main = &config["accounts"]["main"];
+        assert_eq!(main["token"].as_str(), Some("op://vlt1/item1/credential"));
+        assert_eq!(main["key"].as_str(), Some("op://vlt1/item2/credential"));
+        assert!(!h.config().contains(TOKEN), "{}", h.config());
+
+        let token = item(&bin, 1);
+        assert_eq!(token["title"], "P99 Cloudflare token");
+        assert_eq!(token["category"], "API_CREDENTIAL");
+        assert_eq!(
+            token["fields"],
+            json!([{"id": "credential", "type": "CONCEALED", "label": "credential", "value": TOKEN}])
+        );
+        let made = item(&bin, 2);
+        assert_eq!(made["title"], "P99 key");
+        let key = made["fields"][0]["value"].as_str().unwrap().to_owned();
+        assert!(is_hex(&key), "{key}");
+        assert!(!h.config().contains(&key));
+
+        let calls = asked(&bin);
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|c| *c == "item create --vault Example --format json")
+                .count(),
+            2,
+            "{calls:?}"
+        );
+        assert!(
+            calls.contains(&"read --no-newline op://vlt1/item2/credential".to_owned()),
+            "{calls:?}"
+        );
+        assert_eq!(
+            cf.lock().unwrap().secret("KEY_P99").as_deref(),
+            Some(key.as_str())
+        );
+
+        for line in [
+            "  ok  P99 Cloudflare token kept in the vault Example",
+            "  ok  P99 key kept in the vault Example",
+            "  ok  made a new key (32 random bytes)",
+            "  key                 p99, kept in the vault",
+        ] {
+            assert!(out.stdout.contains(line), "{line} missing:\n{}", out.stdout);
+        }
+        never_shows(&[&out], &[key.as_str()]);
+    }
+
+    #[test]
+    fn a_second_run_reads_both_references_from_the_vault_and_stores_nothing_new() {
+        let (h, cf) = blank("setup-vault-again", fresh());
+        let bin = op(&h.dir, MADE);
+        run(
+            &h,
+            &bin,
+            true,
+            &[
+                "--vault",
+                "Example",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
+        )
+        .ok();
+        let before = h.config();
+        std::fs::remove_file(bin.join("asked")).unwrap();
+
+        let again = run(
+            &h,
+            &bin,
+            false,
+            &[
+                "--account",
+                "main",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
+        );
+        again.ok();
+        assert_eq!(h.config(), before);
+        assert_eq!(
+            std::fs::read_to_string(bin.join("count")).unwrap().trim(),
+            "2"
+        );
+        let calls = asked(&bin);
+        assert!(
+            calls.iter().all(|c| c.starts_with("read --no-newline ")),
+            "{calls:?}"
+        );
+        assert!(
+            calls.contains(&"read --no-newline op://vlt1/item1/credential".to_owned()),
+            "{calls:?}"
+        );
+        assert!(
+            again.stdout.contains("  ok  the account has its key"),
+            "{}",
+            again.stdout
+        );
+        let bearer = format!("Bearer {TOKEN}");
+        assert!(
+            h.stub
+                .under("GET", "/cf/")
+                .iter()
+                .all(|r| r.header("authorization") == Some(bearer.as_str()))
+        );
+        let key = item(&bin, 2)["fields"][0]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            cf.lock().unwrap().secret("KEY_P99").as_deref(),
+            Some(key.as_str())
+        );
+        never_shows(&[&again], &[key.as_str()]);
+    }
+
+    #[test]
+    fn a_vault_answer_without_its_vault_id_falls_back_to_the_vault_name() {
+        let (h, _cf) = blank("setup-vault-name", fresh());
+        let bin = op(&h.dir, r#"printf '{"id":"item%s"}' "$n""#);
+        run(&h, &bin, true, &["--vault", "Example", "--no-mail"]).ok();
+        let config = h.toml();
+        assert_eq!(
+            config["accounts"]["main"]["token"].as_str(),
+            Some("op://Example/item1/credential")
+        );
+        assert_eq!(
+            config["accounts"]["main"]["key"].as_str(),
+            Some("op://Example/item2/credential")
+        );
+    }
+
+    #[test]
+    fn no_vault_never_runs_op_even_when_a_vault_is_named() {
+        let (h, _cf) = blank("setup-no-vault", fresh());
+        let bin = op(&h.dir, MADE);
+        run(
+            &h,
+            &bin,
+            true,
+            &["--vault", "Example", "--no-vault", "--no-mail"],
+        )
+        .ok();
+        assert!(asked(&bin).is_empty(), "{:?}", asked(&bin));
+        assert_eq!(h.toml()["accounts"]["main"]["token"].as_str(), Some(TOKEN));
+    }
+
+    #[test]
+    fn storing_in_the_vault_refuses_what_op_does_not_give_and_keeps_the_token_out_of_the_config() {
+        let cases = [
+            (
+                "setup-vault-refused",
+                "echo '[ERROR] vault \"Example\" was not found' >&2; exit 1",
+                "the 1Password CLI: [ERROR] vault \"Example\" was not found",
+            ),
+            ("setup-vault-garbled", "true", "the 1Password CLI: "),
+            (
+                "setup-vault-no-id",
+                r#"printf '{"vault":{"id":"vlt1"}}'"#,
+                "the 1Password CLI gave no item id",
+            ),
+        ];
+        for (name, made, said) in cases {
+            let (h, cf) = blank(name, fresh());
+            let bin = op(&h.dir, made);
+            let out = run(&h, &bin, true, &["--vault", "Example", "--no-mail"]);
+            if said.ends_with(": ") {
+                assert_eq!(out.code, Some(1), "{name}: {}", out.stderr);
+                let last = out.stderr.lines().last().unwrap_or_default();
+                assert!(
+                    last.len() > said.len() + 5 && last.starts_with(&format!("p99: {said}")),
+                    "{name}: {}",
+                    out.stderr
+                );
+            } else {
+                out.refused(said);
+            }
+            assert!(!h.config().contains(TOKEN), "{name}: {}", h.config());
+            assert!(!cf.lock().unwrap().worker, "{name}: a Worker went up");
+            assert_eq!(item(&bin, 1)["fields"][0]["value"], TOKEN, "{name}");
+            never_shows(&[&out], &[]);
+        }
+    }
+
+    #[test]
+    fn storing_in_the_vault_without_op_installed_says_to_install_it() {
+        let (h, cf) = blank("setup-vault-missing", fresh());
+        let empty = h.dir.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let out = run_on(
+            &h,
+            empty.to_str().unwrap(),
+            true,
+            &["--vault", "Example", "--no-mail"],
+        );
+        assert_eq!(out.code, Some(1), "{}", out.stderr);
+        assert!(
+            out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+            "{}",
+            out.stderr
+        );
+        assert!(!h.config().contains(TOKEN));
+        assert!(!cf.lock().unwrap().worker);
+    }
+}
