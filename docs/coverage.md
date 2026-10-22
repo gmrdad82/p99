@@ -212,6 +212,22 @@ Tests only; no product code changed. The "after" column is measured by the integ
 | worker/src/worker.js (validConfig) | 32 of 48 lines | | worker/test/placement.mjs: a host's `above`, `off` and `strings`, in the loader and `/me`, escaped off pages, dropped null fields, and fifteen refusals |
 | worker/src/web/app.js | 0.00% of 350 | | render/web/app-check.mjs, headless against `wrangler dev`: sign-in with nothing, a wrong code and a right code, the spaces list and its counts (her own items, every item for a manager), a space's panel and a panel that fails to load, the profile's username and a save that fails or is signed out, a list that fails and offline, sign-out, a revoked code, a taken username, no spaces, and a sign-in held back for too many tries |
 
+## w208 import, 2026-10-22 (agent/cov-import)
+
+`p99 import` and the Worker's import routes, before and after. The before column is the last measured run; the after column is measured at this branch's integration, and reads "at integration" until then.
+
+| Code | Before | After |
+|---|---|---|
+| src/import.rs | 47.22% of 612 lines | at integration |
+| worker.js importRecord | 39 of 62 lines | at integration |
+| worker.js postImport, finishImport, putImportAttachment | bad paths not run | at integration |
+
+What runs them now:
+
+- tests/stories_import.rs: the p99 binary against a stub Worker that keeps what it was sent. A full bundle (every record type, a P99 1.x status, keys and text with diacritics sent as written, two files with their item, comment, role, mark, name and internal flag), a dry run that writes and uploads nothing, `--json` with the progress on standard error, Windows line ends and blank lines, an import resumed after a failed upload (only the missing file goes up the second time, nothing the third), a Worker 400 on the second batch of a type (named by its bundle line), a 403 and a 500 part way, a dropped connection mid-import and at the finish, a refused file, conflicts listed with exit 1, a malformed bundle refused whole with every problem line and nothing sent, a missing bundle.jsonl, an empty bundle and a missing `--host`.
+- src/import.rs unit tests: every refused field of every record type, line numbers across blank and CRLF lines, uids per type, batches at 200 records and at 2 MB, a Worker refusal mapped back to its bundle line, and a file path that leaves the bundle.
+- worker/test/imports.mjs, in the worker suite: every rejected event shape (with its record number), every other record type's bad shapes, every rejected item field, the route's host, key and body refusals, conflicts across hosts and taken uids with nothing written, managers with and without a code, finish's bad lists, its conflicts and its links, every refused attachment parameter, a stored file sent twice and a uid taken by another item.
+
 ## Uncovered critical paths, first in line
 
 - Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and import (42%).

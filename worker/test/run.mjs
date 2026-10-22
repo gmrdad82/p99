@@ -26,6 +26,7 @@ import { cardWriteChecks } from "./cards-write.mjs";
 import { markChecks } from "./marks.mjs";
 import { githubChecks, githubStub, githubVars } from "./github.mjs";
 import { placementChecks } from "./placement.mjs";
+import { importChecks } from "./imports.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -167,8 +168,9 @@ async function call(method, path, { actor = grace, body, raw, type, keyId = "p99
   if (tamper === "sig") auth = auth.slice(0, -1) + (auth.endsWith("0") ? "1" : "0");
   const headers = { "x-p99-key-id": keyId, "x-p99-auth": auth, "x-content-sha256": hash };
   if (actorText) headers["x-p99-actor"] = actorText;
-  if (bytes.length > 0) headers["content-type"] = type ?? "application/json";
-  const response = await fetch(base + path, { method, headers, body: bytes.length > 0 ? bytes : undefined });
+  const sent = bytes.length > 0 || type !== undefined;
+  if (sent) headers["content-type"] = type ?? "application/json";
+  const response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
   return { status: response.status, json: await jsonOf(response), response };
 }
 
@@ -1258,6 +1260,7 @@ async function run() {
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });
   await placementChecks({ base, call, browse, mint, check, here, placement: PLACEMENT });
   await githubChecks({ base, call, check, issueBody, here, there });
+  await importChecks({ call, check, here, there });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);
