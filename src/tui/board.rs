@@ -11,7 +11,7 @@ use pito_tui::ratatui::{
     style::{Modifier, Style},
     text::Line,
 };
-use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, text};
+use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, Span, text};
 
 use super::Msg;
 use super::badge::Badge;
@@ -1277,8 +1277,8 @@ impl Screen<Msg> for Board {
         Some((view.board.name.clone(), self.palette.accent))
     }
 
-    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
-        self.badge.status(self.status())
+    fn badge(&self) -> &[Span] {
+        self.badge.parts()
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
