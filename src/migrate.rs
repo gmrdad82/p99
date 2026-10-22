@@ -1077,4 +1077,119 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn fold_lowers_strips_accents_joins_words_and_caps_at_26() {
+        for (raw, folded) in [
+            ("  Ada Lovelace ", "ada.lovelace"),
+            ("Grâce Hopper", "grace.hopper"),
+            ("Straße", "strasse"),
+            ("Æsir", "aesir"),
+            ("Œuvre", "oeuvre"),
+            ("Þór", "thor"),
+            ("ŽELKO Đurić", "zelko.duric"),
+            ("a...b", "a.b"),
+            ("..ada--", "ada"),
+            ("x__y--z", "x_y-z"),
+            ("ada\tbyron", "ada.byron"),
+            ("ada .- byron", "ada-.byron"),
+            ("日本", ""),
+            ("abcdefghijklmnopqrstuvwxyz1234", "abcdefghijklmnopqrstuvwxyz"),
+            ("abcdefghijklmnopqrstuvwxy.z", "abcdefghijklmnopqrstuvwxy"),
+        ] {
+            assert_eq!(fold(raw), folded, "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn skeleton_ignores_separators_and_lookalike_letters() {
+        assert_eq!(skeleton("ada.lovelace"), "adalovelace");
+        assert_eq!(skeleton("r00t"), "root");
+        assert_eq!(skeleton("rn1ck"), "mlck");
+        assert_eq!(skeleton("vvi11"), "wlll");
+        assert_eq!(skeleton("s_4-7.e"), "sate");
+        assert_eq!(skeleton("b8"), "bb");
+        assert_eq!(skeleton("admin"), skeleton("adm1n"));
+        assert_eq!(skeleton("adm1n"), "admln");
+    }
+
+    #[test]
+    fn small_words_count_people_and_numbers_the_same_way_everywhere() {
+        assert_eq!(many(0, "tag"), "0 tags");
+        assert_eq!(many(1, "tag"), "1 tag");
+        assert_eq!(many(2, "item"), "2 items");
+        assert_eq!(person("", "ada@example.com"), "ada@example.com");
+        assert_eq!(person("  ", "ada@example.com"), "ada@example.com");
+        assert_eq!(
+            person(" Ada Lovelace ", "ada@example.com"),
+            "Ada Lovelace <ada@example.com>"
+        );
+        let row = json!({"n": 3, "f": 2.9, "s": "x", "bad": "7"});
+        assert_eq!(count(&row, "n"), 3);
+        assert_eq!(count(&row, "f"), 2);
+        assert_eq!(count(&row, "bad"), 0);
+        assert_eq!(count(&row, "none"), 0);
+        assert_eq!(text(&row, "s"), "x");
+        assert_eq!(text(&row, "n"), "");
+        assert!(numbered("0004_boards.sql", "0004"));
+        assert!(!numbered("00040_x.sql", "0004"));
+        assert!(!numbered("0004", "0004"));
+        assert!(!numbered("0005_labels.sql", "0004"));
+    }
+
+    #[test]
+    fn the_plan_reads_one_select_and_nothing_else() {
+        let cf = Cloudflare::new("unused");
+        let account = Account::default();
+        for sql in [
+            "DELETE FROM items",
+            "select 1",
+            "SELECT 1; DROP TABLE items",
+            " SELECT 1",
+        ] {
+            assert_eq!(
+                select(&cf, &account, sql),
+                Err("the plan only reads, one SELECT at a time".into()),
+                "{sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_plan_of_a_database_with_nothing_gated_says_so_and_ends_with_its_hash() {
+        let plan = json!({"pending": [], "decisions": []});
+        let out = render("main", &plan, "abc123");
+        assert!(out.starts_with("Migration plan for the account main\n"));
+        assert!(out.contains("nothing to migrate"));
+        assert!(out.contains("deploy needs no --accept-plan"));
+        assert!(out.ends_with("\nPlan hash: abc123\n"), "{out}");
+        assert!(!out.contains("Old tags"));
+        let tagged = json!({"pending": [], "old_tags": {"tags": 1, "items": 2}});
+        let out = render("main", &tagged, "abc123");
+        assert!(out.contains(": 1 tag on 2 items\n"), "{out}");
+        let mut members = String::new();
+        render_members(&mut members, &json!({}));
+        assert!(members.ends_with("  none\n"));
+        let mut members = String::new();
+        render_members(
+            &mut members,
+            &json!({"members": [{"name": "Grace Hopper", "email": "grace@example.com", "changes": 1}]}),
+        );
+        assert!(members.ends_with("  Grace Hopper <grace@example.com>: 1 change\n"));
+    }
+
+    #[test]
+    fn gated_pending_names_each_missing_gate_by_its_shipped_file() {
+        let all: Vec<String> = bundle::MIGRATIONS
+            .iter()
+            .map(|(n, _)| (*n).to_owned())
+            .collect();
+        let gates: Vec<String> = GATED
+            .iter()
+            .map(|g| all.iter().find(|n| numbered(n, g)).unwrap().clone())
+            .collect();
+        assert_eq!(gated_pending(&[]), gates);
+        assert_eq!(gated_pending(&all[..11]), gates[2..]);
+        assert!(gated_pending(&all).is_empty());
+    }
 }

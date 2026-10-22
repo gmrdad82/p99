@@ -1869,4 +1869,225 @@ mod tests {
         assert_eq!(states[0]["text"], "free");
         assert_eq!(states[0]["type"], "plain_text");
     }
+
+    #[test]
+    fn hostnames_are_lowercase_dotted_labels_without_edge_dashes() {
+        let widest = format!("{}.com", "a".repeat(63));
+        for good in [
+            "example.com",
+            "shop.example.com",
+            "a-b.example.co",
+            "x1.example.com",
+            widest.as_str(),
+        ] {
+            assert!(is_hostname(good), "{good}");
+        }
+        let long_label = format!("{}.com", "a".repeat(64));
+        let long_host = format!("{}.com", vec!["a".repeat(63); 4].join("."));
+        for bad in [
+            "",
+            "localhost",
+            "Shop.example.com",
+            "shop..example.com",
+            ".example.com",
+            "example.com.",
+            "-shop.example.com",
+            "shop-.example.com",
+            "shop_1.example.com",
+            "shop.example.com/",
+            "shop.example.com:8080",
+            long_label.as_str(),
+            long_host.as_str(),
+        ] {
+            assert!(!is_hostname(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn a_host_spec_takes_its_environment_and_kind_or_their_defaults() {
+        let spec = |s: &str| parse_host(s).map(|h| (h.host, h.env, h.kind));
+        let three = |h: &str, e: &str, k: &str| -> Result<(String, String, String), String> {
+            Ok((h.to_owned(), e.to_owned(), k.to_owned()))
+        };
+        assert_eq!(
+            spec(" Shop.Example.com "),
+            three("shop.example.com", "production", "release")
+        );
+        assert_eq!(
+            spec("shop.example.com="),
+            three("shop.example.com", "production", "release")
+        );
+        assert_eq!(
+            spec("dev.example.com=dev"),
+            three("dev.example.com", "dev", "development")
+        );
+        assert_eq!(
+            spec("stage.example.com=staging:release"),
+            three("stage.example.com", "staging", "release")
+        );
+        assert_eq!(
+            spec("shop.example.com=production:development"),
+            three("shop.example.com", "production", "development")
+        );
+        assert_eq!(spec("shop"), Err("shop is not a hostname".into()));
+        assert_eq!(spec("=dev"), Err(" is not a hostname".into()));
+        assert_eq!(
+            spec("shop.example.com=dev:beta"),
+            Err("beta is not an environment kind; use release or development".into())
+        );
+        assert_eq!(
+            spec("shop.example.com=dev:Release"),
+            Err("Release is not an environment kind; use release or development".into())
+        );
+        assert!(check_kind("release").is_ok() && check_kind("development").is_ok());
+        assert!(check_kind("").is_err());
+    }
+
+    #[test]
+    fn a_route_pattern_covers_its_host_and_wildcards_cover_subdomains() {
+        assert_eq!(route_pattern("shop.example.com"), "shop.example.com/_p99/*");
+        for (pattern, host) in [
+            ("example.com/*", "example.com"),
+            ("https://example.com/_p99/*", "example.com"),
+            ("http://shop.example.com", "shop.example.com"),
+            ("*.example.com/*", "shop.example.com"),
+            ("*example.com/*", "example.com"),
+        ] {
+            assert!(covers(pattern, host), "{pattern} should cover {host}");
+        }
+        for (pattern, host) in [
+            ("*.example.com/*", "example.com"),
+            ("shop.example.com/*", "blog.example.com"),
+            ("example.com/*", "shop.example.com"),
+            ("*.example.org/*", "shop.example.com"),
+        ] {
+            assert!(!covers(pattern, host), "{pattern} should not cover {host}");
+        }
+    }
+
+    #[test]
+    fn the_hub_is_migrated_once_from_whatever_tag_it_had() {
+        assert_eq!(
+            hub_migration(None),
+            Some(json!({ "new_tag": HUB_TAG, "new_sqlite_classes": [HUB_CLASS] }))
+        );
+        assert_eq!(hub_migration(Some(HUB_TAG)), None);
+        assert_eq!(
+            hub_migration(Some("v0")),
+            Some(json!({ "new_tag": HUB_TAG, "new_sqlite_classes": [HUB_CLASS], "old_tag": "v0" }))
+        );
+    }
+
+    #[test]
+    fn our_bindings_replace_theirs_keep_hand_added_ones_and_drop_every_secret() {
+        let account = Account {
+            database_id: "db9".into(),
+            bucket: "files".into(),
+            ..Account::default()
+        };
+        let bare = our_bindings(&account, None, None, State::Free);
+        assert!(find_binding(&bare, "ratelimit", None).is_none());
+        assert!(find_binding(&bare, "plain_text", Some("APP_HOST")).is_none());
+        let ours = our_bindings(
+            &account,
+            Some(1004),
+            Some("p99.example.workers.dev"),
+            State::Free,
+        );
+        let rate = find_binding(&ours, "ratelimit", Some("RATE")).unwrap();
+        assert_eq!(rate["namespace_id"], "1004");
+        assert_eq!(rate["simple"], json!({ "limit": 120, "period": 60 }));
+        assert_eq!(
+            find_binding(&ours, "plain_text", Some("APP_HOST")).unwrap()["text"],
+            "p99.example.workers.dev"
+        );
+        let existing = vec![
+            json!({ "type": "secret_text", "name": "CODE_PEPPER" }),
+            json!({ "type": "secret_key", "name": "SIGNING" }),
+            json!({ "type": "plain_text", "name": "HOOK_URL", "text": "https://hooks.example.com/x" }),
+            json!({ "type": "plain_text", "name": "VERSION", "text": "0.1.0" }),
+            json!({ "type": "d1", "name": "DB", "id": "db-old" }),
+        ];
+        let merged = merge_bindings(&existing, ours.clone());
+        assert_eq!(&merged[..ours.len()], &ours[..]);
+        assert_eq!(merged.len(), ours.len() + 1);
+        assert_eq!(binding_name(&merged[ours.len()]), "HOOK_URL");
+        assert!(
+            merged
+                .iter()
+                .all(|b| b["type"] != "secret_text" && b["type"] != "secret_key")
+        );
+        assert_eq!(
+            find_binding(&merged, "plain_text", Some("VERSION")).unwrap()["text"],
+            VERSION
+        );
+        let db = find_binding(&merged, "d1", None).unwrap();
+        assert_eq!(d1_id(db), "db9");
+        assert_eq!(
+            find_binding(&merged, "r2_bucket", Some("BUCKET")).unwrap()["bucket_name"],
+            "files"
+        );
+        assert!(find_binding(&merged, "plain_text", Some("DB")).is_none());
+        assert_eq!(d1_id(&existing[4]), "db-old");
+        assert_eq!(
+            d1_id(&json!({ "database_id": "db-new", "id": "db-old" })),
+            "db-new"
+        );
+        assert_eq!(d1_id(&json!({ "type": "d1" })), "");
+        assert_eq!(binding_name(&json!({})), "");
+    }
+
+    #[test]
+    fn a_migration_name_is_quoted_and_its_sql_trimmed() {
+        assert_eq!(
+            migration_sql("0099_o'k.sql", "SELECT 1;\n\n  "),
+            "SELECT 1;\nINSERT INTO d1_migrations (name) VALUES ('0099_o''k.sql');"
+        );
+        assert!(MIGRATIONS_TABLE.starts_with("CREATE TABLE IF NOT EXISTS d1_migrations"));
+    }
+
+    #[test]
+    fn yes_takes_every_default_and_names_the_flag_when_there_is_none() {
+        let ask = Ask { yes: true };
+        assert_eq!(
+            ask.line("Environment of x", Some("production"), "--host"),
+            Ok("production".into())
+        );
+        assert_eq!(ask.line("Hosts", Some(""), "--host"), Ok(String::new()));
+        assert_eq!(
+            ask.line("Your name", None, "--name"),
+            Err("Your name: give it with --name".into())
+        );
+        assert_eq!(ask.confirm("Turn mail on?", false), Ok(false));
+        assert_eq!(ask.confirm("Act as Ada?", true), Ok(true));
+        assert_eq!(
+            ask.secret("Paste the token", "--token"),
+            Err("Paste the token: give it with --token".into())
+        );
+        let one = [Named {
+            id: "acc1".into(),
+            name: "Example".into(),
+        }];
+        assert_eq!(ask.pick("account", &one).map(|n| n.id.as_str()), Ok("acc1"));
+        let two = [
+            one[0].clone(),
+            Named {
+                id: "acc2".into(),
+                name: "Other".into(),
+            },
+        ];
+        assert_eq!(
+            ask.pick("account", &two).map(|n| n.id.as_str()),
+            Err("several accounts; name one with --account-id".into())
+        );
+    }
+
+    #[test]
+    fn a_new_key_is_32_random_bytes_in_hex() {
+        let a = new_key().unwrap();
+        let b = new_key().unwrap();
+        assert_eq!(a.len(), 64);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert_ne!(a, b);
+    }
 }

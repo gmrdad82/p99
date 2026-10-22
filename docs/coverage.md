@@ -153,6 +153,15 @@ Rust: **78.8% of lines** (77.8% of regions, 80.1% of functions), up from 77.3%. 
 
 JavaScript, for the first time in part: the worker suite now loads some Worker modules straight into node, so node's own coverage (`NODE_V8_COVERAGE`) counts them: worker/src/backup.js 94.7% of 266 lines, worker/src/text.js 100% of 32, and the ticket and hub rules of worker/src/boards.js through worker/test/tickets.mjs (18.7% of the file; the rest runs inside workerd). The worker suite passes 166 checks with none known red; the browser stories cover the loader and the panel without numbers.
 
+## w201 setup stories, 2026-10-22 (agent/cov-setup)
+
+tests/stories_setup.rs runs `p99 setup --yes` and `p99 deploy` through the binary against a stateful Cloudflare stub built on tests/cli/fake.rs: a fresh account, a second run that finds everything there, a D1 database and R2 bucket adopted by name, tokens lacking the zone, D1 or account permissions, every setup refusal, a Worker of the same name on another database, a route another Worker holds, and for deploy a live account, `--no-check`, a 502 after and on the upload, a refused token with `--json`, and `--accept-plan` with a right, wrong and short hash. Its runs keep the environment, so the coverage profile counts them, unlike tests/stories_deploy.rs. New unit tests cover setup.rs's hostname, host spec, route, binding and `--yes` helpers and migrate.rs's fold, skeleton, plan words and read-only guard.
+
+| File | Lines covered | Lines | w197 |
+|---|---|---|---|
+| src/setup.rs | measured at integration | | 27.18% |
+| src/migrate.rs | measured at integration | | 34.29% |
+
 ## Uncovered critical paths, first in line
 
 - Setup's interactive walk (setup.rs, 27%), migrate (34%) and import (42%).
