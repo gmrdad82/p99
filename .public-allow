@@ -90,3 +90,6 @@ commit/39f553cef5bb:tests/cli_key.rs:16 a fake vault reference in the tests that
 commit/39f553cef5bb:tests/cli_key.rs:176 an assertion message naming the vault tool, respelled in a later commit
 commit/39f553cef5bb:docs/config.md:65 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
 commit/39f553cef5bb:8 the P99_KEY commit message cites the request it answers
+commit/7e6b0221f5ce:tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/7e6b0221f5ce:tests/cli_key.rs:215 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/7e6b0221f5ce:tests/cli_key.rs:176 an assertion message naming the vault tool, respelled in a later commit
