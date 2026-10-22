@@ -1424,8 +1424,8 @@ impl Screen<Msg> for Inbox {
         self.badge.easing()
     }
 
-    fn status_parts(&self, _room: u16) -> Vec<(String, Style)> {
-        self.badge.status(self.status())
+    fn badge(&self) -> &[pito_tui::Span] {
+        self.badge.parts()
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
