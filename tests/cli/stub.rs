@@ -26,6 +26,16 @@ pub struct Req {
 }
 
 impl Req {
+    pub fn signed_by(&self, key: &str) -> bool {
+        signed(
+            key.as_bytes(),
+            &self.method,
+            &self.target,
+            &self.headers,
+            &self.body,
+        )
+    }
+
     pub fn param(&self, name: &str) -> Option<&str> {
         self.query
             .iter()

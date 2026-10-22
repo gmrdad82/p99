@@ -206,6 +206,7 @@ impl Home {
             )
             .env("NO_COLOR", "1")
             .env_remove("P99_TOKEN")
+            .env_remove("P99_KEY")
             .env_remove("P99_AGENT")
             .env("P99_BROWSER", self.dir.join("no-browser-in-tests"))
             .env("XDG_RUNTIME_DIR", self.runtime())

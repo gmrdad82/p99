@@ -294,6 +294,47 @@ pub fn token(account: &Account) -> Result<String, String> {
     }
 }
 
+pub fn key(account: &Account, in_use: bool) -> Result<String, String> {
+    key_from(env::var_os("P99_KEY").filter(|_| in_use), &account.key)
+}
+
+pub fn key_holder(config: &Config, named: Option<&str>) -> Result<Option<String>, String> {
+    holder_from(env::var_os("P99_KEY"), config, named)
+}
+
+fn holder_from(
+    given: Option<std::ffi::OsString>,
+    config: &Config,
+    named: Option<&str>,
+) -> Result<Option<String>, String> {
+    if given.is_none() {
+        return Ok(None);
+    }
+    key_from(given, "")?;
+    match config.account(named) {
+        Ok((name, _)) => Ok(Some(name.to_owned())),
+        Err(_) if named.is_none() && config.accounts.len() > 1 => {
+            Err("P99_KEY signs one account; name it with --account".to_owned())
+        }
+        Err(why) => Err(why),
+    }
+}
+
+pub fn key_overridden() -> bool {
+    env::var_os("P99_KEY").is_some()
+}
+
+fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
+    let Some(given) = given else {
+        return secret(configured);
+    };
+    match given.into_string() {
+        Ok(v) if !v.trim().is_empty() => Ok(v),
+        Ok(_) => Err("P99_KEY is set but empty; unset it or give the key".to_owned()),
+        Err(_) => Err("P99_KEY is not text; unset it or give the key".to_owned()),
+    }
+}
+
 pub fn agent(flag: bool, me: &Me) -> bool {
     if flag {
         return true;
@@ -396,6 +437,111 @@ mod tests {
             ("Grace Hopper", "grace@example.org")
         );
         assert_eq!(config.me_for("custom").email, "ada@example.com");
+    }
+
+    #[test]
+    fn p99_key_comes_first_over_an_inline_key_and_a_reference() {
+        let given = |v: &str| Some(std::ffi::OsString::from(v));
+        assert_eq!(key_from(given("from-env"), "inline").unwrap(), "from-env");
+        assert_eq!(
+            key_from(given("from-env"), "op://Example/p99/key").unwrap(),
+            "from-env"
+        );
+        assert_eq!(key_from(given(" padded "), "inline").unwrap(), " padded ");
+    }
+
+    #[test]
+    fn without_p99_key_the_configured_key_is_used() {
+        assert_eq!(key_from(None, "inline").unwrap(), "inline");
+    }
+
+    #[test]
+    fn an_empty_p99_key_is_refused_without_the_configured_key() {
+        for empty in ["", " ", "\t\n  "] {
+            assert_eq!(
+                key_from(Some(empty.into()), "inline").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+            assert_eq!(
+                key_from(Some(empty.into()), "op://Example/p99/key").unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+        }
+    }
+
+    fn accounts(default: Option<&str>, names: &[&str]) -> Config {
+        let mut text = default
+            .map(|d| format!("default_account = \"{d}\"\n"))
+            .unwrap_or_default();
+        for name in names {
+            text.push_str(&format!(
+                "[accounts.{name}]\naccount_id = \"{name}\"\ntoken = \"\"\n"
+            ));
+        }
+        toml::from_str(&text).unwrap()
+    }
+
+    #[test]
+    fn p99_key_signs_only_the_account_in_use() {
+        let account = Account {
+            key: "inline".into(),
+            ..Account::default()
+        };
+        assert_eq!(key(&account, false).unwrap(), "inline");
+        let given = || Some(std::ffi::OsString::from("from-env"));
+        let one = accounts(None, &["main"]);
+        assert_eq!(holder_from(None, &one, None).unwrap(), None);
+        assert_eq!(
+            holder_from(given(), &one, None).unwrap().as_deref(),
+            Some("main")
+        );
+        let two = accounts(Some("other"), &["main", "other"]);
+        assert_eq!(
+            holder_from(given(), &two, None).unwrap().as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("main")).unwrap().as_deref(),
+            Some("main")
+        );
+    }
+
+    #[test]
+    fn p99_key_with_several_accounts_and_no_default_needs_one_named() {
+        let given = || Some(std::ffi::OsString::from("from-env"));
+        let two = accounts(None, &["main", "other"]);
+        assert_eq!(holder_from(None, &two, None).unwrap(), None);
+        assert_eq!(
+            holder_from(given(), &two, None).unwrap_err(),
+            "P99_KEY signs one account; name it with --account"
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("other"))
+                .unwrap()
+                .as_deref(),
+            Some("other")
+        );
+        assert_eq!(
+            holder_from(given(), &two, Some("gone")).unwrap_err(),
+            "no account is called gone"
+        );
+        assert_eq!(
+            holder_from(Some(" ".into()), &two, None).unwrap_err(),
+            "P99_KEY is set but empty; unset it or give the key"
+        );
+        assert_eq!(
+            holder_from(given(), &accounts(None, &[]), None).unwrap_err(),
+            "no account yet; run p99 setup"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_p99_key_that_is_not_text_is_refused_without_echoing_it() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'k', 0xff, b'y']);
+        let why = key_from(Some(raw), "inline").unwrap_err();
+        assert_eq!(why, "P99_KEY is not text; unset it or give the key");
     }
 
     fn scratch(name: &str) -> PathBuf {
