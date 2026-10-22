@@ -168,3 +168,35 @@ tests/stories_setup.rs:1468 the tests check the error that names the tool P99 st
 tests/stories_setup.rs:1470 the tests check the error that names the tool P99 stores secrets through
 tests/stories_setup.rs:1474 the tests check the error that names the tool P99 stores secrets through
 tests/stories_setup.rs:1512 the tests check the error that names the tool P99 stores secrets through
+commit/2370f10c69f8:tests/cli_vault.rs:119 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/cli_vault.rs:136 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/cli_vault.rs:141 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/cli_vault.rs:163 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/cli_vault.rs:18 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/cli_vault.rs:241 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1309 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1310 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1336 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1381 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1405 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1409 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1428 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1433 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1438 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/2370f10c69f8:tests/stories_setup.rs:1466 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:119 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:136 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:141 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:163 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:18 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/cli_vault.rs:241 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1309 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1310 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1336 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1381 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1405 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1409 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1428 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1433 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1438 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/267ca50895b5:tests/stories_setup.rs:1476 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
