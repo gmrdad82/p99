@@ -406,30 +406,37 @@ pub fn key(account: &Account, in_use: bool) -> Result<String, String> {
     key_from(env::var_os("P99_KEY").filter(|_| in_use), &account.key)
 }
 
-pub fn key_holder(config: &Config, named: Option<&str>) -> Result<Option<String>, String> {
-    holder_from(env::var_os("P99_KEY"), config, named)
+pub fn key_holder(config: &Config) -> Result<Option<String>, String> {
+    holder_from(
+        env::var_os("P99_KEY"),
+        env::var_os("P99_KEY_ACCOUNT"),
+        config,
+    )
 }
 
 fn holder_from(
     given: Option<std::ffi::OsString>,
+    bound: Option<std::ffi::OsString>,
     config: &Config,
-    named: Option<&str>,
 ) -> Result<Option<String>, String> {
     if given.is_none() {
         return Ok(None);
     }
     key_from(given, "")?;
-    match config.account(named) {
-        Ok((name, _)) => Ok(Some(name.to_owned())),
-        Err(_) if named.is_none() && config.accounts.len() > 1 => {
-            Err("P99_KEY signs one account; name it with --account".to_owned())
-        }
-        Err(why) => Err(why),
-    }
+    Ok(match bound {
+        Some(name) => name
+            .into_string()
+            .ok()
+            .filter(|name| config.accounts.contains_key(name)),
+        None => config.account(None).ok().map(|(name, _)| name.to_owned()),
+    })
 }
 
-pub fn key_overridden() -> bool {
-    env::var_os("P99_KEY").is_some()
+pub fn key_overridden(config: &Config, account: &str) -> bool {
+    match key_holder(config) {
+        Ok(holder) => holder.as_deref() == Some(account),
+        Err(_) => true,
+    }
 }
 
 fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
@@ -883,8 +890,12 @@ mod tests {
         toml::from_str(&text).unwrap()
     }
 
+    fn bound(name: &str) -> Option<std::ffi::OsString> {
+        Some(name.into())
+    }
+
     #[test]
-    fn p99_key_signs_only_the_account_in_use() {
+    fn p99_key_belongs_to_the_default_account_unless_p99_key_account_names_one() {
         let account = Account {
             key: "inline".into(),
             ..Account::default()
@@ -892,49 +903,91 @@ mod tests {
         assert_eq!(key(&account, false).unwrap(), "inline");
         let given = || Some(std::ffi::OsString::from("from-env"));
         let one = accounts(None, &["main"]);
-        assert_eq!(holder_from(None, &one, None).unwrap(), None);
+        assert_eq!(holder_from(None, None, &one).unwrap(), None);
+        assert_eq!(holder_from(None, bound("main"), &one).unwrap(), None);
         assert_eq!(
-            holder_from(given(), &one, None).unwrap().as_deref(),
+            holder_from(given(), None, &one).unwrap().as_deref(),
             Some("main")
         );
         let two = accounts(Some("other"), &["main", "other"]);
         assert_eq!(
-            holder_from(given(), &two, None).unwrap().as_deref(),
+            holder_from(given(), None, &two).unwrap().as_deref(),
             Some("other")
         );
         assert_eq!(
-            holder_from(given(), &two, Some("main")).unwrap().as_deref(),
+            holder_from(given(), bound("main"), &two)
+                .unwrap()
+                .as_deref(),
             Some("main")
+        );
+        assert_eq!(
+            holder_from(given(), bound("other"), &two)
+                .unwrap()
+                .as_deref(),
+            Some("other")
         );
     }
 
     #[test]
-    fn p99_key_with_several_accounts_and_no_default_needs_one_named() {
+    fn an_empty_or_unknown_p99_key_account_binds_p99_key_to_no_account() {
+        let given = || Some(std::ffi::OsString::from("from-env"));
+        let two = accounts(Some("main"), &["main", "other"]);
+        for name in ["", " ", "gone", "Main", " main", "main "] {
+            assert_eq!(
+                holder_from(given(), bound(name), &two).unwrap(),
+                None,
+                "{name:?}"
+            );
+        }
+        assert_eq!(
+            holder_from(given(), bound("main"), &accounts(None, &[])).unwrap(),
+            None
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_p99_key_account_that_is_not_text_binds_no_account() {
+        use std::os::unix::ffi::OsStringExt;
+        let two = accounts(Some("main"), &["main", "other"]);
+        let raw = std::ffi::OsString::from_vec(vec![b'm', 0xff, b'n']);
+        assert_eq!(
+            holder_from(Some("from-env".into()), Some(raw), &two).unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn without_p99_key_account_and_no_default_account_p99_key_binds_none() {
         let given = || Some(std::ffi::OsString::from("from-env"));
         let two = accounts(None, &["main", "other"]);
-        assert_eq!(holder_from(None, &two, None).unwrap(), None);
+        assert_eq!(holder_from(None, None, &two).unwrap(), None);
+        assert_eq!(holder_from(given(), None, &two).unwrap(), None);
         assert_eq!(
-            holder_from(given(), &two, None).unwrap_err(),
-            "P99_KEY signs one account; name it with --account"
-        );
-        assert_eq!(
-            holder_from(given(), &two, Some("other"))
+            holder_from(given(), bound("other"), &two)
                 .unwrap()
                 .as_deref(),
             Some("other")
         );
         assert_eq!(
-            holder_from(given(), &two, Some("gone")).unwrap_err(),
-            "no account is called gone"
+            holder_from(given(), None, &accounts(None, &[])).unwrap(),
+            None
         );
         assert_eq!(
-            holder_from(Some(" ".into()), &two, None).unwrap_err(),
-            "P99_KEY is set but empty; unset it or give the key"
+            holder_from(given(), None, &accounts(Some("gone"), &["main"])).unwrap(),
+            None
         );
-        assert_eq!(
-            holder_from(given(), &accounts(None, &[]), None).unwrap_err(),
-            "no account yet; run p99 setup"
-        );
+    }
+
+    #[test]
+    fn an_empty_p99_key_is_refused_whatever_account_it_names() {
+        let two = accounts(Some("main"), &["main", "other"]);
+        for name in [None, bound("main"), bound("other"), bound("gone")] {
+            assert_eq!(
+                holder_from(Some(" ".into()), name, &two).unwrap_err(),
+                "P99_KEY is set but empty; unset it or give the key"
+            );
+        }
     }
 
     #[cfg(unix)]

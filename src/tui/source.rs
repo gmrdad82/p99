@@ -111,12 +111,9 @@ impl Source {
         if accounts.is_empty() {
             return Source::Broken("no account yet; p99 setup makes one".into());
         }
-        let holder = match account {
-            Some(name) => Some(name.to_owned()),
-            None => match crate::config::key_holder(&config, None) {
-                Ok(holder) => holder,
-                Err(why) => return Source::Broken(why),
-            },
+        let holder = match crate::config::key_holder(&config) {
+            Ok(holder) => holder,
+            Err(why) => return Source::Broken(why),
         };
         Source::Live(Arc::new(Live {
             config,
