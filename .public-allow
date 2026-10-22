@@ -72,14 +72,14 @@ commit/8d51052cc978:tests/cli_admin.rs:911 the tests check the p99 link error th
 commit/8d51052cc978:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
 commit/bc73ea7941c0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
 commit/6045d3de82ac:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
-src/config.rs:976 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:982 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:983 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:1013 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:849 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-src/config.rs:868 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-tests/cli_key.rs:219 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+src/config.rs:1029 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:1035 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:1036 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:1066 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:856 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+src/config.rs:875 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+tests/cli_key.rs:17 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+tests/cli_key.rs:268 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to
 commit/39f553cef5bb:src/config.rs:487 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:493 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:494 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
@@ -142,3 +142,5 @@ commit/45c9e6d72637:src/config.rs:974 a fake vault reference in the config tests
 commit/45c9e6d72637:src/config.rs:980 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/45c9e6d72637:src/config.rs:981 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/45c9e6d72637:src/config.rs:1011 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/c6b43b0f738c:tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at tests/cli_key.rs:17
+commit/c6b43b0f738c:tests/cli_key.rs:231 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to, as waived at tests/cli_key.rs:268
