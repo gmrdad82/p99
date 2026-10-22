@@ -31,7 +31,7 @@ impl Badge {
             let reversed = Style::new().add_modifier(Modifier::REVERSED | Modifier::BOLD);
             ([" ", " "], reversed, reversed)
         } else {
-            let (face, ink) = colours(state);
+            let (face, ink) = colours(state, truecolor());
             (
                 ["▐", "▌"],
                 Style::new().fg(ink).bg(face).add_modifier(Modifier::BOLD),
@@ -139,7 +139,7 @@ impl Badge {
     }
 }
 
-fn colours(state: State) -> (Color, Color) {
+fn colours(state: State, truecolor: bool) -> (Color, Color) {
     let (face, ink, indexed) = match state {
         State::Free => (0xb4c2d1, 0x13202f, (250, 234)),
         State::Studio => (0x2c66b8, 0xffffff, (25, 231)),
@@ -147,7 +147,7 @@ fn colours(state: State) -> (Color, Color) {
         State::Owner => (0xe0a32a, 0x241500, (178, 16)),
         State::Ff => (0xb8264d, 0xffffff, (125, 231)),
     };
-    if truecolor() {
+    if truecolor {
         (Color::from_u32(face), Color::from_u32(ink))
     } else {
         (Color::Indexed(indexed.0), Color::Indexed(indexed.1))
@@ -293,5 +293,91 @@ mod tests {
         a.moment(now + EASE * 2);
         assert_eq!(text(&a), text(&b));
         assert_eq!(text(&a), "▐Free▌");
+    }
+
+    #[test]
+    fn the_badge_eases_in_from_a_rule_to_the_licence_word() {
+        let start = Instant::now();
+        let mut badge = Badge::new(State::Studio, &palette());
+        badge.moment(start);
+        assert_eq!(text(&badge), "────────");
+        assert!(badge.easing());
+        badge.moment(start + Duration::from_millis(100));
+        assert_eq!(text(&badge), "▐Stu────");
+        assert!(badge.easing());
+        badge.moment(start + EASE);
+        assert_eq!(text(&badge), "▐Studio▌");
+        assert!(!badge.easing());
+        badge.moment(start + EASE * 10);
+        assert_eq!(text(&badge), "▐Studio▌");
+    }
+
+    #[test]
+    fn the_ease_runs_ahead_of_a_linear_reveal_never_with_it() {
+        let start = Instant::now();
+        let mut badge = Badge::new(State::Agency, &palette());
+        badge.moment(start);
+        let total = "▐Agency▌".chars().count();
+        for millis in [60, 120, 210, 300] {
+            badge.moment(start + Duration::from_millis(millis));
+            let shown = text(&badge).chars().filter(|c| *c != '─').count();
+            let linear = (millis as f32 / EASE.as_millis() as f32 * total as f32).round() as usize;
+            assert!(
+                shown > linear,
+                "{millis} ms: {shown} shown, {linear} linear"
+            );
+        }
+    }
+
+    #[test]
+    fn a_clock_before_the_first_moment_is_ignored() {
+        let start = Instant::now() + Duration::from_secs(60);
+        let mut badge = Badge::new(State::Free, &palette());
+        badge.moment(start);
+        badge.moment(start - Duration::from_secs(1));
+        assert_eq!(text(&badge), "──────");
+    }
+
+    #[test]
+    fn the_pill_has_its_state_colours_and_caps_in_the_face_colour() {
+        let badge = settled(State::Studio, &palette());
+        let parts = badge.parts();
+        let (face, ink) = colours(State::Studio, truecolor());
+        assert_eq!(parts[0].1.fg, Some(face));
+        assert_eq!(parts[1].1.fg, Some(ink));
+        assert_eq!(parts[1].1.bg, Some(face));
+        assert!(parts[1].1.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(parts[2].1.fg, Some(face));
+    }
+
+    #[test]
+    fn every_state_has_its_own_face_in_truecolor_and_in_256_colours() {
+        for truecolor in [true, false] {
+            let faces: std::collections::HashSet<_> = State::ALL
+                .into_iter()
+                .map(|state| colours(state, truecolor).0)
+                .collect();
+            assert_eq!(faces.len(), State::ALL.len(), "truecolor {truecolor}");
+            for state in State::ALL {
+                let (face, ink) = colours(state, truecolor);
+                assert_ne!(face, ink, "{state:?}");
+                match (truecolor, face) {
+                    (true, Color::Rgb(..)) | (false, Color::Indexed(_)) => {}
+                    other => panic!("{state:?}: {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ease_out_starts_fast_and_lands_softly() {
+        assert_eq!(ease_out(0.0), 0.0);
+        assert_eq!(ease_out(1.0), 1.0);
+        assert_eq!(ease_out(-0.5), 0.0);
+        assert_eq!(ease_out(1.5), 1.0);
+        assert!(ease_out(0.5) > 0.5);
+        let steps: Vec<f32> = (0..=10).map(|i| ease_out(i as f32 / 10.0)).collect();
+        let gaps: Vec<f32> = steps.windows(2).map(|pair| pair[1] - pair[0]).collect();
+        assert!(gaps.windows(2).all(|pair| pair[1] < pair[0]), "{gaps:?}");
     }
 }

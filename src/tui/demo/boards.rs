@@ -403,3 +403,6 @@ fn relabel(issue: &mut Issue, label: &str, closes: bool) {
     }
     issue.updated_at = iso(NOW);
 }
+
+#[cfg(test)]
+mod tests;
