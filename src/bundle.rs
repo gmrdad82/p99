@@ -46,6 +46,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("feed.js", ES),
     worker!("mailer.js", ES),
     worker!("deletes.js", ES),
+    worker!("backup.js", ES),
     worker!("links.js", ES),
     worker!("people.js", ES),
     worker!("tries.js", ES),
@@ -85,6 +86,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0011_lanes.sql"),
     migration!("0012_people.sql"),
     migration!("0013_app.sql"),
+    migration!("0014_backup_cut.sql"),
 ];
 
 pub const GATED: &[&str] = &["0004", "0011", "0012", "0013"];

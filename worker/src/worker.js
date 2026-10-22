@@ -23,6 +23,7 @@ import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGi
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
+import { backupStep } from "./backup.js";
 import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
@@ -125,44 +126,6 @@ const FILE_SIGNATURES = {
   "application/vnd.ms-excel": (h) => startsWith(h, OLE),
   "application/vnd.ms-powerpoint": (h) => startsWith(h, OLE),
 };
-
-const BACKUP_PREFIX = "backups/";
-const BACKUP_TABLES = [
-  {
-    name: "items",
-    size: "length(title) + length(body) + length(context_json) + length(marks_json) + length(reporter_json) + length(page_url) + 500",
-  },
-  { name: "comments", size: "length(body) + 300" },
-  { name: "attachments", size: "length(name) + 400" },
-  { name: "events", size: "length(detail_json) + 200" },
-  { name: "reads", size: "150" },
-  { name: "builds", size: "200" },
-  { name: "build_items", size: "length(subject) + 150" },
-  { name: "landings", size: "150" },
-  { name: "hosts", size: "length(config_json) + 200" },
-  { name: "envs", size: "100" },
-  { name: "codes", size: "length(hosts_json) + 500" },
-  { name: "boards", size: "length(name) + 200" },
-  { name: "board_columns", size: "50" },
-  { name: "board_positions", size: "length(key) + 50" },
-  { name: "hooks", size: "length(url_sealed) + length(events_json) + 200" },
-  { name: "github", size: "length(repo) + 200" },
-  { name: "github_links", size: "length(repo) + coalesce(length(url), 0) + 200" },
-  { name: "labels", size: "length(name) + 100" },
-  { name: "item_labels", size: "50" },
-  { name: "mail", size: "length(COALESCE(sender, '')) + length(COALESCE(note, '')) + 100" },
-  { name: "mail_optouts", size: "length(email) + 100" },
-  { name: "people", size: "length(email) + length(username) + 100" },
-];
-const BACKUP_PAGE_ROWS = 1000;
-const BACKUP_PAGE_BYTES = 128 * 1024;
-const BACKUP_STEP_PAGES = 6;
-const BACKUP_STEP_BYTES = 512 * 1024;
-const BACKUP_RETAIN_DATES = 8;
-const BACKUP_WEEKDAY = 1;
-const BACKUP_HOUR = 3;
-const USAGE_RETAIN_DAYS = 7;
-const BRANCH_BUILD_RETAIN_DAYS = 30;
 
 const JS_TYPE = "text/javascript; charset=utf-8";
 const CAPTURE_SOURCE = `const ms = (() => {\nvar exports = {}, module = {};\n${captureVendor}\nreturn exports;\n})();\n${shotSource}`;
@@ -2615,100 +2578,6 @@ async function backupStatus(c) {
     last: view(results.find((r) => r.finished_at !== null)) || null,
     running: view(results.find((r) => r.finished_at === null)) || null,
   });
-}
-
-function backupDue(last, nowDate) {
-  if (!last) return true;
-  const days = (nowDate.getTime() - Date.parse(last.started_at)) / 86400000;
-  if (days >= 8) return true;
-  return (
-    nowDate.getUTCDay() === BACKUP_WEEKDAY &&
-    nowDate.getUTCHours() >= BACKUP_HOUR &&
-    last.date !== nowDate.toISOString().slice(0, 10)
-  );
-}
-
-async function backupStep(env) {
-  const { DB } = env;
-  const nowDate = new Date();
-  const now = nowDate.toISOString();
-  let run = await DB.prepare("SELECT * FROM backup_runs WHERE finished_at IS NULL ORDER BY date DESC LIMIT 1").first();
-  if (!run) {
-    const last = await DB.prepare("SELECT date, started_at FROM backup_runs ORDER BY date DESC LIMIT 1").first();
-    if (!backupDue(last, nowDate)) return;
-    const date = now.slice(0, 10);
-    const branchCutoff = new Date(nowDate.getTime() - BRANCH_BUILD_RETAIN_DAYS * 86400000).toISOString();
-    const stale = `SELECT env, branch FROM builds WHERE branch <> 'main' AND announced_at < ?1
-      AND env IN (SELECT name FROM envs WHERE kind = 'development')`;
-    await DB.batch([
-      DB.prepare("INSERT OR REPLACE INTO backup_runs (date, started_at) VALUES (?1, ?2)").bind(date, now),
-      DB.prepare("DELETE FROM usage WHERE day < ?1").bind(
-        new Date(nowDate.getTime() - USAGE_RETAIN_DAYS * 86400000).toISOString().slice(0, 10),
-      ),
-      DB.prepare(`DELETE FROM build_items WHERE (env, branch) IN (${stale})`).bind(branchCutoff),
-      DB.prepare(`DELETE FROM builds WHERE (env, branch) IN (${stale})`).bind(branchCutoff),
-    ]);
-    run = await DB.prepare("SELECT * FROM backup_runs WHERE date = ?1").bind(date).first();
-  }
-  const rows = parseJson(run.rows_json, {});
-  let { table_index: tableIndex, after_rowid: afterRowid, page, pages } = run;
-  let written = 0;
-  for (let step = 0; step < BACKUP_STEP_PAGES && written < BACKUP_STEP_BYTES && tableIndex < BACKUP_TABLES.length; step++) {
-    const table = BACKUP_TABLES[tableIndex];
-    const { results } = await DB.prepare(
-      `SELECT rowid AS _rowid, * FROM ${table.name} WHERE rowid > ?1 AND rowid <= (
-         SELECT max(r) FROM (
-           SELECT rowid AS r, sum(${table.size}) OVER (ORDER BY rowid ROWS UNBOUNDED PRECEDING) AS running
-           FROM ${table.name} WHERE rowid > ?1 ORDER BY rowid LIMIT ?2
-         ) WHERE running <= ?3 OR r = (SELECT min(rowid) FROM ${table.name} WHERE rowid > ?1)
-       ) ORDER BY rowid`,
-    )
-      .bind(afterRowid, BACKUP_PAGE_ROWS, BACKUP_PAGE_BYTES)
-      .all();
-    if (results.length > 0 || page === 0) {
-      page += 1;
-      const text = JSON.stringify({ exported_at: now, table: table.name, page, rows: results });
-      await env.BUCKET.put(`${BACKUP_PREFIX}${run.date}/${table.name}-${String(page).padStart(4, "0")}.json`, text, {
-        httpMetadata: { contentType: "application/json" },
-      });
-      written += text.length;
-      pages += 1;
-      rows[table.name] = (rows[table.name] || 0) + results.length;
-    }
-    if (results.length === 0) {
-      tableIndex += 1;
-      afterRowid = 0;
-      page = 0;
-    } else {
-      afterRowid = results[results.length - 1]._rowid;
-    }
-    const finished = tableIndex >= BACKUP_TABLES.length;
-    await DB.prepare(
-      `UPDATE backup_runs SET table_index = ?2, after_rowid = ?3, page = ?4, pages = ?5, rows_json = ?6, finished_at = ?7
-       WHERE date = ?1`,
-    )
-      .bind(run.date, tableIndex, afterRowid, page, pages, JSON.stringify(rows), finished ? new Date().toISOString() : null)
-      .run();
-    if (finished) {
-      await pruneBackups(env);
-      console.log(`backup ${run.date} finished: ${pages} pages`);
-    }
-  }
-}
-
-async function pruneBackups(env) {
-  const { results } = await env.DB.prepare("SELECT date FROM backup_runs ORDER BY date DESC").all();
-  const doomed = results.slice(BACKUP_RETAIN_DATES).map((r) => r.date);
-  for (const date of doomed) {
-    let cursor;
-    do {
-      const listed = await env.BUCKET.list({ prefix: `${BACKUP_PREFIX}${date}/`, cursor });
-      const keys = listed.objects.map((o) => o.key);
-      if (keys.length > 0) await env.BUCKET.delete(keys);
-      cursor = listed.truncated ? listed.cursor : undefined;
-    } while (cursor);
-    await env.DB.prepare("DELETE FROM backup_runs WHERE date = ?1").bind(date).run();
-  }
 }
 
 const IMPORT_TYPES = ["item", "comment", "attachment", "event", "landing", "read", "manager"];
