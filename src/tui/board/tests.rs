@@ -4,19 +4,40 @@ use pito_tui::dump;
 use pito_tui::ratatui::style::Color;
 use serde_json::json;
 
-use crate::wire::Change;
+use crate::wire::{Change, LaneCard, Owner};
 
-use super::super::deck::{self, Moved};
+use super::super::deck::{self, BoardCard, Lane, Moved, default_lanes};
 use super::super::tests::{BOARD, HIGH, Run, WIDE, line, palette, row, run, sample, spot, waiting};
+use super::super::waiting::Around;
 use super::*;
 
-const INBOX_LANE: [&str; 7] = [
-    "FEAT-9", "Q-10", "BUG-11", "FEAT-13", "BUG-15", "FEAT-19", "TASK-22",
+const NEW_LANE: [&str; 8] = [
+    "FEAT-9", "Q-10", "BUG-11", "FEAT-13", "BUG-15", "FEAT-19", "TASK-22", "FEAT-23",
 ];
 const DOING_LANE: [&str; 6] = ["IMP-5", "TASK-6", "FEAT-7", "BUG-8", "TASK-16", "TASK-20"];
+const HEADS: [&str; 7] = [
+    "New 8",
+    "Planned 1",
+    "In progress 6",
+    "Needs you 1",
+    "Stuck 1",
+    "Landed 4",
+    "Done 7",
+];
 
 fn board(app: &Run) -> &Board {
-    app.tui.find::<Board>().expect("the board is a screen")
+    &app.tui
+        .find::<Around<Board>>()
+        .expect("the board is a screen")
+        .inner
+}
+
+fn board_mut(app: &mut Run) -> &mut Board {
+    &mut app
+        .tui
+        .find_mut::<Around<Board>>()
+        .expect("the board is a screen")
+        .inner
 }
 
 fn shown() -> Run {
@@ -27,24 +48,32 @@ fn shown() -> Run {
     app
 }
 
+fn word(label: &str) -> Lane {
+    deck::LANES
+        .iter()
+        .find(|lane| lane.1 == label)
+        .map(|lane| lane.0)
+        .unwrap_or_else(|| panic!("{label} is a lane"))
+}
+
 fn lane(app: &Run, label: &str) -> Vec<String> {
     let board = board(app);
     let view = board.view.as_ref().expect("a board is shown");
-    let at = view.board.lane(label).expect("the board has the lane");
+    let at = view.lane(word(label)).expect("the board has the lane");
     board.lane_ids()[at]
         .iter()
         .map(|&index| view.cards[index].key.clone())
         .collect()
 }
 
-fn saved(app: &Run, id: i64, label: &str) -> Vec<String> {
+fn saved(app: &Run, label: &str) -> Vec<String> {
+    let want = word(label);
     app.demo(|demo| {
-        demo.board(Some(id))
-            .expect("the sample has the board")
+        demo.one_board(&[])
             .cards
             .into_iter()
-            .filter(|card| card.label == label)
-            .map(|card| card.key)
+            .filter(|card| card.status == want)
+            .map(|card| card.card.key)
             .collect()
     })
 }
@@ -60,10 +89,11 @@ fn tap(app: &mut Run, keys: &str) {
 }
 
 fn hit(app: &Run, key: &str) -> Rect {
+    let id = format!("0/{key}");
     board(app)
         .hits
         .iter()
-        .find(|(id, _)| id == key)
+        .find(|(at, _)| *at == id)
         .map(|(_, rect)| *rect)
         .unwrap_or_else(|| panic!("{key} is drawn whole"))
 }
@@ -73,15 +103,40 @@ fn heard(app: &mut Run, account: usize, event: serde_json::Value) -> String {
 }
 
 fn card(key: &str, label: &str, who: Option<&str>) -> Card {
-    Card {
-        key: key.into(),
-        kind: "bug".into(),
-        title: "A short title".into(),
-        label: label.into(),
-        assignee: who.map(|name| deck::Person {
-            username: Some(name.into()),
-        }),
-        order: None,
+    let lane = deck::LANES
+        .iter()
+        .find(|lane| lane.1 == label)
+        .copied()
+        .unwrap_or(deck::LANES[0]);
+    Card::new(
+        0,
+        BoardCard {
+            key: key.into(),
+            kind: "bug".into(),
+            project: None,
+            status: lane.0,
+            label: label.into(),
+            lane: Some(1),
+            title: "A short title".into(),
+            host: "example.com".into(),
+            assignee: who.map(str::to_owned),
+            order: None,
+            changed_at: "2026-10-22T08:00:00.000Z".into(),
+            changed_by: None,
+        },
+    )
+}
+
+fn moved(key: &str, label: &str, order: &str) -> Moved {
+    Moved {
+        card: LaneCard {
+            key: key.into(),
+            kind: "bug".into(),
+            title: "A short title".into(),
+            label: label.into(),
+            assignee: None::<Owner>,
+            order: Some(order.into()),
+        },
     }
 }
 
@@ -92,24 +147,34 @@ fn rows(buffer: &Buffer) -> Vec<String> {
 }
 
 #[test]
-fn the_board_shows_my_first_board_lane_by_lane_in_its_order() {
+fn the_one_board_shows_seven_lanes_with_every_item_in_lane_order() {
     let mut app = shown();
     let text = app.text();
-    for head in ["Inbox 7", "Doing 6", "QA ready 2", "Done 5"] {
+    for head in HEADS {
         assert!(text.contains(head), "{head}:\n{text}");
     }
-    for fact in ["Shop", "20 items", "5/20 done", "sample data"] {
+    for fact in ["sample", "28 items", "7/28 done", "sample data"] {
         assert!(text.contains(fact), "{fact}:\n{text}");
     }
-    assert!(!text.contains("Testing"), "{text}");
-    assert_eq!(lane(&app, "Inbox"), INBOX_LANE);
-    assert_eq!(lane(&app, "Doing"), DOING_LANE);
-    assert_eq!(lane(&app, "QA ready"), ["IMP-4", "IMP-17"]);
+    for gone in ["Shop", "QA ready", "Testing", "b boards", "watching"] {
+        assert!(!text.contains(gone), "{gone}:\n{text}");
+    }
+    assert_eq!(lane(&app, "New"), NEW_LANE);
+    assert_eq!(lane(&app, "Planned"), ["TASK-24"]);
+    assert_eq!(lane(&app, "In progress"), DOING_LANE);
+    assert_eq!(lane(&app, "Needs you"), ["BUG-25"]);
+    assert_eq!(lane(&app, "Stuck"), ["BUG-26"]);
+    assert_eq!(
+        lane(&app, "Landed"),
+        ["IMP-4", "BUG-14", "IMP-17", "FEAT-27"]
+    );
     assert_eq!(
         lane(&app, "Done"),
-        ["BUG-1", "BUG-2", "BUG-3", "BUG-12", "TASK-18"]
+        [
+            "BUG-1", "BUG-2", "BUG-3", "BUG-12", "TASK-18", "TASK-21", "TASK-28"
+        ]
     );
-    let tops: Vec<usize> = INBOX_LANE[..5]
+    let tops: Vec<usize> = NEW_LANE[..5]
         .iter()
         .map(|key| row(&text, &format!(" {key} ")))
         .collect();
@@ -118,17 +183,39 @@ fn the_board_shows_my_first_board_lane_by_lane_in_its_order() {
         "{tops:?}\n{text}"
     );
     assert_eq!(row(&text, " FEAT-9 "), row(&text, " IMP-5 "));
+    assert_eq!(row(&text, " FEAT-9 "), row(&text, " BUG-25 "));
     let buffer = app.frame();
-    let inbox = spot(&buffer, " FEAT-9 ", " FEAT-9 ");
+    let new = spot(&buffer, " FEAT-9 ", " FEAT-9 ");
     let doing = spot(&buffer, " IMP-5 ", " IMP-5 ");
-    assert!(doing.0 > inbox.0);
+    let needs = spot(&buffer, " BUG-25 ", " BUG-25 ");
+    assert!(new.0 < doing.0 && doing.0 < needs.0);
     let (_, y) = spot(&buffer, " TASK-6 ", " TASK-6 ");
-    let lane = board(&app).lanes[1];
+    let lane = board(&app).lanes[2];
     let bottom: String = (lane.x..lane.x + lane.width)
         .map(|x| buffer[(x, y + 3)].symbol())
         .collect();
     assert!(bottom.contains(" @ada.lovelace "), "{bottom}");
     assert_eq!(current(&app).as_deref(), Some("FEAT-9"));
+}
+
+#[test]
+fn a_card_shows_its_project_on_its_bottom_edge_and_a_plain_item_none() {
+    let mut app = shown();
+    let buffer = app.frame();
+    let (_, y) = spot(&buffer, " BUG-25 ", " BUG-25 ");
+    let needs = board(&app).lanes[3];
+    let bottom: String = (needs.x..needs.x + needs.width)
+        .map(|x| buffer[(x, y + 3)].symbol())
+        .collect();
+    assert!(bottom.starts_with("╰─ Storefront "), "{bottom}");
+    let at = spot(&buffer, " BUG-25 ", "Storefront");
+    assert_eq!(Some(buffer[at].fg), palette().accent.fg);
+    let (_, y) = spot(&buffer, " FEAT-9 ", " FEAT-9 ");
+    let new = board(&app).lanes[0];
+    let plain: String = (new.x..new.x + new.width)
+        .map(|x| buffer[(x, y + 3)].symbol())
+        .collect();
+    assert!(plain.chars().all(|c| "╰─╯".contains(c)), "{plain}");
 }
 
 #[test]
@@ -149,11 +236,6 @@ fn the_selected_card_is_lit_and_done_cards_read_muted() {
             .modifier
             .contains(Modifier::BOLD)
     );
-    assert!(
-        buffer[(plain.0 - 2, plain.1)]
-            .modifier
-            .contains(Modifier::BOLD)
-    );
     let done = spot(&buffer, "Logo looks", "Logo looks");
     assert!(buffer[done].modifier.contains(Modifier::DIM));
     let open = spot(&buffer, "Is the newsletter", "Is the newsletter");
@@ -161,26 +243,29 @@ fn the_selected_card_is_lit_and_done_cards_read_muted() {
 }
 
 #[test]
-fn arrows_and_vim_keys_walk_lanes_and_cards_and_stop_at_the_edges() {
+fn arrows_and_vim_keys_walk_the_seven_lanes_and_stop_at_the_edges() {
     let mut app = shown();
     let walk = [
+        ("right", "TASK-24"),
         ("right", "IMP-5"),
         ("down down", "FEAT-7"),
+        ("right", "BUG-25"),
+        ("right", "BUG-26"),
         ("right", "IMP-4"),
-        ("down down down", "IMP-17"),
+        ("down down down down", "FEAT-27"),
         ("right", "BUG-1"),
         ("right", "BUG-1"),
-        ("G", "TASK-18"),
+        ("G", "TASK-28"),
         ("g", "BUG-1"),
         ("up k", "BUG-1"),
-        ("left left", "FEAT-7"),
+        ("left", "FEAT-27"),
+        ("h h h", "FEAT-7"),
         ("j", "BUG-8"),
         ("k", "FEAT-7"),
-        ("h", "FEAT-9"),
+        ("h h", "FEAT-9"),
         ("h left", "FEAT-9"),
-        ("l", "FEAT-7"),
-        ("end", "TASK-20"),
-        ("home", "IMP-5"),
+        ("end", "FEAT-23"),
+        ("home", "FEAT-9"),
     ];
     for (keys, want) in walk {
         app.press(keys);
@@ -190,59 +275,79 @@ fn arrows_and_vim_keys_walk_lanes_and_cards_and_stop_at_the_edges() {
 }
 
 #[test]
-fn space_picks_a_card_up_arrows_carry_it_and_enter_drops_and_saves_it() {
+fn b_opens_no_picker_and_the_hints_name_no_boards() {
+    let mut app = shown();
+    let text = app.press("b");
+    assert!(!text.contains("b boards"), "{text}");
+    assert_eq!(lane(&app, "New"), NEW_LANE);
+    for hint in ["space pick up", "enter open", "p projects", "w needs you"] {
+        assert!(text.contains(hint), "{hint}:\n{text}");
+    }
+}
+
+#[test]
+fn space_picks_any_card_up_arrows_carry_it_and_enter_drops_and_saves_it() {
     let mut app = shown();
     let lifted = app.press("space");
     assert!(board(&app).typing());
     for hint in ["carry", "enter drop", "esc put back"] {
         assert!(lifted.contains(hint), "{hint}:\n{lifted}");
     }
+    assert!(!lifted.contains("w needs you"), "{lifted}");
     assert!(lifted.contains('╔'), "{lifted}");
     let carried = app.press("right");
     assert!(carried.contains('━'), "{carried}");
-    assert!(carried.contains("Doing 7"), "{carried}");
-    assert!(carried.contains("Inbox 6"), "{carried}");
+    assert!(carried.contains("Planned 2"), "{carried}");
+    assert!(carried.contains("New 7"), "{carried}");
     let dropped = app.press("enter");
     assert!(board(&app).lift.is_none());
     assert!(!board(&app).typing());
     assert!(!dropped.contains("saving…"), "{dropped}");
-    assert_eq!(lane(&app, "Doing")[0], "FEAT-9");
+    assert_eq!(lane(&app, "Planned"), ["FEAT-9", "TASK-24"]);
     assert_eq!(current(&app).as_deref(), Some("FEAT-9"));
-    assert_eq!(saved(&app, 1, "Doing")[0], "FEAT-9");
+    assert_eq!(saved(&app, "Planned"), ["FEAT-9", "TASK-24"]);
     let issue = app.demo(|demo| demo.thread("FEAT-9").expect("the sample has it").issue);
-    assert_eq!(issue.label.as_deref(), Some("Doing"));
+    assert_eq!(issue.label.as_deref(), Some("Planned"));
     assert_eq!(issue.status, "doing");
+}
+
+#[test]
+fn a_card_carried_into_needs_you_lands_there_on_the_server_too() {
+    let mut app = shown();
+    app.press("space right right right enter");
+    assert_eq!(lane(&app, "Needs you"), ["FEAT-9", "BUG-25"]);
+    assert_eq!(saved(&app, "Needs you"), ["FEAT-9", "BUG-25"]);
 }
 
 #[test]
 fn a_card_dropped_between_two_cards_lands_between_them_on_the_server_too() {
     let mut app = shown();
-    app.press("space right down down enter");
+    app.press("space right right down down enter");
     let want = [
         "IMP-5", "TASK-6", "FEAT-9", "FEAT-7", "BUG-8", "TASK-16", "TASK-20",
     ];
-    assert_eq!(lane(&app, "Doing"), want);
-    assert_eq!(saved(&app, 1, "Doing"), want);
+    assert_eq!(lane(&app, "In progress"), want);
+    assert_eq!(saved(&app, "In progress"), want);
 }
 
 #[test]
 fn a_card_carried_past_the_last_lane_and_row_drops_at_the_end_and_closes() {
     let mut app = shown();
-    app.press("space left up right right right right right G");
-    assert_eq!(board(&app).lift.as_ref().map(|l| l.to), Some((3, 5)));
+    app.press("space left up right right right right right right right right G");
+    assert_eq!(board(&app).lift.as_ref().map(|l| l.to), Some((6, 7)));
     let text = app.press("enter");
     assert_eq!(
         lane(&app, "Done").last().map(String::as_str),
         Some("FEAT-9")
     );
     assert_eq!(
-        saved(&app, 1, "Done").last().map(String::as_str),
+        saved(&app, "Done").last().map(String::as_str),
         Some("FEAT-9")
     );
     let issue = app.demo(|demo| demo.thread("FEAT-9").expect("the sample has it").issue);
     assert_eq!(issue.status, "done");
     assert_eq!(issue.resolution.as_deref(), Some("fixed"));
-    assert!(text.contains("6/20 done"), "{text}");
+    assert!(text.contains("8/28 done"), "{text}");
 }
 
 #[test]
@@ -250,9 +355,9 @@ fn esc_puts_a_carried_card_back_where_it_was() {
     let mut app = shown();
     app.press("down space right right esc");
     assert!(board(&app).lift.is_none());
-    assert_eq!(lane(&app, "Inbox"), INBOX_LANE);
+    assert_eq!(lane(&app, "New"), NEW_LANE);
     assert_eq!(current(&app).as_deref(), Some("Q-10"));
-    assert_eq!(saved(&app, 1, "Inbox"), INBOX_LANE);
+    assert_eq!(saved(&app, "New"), NEW_LANE);
 }
 
 #[test]
@@ -267,7 +372,7 @@ fn dropping_a_card_where_it_was_picked_up_saves_nothing() {
     app.press("space enter space right left enter");
     assert!(board(&app).lift.is_none());
     assert_eq!(board(&app).sending, 0);
-    assert_eq!(lane(&app, "Inbox"), INBOX_LANE);
+    assert_eq!(lane(&app, "New"), NEW_LANE);
     assert_eq!(
         app.demo(|demo| demo
             .thread("FEAT-9")
@@ -289,10 +394,10 @@ fn a_card_moved_elsewhere_meanwhile_gives_the_409_line_and_the_board_reads_again
     app.source
         .change(0, None, "FEAT-9", &change)
         .expect("the sample takes the change");
-    let text = app.press("right right enter");
+    let text = app.press("right right right right right enter");
     assert!(text.contains(deck::MOVED), "{text}");
-    assert!(lane(&app, "Doing").contains(&"FEAT-9".to_owned()));
-    assert!(!lane(&app, "QA ready").contains(&"FEAT-9".to_owned()));
+    assert!(lane(&app, "In progress").contains(&"FEAT-9".to_owned()));
+    assert!(!lane(&app, "Landed").contains(&"FEAT-9".to_owned()));
     assert_eq!(board(&app).sending, 0);
 }
 
@@ -303,117 +408,86 @@ fn a_move_that_fails_otherwise_says_why_and_the_board_reads_again() {
     app.demo(|demo| demo.delete("TASK-22").expect("the sample has it"));
     let text = app.event(
         BOARD,
-        Msg::Shifted("FEAT-9".into(), Err("the Worker is down".into())),
+        Msg::Shifted("0/FEAT-9".into(), Err("the Worker is down".into())),
     );
     assert!(text.contains("the Worker is down"), "{text}");
-    assert!(!lane(&app, "Inbox").contains(&"TASK-22".to_owned()));
+    assert!(!lane(&app, "New").contains(&"TASK-22".to_owned()));
 }
 
 #[test]
-fn a_saved_move_to_a_lane_this_board_lacks_takes_the_card_off() {
+fn a_saved_move_to_a_lane_the_board_lacks_takes_the_card_off() {
     let mut app = shown();
-    let mut gone = card("FEAT-9", "Shipped", None);
-    gone.order = Some("a0".into());
     app.event(
         BOARD,
-        Msg::Shifted("FEAT-9".into(), Ok(Moved { card: gone })),
+        Msg::Shifted("0/FEAT-9".into(), Ok(moved("FEAT-9", "Shipped", "a0"))),
     );
-    assert!(!lane(&app, "Inbox").contains(&"FEAT-9".to_owned()));
-    let mut kept = card("Q-10", "Done", None);
-    kept.order = Some("0".into());
-    app.event(BOARD, Msg::Shifted("Q-10".into(), Ok(Moved { card: kept })));
+    assert!(!lane(&app, "New").contains(&"FEAT-9".to_owned()));
+    app.event(
+        BOARD,
+        Msg::Shifted("0/Q-10".into(), Ok(moved("Q-10", "Done", "0"))),
+    );
     assert_eq!(lane(&app, "Done")[0], "Q-10");
+    let card = &board(&app).view.as_ref().expect("a board").cards;
+    let q = card
+        .iter()
+        .find(|c| c.key == "Q-10")
+        .expect("Q-10 is shown");
+    assert_eq!((q.status, q.order.as_deref()), (Lane::Done, Some("0")));
 }
 
 #[test]
-fn b_lists_my_boards_first_then_the_watched_ones_and_opens_the_one_picked() {
+fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
     let mut app = shown();
-    let pick = app.press("b");
-    assert!(pick.contains("Board"), "{pick}");
+    let mut view = app.demo(|demo| demo.one_board(&[]));
+    let line_of = deck::behind("blog", Some("1.9.4"));
+    view.missing.push(line_of.clone());
+    let text = app.event(BOARD, Msg::Board(Ok(view)));
     assert!(
-        row(&pick, "Shop") <= row(&pick, "@grace.hopper · QA"),
-        "{pick}"
+        text.contains("blog: its Worker is P99 1.9.4, the board needs"),
+        "{text}"
     );
-    let qa = app.press("down down enter");
-    for head in ["QA ready 2", "Testing 1", "Verified 1"] {
-        assert!(qa.contains(head), "{head}:\n{qa}");
-    }
-    for fact in ["@grace.hopper", "4 items", "1/4 done"] {
-        assert!(qa.contains(fact), "{fact}:\n{qa}");
-    }
-    assert!(qa.contains("watching @grace.hopper"), "{qa}");
-    assert!(!qa.contains("space pick up"), "{qa}");
-    assert_eq!(board(&app).at, Some(2));
-    assert_eq!(lane(&app, "Testing"), ["BUG-14"]);
-    assert_eq!(current(&app).as_deref(), Some("IMP-4"));
-    let back = app.press("b");
-    assert!(back.contains("Shop"), "{back}");
-    let shop = app.press("up up enter");
-    assert!(shop.contains("Inbox 7"), "{shop}");
+    assert!(
+        text.contains("p99 deploy --account blog upgrades it"),
+        "{text}"
+    );
+    assert!(
+        row(&text, "blog: its Worker") < row(&text, "New 8"),
+        "{text}"
+    );
+    assert_eq!(lane(&app, "New"), NEW_LANE);
+    let alone = BoardView {
+        lanes: default_lanes(),
+        cards: Vec::new(),
+        missing: vec![line_of],
+    };
+    let empty = app.event(BOARD, Msg::Board(Ok(alone)));
+    assert!(empty.contains("blog: its Worker"), "{empty}");
+    assert!(empty.contains("New 0"), "{empty}");
+    assert!(empty.contains("no cards"), "{empty}");
 }
 
 #[test]
-fn picking_the_board_shown_or_cancelling_reads_nothing() {
+fn cards_of_several_accounts_share_the_lanes_and_name_their_account() {
     let mut app = shown();
-    app.press("down b enter");
-    assert_eq!(board(&app).at, Some(1));
-    assert_eq!(current(&app).as_deref(), Some("Q-10"));
-    assert!(!board(&app).reading);
-    app.press("b down esc");
-    assert_eq!(board(&app).at, Some(1));
-}
-
-#[test]
-fn a_watched_board_cannot_be_carried_by_keys_or_mouse() {
-    let mut app = shown();
-    app.press("b down down enter");
-    let text = app.press("space");
-    assert!(board(&app).lift.is_none());
-    assert!(!board(&app).typing());
-    assert!(!text.contains('╔'), "{text}");
-    app.frame();
-    let from = hit(&app, "IMP-4");
-    app.mouse(
-        MouseEventKind::Down(MouseButton::Left),
-        from.x + 2,
-        from.y + 1,
+    board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
+    let mut view = app.demo(|demo| demo.one_board(&[]));
+    let mut other = card("FEAT-9", "Stuck", None);
+    other.account = 1;
+    other.id = "1/FEAT-9".into();
+    view.cards.push(other);
+    let text = app.event(BOARD, Msg::Board(Ok(view)));
+    assert!(text.contains("Stuck 2"), "{text}");
+    assert!(text.contains("shop, blog"), "{text}");
+    assert!(line(&text, " FEAT-9 ").contains(" shop "), "{text}");
+    assert_eq!(lane(&app, "Stuck"), ["BUG-26", "FEAT-9"]);
+    heard(
+        &mut app,
+        1,
+        json!({"type": "label", "key": "FEAT-9", "to": "Landed"}),
     );
-    app.mouse(
-        MouseEventKind::Drag(MouseButton::Left),
-        from.x + from.width + 4,
-        from.y + 1,
-    );
-    app.mouse(
-        MouseEventKind::Up(MouseButton::Left),
-        from.x + from.width + 4,
-        from.y + 1,
-    );
-    assert_eq!(lane(&app, "QA ready"), ["IMP-4", "IMP-17"]);
-    assert_eq!(saved(&app, 2, "QA ready"), ["IMP-4", "IMP-17"]);
-}
-
-#[test]
-fn no_board_yet_says_how_to_make_one() {
-    let mut app = shown();
-    let picked = app.event(BOARD, Msg::Boards(Ok(Vec::new())));
-    assert!(picked.contains("No board yet: p99 boards set"), "{picked}");
-    let failed = app.event(BOARD, Msg::Boards(Err("the boards are down".into())));
-    assert!(failed.contains("the boards are down"), "{failed}");
-    let mut empty = run(Source::Broken("offline".into()));
-    empty.go(BOARD);
-    let text = empty.event(BOARD, Msg::Board(None, Err(NONE.into())));
-    for said in ["No board yet.", MAKE, "r reads it again"] {
-        assert!(text.contains(said), "{said}:\n{text}");
-    }
-}
-
-#[test]
-fn boards_of_several_accounts_are_named_by_account() {
-    let mut app = shown();
-    let shelf = app.demo(|demo| demo.boards());
-    let pick = app.event(BOARD, Msg::Boards(Ok(vec![(0, shelf.clone()), (1, shelf)])));
-    assert!(pick.contains("sample · Shop"), "{pick}");
-    assert!(pick.contains("sample · @grace.hopper · QA"), "{pick}");
+    assert_eq!(lane(&app, "Stuck"), ["BUG-26"]);
+    assert_eq!(lane(&app, "New")[0], "FEAT-9");
+    assert!(lane(&app, "Landed").contains(&"FEAT-9".to_owned()));
 }
 
 #[test]
@@ -435,18 +509,9 @@ fn a_failed_board_read_says_why_and_r_reads_again() {
 #[test]
 fn a_failed_reread_keeps_the_board_and_says_why() {
     let mut app = shown();
-    let text = app.event(BOARD, Msg::Board(Some((0, 1)), Err("offline".into())));
+    let text = app.event(BOARD, Msg::Board(Err("offline".into())));
     assert!(text.contains("offline"), "{text}");
-    assert!(text.contains("Inbox 7"), "{text}");
-}
-
-#[test]
-fn a_late_read_of_another_board_is_ignored() {
-    let mut app = shown();
-    let other = app.demo(|demo| demo.board(Some(2)).expect("the sample has it"));
-    let text = app.event(BOARD, Msg::Board(Some((0, 2)), Ok((0, other))));
-    assert_eq!(board(&app).at, Some(1));
-    assert!(text.contains("Inbox 7"), "{text}");
+    assert!(text.contains("New 8"), "{text}");
 }
 
 #[test]
@@ -465,11 +530,11 @@ fn esc_while_the_board_loads_stops_waiting_a_late_result_still_shows_and_r_reads
     );
     app.tui.settle();
     let late = app.text();
-    assert!(late.contains("Inbox 7"), "{late}");
+    assert!(late.contains("New 8"), "{late}");
     assert!(!late.contains("Stopped waiting"), "{late}");
     app.demo(|demo| demo.delete("TASK-22").expect("the sample has it"));
     let read = app.press("r");
-    assert!(read.contains("Inbox 6"), "{read}");
+    assert!(read.contains("New 7"), "{read}");
 }
 
 #[test]
@@ -481,7 +546,7 @@ fn r_reads_the_board_again() {
     assert!(reading.contains("reading…"), "{reading}");
     app.tui.settle();
     let text = app.text();
-    assert!(text.contains("Inbox 6"), "{text}");
+    assert!(text.contains("New 7"), "{text}");
     assert!(!text.contains("reading…"), "{text}");
 }
 
@@ -491,105 +556,95 @@ fn live_label_and_order_events_move_cards_in_place_and_keep_the_selection() {
     let moved = heard(
         &mut app,
         0,
-        json!({"type": "label", "key": "FEAT-9", "from": "Inbox", "to": "Done", "host": "shop.example.com"}),
+        json!({"type": "label", "key": "FEAT-9", "from": "New", "to": "Done", "host": "shop.example.com"}),
     );
-    assert!(moved.contains("Inbox 6"), "{moved}");
-    assert!(moved.contains("Done 6"), "{moved}");
+    assert!(moved.contains("New 7"), "{moved}");
+    assert!(moved.contains("Done 8"), "{moved}");
     assert_eq!(current(&app).as_deref(), Some("FEAT-9"));
-    assert_eq!(board(&app).column, 3);
+    assert_eq!(board(&app).column, 6);
     heard(
         &mut app,
         0,
-        json!({"type": "order", "board": 1, "key": "TASK-22", "order": "0", "host": "shop.example.com"}),
+        json!({"type": "order", "board": 3, "key": "TASK-22", "order": "0", "host": "shop.example.com"}),
     );
-    assert_eq!(lane(&app, "Inbox")[0], "TASK-22");
-    let before = lane(&app, "Inbox");
-    let last = before.last().expect("the inbox has cards").clone();
-    assert_ne!(before[0], last);
-    heard(
-        &mut app,
-        0,
-        json!({"type": "order", "board": "2", "key": last, "order": "!", "host": "shop.example.com"}),
-    );
-    heard(
-        &mut app,
-        0,
-        json!({"type": "order", "board": 2, "key": last, "order": "!", "host": "shop.example.com"}),
-    );
-    assert_eq!(lane(&app, "Inbox"), before);
+    assert_eq!(lane(&app, "New")[0], "TASK-22");
+    let before = lane(&app, "New");
+    let last = before.last().expect("the lane has cards").clone();
     heard(
         &mut app,
         0,
         json!({"type": "order", "board": "1", "key": last, "order": "!", "host": "shop.example.com"}),
     );
-    let after = lane(&app, "Inbox");
+    let after = lane(&app, "New");
     assert_eq!(after[0], last);
     assert_eq!(after[1], "TASK-22");
     assert_eq!(after.len(), before.len());
     heard(&mut app, 0, json!({"type": "delete", "key": "Q-10"}));
-    assert!(!lane(&app, "Inbox").contains(&"Q-10".to_owned()));
+    assert!(!lane(&app, "New").contains(&"Q-10".to_owned()));
     heard(&mut app, 1, json!({"type": "delete", "key": "BUG-11"}));
-    assert!(lane(&app, "Inbox").contains(&"BUG-11".to_owned()));
+    assert!(lane(&app, "New").contains(&"BUG-11".to_owned()));
     heard(
         &mut app,
         0,
         json!({"type": "label", "key": "BUG-11", "to": "Shipped"}),
     );
-    assert!(!lane(&app, "Inbox").contains(&"BUG-11".to_owned()));
+    assert!(!lane(&app, "New").contains(&"BUG-11".to_owned()));
     assert!(board(&app).stale.is_none());
+    let kept = lane(&app, "New");
+    heard(
+        &mut app,
+        1,
+        json!({"type": "order", "key": "FEAT-13", "order": "!"}),
+    );
+    assert_eq!(lane(&app, "New"), kept);
+    assert!(board(&app).stale.is_some());
 }
 
 #[test]
 fn a_lane_left_empty_says_no_cards() {
     let mut app = shown();
-    for key in ["IMP-4", "IMP-17"] {
-        heard(
-            &mut app,
-            0,
-            json!({"type": "label", "key": key, "to": "Done"}),
-        );
-    }
+    heard(
+        &mut app,
+        0,
+        json!({"type": "label", "key": "TASK-24", "to": "Done"}),
+    );
     let text = app.text();
-    assert!(text.contains("QA ready 0"), "{text}");
+    assert!(text.contains("Planned 0"), "{text}");
     assert!(text.contains("no cards"), "{text}");
 }
 
 #[test]
 fn an_unknown_card_arriving_reads_the_board_again_after_a_quiet_moment() {
     let mut app = shown();
-    let change = Change {
-        status: Some("inbox".into()),
-        ..Change::default()
-    };
-    app.source
-        .change(0, None, "TASK-21", &change)
-        .expect("the sample takes the change");
+    if let Some(view) = board_mut(&mut app).view.as_mut() {
+        view.cards.retain(|card| card.key != "TASK-22");
+    }
     heard(
         &mut app,
         0,
-        json!({"type": "label", "key": "TASK-21", "from": "Verified", "to": "Inbox"}),
+        json!({"type": "label", "key": "TASK-22", "from": "New", "to": "New"}),
     );
     assert!(board(&app).stale.is_some());
-    assert!(!lane(&app, "Inbox").contains(&"TASK-21".to_owned()));
+    assert!(!lane(&app, "New").contains(&"TASK-22".to_owned()));
     app.advance(QUIET - Duration::from_millis(1));
-    assert!(!lane(&app, "Inbox").contains(&"TASK-21".to_owned()));
+    assert!(!lane(&app, "New").contains(&"TASK-22".to_owned()));
     let text = app.advance(Duration::from_millis(1));
-    assert!(lane(&app, "Inbox").contains(&"TASK-21".to_owned()));
-    assert!(text.contains("Inbox 8"), "{text}");
+    assert!(lane(&app, "New").contains(&"TASK-22".to_owned()));
+    assert!(text.contains("New 8"), "{text}");
     assert!(board(&app).stale.is_none());
 }
 
 #[test]
 fn unreadable_or_unknown_events_ask_for_one_reread() {
     let mut app = shown();
-    let before = lane(&app, "Inbox");
+    let before = lane(&app, "New");
     app.event(BOARD, Msg::Heard(0, "not json".into()));
     assert!(board(&app).stale.is_none());
     heard(&mut app, 0, json!({"type": "comment", "key": "Q-10"}));
     let due = board(&app).stale.expect("a reread is due");
     heard(&mut app, 0, json!({"type": "assignee", "key": "BUG-11"}));
     assert_eq!(board(&app).stale, Some(due));
-    assert_eq!(lane(&app, "Inbox"), before);
+    assert_eq!(lane(&app, "New"), before);
 }
 
 #[test]
@@ -598,7 +653,7 @@ fn a_push_without_a_key_reads_the_board_again_at_once() {
     app.demo(|demo| demo.delete("TASK-22").expect("the sample has it"));
     app.event(BOARD, Msg::Pushed(0, None));
     let text = app.advance(Duration::ZERO);
-    assert!(text.contains("Inbox 6"), "{text}");
+    assert!(text.contains("New 7"), "{text}");
     app.event(BOARD, Msg::Pushed(0, Some("FEAT-9".into())));
     assert!(board(&app).stale.is_none());
 }
@@ -614,7 +669,7 @@ fn a_carried_card_that_moves_or_goes_elsewhere_is_put_down() {
     );
     assert!(board(&app).lift.is_none());
     assert!(lane(&app, "Done").contains(&"FEAT-9".to_owned()));
-    app.press("h h h");
+    app.press("h h h h h h h g");
     assert_eq!(current(&app).as_deref(), Some("Q-10"));
     app.press("space");
     heard(&mut app, 0, json!({"type": "delete", "key": "Q-10"}));
@@ -623,10 +678,10 @@ fn a_carried_card_that_moves_or_goes_elsewhere_is_put_down() {
     heard(
         &mut app,
         0,
-        json!({"type": "order", "board": 1, "key": "BUG-15", "order": "0"}),
+        json!({"type": "order", "key": "BUG-15", "order": "0"}),
     );
     assert!(board(&app).lift.is_some());
-    assert_eq!(lane(&app, "Inbox")[0], "BUG-15");
+    assert_eq!(lane(&app, "New")[0], "BUG-15");
 }
 
 #[test]
@@ -643,7 +698,25 @@ fn enter_reads_the_card_as_a_thread_and_esc_comes_back_to_the_board() {
     assert_eq!(current(&app).as_deref(), Some("FEAT-9"));
     let back = app.press("esc");
     assert_eq!(board(&app).crumb(), None);
-    assert!(back.contains("Inbox 7"), "{back}");
+    assert!(back.contains("New 8"), "{back}");
+}
+
+#[test]
+fn a_card_of_a_second_account_opens_its_own_thread() {
+    let mut app = shown();
+    let mut other = card("BUG-90", "New", None);
+    other.account = 1;
+    other.id = "1/BUG-90".into();
+    other.order = Some("!".into());
+    let view = BoardView {
+        lanes: default_lanes(),
+        cards: vec![other],
+        missing: Vec::new(),
+    };
+    app.event(BOARD, Msg::Board(Ok(view)));
+    let text = app.press("enter");
+    assert_eq!(board(&app).crumb().as_deref(), Some("BUG-90"));
+    assert!(text.contains("no item is called BUG-90"), "{text}");
 }
 
 #[test]
@@ -668,11 +741,11 @@ fn move_to_from_the_board_moves_the_card_and_the_board_follows() {
     let mut app = shown();
     let pick = app.press("enter m");
     assert!(pick.contains("Move to"), "{pick}");
-    let moved = app.press("down enter");
-    assert!(moved.contains("FEAT-9 moved to Doing"), "{moved}");
+    let moved = app.press("down down enter");
+    assert!(moved.contains("FEAT-9 moved to In progress"), "{moved}");
     let back = app.press("esc");
-    assert!(back.contains("Doing 7"), "{back}");
-    assert!(lane(&app, "Doing").contains(&"FEAT-9".to_owned()));
+    assert!(back.contains("In progress 7"), "{back}");
+    assert!(lane(&app, "In progress").contains(&"FEAT-9".to_owned()));
 }
 
 #[test]
@@ -681,8 +754,8 @@ fn a_card_deleted_from_its_thread_leaves_the_board() {
     let gone = app.press("enter d FEAT-9 enter");
     assert!(gone.contains("Deleted FEAT-9"), "{gone}");
     assert_eq!(board(&app).crumb(), None);
-    assert!(gone.contains("Inbox 6"), "{gone}");
-    assert!(!lane(&app, "Inbox").contains(&"FEAT-9".to_owned()));
+    assert!(gone.contains("New 7"), "{gone}");
+    assert!(!lane(&app, "New").contains(&"FEAT-9".to_owned()));
 }
 
 #[test]
@@ -696,7 +769,7 @@ fn a_delete_heard_while_reading_its_thread_closes_the_thread() {
     );
     assert_eq!(board(&app).crumb(), None);
     assert!(text.contains("Grace Hopper deleted FEAT-9"), "{text}");
-    assert!(!lane(&app, "Inbox").contains(&"FEAT-9".to_owned()));
+    assert!(!lane(&app, "New").contains(&"FEAT-9".to_owned()));
 }
 
 #[test]
@@ -711,19 +784,23 @@ fn a_mouse_drag_carries_a_card_and_letting_go_drops_and_saves_it() {
     );
     assert_eq!(current(&app).as_deref(), Some("Q-10"));
     assert!(board(&app).lift.is_none());
-    let qa = board(&app).lanes[2];
+    let doing = board(&app).lanes[2];
     app.mouse(
         MouseEventKind::Drag(MouseButton::Left),
-        qa.x + 3,
+        doing.x + 3,
         from.y + 1,
     );
     assert_eq!(board(&app).lift.as_ref().map(|l| l.to.0), Some(2));
     let held = app.text();
     assert!(held.contains('╔'), "{held}");
-    app.mouse(MouseEventKind::Up(MouseButton::Left), qa.x + 3, from.y + 1);
+    app.mouse(
+        MouseEventKind::Up(MouseButton::Left),
+        doing.x + 3,
+        from.y + 1,
+    );
     assert!(board(&app).lift.is_none());
-    assert!(lane(&app, "QA ready").contains(&"Q-10".to_owned()));
-    assert!(saved(&app, 1, "QA ready").contains(&"Q-10".to_owned()));
+    assert!(lane(&app, "In progress").contains(&"Q-10".to_owned()));
+    assert!(saved(&app, "In progress").contains(&"Q-10".to_owned()));
 }
 
 #[test]
@@ -735,7 +812,7 @@ fn a_click_without_a_drag_or_on_no_card_moves_nothing() {
     app.mouse(MouseEventKind::Up(MouseButton::Left), at.x + 2, at.y + 2);
     assert_eq!(current(&app).as_deref(), Some("BUG-11"));
     assert!(board(&app).lift.is_none());
-    assert_eq!(lane(&app, "Inbox"), INBOX_LANE);
+    assert_eq!(lane(&app, "New"), NEW_LANE);
     app.mouse(MouseEventKind::Down(MouseButton::Left), 0, HIGH - 1);
     app.mouse(MouseEventKind::Drag(MouseButton::Left), WIDE / 2, HIGH - 1);
     assert!(board(&app).lift.is_none());
@@ -746,7 +823,7 @@ fn a_click_without_a_drag_or_on_no_card_moves_nothing() {
 fn the_wheel_walks_the_cards_of_the_lane_under_the_pointer() {
     let mut app = shown();
     app.frame();
-    let doing = board(&app).lanes[1];
+    let doing = board(&app).lanes[2];
     app.mouse(MouseEventKind::ScrollDown, doing.x + 2, doing.y + 4);
     assert_eq!(current(&app).as_deref(), Some("TASK-6"));
     for _ in 0..10 {
@@ -758,7 +835,7 @@ fn the_wheel_walks_the_cards_of_the_lane_under_the_pointer() {
     }
     assert_eq!(current(&app).as_deref(), Some("IMP-5"));
     app.mouse(MouseEventKind::ScrollDown, WIDE - 1, doing.y + 4);
-    assert_eq!(board(&app).column, 3);
+    assert_eq!(board(&app).column, 6);
 }
 
 #[test]
@@ -767,20 +844,39 @@ fn a_short_window_scrolls_a_long_lane_and_marks_what_is_above_and_below() {
     let short = |app: &mut Run| dump::text(&app.tui.frame(WIDE, 24));
     let top = short(&mut app);
     assert!(top.contains(" FEAT-9 "), "{top}");
-    assert!(!top.contains(" TASK-22 "), "{top}");
-    assert!(line(&top, "Inbox 7").contains('↓'), "{top}");
-    assert!(!line(&top, "Inbox 7").contains('↑'), "{top}");
+    assert!(!top.contains(" FEAT-23 "), "{top}");
+    assert!(line(&top, "New 8").contains('↓'), "{top}");
+    assert!(!line(&top, "New 8").contains('↑'), "{top}");
     tap(&mut app, "G");
     short(&mut app);
     app.tui.advance(SLIDE);
     let bottom = short(&mut app);
-    assert!(bottom.contains(" TASK-22 "), "{bottom}");
+    assert!(bottom.contains(" FEAT-23 "), "{bottom}");
     assert!(!bottom.contains(" FEAT-9 "), "{bottom}");
-    assert!(line(&bottom, "Inbox 7").contains('↑'), "{bottom}");
+    assert!(line(&bottom, "New 8").contains('↑'), "{bottom}");
     tap(&mut app, "g");
     short(&mut app);
     app.tui.advance(SLIDE);
     assert!(short(&mut app).contains(" FEAT-9 "));
+}
+
+#[test]
+fn seven_lanes_fit_at_80_and_120_columns_with_every_head_and_no_overlap() {
+    let mut app = shown();
+    for width in [80u16, 120] {
+        let text = dump::text(&app.tui.frame(width, 34));
+        let lanes = board(&app).lanes;
+        assert!(
+            lanes.windows(2).all(|pair| pair[0].right() < pair[1].x),
+            "{width}"
+        );
+        assert!(lanes[6].right() <= width, "{width}: {lanes:?}");
+        for (at, lane) in lanes.iter().enumerate() {
+            assert!(lane.width >= 9, "{width}: lane {at} is {}", lane.width);
+        }
+        assert!(text.contains("FEAT-9"), "{width}:\n{text}");
+        assert!(text.contains("BUG-25"), "{width}:\n{text}");
+    }
 }
 
 #[test]
@@ -793,7 +889,7 @@ fn a_dropped_card_slides_into_place_easing_out_never_linearly() {
     app.advance(SLIDE / 2);
     let x = board(&app)
         .spots
-        .get("FEAT-9")
+        .get("0/FEAT-9")
         .map(|spot| spot.at(board(&app).moment).0)
         .expect("the card has a spot");
     let end = board(&app).lanes[1].x as f32;
@@ -854,7 +950,7 @@ fn a_spot_travels_between_lanes_easing_in_and_out_and_stops_after_the_slide() {
 fn a_card_draws_its_key_title_and_assignee_inside_rounded_edges() {
     let palette = palette();
     let mut buffer = Buffer::empty(Rect::new(0, 0, 24, 6));
-    let mut item = card("BUG-7", "Inbox", Some("grace.hopper"));
+    let mut item = card("BUG-7", "New", Some("grace.hopper"));
     item.title = "Two words that wrap onto a second line and then some".into();
     let clip = buffer.area;
     draw_card(
@@ -863,7 +959,7 @@ fn a_card_draws_its_key_title_and_assignee_inside_rounded_edges() {
         0,
         1,
         24,
-        &item,
+        (&item, None),
         (false, false, false),
         &palette,
     );
@@ -881,6 +977,51 @@ fn a_card_draws_its_key_title_and_assignee_inside_rounded_edges() {
 }
 
 #[test]
+fn a_card_names_its_project_left_and_its_account_on_top_when_there_are_several() {
+    let palette = palette();
+    let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 4));
+    let mut item = card("FEAT-41", "Stuck", Some("ada"));
+    item.project = Some("Splicer".into());
+    let clip = buffer.area;
+    draw_card(
+        &mut buffer,
+        clip,
+        0,
+        0,
+        30,
+        (&item, Some("shop")),
+        (false, false, false),
+        &palette,
+    );
+    let text = rows(&buffer);
+    assert!(text[0].starts_with("╭─ FEAT-41 ─"), "{text:?}");
+    assert!(text[0].ends_with(" shop ─╮"), "{text:?}");
+    assert!(text[3].starts_with("╰─ Splicer ─"), "{text:?}");
+    assert!(text[3].ends_with(" @ada ─╯"), "{text:?}");
+    let mut narrow = Buffer::empty(Rect::new(0, 0, 10, 4));
+    item.project = Some("A very long project name".into());
+    draw_card(
+        &mut narrow,
+        Rect::new(0, 0, 10, 4),
+        0,
+        0,
+        10,
+        (&item, Some("an account with a long name")),
+        (false, false, false),
+        &palette,
+    );
+    let small = rows(&narrow);
+    assert!(
+        small.iter().all(|row| row.chars().count() <= 10),
+        "{small:?}"
+    );
+    assert!(
+        small[3].starts_with('╰') && small[3].ends_with('╯'),
+        "{small:?}"
+    );
+}
+
+#[test]
 fn a_held_card_has_double_edges_and_a_lit_key() {
     let palette = palette();
     let mut buffer = Buffer::empty(Rect::new(0, 0, 20, 4));
@@ -891,7 +1032,7 @@ fn a_held_card_has_double_edges_and_a_lit_key() {
         0,
         0,
         20,
-        &card("BUG-7", "Inbox", None),
+        (&card("BUG-7", "New", None), None),
         (true, true, false),
         &palette,
     );
@@ -917,7 +1058,7 @@ fn a_card_half_above_the_lane_or_too_narrow_draws_only_what_fits() {
         0,
         -2,
         20,
-        &card("BUG-7", "Inbox", None),
+        (&card("BUG-7", "New", None), None),
         (false, false, false),
         &palette,
     );
@@ -933,7 +1074,7 @@ fn a_card_half_above_the_lane_or_too_narrow_draws_only_what_fits() {
         0,
         0,
         5,
-        &card("BUG-7", "Inbox", None),
+        (&card("BUG-7", "New", None), None),
         (false, false, false),
         &palette,
     );

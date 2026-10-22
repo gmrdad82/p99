@@ -5,7 +5,7 @@ use pito_tui::Wake;
 use crate::config::Host;
 use crate::wire::{Change, PageRef, Person};
 
-use super::super::deck::{Move, NONE};
+use super::super::deck::Move;
 use super::super::demo::NOW;
 use super::*;
 
@@ -206,24 +206,27 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 }
 
 #[test]
-fn the_sample_offers_a_card_its_lanes_and_a_plain_item_its_boards_labels() {
+fn the_sample_offers_a_card_and_a_plain_item_the_same_seven_lanes() {
     let source = Source::demo(Duration::ZERO);
-    let entries = source.inbox().expect("the sample reads").entries;
-    let card = entries
-        .iter()
-        .find(|e| e.summary.project.is_some() && e.summary.label.as_deref() == Some("Done"))
-        .expect("the sample has a done card");
-    let lanes = source
-        .labels(0, card.summary.project.is_some())
-        .expect("the sample has boards");
+    let lanes = [
+        "New",
+        "Planned",
+        "In progress",
+        "Needs you",
+        "Stuck",
+        "Landed",
+        "Done",
+    ];
+    assert_eq!(source.labels(0, true).expect("the sample has lanes"), lanes);
     assert_eq!(
-        lanes,
-        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+        source.labels(0, false).expect("the sample has lanes"),
+        lanes
     );
-    assert_eq!(
-        source.labels(0, false).expect("the sample has boards"),
-        ["Inbox", "Doing", "QA ready", "Done"]
-    );
+    let board = source.board(&[]).expect("the sample has a board");
+    assert_eq!(board.cards.len(), 28);
+    let (count, cards) = source.waiting().expect("the sample has cards waiting");
+    assert_eq!((count, cards.len()), (3, 3));
+    assert!(cards.iter().all(|(account, _)| *account == 0));
 }
 
 #[test]
@@ -325,8 +328,9 @@ fn a_broken_source_answers_every_read_and_write_with_why() {
     );
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
     assert_eq!(source.client(0, None).err().as_deref(), why);
-    assert_eq!(source.boards().err().as_deref(), why);
-    assert_eq!(source.board(None).err().as_deref(), why);
+    assert_eq!(source.board(&[]).err().as_deref(), why);
+    assert_eq!(source.waiting().err().as_deref(), why);
+    assert_eq!(source.projects().err().as_deref(), why);
     assert_eq!(source.labels(0, false).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(
@@ -363,8 +367,15 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
     assert_eq!(source.labels(0, false).err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
-    assert_eq!(source.board(Some((0, 1))).err().as_deref(), why);
-    assert_eq!(source.boards().err().as_deref(), why);
+    assert_eq!(source.board(&[]).err().as_deref(), why);
+    assert_eq!(
+        source.waiting().err().as_deref(),
+        Some("ghost: no account is called ghost")
+    );
+    assert_eq!(
+        source.projects().err().as_deref(),
+        Some("ghost: no account is called ghost")
+    );
     assert_eq!(source.inbox().err().as_deref(), why);
     let (sender, _inbox) = channel();
     source.follow(&Waker::new(sender, 0));
@@ -380,8 +391,11 @@ fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
     assert!(source.hosts().is_empty());
     assert!(source.inbox().expect("nothing to read").entries.is_empty());
     assert!(source.codes().expect("nothing to read").is_empty());
-    assert!(source.boards().expect("nothing to read").is_empty());
-    assert_eq!(source.board(None).err().as_deref(), Some(NONE));
+    let board = source.board(&[]).expect("nothing to read");
+    assert!(board.cards.is_empty() && board.missing.is_empty());
+    assert_eq!(board.lanes.len(), 7);
+    assert_eq!(source.waiting().expect("nothing to read"), (0, Vec::new()));
+    assert!(source.projects().expect("nothing to read").is_empty());
     assert_eq!(
         source.client(0, None).err().as_deref(),
         Some("that account is gone")
@@ -542,4 +556,24 @@ fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
         counted(12, 40, 1000, 50, true),
         ["12 of 40+ items", "only the newest 1000 are loaded"]
     );
+}
+
+#[test]
+fn a_board_over_several_unreadable_accounts_still_draws_with_one_line_each() {
+    let source = ghost(&["ghost", "phantom"]);
+    let board = source.board(&[]).expect("the board draws with its lines");
+    assert_eq!(board.missing.len(), 2);
+    assert!(
+        board.missing[0].starts_with("ghost: "),
+        "{:?}",
+        board.missing
+    );
+    assert!(
+        board.missing[1].starts_with("phantom: "),
+        "{:?}",
+        board.missing
+    );
+    assert!(board.cards.is_empty());
+    assert_eq!(board.lanes.len(), 7);
+    assert!(source.waiting().is_err());
 }

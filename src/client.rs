@@ -11,8 +11,8 @@ use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
     Attachment, BoardSpec, Build, Change, Code, Comment, Download, EnvEntry, HostEntry,
-    ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards, LanePage,
-    ListQuery, Member, Minted, MoveTo, MovedCard, NewCode, NewIssue, Thread,
+    ImportFinish, ImportReport, Issue, IssueList, LabelEntry, LaneBoard, LaneBoards, ListQuery,
+    Member, Minted, MoveTo, MovedCard, NewCode, NewIssue, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -183,10 +183,6 @@ impl Client {
 
     pub fn lanes(&self) -> Result<LaneBoards, String> {
         self.json("GET", &self.scoped("/v1/boards"), None)
-    }
-
-    pub fn lane(&self, id: i64) -> Result<LanePage, String> {
-        self.json("GET", &self.scoped(&format!("/v1/boards/{id}")), None)
     }
 
     pub fn add_lane_board(&self, spec: &BoardSpec) -> Result<LaneBoard, String> {

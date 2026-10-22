@@ -840,14 +840,6 @@ pub struct Owner {
     pub username: Option<String>,
 }
 
-impl Owner {
-    pub fn handle(&self) -> String {
-        self.username
-            .as_deref()
-            .map_or_else(|| "someone".to_owned(), |u| format!("@{u}"))
-    }
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Lane {
     pub label: String,
@@ -886,13 +878,6 @@ pub struct LaneCard {
     pub assignee: Option<Owner>,
     #[serde(default, deserialize_with = "lenient")]
     pub order: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LanePage {
-    pub board: LaneBoard,
-    #[serde(default, deserialize_with = "lenient")]
-    pub cards: Vec<LaneCard>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
