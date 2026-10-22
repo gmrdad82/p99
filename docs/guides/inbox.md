@@ -99,7 +99,7 @@ p99 merge BUG-14 BUG-15 --into BUG-12
 p99 assign BUG-12 @grace.hopper
 p99 assign BUG-12 me
 p99 assign BUG-12 --none
-p99 list --all --label Doing
+p99 list --all --label "In progress"
 p99 file example.com --kind task --title "Move product images to the new bucket"
 p99 download 41 -o receipt.png
 p99 delete BUG-16
@@ -110,15 +110,15 @@ p99 delete BUG-16
 `p99 list` takes a host; without one it lists every host of the account, and `--all` every host of every account in the config. `--status` is `open` (the default), `closed` or `any`, `--label` keeps one label, and `--limit` caps the lines at 50 unless you raise it. Its lines read:
 
 ```text
-*BUG-11   Inbox       shop.example.com The total does not update after removing a line  [4 comments]
- TASK-6   Doing       shop.example.com Move product images to the new bucket  -> ada@example.com
- BUG-8    Doing       dev.example.com Search box loses focus on mobile  -> ada@example.com  [3 comments]  fixed on a branch
- IMP-5    Doing       shop.example.com Show delivery dates on product pages  -> ada@example.com  landed: dev
+*BUG-11   New         shop.example.com The total does not update after removing a line  [4 comments]
+ TASK-6   In progress shop.example.com Move product images to the new bucket  -> ada@example.com
+ BUG-8    In progress dev.example.com Search box loses focus on mobile  -> ada@example.com  [3 comments]  fixed on a branch
+ IMP-5    In progress shop.example.com Show delivery dates on product pages  -> ada@example.com  landed: dev
 ```
 
 Everyone is a username on the account, made from their name when they get a code (`Grace Hopper` is `@grace.hopper`); each person changes only their own ([usernames](../reference/formats.md#usernames)), and an agent acting for them shows as their name with 🤖, never a username of its own. `p99 assign` takes a username, with or without the `@`, or `me`; the assignee must hold a code for the item's site or be an Owner.
 
-A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it go back to Inbox, and GitHub keeps its own issue. In the panel, an Owner finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
+A `*` before the key marks it unread. `p99 show` prints the item, the commits that named it, its files with the ids `p99 download` takes, its comments (internal ones marked) and its events. `p99 delete` removes an item for good, with its comments, internal notes, history and every file, after you type its key back; `--yes` skips the question for scripts and agents, and without a terminal it is required. Items merged into it reopen in New, and GitHub keeps its own issue. In the panel, an Owner finds **Delete** with the item's key at the bottom of an item, under Manage: type the key back, then hold the button until it fills, or press Enter. Manage picks the assignee from the people who hold a code for the site, each shown as @username with a disc drawn from it, never an e-mail; the item it duplicates from the site's items by key or words, and labels from the account's, with a new one made from what you type. The [API reference](../reference/formats.md#deleting-an-item) says what goes and when. A comment or a file body of `-` is read from standard input, and `--attach <file>` adds files to `p99 file` and `p99 comment`: images, PDFs, text, CSV, JSON, zip and office files, up to 20 MiB each.
 
 ## JSON for scripts
 

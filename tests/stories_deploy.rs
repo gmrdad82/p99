@@ -953,6 +953,44 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
 }
 
 #[test]
+fn a_cards_board_with_odd_columns_stops_the_plan_and_the_deploy_with_its_remedy_and_writes_nothing()
+{
+    let mut rows = vec![(
+        "AS placed",
+        json!([
+            { "id": 2, "name": "Web", "owner": "ada@example.com", "cards": 0, "columns": 4, "placed": 3 },
+            { "id": 5, "name": "Cards", "owner": "ada@example.com", "cards": 1, "columns": 4, "placed": 2 }
+        ]),
+    )];
+    rows.extend(v110_rows().into_iter().skip(1));
+    rows.extend(v19_rows());
+    let h = home("fold-odd", &plain_config(), live(&SHIPPED[..15], rows));
+    let stop = "p99: the Cards board has 4 columns where the one board needs six (New, Planned, In progress, Stuck, Landed, Done) or all seven: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again\n";
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(1), "{}", plan.stdout);
+    assert!(plan.stdout.is_empty(), "{}", plan.stdout);
+    assert_eq!(plan.stderr, stop);
+
+    let deploy = h.run(&["deploy", "--accept-plan", &"a".repeat(64)]);
+    assert_eq!(deploy.code, Some(1));
+    assert!(deploy.stderr.ends_with(stop), "{}", deploy.stderr);
+
+    let json = h.run(&["deploy", "--accept-plan", &"a".repeat(64), "--json"]);
+    assert_eq!(json.code, Some(1));
+    let report = json.json();
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["error"], stop.trim_start_matches("p99: ").trim_end());
+    assert!(
+        h.writes().is_empty(),
+        "a stopped plan wrote: {:?}",
+        h.writes()
+    );
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..15]));
+}
+
+#[test]
 fn the_plan_of_an_older_schema_says_the_fold_runs_after_its_earlier_steps() {
     let h = home(
         "fold-after",

@@ -943,33 +943,6 @@ pub struct MovedCard {
     pub card: LaneCard,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct LaneSpec {
-    pub label: String,
-    #[serde(
-        default,
-        deserialize_with = "lenient",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub closes: Option<bool>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct BoardSpec {
-    #[serde(
-        default,
-        deserialize_with = "lenient",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub name: Option<String>,
-    #[serde(
-        default,
-        deserialize_with = "lenient",
-        skip_serializing_if = "Option::is_none"
-    )]
-    pub columns: Option<Vec<LaneSpec>>,
-}
-
 pub fn stage_word(stage: &str) -> &str {
     match stage {
         "received" => "Received",

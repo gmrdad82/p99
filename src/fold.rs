@@ -5,52 +5,11 @@ use crate::card::Lane;
 use crate::cloudflare::Cloudflare;
 use crate::config::Account;
 
-macro_rules! oldest_owner {
-    () => {
-        "(SELECT email FROM codes WHERE manager = 1 ORDER BY revoked_at IS NOT NULL, id LIMIT 1)"
-    };
-}
+pub const Q_BOARDS: &str = include_str!("fold/boards.sql");
 
-macro_rules! rank {
-    () => {
-        concat!(
-            "CASE WHEN b.cards = 0 AND b.owner IS ",
-            oldest_owner!(),
-            " THEN 0 ELSE 1 END, b.created_at, b.id"
-        )
-    };
-}
+pub const Q_LABELS: &str = include_str!("fold/labels.sql");
 
-macro_rules! cards_columns {
-    () => {
-        "(SELECT bc.label_id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1)"
-    };
-}
-
-pub const Q_BOARDS: &str = concat!(
-    "SELECT b.id AS id, b.name AS name, b.owner AS owner, b.cards AS cards, ",
-    "(SELECT count(*) FROM board_columns bc WHERE bc.board_id = b.id) AS columns, ",
-    "(SELECT count(*) FROM board_positions bp JOIN items i ON i.id = bp.item_id AND i.label_id = bp.label_id WHERE bp.board_id = b.id) AS placed ",
-    "FROM boards b ORDER BY ",
-    rank!()
-);
-
-pub const Q_LABELS: &str = concat!(
-    "SELECT l.name AS label, l.role AS role, l.closes AS closes, count(i.id) AS items, coalesce(sum(i.open), 0) AS open, ",
-    "(SELECT bc.position = (SELECT min(c2.position) FROM board_columns c2 WHERE c2.board_id = bc.board_id) ",
-    "FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE bc.label_id = l.id ORDER BY ",
-    rank!(),
-    " LIMIT 1) AS first ",
-    "FROM labels l LEFT JOIN items i ON i.label_id = l.id ",
-    "WHERE l.id NOT IN ",
-    cards_columns!(),
-    " AND NOT (l.name = 'Needs you' OR (NOT EXISTS ",
-    cards_columns!(),
-    " AND (l.role = 'done' OR l.name IN ('New', 'Planned', 'In progress', 'Stuck', 'Landed')))) ",
-    "GROUP BY l.id ORDER BY l.name, l.id"
-);
-
-pub const Q_UNPLACED: &str = "SELECT count(*) AS items FROM items i WHERE NOT EXISTS (SELECT 1 FROM board_positions bp WHERE bp.item_id = i.id AND bp.label_id = i.label_id)";
+pub const Q_UNPLACED: &str = include_str!("fold/unplaced.sql");
 
 fn select(cf: &Cloudflare, account: &Account, sql: &str) -> Result<Vec<Value>, String> {
     if !sql.starts_with("SELECT ") || sql.contains(';') {
@@ -84,6 +43,13 @@ pub fn lane_of(role: Option<&str>, first: bool) -> Lane {
     }
 }
 
+pub fn odd_columns(columns: i64) -> String {
+    format!(
+        "the Cards board has {columns} column{} where the one board needs six (New, Planned, In progress, Stuck, Landed, Done) or all seven: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again",
+        if columns == 1 { "" } else { "s" }
+    )
+}
+
 pub fn cards_board(columns: Option<i64>) -> &'static str {
     match columns {
         None => "make",
@@ -105,7 +71,11 @@ pub fn earlier(plan: &Value) -> Vec<String> {
         .collect()
 }
 
-pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<String>) {
+pub fn shape(
+    boards: &[Value],
+    labels: &[Value],
+    unplaced: i64,
+) -> Result<(Value, Vec<String>), String> {
     let mut decisions = Vec::new();
     let columns = boards
         .iter()
@@ -113,10 +83,7 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
         .map(|b| count(b, "columns"));
     let step = cards_board(columns);
     if step == "odd" {
-        decisions.push(format!(
-            "the Cards board has {} columns where 0016 expects its six lanes: set them back to New, Planned, In progress, Stuck, Landed and Done before deploying",
-            columns.unwrap_or_default()
-        ));
+        return Err(odd_columns(columns.unwrap_or_default()));
     }
     let mut rows = Vec::new();
     for row in labels {
@@ -158,7 +125,7 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
             })
         })
         .collect();
-    (
+    Ok((
         json!({
             "cards_board": step,
             "labels": rows,
@@ -166,7 +133,7 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
             "unplaced": unplaced,
         }),
         decisions,
-    )
+    ))
 }
 
 pub fn plan(
@@ -185,7 +152,7 @@ pub fn plan(
     let unplaced = select(cf, account, Q_UNPLACED)?
         .first()
         .map_or(0, |r| count(r, "items"));
-    let (fold, said) = shape(&boards, &labels, unplaced);
+    let (fold, said) = shape(&boards, &labels, unplaced)?;
     plan["one_board"] = fold;
     decisions.extend(said);
     Ok(())
@@ -218,6 +185,7 @@ pub fn render(out: &mut String, plan: &Value) {
             names.join(", "),
             lanes_line()
         ));
+        out.push_str("  its per-label moves can't be read until those steps have run, so this plan doesn't list them; its --accept-plan applies the fold with them\n");
         return;
     }
     out.push_str(&format!(
@@ -227,7 +195,7 @@ pub fn render(out: &mut String, plan: &Value) {
             "fill" => "gets seven lanes",
             "insert" => "gets Needs you as lane 4; its cards stay where they are",
             "keep" => "keeps its seven lanes",
-            _ => "has odd columns (see the decisions)",
+            _ => "has odd columns",
         },
         lanes_line()
     ));
@@ -370,7 +338,7 @@ mod tests {
             label("Shipped", Value::Null, 1, 4, 1, json!(0)),
             label("Triage", Value::Null, 0, 2, 2, json!(1)),
         ];
-        shape(&boards, &labels, 2)
+        shape(&boards, &labels, 2).unwrap()
     }
 
     #[test]
@@ -420,24 +388,47 @@ mod tests {
 
     #[test]
     fn open_items_on_a_closing_column_are_one_decision_in_the_plural() {
-        let (_, decisions) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 3, json!(1))], 0);
+        let (_, decisions) =
+            shape(&[], &[label("Shipped", Value::Null, 1, 5, 3, json!(1))], 0).unwrap();
         assert_eq!(
             decisions,
             [
                 "3 items on the closing column Shipped are open: 0016 puts them in New, never in Done; close them first if they are finished"
             ]
         );
-        let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0, json!(0))], 0);
+        let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0, json!(0))], 0).unwrap();
         assert!(none.is_empty());
     }
 
     #[test]
-    fn a_cards_board_with_odd_columns_is_a_decision_and_no_cards_board_is_made() {
-        let (fold, decisions) = shape(&[board(5, "Cards", "ada@example.com", 1, 4, 0)], &[], 0);
-        assert_eq!(fold["cards_board"], "odd");
-        assert_eq!(decisions.len(), 1);
-        assert!(decisions[0].starts_with("the Cards board has 4 columns"));
-        let (made, none) = shape(&[board(2, "Web", "ada@example.com", 0, 4, 0)], &[], 0);
+    fn a_cards_board_with_odd_columns_stops_the_plan_with_a_remedy_and_no_cards_board_is_made() {
+        for columns in [1, 3, 4, 5, 8] {
+            let stop = shape(
+                &[board(5, "Cards", "ada@example.com", 1, columns, 0)],
+                &[],
+                0,
+            )
+            .unwrap_err();
+            assert_eq!(stop, odd_columns(columns));
+            assert!(
+                stop.starts_with(&format!("the Cards board has {columns} column")),
+                "{stop}"
+            );
+            assert!(stop.contains("p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done"), "{stop}");
+            assert!(stop.ends_with("then deploy again"), "{stop}");
+        }
+        assert!(odd_columns(1).starts_with("the Cards board has 1 column where"));
+        for columns in [0, 6, 7] {
+            assert!(
+                shape(
+                    &[board(5, "Cards", "ada@example.com", 1, columns, 0)],
+                    &[],
+                    0
+                )
+                .is_ok()
+            );
+        }
+        let (made, none) = shape(&[board(2, "Web", "ada@example.com", 0, 4, 0)], &[], 0).unwrap();
         assert_eq!(made["cards_board"], "make");
         assert!(none.is_empty());
     }
@@ -476,7 +467,7 @@ mod tests {
 
     #[test]
     fn the_render_of_an_empty_account_and_of_a_later_fold() {
-        let (fold, _) = shape(&[], &[], 0);
+        let (fold, _) = shape(&[], &[], 0).unwrap();
         let mut out = String::new();
         render(&mut out, &json!({"one_board": fold}));
         assert!(
@@ -503,7 +494,11 @@ mod tests {
             later.contains("  runs after 0011_lanes.sql, 0013_app.sql: every board folds"),
             "{later}"
         );
-        assert_eq!(later.lines().count(), 3, "{later}");
+        assert!(
+            later.contains("  its per-label moves can't be read until those steps have run, so this plan doesn't list them; its --accept-plan applies the fold with them\n"),
+            "{later}"
+        );
+        assert_eq!(later.lines().count(), 4, "{later}");
 
         let mut nothing = String::new();
         render(&mut nothing, &json!({"pending": []}));

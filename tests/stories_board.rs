@@ -257,12 +257,35 @@ fn old_boards() -> Value {
 
 fn labels() -> Value {
     Value::Array(
-        LANES
+        [0, 2, 5, 6, 3, 1, 4]
             .iter()
-            .enumerate()
-            .map(|(i, (word, label))| json!({"id": 10 + i, "name": label, "closes": *word == "done", "boards": []}))
+            .map(|&i| {
+                let (word, label) = LANES[i];
+                json!({"id": 10 + i, "name": label, "closes": word == "done", "boards": []})
+            })
             .collect(),
     )
+}
+
+fn old_labels() -> Value {
+    Value::Array(
+        ["Inbox", "Doing", "Review", "Done", "QA", "Ops", "Web"]
+            .iter()
+            .enumerate()
+            .map(|(i, name)| json!({"id": 20 + i, "name": name, "closes": *name == "Done", "boards": []}))
+            .collect(),
+    )
+}
+
+fn renamed_board() -> Value {
+    let mut board = the_board();
+    board["board"]["lanes"][3]["label"] = json!("Waiting on me");
+    board["board"]["lanes"].as_array_mut().unwrap().pop();
+    let mut stray = board_card("FEAT-9", "done", json!("Splicer"), "Old export");
+    stray["label"] = json!("Shipped");
+    board["cards"][1]["label"] = json!("Waiting on me");
+    board["cards"].as_array_mut().unwrap().push(stray);
+    board
 }
 
 fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
@@ -270,6 +293,10 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
     let reply = match (method, route) {
         ("GET", "/v1/board") if path.contains("project=Locked") => {
             return (403, r#"{"message":"only an Owner reads the board"}"#.into());
+        }
+        ("GET", "/v1/board") if path.contains("project=Renamed") => renamed_board(),
+        ("GET", "/v1/board") if path.contains("project=Empty") => {
+            json!({"board": {"lanes": []}, "cards": []})
         }
         ("GET", "/v1/board") => the_board(),
         ("GET", "/v1/boards") => old_boards(),
@@ -285,7 +312,10 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
         ("GET", "/v1/issues/42") => {
             json!({"issue":{"id":42,"key":"FEAT-42","kind":"feature","title":"Moved meanwhile","label":"Landed"},"comments":[],"events":[]})
         }
-        ("POST", "/v1/move") if body["key"] == "42" => {
+        ("GET", "/v1/issues/43") => {
+            json!({"issue":{"id":43,"key":"FEAT-43","kind":"feature","title":"Moved meanwhile","label":"Needs you"},"comments":[],"events":[]})
+        }
+        ("POST", "/v1/move") if body["key"] == "42" || body["key"] == "43" => {
             return (409, r#"{"message":"the card moved"}"#.into());
         }
         ("POST", "/v1/move") if body["to"] == "Shipped" => {
@@ -308,14 +338,25 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
     (200, reply.to_string())
 }
 
-fn old_worker(method: &str, path: &str, _: &Value) -> (u16, String) {
-    if method == "GET" && path.starts_with("/v1/boards") {
-        return (
-            200,
-            json!({"boards": [{"id": 2, "name": "Web", "mine": true, "columns": []}]}).to_string(),
-        );
-    }
-    (404, r#"{"message":"no such route"}"#.into())
+fn old_worker(method: &str, path: &str, body: &Value) -> (u16, String) {
+    let route = path.split('?').next().unwrap_or(path);
+    let reply = match (method, route) {
+        ("GET", "/v1/boards") => {
+            json!({"boards": [{"id": 2, "name": "Web", "mine": true, "columns": []}]})
+        }
+        ("GET", "/v1/labels") => json!({"labels": old_labels()}),
+        ("PATCH", "/v1/labels/23") => {
+            json!({"id": 23, "name": body["name"], "closes": true, "boards": []})
+        }
+        ("GET", "/v1/issues/41") => {
+            json!({"issue":{"id":41,"key":"FEAT-41","kind":"feature","title":"Export keeps every audio track","label":"Doing"},"comments":[],"events":[]})
+        }
+        ("POST", "/v1/move") => {
+            return (400, r#"{"message":"name a board to move on"}"#.into());
+        }
+        _ => return (404, r#"{"message":"no such route"}"#.into()),
+    };
+    (200, reply.to_string())
 }
 
 #[test]
@@ -488,48 +529,68 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
 }
 
 #[test]
-fn boards_set_meets_the_410_and_exits_1_with_nothing_on_stdout() {
-    let worker = Worker::start(answers);
-    for json in [false, true] {
-        let mut args = vec![
-            "boards",
-            "set",
-            "Web",
-            "--columns",
-            "Inbox,QA ready,Done",
-            "--closes",
-            "Done",
-        ];
-        if json {
-            args.push("--json");
-        }
-        refused(
-            &run(&worker, "boards_set", &args),
-            "boards are one per account; see p99 board",
-        );
-        let seen = worker.last();
-        assert_eq!(
-            (seen.method.as_str(), seen.path.as_str()),
-            ("POST", "/v1/boards")
-        );
-        assert_eq!(seen.body["name"], "Web");
-    }
-    refused(
-        &run(
-            &worker,
-            "boards_set",
-            &[
+fn boards_set_refuses_locally_and_never_asks_the_worker() {
+    for answer in [answers as Answer, old_worker as Answer] {
+        let worker = Worker::start(answer);
+        for json in [false, true] {
+            let mut args = vec![
                 "boards",
                 "set",
                 "Web",
                 "--columns",
-                "Inbox,Done",
+                "Inbox,QA ready,Done",
                 "--closes",
-                "Shipped",
-            ],
-        ),
-        "--closes names Shipped, which is not one of the columns",
+                "Done",
+            ];
+            if json {
+                args.push("--json");
+            }
+            refused(
+                &run(&worker, "boards_set", &args),
+                "boards are one per account; see p99 board",
+            );
+        }
+        refused(
+            &run(
+                &worker,
+                "boards_set",
+                &[
+                    "boards",
+                    "set",
+                    "Web",
+                    "--columns",
+                    "Inbox,Done",
+                    "--closes",
+                    "Shipped",
+                ],
+            ),
+            "boards are one per account; see p99 board",
+        );
+        assert!(
+            worker.seen().is_empty(),
+            "boards set asked the Worker: {:?}",
+            worker.seen()
+        );
+    }
+}
+
+#[test]
+fn boards_host_scopes_the_archived_list_to_that_host() {
+    let worker = Worker::start(answers);
+    let out = run(
+        &worker,
+        "boards_host",
+        &["boards", "--host", "SHOP.example.com"],
     );
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    assert_eq!(worker.last().path, "/v1/boards?host=shop.example.com");
+    let doc = json_of(&run(
+        &worker,
+        "boards_host",
+        &["boards", "--host", "shop.example.com", "--json"],
+    ));
+    assert_eq!(doc, old_boards());
+    assert_eq!(worker.last().path, "/v1/boards?host=shop.example.com");
 }
 
 #[test]
@@ -589,7 +650,7 @@ fn move_refusals_come_through_as_one_line() {
             "move_refused",
             &["move", "FEAT-41", "--to", "Shipped"],
         ),
-        "no lane is called Shipped (404)",
+        "no lane is called Shipped",
     );
     refused(
         &run(
@@ -603,6 +664,39 @@ fn move_refusals_come_through_as_one_line() {
         &run(&worker, "move_refused", &["move", "nope", "--to", "new"]),
         "nope is not an item key; try BUG-12 or 12",
     );
+    for to in ["needs-you", "needs you", "Needs You"] {
+        refused(
+            &run(&worker, "move_refused", &["move", "FEAT-43", "--to", to]),
+            "FEAT-43 moved to Needs you meanwhile; nothing left to move",
+        );
+    }
+    refused(
+        &run(
+            &worker,
+            "move_refused",
+            &["move", "FEAT-43", "--to", "stuck", "--json"],
+        ),
+        "FEAT-43 moved to Needs you meanwhile; run it again to move it from there",
+    );
+}
+
+#[test]
+fn move_on_an_old_worker_is_its_refusal_in_one_line() {
+    let old = Worker::start(old_worker);
+    for args in [
+        vec!["move", "FEAT-41", "--to", "new"],
+        vec!["move", "FEAT-41", "--to", "new", "--json"],
+        vec!["move", "FEAT-41", "--to", "new", "--after", "BUG-12"],
+    ] {
+        refused(&run(&old, "move_old", &args), "name a board to move on");
+        let seen = old.last();
+        assert_eq!(
+            (seen.method.as_str(), seen.path.as_str()),
+            ("POST", "/v1/move")
+        );
+        assert_eq!(seen.body["from"], "Doing");
+        assert!(seen.body.get("board").is_none());
+    }
 }
 
 #[test]
@@ -610,10 +704,18 @@ fn labels_lists_the_seven_lanes_and_renames_one_by_word_or_name() {
     let worker = Worker::start(answers);
     let out = run(&worker, "labels", &["labels"]);
     assert_eq!(out.code, Some(0), "{}", out.stderr);
-    let lines: Vec<&str> = out.stdout.lines().collect();
-    assert_eq!(lines.len(), 7);
-    assert_eq!(lines[3], format!("{:<12} Needs you", "needs-you"));
-    assert_eq!(lines[6], format!("{:<12} {:<20} closes", "done", "Done"));
+    assert_eq!(
+        out.stdout.lines().collect::<Vec<_>>(),
+        [
+            format!("{:<12} New", "new"),
+            format!("{:<12} In progress", "in-progress"),
+            format!("{:<12} Landed", "landed"),
+            format!("{:<12} {:<20} closes", "done", "Done"),
+            format!("{:<12} Needs you", "needs-you"),
+            format!("{:<12} Planned", "planned"),
+            format!("{:<12} Stuck", "stuck"),
+        ]
+    );
     let doc = json_of(&run(&worker, "labels", &["labels", "--json"]));
     assert_eq!(doc, json!({"labels": labels()}));
 
@@ -633,12 +735,21 @@ fn labels_lists_the_seven_lanes_and_renames_one_by_word_or_name() {
         ("PATCH", "/v1/labels/13")
     );
     assert_eq!(seen.body, json!({"name": "Waiting on me"}));
+    assert!(
+        worker
+            .seen()
+            .iter()
+            .all(|s| s.method == "GET" || s.path == "/v1/labels/13"),
+        "a rename touched another label: {:?}",
+        worker.seen()
+    );
     let by_name = json_of(&run(
         &worker,
         "labels",
         &["labels", "rename", "NEEDS YOU", "Yours", "--yes", "--json"],
     ));
     assert_eq!(by_name["name"], "Yours");
+    assert_eq!(worker.last().path, "/v1/labels/13");
 
     refused(
         &run(
@@ -648,4 +759,89 @@ fn labels_lists_the_seven_lanes_and_renames_one_by_word_or_name() {
         ),
         "no lane is called QA ready; p99 labels lists them",
     );
+}
+
+#[test]
+fn labels_on_an_old_worker_list_with_no_words_and_rename_only_by_name() {
+    let old = Worker::start(old_worker);
+    let out = run(&old, "labels_old", &["labels"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert_eq!(lines.len(), 7);
+    assert_eq!(lines[0], format!("{:<12} Inbox", ""));
+    assert_eq!(lines[3], format!("{:<12} {:<20} closes", "", "Done"));
+    assert!(
+        lines.iter().all(|l| l.starts_with(&" ".repeat(12))),
+        "{lines:?}"
+    );
+
+    refused(
+        &run(
+            &old,
+            "labels_old",
+            &["labels", "rename", "needs-you", "Waiting on me"],
+        ),
+        "no lane is called needs-you; p99 labels lists them",
+    );
+    assert!(old.seen().iter().all(|s| s.method == "GET"));
+    let renamed = run(&old, "labels_old", &["labels", "rename", "done", "Shipped"]);
+    assert_eq!(
+        renamed.stdout, "Done is now Shipped\n",
+        "{}",
+        renamed.stderr
+    );
+    assert_eq!(old.last().path, "/v1/labels/23");
+}
+
+#[test]
+fn board_text_shows_a_renamed_lane_a_stray_card_and_an_empty_board() {
+    let worker = Worker::start(answers);
+    let out = run(&worker, "board_renamed", &["board", "--project", "Renamed"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let lines: Vec<&str> = out.stdout.lines().collect();
+    assert!(lines.contains(&"Waiting on me (2)"), "{lines:?}");
+    assert!(!lines.contains(&"Needs you (2)"), "{lines:?}");
+    assert!(!lines.iter().any(|l| l.starts_with("Done (")), "{lines:?}");
+    assert_eq!(
+        *lines.last().unwrap(),
+        format!("  {:<9} {:<12} Old export  in Shipped", "FEAT-9", "Splicer")
+    );
+
+    let empty = run(&worker, "board_empty", &["board", "--project", "Empty"]);
+    assert_eq!(empty.code, Some(0), "{}", empty.stderr);
+    assert_eq!(
+        empty.stdout,
+        "this board has no lanes yet; run p99 deploy\n"
+    );
+    let json = json_of(&run(
+        &worker,
+        "board_empty",
+        &["board", "--project", "Empty", "--json"],
+    ));
+    assert_eq!(json, json!({"board": {"lanes": []}, "cards": []}));
+}
+
+#[test]
+fn board_json_passes_fields_the_cli_does_not_know_through_untouched() {
+    let worker = Worker::start(|method, path, _| {
+        if method == "GET" && path.starts_with("/v1/board") && !path.starts_with("/v1/boards") {
+            let mut board = the_board();
+            board["since"] = json!("2026-10-22T09:00:00.000Z");
+            board["cards"][0]["checks"] = json!(["ci"]);
+            return (200, board.to_string());
+        }
+        if method == "GET" && path.starts_with("/v1/boards") {
+            let mut old = old_boards();
+            old["next"] = json!(null);
+            old["archived"][1] = json!({"id": 3, "name": "Ops"});
+            return (200, old.to_string());
+        }
+        (404, r#"{"message":"no such route"}"#.into())
+    });
+    let board = json_of(&run(&worker, "board_raw", &["board", "--json"]));
+    assert_eq!(board["since"], "2026-10-22T09:00:00.000Z");
+    assert_eq!(board["cards"][0]["checks"], json!(["ci"]));
+    let old = json_of(&run(&worker, "board_raw", &["boards", "--json"]));
+    assert!(old.get("next").is_some());
+    assert_eq!(old["archived"][1], json!({"id": 3, "name": "Ops"}));
 }

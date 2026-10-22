@@ -1,10 +1,14 @@
+use serde_json::Value;
+
+use crate::card::Lane;
 use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
-    BoardQuery, DEPRECATED, archived_lines, board_lines, lane_lines, lane_named, refusal,
+    BoardQuery, DEPRECATED, LaneInfo, OLD_WORKER, OldBoards, OneBoard, archived_lines, board_lines,
+    lane_lines, lane_named, refusal,
 };
-use crate::wire::{BoardSpec, Issue, LaneBoard, LaneSpec, MoveTo, out};
+use crate::wire::{Issue, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
@@ -43,6 +47,7 @@ pub struct BoardsArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum BoardsAction {
+    #[allow(dead_code)]
     #[command(about = "gone: boards are one per account; p99 board prints it")]
     Set {
         #[arg(help = "the board's name")]
@@ -105,8 +110,21 @@ fn key(raw: &str) -> Result<String, String> {
     crate::cli::key_of(raw)
 }
 
+pub const GONE: &str = "boards are one per account; see p99 board";
+
 fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
+}
+
+pub fn lane_name(to: &str, lanes: &[LaneInfo]) -> String {
+    use clap::ValueEnum;
+    match Lane::from_str(to.trim(), true) {
+        Ok(lane) => lanes
+            .iter()
+            .find(|l| l.word == lane)
+            .map_or_else(|| lane.name().to_owned(), |l| l.label.clone()),
+        Err(_) => to.trim().to_owned(),
+    }
 }
 
 pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
@@ -119,15 +137,18 @@ pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
 
 pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
     if !error.ends_with("(409)") {
-        return error;
+        return crate::card::refusal(error);
     }
     match client.thread(key).map(|thread| thread.issue) {
         Ok(Issue {
             key,
             label: Some(now),
             ..
-        }) => meanwhile(&key, &now, to),
-        _ => error,
+        }) => {
+            let lanes = lanes_of(client).unwrap_or_default();
+            meanwhile(&key, &now, &lane_name(to, &lanes))
+        }
+        _ => crate::card::refusal(error),
     }
 }
 
@@ -188,26 +209,13 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
     Ok(())
 }
 
-fn columns_text(board: &LaneBoard) -> String {
-    board
-        .columns
-        .iter()
-        .map(|c| {
-            if c.closes {
-                format!("{} (closes)", c.label)
-            } else {
-                c.label.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), String> {
-    let boards = client(config, global, host)?.old_boards()?;
+    let raw = client(config, global, host)?.old_boards()?;
     if global.json {
-        return print_json(&boards);
+        return print_json(&raw);
     }
+    let boards: OldBoards = serde_json::from_value(raw)
+        .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
     eprintln!("p99: {DEPRECATED}");
     for line in archived_lines(&boards) {
         out!("{line}");
@@ -215,53 +223,11 @@ fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), Stri
     Ok(())
 }
 
-fn specs(columns: &str, closes: Option<&str>) -> Result<Vec<LaneSpec>, String> {
-    let names: Vec<&str> = columns
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .collect();
-    let closing: Vec<&str> = closes
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .collect();
-    if let Some(stray) = closing.iter().find(|c| !names.iter().any(|n| same(n, c))) {
-        return Err(format!(
-            "--closes names {stray}, which is not one of the columns"
-        ));
-    }
-    Ok(names
-        .iter()
-        .map(|n| LaneSpec {
-            label: (*n).to_owned(),
-            closes: closes.map(|_| closing.iter().any(|c| same(c, n))),
-        })
-        .collect())
-}
-
 pub fn run_boards(config: &Config, global: &Global, args: &BoardsArgs) -> Result<(), String> {
-    let Some(BoardsAction::Set {
-        name,
-        columns,
-        closes,
-    }) = &args.action
-    else {
-        return list(config, global, args.host.as_deref());
-    };
-    let spec = BoardSpec {
-        name: Some(name.clone()),
-        columns: Some(specs(columns, closes.as_deref())?),
-    };
-    let board = client(config, global, args.host.as_deref())?
-        .add_lane_board(&spec)
-        .map_err(crate::card::refusal)?;
-    if global.json {
-        return print_json(&board);
+    if args.action.is_some() {
+        return Err(GONE.to_owned());
     }
-    out!("{}: {}", board.name, columns_text(&board));
-    Ok(())
+    list(config, global, args.host.as_deref())
 }
 
 pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(), String> {
@@ -276,16 +242,30 @@ pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(
         host: host.clone(),
         ..BoardQuery::default()
     };
-    let board = client(config, global, host.as_deref())?
+    let raw: Value = client(config, global, host.as_deref())?
         .one_board(&q)
         .map_err(refusal)?;
     if global.json {
-        return print_json(&board);
+        return print_json(&raw);
     }
+    let board: OneBoard = serde_json::from_value(raw)
+        .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
     for line in board_lines(&board) {
         out!("{line}");
     }
     Ok(())
+}
+
+fn lanes_of(client: &Client) -> Result<Vec<LaneInfo>, String> {
+    let query = BoardQuery {
+        statuses: vec![Lane::Done],
+        ..BoardQuery::default()
+    };
+    match client.one_board::<OneBoard>(&query).map_err(refusal) {
+        Ok(board) => Ok(board.board.lanes),
+        Err(why) if why == OLD_WORKER => Ok(Vec::new()),
+        Err(why) => Err(why),
+    }
 }
 
 pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result<(), String> {
@@ -295,12 +275,14 @@ pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result
         if global.json {
             return print_json(&serde_json::json!({ "labels": labels }));
         }
-        for line in lane_lines(&labels) {
+        let lanes = lanes_of(&client)?;
+        for line in lane_lines(&labels, &lanes) {
             out!("{line}");
         }
         return Ok(());
     };
-    let label = lane_named(&labels, from)
+    let lanes = lanes_of(&client)?;
+    let label = lane_named(&labels, &lanes, from)
         .ok_or_else(|| format!("no lane is called {from}; p99 labels lists them"))?;
     let renamed = client.rename_label(label.id, to.trim())?;
     if global.json {
@@ -327,25 +309,26 @@ mod tests {
     }
 
     #[test]
-    fn closes_marks_only_the_named_columns_and_refuses_a_stray() {
-        let set = specs("Inbox, Doing ,QA ready,Done", Some("done")).unwrap();
+    fn a_lane_word_resolves_to_the_boards_name_for_it_and_a_name_stays_itself() {
+        let mut lanes: Vec<LaneInfo> = Vec::new();
+        assert_eq!(lane_name("needs-you", &lanes), "Needs you");
+        assert_eq!(lane_name(" in-progress ", &lanes), "In progress");
+        assert_eq!(lane_name(" QA ready ", &lanes), "QA ready");
+        lanes.push(LaneInfo {
+            word: Lane::NeedsYou,
+            label: "Waiting on me".to_owned(),
+            closes: false,
+        });
+        assert_eq!(lane_name("needs-you", &lanes), "Waiting on me");
+        assert_eq!(lane_name("needs you", &lanes), "Waiting on me");
+        assert_eq!(lane_name("stuck", &lanes), "Stuck");
         assert_eq!(
-            set.iter()
-                .map(|c| (c.label.as_str(), c.closes))
-                .collect::<Vec<_>>(),
-            [
-                ("Inbox", Some(false)),
-                ("Doing", Some(false)),
-                ("QA ready", Some(false)),
-                ("Done", Some(true))
-            ]
+            meanwhile("FEAT-41", "Waiting on me", &lane_name("needs-you", &lanes)),
+            "FEAT-41 moved to Waiting on me meanwhile; nothing left to move"
         );
-        assert!(
-            specs("Inbox,Doing,Done", None)
-                .unwrap()
-                .iter()
-                .all(|c| c.closes.is_none())
+        assert_eq!(
+            meanwhile("FEAT-41", "Needs you", &lane_name("needs-you", &[])),
+            "FEAT-41 moved to Needs you meanwhile; nothing left to move"
         );
-        assert!(specs("Inbox,Doing,Done", Some("Shipped")).is_err());
     }
 }

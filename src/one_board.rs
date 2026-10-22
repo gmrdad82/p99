@@ -7,6 +7,7 @@ pub const DEPRECATED: &str =
     "p99 boards is deprecated: one board per account since 1.10; p99 board prints it";
 pub const OLD_WORKER: &str =
     "this Worker still has a board per person; run p99 deploy for the one board";
+pub const NO_LANES: &str = "this board has no lanes yet; run p99 deploy";
 pub const NO_WAITING: &str = "this Worker has no Needs you list yet; run p99 deploy";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -140,6 +141,9 @@ fn card_line(card: &BoardCard) -> String {
 }
 
 pub fn board_lines(board: &OneBoard) -> Vec<String> {
+    if board.board.lanes.is_empty() && board.cards.is_empty() {
+        return vec![NO_LANES.to_owned()];
+    }
     let mut lines = Vec::new();
     for lane in &board.board.lanes {
         let cards: Vec<&BoardCard> = board
@@ -192,17 +196,17 @@ pub fn archived_lines(old: &OldBoards) -> Vec<String> {
         .collect()
 }
 
-pub fn lane_lines(labels: &[crate::wire::LabelEntry]) -> Vec<String> {
-    use clap::ValueEnum;
+fn word_of<'a>(lanes: &'a [LaneInfo], name: &str) -> Option<&'a LaneInfo> {
+    lanes
+        .iter()
+        .find(|l| l.label.to_lowercase() == name.to_lowercase())
+}
+
+pub fn lane_lines(labels: &[crate::wire::LabelEntry], lanes: &[LaneInfo]) -> Vec<String> {
     labels
         .iter()
-        .enumerate()
-        .map(|(at, label)| {
-            let word = if labels.len() == Lane::value_variants().len() {
-                Lane::value_variants()[at].word()
-            } else {
-                ""
-            };
+        .map(|label| {
+            let word = word_of(lanes, &label.name).map_or("", |l| l.word.word());
             format!(
                 "{word:<12} {:<20} {}",
                 label.name,
@@ -216,6 +220,7 @@ pub fn lane_lines(labels: &[crate::wire::LabelEntry]) -> Vec<String> {
 
 pub fn lane_named<'a>(
     labels: &'a [crate::wire::LabelEntry],
+    lanes: &[LaneInfo],
     raw: &str,
 ) -> Option<&'a crate::wire::LabelEntry> {
     use clap::ValueEnum;
@@ -224,12 +229,11 @@ pub fn lane_named<'a>(
         .iter()
         .find(|l| l.name.to_lowercase() == wanted)
         .or_else(|| {
-            if labels.len() != Lane::value_variants().len() {
-                return None;
-            }
             let lane = Lane::from_str(raw.trim(), true).ok()?;
-            let at = Lane::value_variants().iter().position(|l| *l == lane)?;
-            labels.get(at)
+            let name = &lanes.iter().find(|l| l.word == lane)?.label;
+            labels
+                .iter()
+                .find(|l| l.name.to_lowercase() == name.to_lowercase())
         })
 }
 
@@ -361,7 +365,15 @@ mod tests {
             lines.last().unwrap(),
             &format!("  {:<9} {:<12} FEAT-8 title  in Done", "FEAT-8", "Splicer")
         );
-        assert!(board_lines(&OneBoard::default()).is_empty());
+        assert_eq!(board_lines(&OneBoard::default()), [NO_LANES]);
+        let stray_only = OneBoard {
+            board: Lanes::default(),
+            cards: vec![card("FEAT-3", Lane::New, None, None)],
+        };
+        assert_eq!(
+            board_lines(&stray_only),
+            [format!("  {:<9} {:<12} FEAT-3 title  in New", "FEAT-3", "")]
+        );
     }
 
     #[test]
@@ -402,42 +414,83 @@ mod tests {
     }
 
     #[test]
-    fn the_lanes_print_with_their_word_when_there_are_seven() {
-        let seven = entries(&[
+    fn each_label_takes_its_word_from_the_boards_lanes_by_name_not_by_position() {
+        let base_order = entries(&[
             "New",
-            "Planned",
             "In progress",
-            "Needs you",
-            "Stuck",
             "Landed",
             "Done",
+            "Needs you",
+            "Planned",
+            "Stuck",
         ]);
-        let lines = lane_lines(&seven);
+        let lines = lane_lines(&base_order, &lanes().lanes);
         assert_eq!(lines.len(), 7);
         assert_eq!(lines[0], format!("{:<12} New", "new"));
-        assert_eq!(lines[3], format!("{:<12} Needs you", "needs-you"));
-        assert_eq!(lines[6], format!("{:<12} {:<20} closes", "done", "Done"));
-        let odd = lane_lines(&entries(&["Inbox", "Done"]));
-        assert_eq!(odd[0], format!("{:<12} Inbox", ""));
+        assert_eq!(lines[1], format!("{:<12} In progress", "in-progress"));
+        assert_eq!(lines[3], format!("{:<12} {:<20} closes", "done", "Done"));
+        assert_eq!(lines[4], format!("{:<12} Needs you", "needs-you"));
+        assert_eq!(lines[6], format!("{:<12} Stuck", "stuck"));
+        let old = lane_lines(
+            &entries(&["Inbox", "Doing", "Review", "Done", "QA", "Ops", "Web"]),
+            &[],
+        );
+        assert_eq!(old[0], format!("{:<12} Inbox", ""));
+        assert_eq!(old[3], format!("{:<12} {:<20} closes", "", "Done"));
+        let custom = lane_lines(&entries(&["Triage", "New"]), &lanes().lanes);
+        assert_eq!(
+            custom,
+            [format!("{:<12} Triage", ""), format!("{:<12} New", "new")]
+        );
     }
 
     #[test]
-    fn a_lane_is_found_by_its_name_in_any_case_or_by_its_word() {
-        let seven = entries(&[
+    fn a_lane_is_found_by_its_name_in_any_case_or_by_its_word_through_the_boards_lanes() {
+        let base_order = entries(&[
             "New",
-            "Planned",
             "In progress",
-            "Waiting on me",
-            "Stuck",
             "Landed",
             "Done",
+            "Waiting on me",
+            "Planned",
+            "Stuck",
         ]);
-        assert_eq!(lane_named(&seven, "waiting ON me").unwrap().id, 13);
-        assert_eq!(lane_named(&seven, "needs-you").unwrap().id, 13);
-        assert_eq!(lane_named(&seven, " needs you ").unwrap().id, 13);
-        assert_eq!(lane_named(&seven, "in-progress").unwrap().id, 12);
-        assert!(lane_named(&seven, "QA ready").is_none());
-        assert!(lane_named(&entries(&["Inbox", "Done"]), "new").is_none());
+        let mut renamed = lanes();
+        renamed.lanes[3].label = "Waiting on me".to_owned();
+        assert_eq!(
+            lane_named(&base_order, &renamed.lanes, "waiting ON me")
+                .unwrap()
+                .id,
+            14
+        );
+        assert_eq!(
+            lane_named(&base_order, &renamed.lanes, "needs-you")
+                .unwrap()
+                .id,
+            14
+        );
+        assert_eq!(
+            lane_named(&base_order, &renamed.lanes, " needs you ")
+                .unwrap()
+                .id,
+            14
+        );
+        assert_eq!(
+            lane_named(&base_order, &renamed.lanes, "in-progress")
+                .unwrap()
+                .id,
+            11
+        );
+        assert_eq!(
+            lane_named(&base_order, &renamed.lanes, "done").unwrap().id,
+            13
+        );
+        assert!(lane_named(&base_order, &renamed.lanes, "QA ready").is_none());
+        let old = entries(&["Inbox", "Doing", "Review", "Done", "QA", "Ops", "Web"]);
+        assert!(lane_named(&old, &[], "needs-you").is_none());
+        assert!(lane_named(&old, &[], "new").is_none());
+        assert_eq!(lane_named(&old, &[], "done").unwrap().id, 13);
+        assert_eq!(lane_named(&old, &[], "qa").unwrap().id, 14);
     }
 
     #[test]

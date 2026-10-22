@@ -5,7 +5,7 @@ sidebar:
   order: 10
 ---
 
-A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the seven lanes of the account's one board, and link them to what moved them: a request id, a commit, a tag or a URL. Only Owners see cards; a site's visitors (Users) never do.
+A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the seven lanes of the account's one board, and link them to what moved them: a request id, a commit, a tag or a URL. Only Owners see cards; Users, the people with a code for a site, never do.
 
 ## The lanes
 
