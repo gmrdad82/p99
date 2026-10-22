@@ -11,17 +11,54 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use home::{Home, Out};
+use serde_json::{Value, json};
 use stub::{KEY, Reply, Stub};
 
 const REF: &str = "op://Example/p99/key";
 const WRONG: &str = "p99-key-that-must-never-be-shown";
 const EMPTY: &str = "P99_KEY is set but empty; unset it or give the key";
 
+const CARD: &str = r#"{"key":"FEAT-41","kind":"feature","project":"Splicer","status":"in-progress","label":"In progress","lane":2,
+ "title":"Export keeps every audio track","host":"shop.example.com",
+ "reporter":{"name":"Ada Lovelace","username":"ada","agent":false,"via":null},
+ "created_at":"2026-10-22T08:00:00.000Z","changed_at":"2026-10-22T09:12:00.000Z",
+ "changed_by":{"name":"Ada Lovelace","username":"ada","agent":false,"via":null},
+ "comments":1,"links":[]}"#;
+
+const COMMENT: &str = r#"{"id":9,"author":{"name":"Ada Lovelace","username":"ada","agent":false,"via":null},"body":"Seen.","internal":false,"created_at":"2026-10-22T09:12:00.000Z"}"#;
+
+fn answer(req: &stub::Req) -> Reply {
+    let card: Value = serde_json::from_str(CARD).unwrap();
+    let comment: Value = serde_json::from_str(COMMENT).unwrap();
+    match (req.method.as_str(), req.path.as_str()) {
+        ("GET", "/_p99/v1/cards") => Reply::ok(json!({"cards": [card], "next_cursor": null})),
+        ("GET", "/_p99/v1/cards/FEAT-41") => {
+            let mut with_body = card.clone();
+            with_body["body"] = json!("Every track, in sync.");
+            Reply::ok(json!({"card": with_body, "comments": [comment], "events": []}))
+        }
+        ("POST", "/_p99/v1/cards/FEAT-41/comments") => {
+            Reply::json(201, json!({"key": "FEAT-41", "comment": comment}))
+        }
+        ("POST", "/_p99/v1/cards/FEAT-41/status") => Reply::ok(json!({"card": card})),
+        ("POST", "/_p99/v1/cards/FEAT-41/links") => Reply::json(
+            201,
+            json!({"key": "FEAT-41", "link": {"ref": "pci#2873", "note": null,
+                "by": {"name": "Ada Lovelace", "username": "ada", "agent": false, "via": null},
+                "at": "2026-10-22T09:30:00.000Z"}}),
+        ),
+        ("GET", "/_p99/v1/projects") => {
+            Reply::ok(json!({"projects": [{"name": "Splicer", "open": 1, "done": 0}]}))
+        }
+        _ => fake::any(req),
+    }
+}
+
 fn guarded(req: &stub::Req) -> Reply {
     if req.path.starts_with("/_p99/") && !req.signed {
         Reply::problem(401, "bad signature")
     } else {
-        fake::any(req)
+        answer(req)
     }
 }
 
@@ -235,7 +272,7 @@ fn guarded_by(key: &'static str) -> impl Fn(&stub::Req) -> Reply + Send + Sync +
         if req.path.starts_with("/_p99/") && !req.signed_by(key) {
             Reply::problem(401, "bad signature")
         } else {
-            fake::any(req)
+            answer(req)
         }
     }
 }
@@ -524,4 +561,103 @@ fn watch_announces_the_vault_only_for_an_account_p99_key_does_not_belong_to() {
     assert!(!h.stub.seen().is_empty());
     assert!(h.stub.seen().iter().all(|c| !c.signed));
     never_shows(&out, WRONG);
+}
+
+const CARD_COMMANDS: [&[&str]; 6] = [
+    &["cards", "--json"],
+    &["card", "show", "FEAT-41", "--json"],
+    &["card", "comment", "FEAT-41", "Seen.", "--json"],
+    &["card", "status", "FEAT-41", "in-progress", "--json"],
+    &["card", "link", "FEAT-41", "pci#2873", "--json"],
+    &["projects", "--json"],
+];
+
+fn card_calls(stub: &Stub) -> Vec<stub::Req> {
+    worker_calls(stub)
+        .into_iter()
+        .filter(|c| c.path.starts_with("/_p99/v1/cards") || c.path == "/_p99/v1/projects")
+        .collect()
+}
+
+fn with_account<'a>(args: &[&'a str], account: Option<&'a str>) -> Vec<&'a str> {
+    let mut all = args.to_vec();
+    if let Some(account) = account {
+        all.extend(["--account", account]);
+    }
+    all
+}
+
+#[test]
+fn the_card_commands_sign_each_account_with_its_own_key_and_p99_key_only_its_own() {
+    for (name, bound) in [
+        ("key-cards-default", None),
+        ("key-cards-main", Some("main")),
+    ] {
+        let (h, other) = two_accounts(name, Some("main"), REF, OTHER_REF);
+        let bin = op_giving(&h.dir, OTHER_REF, OTHER);
+        let path = path_with(&bin);
+        let mut envs = vec![("PATH", path.as_str()), ("P99_KEY", KEY)];
+        envs.extend(bound.map(|b| ("P99_KEY_ACCOUNT", b)));
+        for account in [None, Some("other")] {
+            for args in CARD_COMMANDS {
+                let out = h.p99_env(&with_account(args, account), &envs);
+                out.ok();
+                assert!(!out.stdout.contains("bad signature"), "{}", out.stdout);
+                assert!(!out.stderr.contains("P99_KEY"), "{}", out.stderr);
+                never_shows(&out, KEY);
+                never_shows(&out, OTHER);
+            }
+        }
+        let mains = card_calls(&h.stub);
+        let others = card_calls(&other);
+        assert_eq!(mains.len(), CARD_COMMANDS.len(), "{mains:?}");
+        assert_eq!(others.len(), CARD_COMMANDS.len(), "{others:?}");
+        assert!(mains.iter().all(|c| c.signed), "main signs with P99_KEY");
+        assert!(
+            others.iter().all(|c| c.signed_by(OTHER) && !c.signed),
+            "the other account received a card request signed with P99_KEY"
+        );
+        let reads = asked(&bin);
+        assert!(
+            !reads.is_empty(),
+            "the other account's reference was not read"
+        );
+        assert!(
+            reads
+                .iter()
+                .all(|r| r == &format!("read --no-newline {OTHER_REF}")),
+            "op was asked for the bound account: {reads:?}"
+        );
+    }
+}
+
+#[test]
+fn p99_key_account_moves_the_card_commands_signature_to_the_account_it_names() {
+    let (h, other) = two_accounts("key-cards-flipped", Some("main"), KEY, OTHER_REF);
+    let bin = op_that_must_not_run(&h.dir);
+    let path = path_with(&bin);
+    let envs = [
+        ("PATH", path.as_str()),
+        ("P99_KEY", OTHER),
+        ("P99_KEY_ACCOUNT", "other"),
+    ];
+    for account in [None, Some("other")] {
+        for args in CARD_COMMANDS {
+            let out = h.p99_env(&with_account(args, account), &envs);
+            out.ok();
+            assert!(!out.stdout.contains("bad signature"), "{}", out.stdout);
+            never_shows(&out, OTHER);
+            never_shows(&out, KEY);
+        }
+    }
+    let mains = card_calls(&h.stub);
+    let others = card_calls(&other);
+    assert_eq!(mains.len(), CARD_COMMANDS.len(), "{mains:?}");
+    assert_eq!(others.len(), CARD_COMMANDS.len(), "{others:?}");
+    assert!(
+        mains.iter().all(|c| c.signed && !c.signed_by(OTHER)),
+        "main received a card request signed with P99_KEY"
+    );
+    assert!(others.iter().all(|c| c.signed_by(OTHER)));
+    assert!(!op_ran(&bin), "op ran for the account P99_KEY belongs to");
 }
