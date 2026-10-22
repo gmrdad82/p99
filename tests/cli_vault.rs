@@ -65,7 +65,7 @@ fn a_key_kept_in_the_vault_is_read_with_op_and_signs_every_call() {
     assert!(!calls.is_empty());
     assert!(
         calls.iter().all(|c| c.signed),
-        "every call signs with the key op read"
+        "every call signs with the key the vault tool gave"
     );
     let asked = std::fs::read_to_string(bin.join("asked")).unwrap();
     assert_eq!(asked, format!("read --no-newline {REF}\n"));

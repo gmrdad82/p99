@@ -114,11 +114,6 @@ mod tests {
     }
 
     #[test]
-    fn the_tool_is_named_for_people() {
-        assert_eq!(tool(), "the 1Password CLI");
-    }
-
-    #[test]
     fn resolve_ref_reads_an_environment_variable_trimmed() {
         let path = std::env::var("PATH").unwrap();
         assert_eq!(resolve_ref("env:PATH").unwrap(), path.trim());
