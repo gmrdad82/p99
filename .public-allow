@@ -145,3 +145,4 @@ commit/45c9e6d72637:src/config.rs:1011 a fake vault reference in the config test
 commit/c6b43b0f738c:tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at tests/cli_key.rs:17
 commit/c6b43b0f738c:tests/cli_key.rs:231 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to, as waived at tests/cli_key.rs:268
 commit/05f6100d9486:tests/stories_deploy.rs:1429 the deploy story's fake op reference that proves P99_TOKEN wins over it, as waived at its current line
+commit/9c45a9533d37:tests/stories_deploy.rs:1467 the deploy story's fake op reference that proves P99_TOKEN wins over it, as waived at its current line
