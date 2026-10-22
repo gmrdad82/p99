@@ -37,7 +37,7 @@ import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import { ONE_BOARD_ROUTES } from "./one-board.js";
 import { NEEDS_ROUTES, waitingCount } from "./needs-you.js";
 import { deleteCode, useCodesKit } from "./codes-delete.js";
-import { roleOf } from "./roles.js";
+import { managerOf, roleOf } from "./roles.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -599,7 +599,7 @@ function requireEmptyBody(c) {
 }
 
 function requireManager(c) {
-  if (!c.manager) fail(403, "only managers may do this");
+  if (!c.manager) fail(403, "only an Owner may do this");
 }
 
 function query(firstBinds = []) {
@@ -857,6 +857,7 @@ function commentOf(row, c, attachmentIds = []) {
       email: c.manager || row.author_email === c.actor.email ? row.author_email : null,
       name: row.author_name,
       manager: Boolean(row.author_manager),
+      role: roleOf(row.author_manager),
       agent: Boolean(row.author_agent),
       via: row.author_agent ? (row.author_via ?? null) : null,
     },
@@ -910,6 +911,7 @@ function codeOf(row) {
     email: row.email,
     hosts: parseJson(row.hosts_json, []),
     manager: Boolean(row.manager),
+    role: roleOf(row.manager),
     hint: row.hint,
     created_at: row.created_at,
     created_by: row.created_by,
@@ -1924,7 +1926,7 @@ async function patchIssue(c, rawKey) {
     if (next.title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   }
   if (has("body")) {
-    if (!c.manager && !(reporter && fresh)) fail(403, "only a manager, or the reporter while the item is new, may change the details");
+    if (!c.manager && !(reporter && fresh)) fail(403, "only an Owner, or the reporter while the item is new, may change the details");
     const text = clean(body.body);
     if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
@@ -2470,8 +2472,8 @@ async function postCode(c) {
   }
   const hosts = [...new Set(body.hosts.map((h) => String(h).toLowerCase()))];
   for (const host of hosts) if (!c.dir.hosts.has(host)) fail(400, `${host} is not a listed host`);
-  const manager = body.manager ?? false;
-  if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
+  if (body.manager !== undefined && body.manager !== null && typeof body.manager !== "boolean") fail(400, "manager must be a boolean");
+  const manager = managerOf(body);
   const wantsTotp = body.totp ?? false;
   if (typeof wantsTotp !== "boolean") fail(400, "totp must be a boolean");
   const wantsMail = body.mail ?? false;

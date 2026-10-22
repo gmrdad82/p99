@@ -58,7 +58,7 @@ pub fn mailing(owner: bool, no_mail: bool, mail_me: bool) -> bool {
 
 pub fn report(minted: &Minted, owner: bool, asked: bool) -> Result<(), String> {
     let code = &minted.code;
-    let role = if code.manager { " (manager)" } else { "" };
+    let role = if code.manager { " (Owner)" } else { "" };
     out!("{} <{}>{role}", code.name, code.email);
     if let Some(old) = &minted.revoked {
         out!(

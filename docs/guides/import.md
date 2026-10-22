@@ -58,12 +58,12 @@ It sends the records in batches, uploads the files the Worker doesn't hold yet, 
 
 Imports sign with the account's own key, so they run from the CLI only, and the daily limits never apply to them. New items filed afterwards continue above the highest number in the account: after importing `BUG-7`, the next item is 8 or higher.
 
-## 5. Make the managers
+## 5. Make the Owners
 
-A `manager` line imports nothing: P99's managers are people with a manager code or e-mails in the Worker's `MANAGERS` secret. The summary lists each manager in the bundle who has neither yet, with the line that mints their code:
+A `manager` line imports nothing: it names an Owner, and P99's Owners are people with an Owner code or e-mails in the Worker's `MANAGERS` secret. The summary lists each Owner in the bundle who has neither yet, with the line that mints their code:
 
 ```sh
-p99 invite example.com --manager --name "Grace Hopper" --email grace@example.com
+p99 invite example.com --owner --name "Grace Hopper" --email grace@example.com
 ```
 
 ## Run it again

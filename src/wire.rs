@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+use crate::one_board::Role;
 use serde_json::Value;
 
 macro_rules! out {
@@ -41,6 +44,48 @@ where
 
 fn assigned<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Assignee>, D::Error> {
     Ok(Option::<Assignee>::deserialize(deserializer)?.filter(|a| !a.username.is_empty()))
+}
+
+impl Serialize for Author {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Author", 6)?;
+        out.serialize_field("email", &self.email)?;
+        out.serialize_field("name", &self.name)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.serialize_field("agent", &self.agent)?;
+        out.serialize_field("via", &self.via)?;
+        out.end()
+    }
+}
+
+impl Serialize for Member {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Member", 3)?;
+        out.serialize_field("username", &self.username)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.end()
+    }
+}
+
+impl Serialize for Code {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Code", 12)?;
+        out.serialize_field("id", &self.id)?;
+        out.serialize_field("name", &self.name)?;
+        out.serialize_field("email", &self.email)?;
+        out.serialize_field("hosts", &self.hosts)?;
+        out.serialize_field("manager", &self.manager)?;
+        out.serialize_field("role", &Role::of(self.manager))?;
+        out.serialize_field("hint", &self.hint)?;
+        out.serialize_field("created_at", &self.created_at)?;
+        out.serialize_field("created_by", &self.created_by)?;
+        out.serialize_field("revoked_at", &self.revoked_at)?;
+        out.serialize_field("last_used_at", &self.last_used_at)?;
+        out.serialize_field("totp", &self.totp)?;
+        out.end()
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -285,7 +330,7 @@ pub struct Deleted {
     pub unlinked: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Author {
     #[serde(default, deserialize_with = "lenient")]
     pub email: String,
@@ -556,7 +601,7 @@ impl std::fmt::Display for Assignee {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Member {
     pub username: String,
     #[serde(default, deserialize_with = "lenient")]
@@ -703,7 +748,7 @@ pub struct EnvEntry {
     pub notify: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Code {
     pub id: i64,
     #[serde(default, deserialize_with = "lenient")]

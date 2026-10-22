@@ -33,7 +33,7 @@ bundle/
 
 `via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported items land on the host's home board, each at the top of its column, so the last line of a column in the bundle sits highest.
 
-A `manager` line imports nothing. P99's managers are people with a manager code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every manager in the bundle who has neither yet, with the `p99 invite --manager` line to mint one.
+A `manager` line imports nothing. It names an Owner: P99's Owners are people with an Owner code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every Owner in the bundle who has neither yet, with the `p99 invite --owner` line to mint one.
 
 A `landing` records when an item first reached an environment, so P99 never announces that landing again. The item shows the environment at once.
 
@@ -71,8 +71,8 @@ example.com: 7 records imported
   manager            1         0          0
   files uploaded: 1
   items recounted: 1, duplicates linked: 0
-these managers have no manager code yet; mint one each, or list them in MANAGERS:
-  p99 invite example.com --manager --name "<name>" --email grace@example.com
+these Owners have no Owner code yet; mint one each, or list them in MANAGERS:
+  p99 invite example.com --owner --name "<name>" --email grace@example.com
 ```
 
 ## Checking first

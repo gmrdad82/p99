@@ -824,7 +824,7 @@ fn each_setup_refusal_is_one_line_and_makes_nothing_on_cloudflare() {
             fresh(),
             vec!["setup", "--yes", "--name", "Ada Lovelace"],
             true,
-            "Your e-mail (it becomes the account's first manager): give it with --email",
+            "Your e-mail (it becomes the account's first Owner): give it with --email",
         ),
         (
             "refuse-no-name",
