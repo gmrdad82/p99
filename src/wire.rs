@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 macro_rules! out {
@@ -31,44 +31,56 @@ pub fn clean(text: &str) -> Cow<'_, str> {
     }
 }
 
+fn lenient<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de> + Default,
+{
+    Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn assigned<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Assignee>, D::Error> {
+    Ok(Option::<Assignee>::deserialize(deserializer)?.filter(|a| !a.username.is_empty()))
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PageRef {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub path: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub title: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Person {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub email: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Reached {
     pub env: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub sha: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub version: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Landing {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub branch: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub envs: Vec<Reached>,
 }
 
@@ -77,69 +89,77 @@ pub struct Summary {
     pub id: i64,
     pub key: String,
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub stage: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub label: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub position: Option<f64>,
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub env: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub page: PageRef,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub reporter: Person,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "assigned")]
     pub assignee: Option<Assignee>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub updated_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub comments: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub attachments: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub unread: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub landing: Landing,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub labels: Vec<Tag>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tag {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub color: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LabelEdit {
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub add: Vec<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub remove: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CommitRef {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub sha: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub subject: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub rel: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub envs: Vec<String>,
 }
 
@@ -148,58 +168,62 @@ pub struct Issue {
     pub id: i64,
     pub key: String,
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub status: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub stage: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub label: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub position: Option<f64>,
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub env: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub page: PageRef,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub reporter: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "assigned")]
     pub assignee: Option<Assignee>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub updated_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub comments: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub attachments: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub unread: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub landing: Landing,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub body: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub duplicate_of: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub closed_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub context: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub marks: Vec<Value>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub commits: Vec<CommitRef>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub labels: Vec<Tag>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub github: Vec<GithubLink>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub merged: Vec<Merged>,
 }
 
@@ -210,127 +234,133 @@ pub struct GithubLink {
     pub repo: String,
     pub number: i64,
     pub url: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Merged {
     pub key: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub reporter: Value,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Merge {
     pub into: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub merged: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub unchanged: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Deleted {
     pub key: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub comments: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub files: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub retrying: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub unlinked: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Author {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub email: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Comment {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub client_uid: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub author: Author,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub body: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub internal: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub attachments: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Attachment {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub client_uid: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub role: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub mark: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub name: String,
-    #[serde(default, rename = "type")]
+    #[serde(default, deserialize_with = "lenient", rename = "type")]
     pub content_type: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub bytes: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub sha256: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub comment_id: Option<i64>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Event {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub actor: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub actor_name: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub detail: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct IssueList {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub issues: Vec<Summary>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub next_cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Thread {
     pub issue: Issue,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub comments: Vec<Comment>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub attachments: Vec<Attachment>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub events: Vec<Event>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub people: Vec<Member>,
 }
 
@@ -468,23 +498,27 @@ pub fn content_type(name: &str) -> Option<&'static str> {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewIssue {
     pub client_uid: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub host: Option<String>,
     pub kind: String,
     pub title: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub body: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub page: PageRef,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub context: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub marks: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Assignee {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub username: String,
 }
 
@@ -505,27 +539,55 @@ impl std::fmt::Display for Assignee {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Member {
     pub username: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Change {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub status: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub resolution: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub duplicate_of: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub title: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub body: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub labels: Option<LabelEdit>,
 }
 
@@ -533,19 +595,19 @@ pub struct Change {
 pub struct ListQuery {
     #[serde(default = "mine")]
     pub scope: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub path: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub status: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub kind: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub q: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub cursor: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub host: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub label: Vec<String>,
     #[serde(default = "thirty")]
     pub limit: i64,
@@ -602,47 +664,47 @@ pub fn open(status: &str) -> bool {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct HostEntry {
     pub host: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub env: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub config: Value,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnvEntry {
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub kind: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub position: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub notify: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Code {
     pub id: i64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub email: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub hosts: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub hint: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub created_by: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub revoked_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub last_used_at: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub totp: bool,
 }
 
@@ -652,37 +714,73 @@ pub struct NewCode {
     pub name: String,
     pub email: String,
     pub hosts: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub totp: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub mail: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Minted {
     pub code: Code,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub secret: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub links: Vec<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub totp_key: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub totp: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub mail: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub revoked: Option<Code>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Relink {
     pub client_uid: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub new_totp: bool,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub mail: bool,
 }
 
@@ -698,9 +796,13 @@ pub struct Build {
     pub branch: String,
     pub version: String,
     pub dirty: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub env: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub items: Vec<BuildItem>,
 }
 
@@ -714,7 +816,7 @@ pub struct BuildItem {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Owner {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub username: Option<String>,
 }
 
@@ -729,7 +831,7 @@ impl Owner {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Lane {
     pub label: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub closes: bool,
 }
 
@@ -737,37 +839,37 @@ pub struct Lane {
 pub struct LaneBoard {
     pub id: i64,
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub owner: Option<Owner>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub mine: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub columns: Vec<Lane>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaneBoards {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub boards: Vec<LaneBoard>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaneCard {
     pub key: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub kind: String,
     pub title: String,
     pub label: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub assignee: Option<Owner>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub order: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LanePage {
     pub board: LaneBoard,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub cards: Vec<LaneCard>,
 }
 
@@ -775,7 +877,7 @@ pub struct LanePage {
 pub struct LabelUse {
     pub id: i64,
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub owner_username: Option<String>,
 }
 
@@ -783,9 +885,9 @@ pub struct LabelUse {
 pub struct LabelEntry {
     pub id: i64,
     pub name: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub closes: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub boards: Vec<LabelUse>,
 }
 
@@ -794,11 +896,23 @@ pub struct MoveTo {
     pub key: String,
     pub from: String,
     pub to: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub board: Option<i64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub before: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub after: Option<String>,
 }
 
@@ -810,15 +924,27 @@ pub struct MovedCard {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaneSpec {
     pub label: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub closes: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BoardSpec {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub columns: Option<Vec<LaneSpec>>,
 }
 
@@ -847,45 +973,45 @@ pub const IMPORT_TYPES: [&str; 7] = [
 pub struct ImportConflict {
     #[serde(rename = "ref", default)]
     pub reference: String,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub reason: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImportTally {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub new: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub existing: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub conflicts: Vec<ImportConflict>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImportReport {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub dry_run: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub counts: std::collections::BTreeMap<String, ImportTally>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub upload: Vec<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub managers: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DuplicateLinks {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub linked: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub conflicts: Vec<ImportConflict>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ImportFinish {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub recounted: u64,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub duplicates: DuplicateLinks,
 }
 
@@ -911,6 +1037,78 @@ mod tests {
         assert_eq!(content_type("Report.PDF"), Some("application/pdf"));
         assert_eq!(content_type("notes.html"), None);
         assert_eq!(content_type("README"), None);
+    }
+
+    #[test]
+    fn null_optional_fields_read_as_absent_in_a_list_and_a_thread() {
+        let list: IssueList = serde_json::from_value(serde_json::json!({
+            "issues": [{
+                "id": 12, "key": "BUG-12", "kind": "bug", "title": "Null fields",
+                "status": null, "stage": null, "label": null, "host": null, "env": null,
+                "page": null, "reporter": {"email": null, "name": null, "agent": null},
+                "assignee": {"username": null}, "created_at": null, "updated_at": null,
+                "comments": null, "attachments": null, "unread": null,
+                "landing": {"branch": null, "envs": null}, "labels": null
+            }],
+            "next_cursor": null
+        }))
+        .unwrap();
+        let item = &list.issues[0];
+        assert_eq!(item.key, "BUG-12");
+        assert_eq!(item.assignee, None);
+        assert_eq!(item.status, "");
+        assert_eq!(item.comments, 0);
+        assert!(!item.unread && item.labels.is_empty() && item.landing.envs.is_empty());
+        assert_eq!(item.reporter.email, "");
+        assert_eq!(list.next_cursor, None);
+
+        let thread: Thread = serde_json::from_value(serde_json::json!({
+            "issue": {"id": 3, "key": "BUG-3", "kind": "bug", "title": "T", "assignee": null,
+                      "body": null, "marks": null, "commits": null, "github": null, "merged": null},
+            "comments": [{"id": 1, "author": null, "body": null, "internal": null, "attachments": null}],
+            "attachments": null,
+            "events": [{"actor": null, "kind": null, "detail": null, "at": null}],
+            "people": null
+        }))
+        .unwrap();
+        assert_eq!(thread.issue.assignee, None);
+        assert_eq!(thread.issue.body, "");
+        assert_eq!(thread.comments[0].author.email, "");
+        assert_eq!(thread.events[0].kind, "");
+        assert!(thread.attachments.is_empty() && thread.people.is_empty());
+    }
+
+    #[test]
+    fn an_assignee_reads_whole_and_an_empty_or_missing_username_is_unassigned() {
+        let read = |assignee: serde_json::Value| {
+            serde_json::from_value::<Summary>(serde_json::json!({
+                "id": 1, "key": "BUG-1", "kind": "bug", "title": "T", "assignee": assignee
+            }))
+            .unwrap()
+            .assignee
+        };
+        assert_eq!(
+            read(serde_json::json!({"username": "ada.lovelace"})),
+            Some(Assignee::new("ada.lovelace"))
+        );
+        assert_eq!(read(serde_json::json!({"username": ""})), None);
+        assert_eq!(read(serde_json::json!({})), None);
+        assert_eq!(read(serde_json::Value::Null), None);
+        let missing: Summary = serde_json::from_value(
+            serde_json::json!({"id": 1, "key": "BUG-1", "kind": "bug", "title": "T"}),
+        )
+        .unwrap();
+        assert_eq!(missing.assignee, None);
+    }
+
+    #[test]
+    fn a_null_required_field_or_a_wrong_type_is_still_refused() {
+        let null_title = serde_json::json!({"id": 1, "key": "BUG-1", "kind": "bug", "title": null});
+        assert!(serde_json::from_value::<Summary>(null_title).is_err());
+        let wrong = serde_json::json!({"id": 1, "key": "BUG-1", "kind": "bug", "title": "T", "comments": "two"});
+        assert!(serde_json::from_value::<Summary>(wrong).is_err());
+        let username = serde_json::json!({"id": 1, "key": "BUG-1", "kind": "bug", "title": "T", "assignee": {"username": 7}});
+        assert!(serde_json::from_value::<Summary>(username).is_err());
     }
 
     #[test]

@@ -107,6 +107,7 @@ export async function relinkCode(c, rawId) {
   K.forgetCodes();
   const row = inserted.results[0];
   if (!row) K.fail(404, "no such code, or it is revoked");
+  await K.codesRevoked(c.env);
   const hosts = K.parseJson(row.hosts_json, []);
   const mail = wantsMail ? await mailLink(c, row, secret, true) : null;
   return K.json(201, {

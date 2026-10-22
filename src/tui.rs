@@ -3,6 +3,7 @@ mod board;
 mod codes;
 mod deck;
 pub mod demo;
+mod history;
 mod inbox;
 mod source;
 #[cfg(test)]
@@ -29,7 +30,7 @@ use badge::Badge;
 use board::Board;
 use codes::Codes;
 use inbox::Inbox;
-use source::{Entry, Source};
+use source::{Loaded, Source};
 
 #[derive(Debug, Default, clap::Args)]
 pub struct Args {
@@ -254,7 +255,7 @@ const SIZE: (u16, u16) = (120, 34);
 const SETTLE: Duration = Duration::from_secs(1);
 
 pub enum Msg {
-    Inbox(Result<Vec<Entry>, String>),
+    Inbox(Result<Loaded, String>),
     Thread(String, Result<Thread, String>),
     Commented(String, Result<bool, String>),
     Changed(String, Result<Issue, String>),

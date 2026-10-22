@@ -1,19 +1,19 @@
 (()=>{
-let d=document,L=location,K="p99:code",A=addEventListener,h=__P99_HOST__,c,E,S,B,Q,N,M,P,z,p,f,u,R=[],
+let d=document,L=location,K="p99:code",A=addEventListener,h=__P99_HOST__,c,E,S,B,Q,N,M,P,z,p,f,u,R=[],k=0,
 O=()=>d.querySelector("meta[name=p99][content=off]")||h.f?.some(p=>RegExp(p).test(L.pathname)),
 J=s=>/#p99=([\w-]+)/i.exec(s)?.[1],V=x=>x&&!/^[a-z]+-\d+$/i.test(x),
 T=x=>{try{x&&!localStorage[K]?.startsWith(x)?localStorage[K]=x:x=localStorage[K]}catch{}return x};
 let x=J(performance.getEntries()[0]?.name+L.hash),Z=()=>{let x=J(L.hash);x&&(V(x)?L.reload():G(0,x))},
-G=(v,k)=>c&&E&&D().then(m=>m.open({root:S,code:c,me:M,view:v,key:k,ring:R,forget:F,refresh:Y}),n);
+G=(v,k)=>c&&E&&D().then(m=>m.open({root:S,code:c,me:M,view:v,key:k,ring:R,forget:F,refresh:Y})).catch(q);
 c=T(V(x)&&(history.replaceState(history.state,"",L.pathname+L.search),x));
 A("hashchange",Z);
 self.P99={open:k=>G(0,k)};
 if(!c)return;
-let n=e=>f||R.push(e.message||e.reason?.message||""+e.reason)>20&&R.shift(),
+let q=e=>0,n=e=>f||R.push(e.message||e.reason?.message||""+e.reason)>20&&R.shift(),
 F=()=>{try{delete localStorage[K]}catch{}E?.remove();E=c=null},
-D=()=>P||(P=import("/_p99/panel.js?v=__P99_VERSION__").catch(e=>{throw P=0,e})),
+D=()=>P||(P=import("/_p99/panel.js?v=__P99_VERSION__&"+k).catch(e=>P=!++k)),
 I=j=>{M=j;let n=j.counts,x=n.mine_unread,y=x||n.page_open;N.hidden=!y;N.textContent=y>99?"99+":y;N.className=x?"n u":"n";Q.hidden=!(j.manager||n.mine_open||y)},
-Y=f=>{let k=c+L.pathname+(Date.now()/6e4|0),j;try{j=JSON.parse(sessionStorage[K]);j=f&&j[0]==k&&j[1]}catch{}j?I(j):fetch("/_p99/api/me?path="+encodeURIComponent(L.pathname),{headers:{"X-P99-Code":c}}).then(r=>r.ok?r.json():(x||r.status<428)&&G(r.status,x=0)).then(j=>j&&(I(j),sessionStorage[K]=JSON.stringify([k,j]))).catch(n)},
+Y=f=>{let k=c+L.pathname+(Date.now()/6e4|0),j;try{j=JSON.parse(sessionStorage[K]);j=f&&j[0]==k&&j[1]}catch{}j?I(j):fetch("/_p99/api/me?path="+encodeURIComponent(L.pathname),{headers:{"X-P99-Code":c}}).then(r=>r.ok?r.json():(x||r.status<428)&&G(r.status,x=0)).then(j=>j&&(I(j),sessionStorage[K]=JSON.stringify([k,j]))).catch(q)},
 U=()=>u||(u=requestAnimationFrame(r=>{u=0;r=z?.checkVisibility?.({checkOpacity:1,checkVisibilityCSS:1})&&z.getBoundingClientRect();B.style.translate=`0 ${r?.height&&r.bottom>0&&r.top<innerHeight?h.c>"c"?r.bottom:r.top-innerHeight:0}px`})),
 C=(t,k="",x,o)=>Object.assign(d.createElement(t),{className:k,textContent:x},o),
 X=(k,x,l,g)=>C("button",k,x,{title:l,ariaLabel:l,onclick:g,onpointerenter:D,onfocus:D}),

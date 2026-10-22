@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import { chars, fold, isChars, namedBy, sameCase, sameFolded, searchMatch } from "../src/text.js";
+
+export async function textChecks({ check }) {
+  await check("text: fold drops accents and case, Turkish dotted capitals and diaeresis included", async () => {
+    assert.equal(fold("Crème Brûlée"), "creme brulee");
+    assert.equal(fold("DOİNG"), "doing");
+    assert.equal(fold("revïew"), "review");
+    assert.equal(fold("ÉVALUÉ"), fold("évalué"));
+    assert.equal(fold("שָׁלוֹם"), "שלום");
+    assert.equal(fold(null), "");
+    assert.equal(fold(undefined), "");
+    assert.equal(fold("🚀"), "🚀");
+  });
+
+  await check("text: chars counts code points, so an emoji or an astral letter is one", async () => {
+    assert.equal(chars(""), 0);
+    assert.equal(chars("abc"), 3);
+    assert.equal(chars("🚀"), 1);
+    assert.equal(chars("🚀".repeat(200)), 200);
+    assert.equal(chars("𝒜é"), 2);
+    assert.equal(chars("\uD800x"), 2);
+  });
+
+  await check("text: isChars holds the exact edges in characters, not UTF-16 units", async () => {
+    assert.equal(isChars("🚀".repeat(200), 1, 200), true);
+    assert.equal(isChars("🚀".repeat(201), 1, 200), false);
+    assert.equal(isChars("a".repeat(200), 1, 200), true);
+    assert.equal(isChars("a".repeat(201), 1, 200), false);
+    assert.equal(isChars(`${"🚀".repeat(199)}a`, 1, 200), true);
+    assert.equal(isChars(`${"🚀".repeat(200)}a`, 1, 200), false);
+    assert.equal(isChars("", 1, 200), false);
+    assert.equal(isChars("", 0, 200), true);
+    assert.equal(isChars("ab", 3, 10), false);
+    assert.equal(isChars("x".repeat(100000), 0, 20000), false);
+    assert.equal(isChars(200, 0, 200), false);
+    assert.equal(isChars(null, 0, 200), false);
+    assert.equal(isChars(["a"], 0, 200), false);
+  });
+
+  await check("text: sameFolded matches names whatever their case and accents, and only strings", async () => {
+    assert.equal(sameFolded("Doing", "DOİNG"), true);
+    assert.equal(sameFolded("Review", "revïew"), true);
+    assert.equal(sameFolded("Évalué", "evalue"), true);
+    assert.equal(sameFolded("Évalué", "évaluée"), false);
+    assert.equal(sameFolded("Doing", null), false);
+    assert.equal(sameFolded(undefined, undefined), false);
+  });
+
+  await check("text: sameCase folds ASCII case only, as D1's NOCASE does", async () => {
+    assert.equal(sameCase("Revise", "REVISE"), true);
+    assert.equal(sameCase("Révisé", "RÉVISÉ"), false);
+    assert.equal(sameCase("Révisé", "revise"), false);
+    assert.equal(sameCase("Doing", "DOİNG"), false);
+    assert.equal(sameCase("a", null), false);
+  });
+
+  await check("text: namedBy prefers labels named exactly, up to ASCII case, and falls back to the fold", async () => {
+    const labels = [{ id: 1, name: "Révisé" }, { id: 2, name: "revise" }, { id: 3, name: "Doing" }];
+    const ids = (asked) => namedBy(labels, asked, (l) => l.name).map((l) => l.id);
+    assert.deepEqual(ids("revise"), [2]);
+    assert.deepEqual(ids("REVISE"), [2]);
+    assert.deepEqual(ids("Révisé"), [1]);
+    assert.deepEqual(ids("RÉVISÉ"), [1, 2]);
+    assert.deepEqual(ids("DOİNG"), [3]);
+    assert.deepEqual(ids("revisé"), [1, 2]);
+    assert.deepEqual(ids("nowhere"), []);
+    assert.deepEqual(namedBy([], "revise", (l) => l.name), []);
+  });
+
+  await check("text: searchMatch binds one folded needle that instr finds in folded text at any length, with % _ \\ literal", async () => {
+    const bound = [];
+    const bind = (v) => {
+      bound.push(v);
+      return `?${bound.length}`;
+    };
+    const long = "Crème 100% snake_case back\\slash ".repeat(6).trim();
+    assert.equal([...long].length > 50, true);
+    assert.equal(searchMatch("i.search_text", long, bind), "instr(i.search_text, ?1) > 0");
+    assert.equal(bound.length, 1);
+    const instr = (hay, needle) => hay.indexOf(needle) + 1 > 0;
+    assert.equal(instr(fold(`Before. ${long.toUpperCase()} after.`), bound[0]), true);
+    assert.equal(instr(fold(long.replace("100%", "1000")), bound[0]), false);
+    searchMatch("i.search_text", "snake_case", bind);
+    assert.equal(instr(fold("snakeXcase"), bound[1]), false);
+  });
+}

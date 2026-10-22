@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::io::Read;
 
 use base64::Engine as _;
@@ -421,19 +422,26 @@ pub fn civil_day(date: &str) -> Option<i64> {
 }
 
 fn normalize(pasted: &str) -> String {
+    let decoded = soft_breaks(pasted);
+    let text = unglue(&decoded);
     let mut begin = None;
     let mut end = None;
+    let mut before = String::new();
     let mut body = String::new();
-    for line in pasted.lines() {
-        if !is_armour(line) {
-            body.push_str(line);
-            continue;
-        }
-        let label = line.trim().trim_matches('-').trim();
-        if let Some(name) = label.strip_prefix("BEGIN ") {
-            begin.get_or_insert(name);
-        } else if let Some(name) = label.strip_prefix("END ") {
-            end = Some(name);
+    for raw in text.lines() {
+        let line = raw.trim_matches(|c: char| c == '>' || c.is_whitespace() || invisible(c));
+        match armour(line) {
+            Some(Armour::Begin(name)) if begin.is_none() => begin = Some(name),
+            Some(Armour::End(name)) => {
+                end = Some(name);
+                if begin.is_some() {
+                    break;
+                }
+            }
+            Some(Armour::Begin(_)) => {}
+            None if begin.is_some() => body.push_str(line),
+            None if end.is_none() => before.push_str(line),
+            None => {}
         }
     }
     if let (Some(begin), Some(end)) = (begin, end)
@@ -441,17 +449,108 @@ fn normalize(pasted: &str) -> String {
     {
         return String::new();
     }
-    body.chars().filter(|c| !c.is_whitespace()).collect()
+    let kept = if begin.is_some() { body } else { before };
+    kept.chars()
+        .filter(|c| !c.is_whitespace() && !invisible(*c))
+        .collect()
 }
 
-fn is_armour(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    let dashes = trimmed.chars().take_while(|c| *c == '-').count();
-    dashes > 0
-        && trimmed[dashes..]
-            .chars()
-            .next()
-            .is_none_or(char::is_whitespace)
+enum Armour<'a> {
+    Begin(&'a str),
+    End(&'a str),
+}
+
+fn armour(line: &str) -> Option<Armour<'_>> {
+    if !line.starts_with('-') {
+        return None;
+    }
+    let label = line.trim_matches(|c: char| c == '-' || c.is_whitespace());
+    if let Some(name) = label.strip_prefix("BEGIN ") {
+        Some(Armour::Begin(name))
+    } else {
+        label.strip_prefix("END ").map(Armour::End)
+    }
+}
+
+fn invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{ad}' | '\u{180e}' | '\u{200b}'..='\u{200d}' | '\u{2060}' | '\u{feff}'
+    )
+}
+
+fn unglue(text: &str) -> Cow<'_, str> {
+    let mut marks: Vec<usize> = text
+        .match_indices("BEGIN ")
+        .chain(text.match_indices("END "))
+        .map(|(at, _)| at)
+        .collect();
+    marks.sort_unstable();
+    let mut out = String::new();
+    let mut last = 0;
+    for at in marks {
+        if at < last {
+            continue;
+        }
+        let lead = text[..at].trim_end_matches([' ', '\t']);
+        let start = lead.trim_end_matches('-').len();
+        if start == lead.len() || start < last {
+            continue;
+        }
+        let label = text[at..]
+            .find(['-', '\r', '\n'])
+            .map_or(text.len(), |n| at + n);
+        let stop = label + (text[label..].len() - text[label..].trim_start_matches('-').len());
+        out.push_str(&text[last..start]);
+        out.push('\n');
+        out.push_str(&text[start..stop]);
+        out.push('\n');
+        last = stop;
+    }
+    if last == 0 {
+        return Cow::Borrowed(text);
+    }
+    out.push_str(&text[last..]);
+    Cow::Owned(out)
+}
+
+fn soft_breaks(pasted: &str) -> Cow<'_, str> {
+    if !pasted.contains('=') {
+        return Cow::Borrowed(pasted);
+    }
+    let bytes = pasted.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'=' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let blank = bytes[i + 1..]
+            .iter()
+            .take_while(|b| matches!(b, b' ' | b'\t'))
+            .count();
+        let after = i + 1 + blank;
+        match &bytes[after.min(bytes.len())..] {
+            [b'\r', b'\n', ..] => i = after + 2,
+            [b'\n', ..] => i = after + 1,
+            [] => i = after,
+            [high, low, ..]
+                if blank == 0 && high.is_ascii_hexdigit() && low.is_ascii_hexdigit() =>
+            {
+                let hex = [*high, *low];
+                let text = std::str::from_utf8(&hex).unwrap_or("00");
+                out.push(u8::from_str_radix(text, 16).unwrap_or(0));
+                i += 3;
+            }
+            _ => {
+                out.push(b'=');
+                i += 1;
+            }
+        }
+    }
+    Cow::Owned(String::from_utf8_lossy(&out).into_owned())
 }
 
 fn signed(public_key: &str, key: &str) -> Result<Vec<u8>, Refusal> {
@@ -655,6 +754,154 @@ mod tests {
         armoured.push_str("------ END PITO MD LICENSE ------\n");
         assert!(verify(&public, &armoured).is_ok());
         assert_eq!(normalize(&armoured), token);
+    }
+
+    fn wrap(token: &str, width: usize, newline: &str) -> String {
+        let mut text = format!("----- BEGIN PITO MD LICENSE -----{newline}");
+        for chunk in token.as_bytes().chunks(width) {
+            text.push_str(std::str::from_utf8(chunk).unwrap());
+            text.push_str(newline);
+        }
+        text.push_str(&format!("------ END PITO MD LICENSE ------{newline}"));
+        text
+    }
+
+    fn studio() -> (String, String) {
+        let (signing, public) = pair();
+        (
+            mint(&signing, &claims("p99", "studio", Some("timed"))),
+            public,
+        )
+    }
+
+    #[test]
+    fn a_bom_crlf_spaces_or_invisible_marks_around_a_key_still_verify() {
+        let (token, public) = studio();
+        let (head, tail) = token.split_at(token.len() / 2);
+        let pasted = [
+            format!("\u{feff}{}", wrap(&token, 64, "\r\n")),
+            format!("\u{feff}{token}\r\n"),
+            format!("   {token}   \n"),
+            format!("\t{head}\u{a0}{tail}\t"),
+            format!("{head}\u{200b}{tail}"),
+            format!("{head}\u{ad}{tail}"),
+            format!("{head}\u{2060}\u{200d}{tail}"),
+            wrap(&token, 40, "\r\n").replace('\n', "  \n"),
+        ];
+        for text in pasted {
+            assert_eq!(normalize(&text), token, "{text:?}");
+            assert!(verify(&public, &text).is_ok(), "{text:?}");
+        }
+    }
+
+    #[test]
+    fn a_line_holding_only_hyphens_is_part_of_the_key_inside_the_armour() {
+        let (signing, public) = pair();
+        let token = (1..10_000)
+            .map(|n| {
+                let payload =
+                    claims("p99", "studio", Some("timed")).replace("a@b.c", &format!("a{n}@b.c"));
+                mint(&signing, &payload)
+            })
+            .find(|t| t.contains('-'))
+            .unwrap();
+        let at = token.find('-').unwrap();
+        let wrapped = format!(
+            "----- BEGIN PITO MD LICENSE -----\n{}\n-\n{}\n------ END PITO MD LICENSE ------\n",
+            &token[..at],
+            &token[at + 1..]
+        );
+        assert_eq!(normalize(&wrapped), token);
+        assert_eq!(verify(&public, &wrapped).unwrap().tier(), "studio");
+    }
+
+    #[test]
+    fn mail_text_around_the_armour_and_quote_marks_are_left_out() {
+        let (token, public) = studio();
+        let mail = format!(
+            "Hi Ada,\r\nyour key:\r\n\r\n{}\r\n-- \r\nGrace Hopper\r\nexample.com\r\n",
+            wrap(&token, 50, "\r\n")
+        );
+        assert_eq!(normalize(&mail), token);
+        let quoted: String = wrap(&token, 50, "\n")
+            .lines()
+            .map(|l| format!("> > {l}\n"))
+            .collect();
+        assert_eq!(normalize(&quoted), token);
+        assert!(verify(&public, &quoted).is_ok());
+    }
+
+    #[test]
+    fn quoted_printable_soft_breaks_and_escapes_read_back_to_the_key() {
+        let (token, public) = studio();
+        let soft: String = token
+            .as_bytes()
+            .chunks(30)
+            .map(|c| format!("{}=\r\n", std::str::from_utf8(c).unwrap()))
+            .collect();
+        assert_eq!(normalize(&soft), token);
+        assert!(verify(&public, &soft).is_ok());
+        let spaced = soft.replace("=\r\n", "=  \n");
+        assert_eq!(normalize(&spaced), token);
+        let escaped = format!("=EF=BB=BF{}=20\n", wrap(&token, 64, "=\n"));
+        assert_eq!(normalize(&escaped), token, "{escaped:?}");
+        assert!(verify(&public, &escaped).is_ok(), "{escaped:?}");
+        let (head, tail) = token.split_at(75);
+        let mail = format!(
+            "Content-Transfer-Encoding: quoted-printable\r\n\r\nHi Ada=2C your key:\r\n\r\n=EF=BB=BF----- BEGIN PITO MD LICENSE -----\r\n{head}=\r\n{tail}\r\n------ END PITO MD LICENSE ------\r\n-- =\r\nGrace Hopper\r\n"
+        );
+        assert_eq!(normalize(&mail), token, "{mail:?}");
+        assert!(verify(&public, &mail).is_ok(), "{mail:?}");
+        assert_eq!(soft_breaks("a=3Db=\nc="), "a=bc");
+        assert_eq!(soft_breaks("a=zz"), "a=zz");
+        assert_eq!(soft_breaks("a= b"), "a= b");
+        assert!(matches!(soft_breaks("plain"), Cow::Borrowed("plain")));
+    }
+
+    #[test]
+    fn armour_glued_onto_the_key_by_a_rewrapping_client_is_split_back_out() {
+        let (token, public) = studio();
+        let glued = format!(
+            "> ----- BEGIN PITO MD LICENSE -----{token}------ END PITO MD LICENSE ------ thanks\n"
+        );
+        assert_eq!(normalize(&glued), token, "{glued:?}");
+        assert!(verify(&public, &glued).is_ok());
+        let half = format!(
+            "----- BEGIN PITO MD LICENSE -----{token}\n------ END PITO MD LICENSE ------\n"
+        );
+        assert_eq!(normalize(&half), token);
+        let mismatched =
+            format!("----- BEGIN PITO MD LICENSE -----{token}------ END PITO MD KEY ------");
+        assert_eq!(verify(&public, &mismatched), Err(Refusal::Shape));
+        assert_eq!(unglue("SEND it, BEGIN now"), "SEND it, BEGIN now");
+        assert!(matches!(unglue("plain"), Cow::Borrowed("plain")));
+        assert_eq!(unglue("a-- END X --b"), "a\n-- END X --\nb");
+        assert_eq!(unglue("-BEGIN X"), "\n-BEGIN X\n");
+    }
+
+    #[test]
+    fn what_is_no_key_is_still_refused_as_shape() {
+        let (token, public) = studio();
+        for text in [
+            String::new(),
+            "\u{feff}".to_owned(),
+            "\u{feff}\r\n   \r\n".to_owned(),
+            "-----\n-\n--\n".to_owned(),
+            "Hello, here is no key at all".to_owned(),
+            "=\n=\n".to_owned(),
+            format!("{token}.extra"),
+            wrap(&token, 64, "\n").replace("END PITO MD LICENSE", "END PITO MD KEY"),
+            "----- BEGIN PITO MD LICENSE -----\n------ END PITO MD LICENSE ------\n".to_owned(),
+        ] {
+            assert_eq!(verify(&public, &text), Err(Refusal::Shape), "{text:?}");
+        }
+        let mut flipped = token.clone().into_bytes();
+        flipped[10] = if flipped[10] == b'x' { b'y' } else { b'x' };
+        let broken = wrap(std::str::from_utf8(&flipped).unwrap(), 64, "\r\n");
+        assert_eq!(
+            verify(&public, &format!("\u{feff}{broken}")),
+            Err(Refusal::Signature)
+        );
     }
 
     #[test]
