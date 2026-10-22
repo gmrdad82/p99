@@ -95,6 +95,7 @@ pub struct Board {
     view: Option<BoardView>,
     names: Vec<String>,
     projects: Vec<String>,
+    asked: Vec<String>,
     error: Option<String>,
     stopped: bool,
     reading: bool,
@@ -124,6 +125,7 @@ impl Board {
             stale: None,
             names: source.accounts(),
             projects: Vec::new(),
+            asked: Vec::new(),
             source,
             palette,
             view: None,
@@ -223,9 +225,17 @@ impl Board {
 
     fn read(&mut self, cx: &mut Cx<'_, Msg>) {
         self.reading = true;
+        cx.detach(self.asking());
+    }
+
+    fn asking(&mut self) -> impl FnOnce() -> Msg + Send + 'static {
+        self.asked = self.projects.clone();
         let source = self.source.clone();
         let projects = self.projects.clone();
-        cx.detach(move || Msg::Board(source.board(&projects)));
+        move || {
+            let result = source.board(&projects);
+            Msg::Board(projects, result)
+        }
     }
 
     fn shown(&mut self, mut view: BoardView) {
@@ -951,9 +961,7 @@ impl Screen<Msg> for Board {
         self.view = None;
         self.error = None;
         self.stopped = false;
-        let source = self.source.clone();
-        let projects = self.projects.clone();
-        Some(Box::new(move || Msg::Board(source.board(&projects))))
+        Some(Box::new(self.asking()))
     }
 
     fn loaded(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
@@ -977,7 +985,12 @@ impl Screen<Msg> for Board {
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         self.moment = self.moment.max(cx.now());
         match event {
-            Msg::Board(result) => {
+            Msg::Board(projects, _) if projects != self.projects => {
+                if self.asked != self.projects {
+                    self.read(cx);
+                }
+            }
+            Msg::Board(_, result) => {
                 self.reading = false;
                 if result.is_ok() && !self.following && !self.source.is_demo() {
                     self.following = true;
@@ -1262,6 +1275,12 @@ impl Narrow for Board {
         self.projects = projects.to_vec();
         if self.view.is_some() {
             self.read(cx);
+        }
+    }
+
+    fn touched(&mut self, _cx: &mut Cx<'_, Msg>) {
+        if self.view.is_some() {
+            self.stale = Some(self.moment);
         }
     }
 }

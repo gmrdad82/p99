@@ -441,7 +441,7 @@ fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
     let mut view = app.demo(|demo| demo.one_board(&[]));
     let line_of = deck::behind("blog", Some("1.9.4"));
     view.missing.push(line_of.clone());
-    let text = app.event(BOARD, Msg::Board(Ok(view)));
+    let text = app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
     assert!(
         text.contains("blog: its Worker is P99 1.9.4, the board needs"),
         "{text}"
@@ -460,7 +460,7 @@ fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
         cards: Vec::new(),
         missing: vec![line_of],
     };
-    let empty = app.event(BOARD, Msg::Board(Ok(alone)));
+    let empty = app.event(BOARD, Msg::Board(Vec::new(), Ok(alone)));
     assert!(empty.contains("blog: its Worker"), "{empty}");
     assert!(empty.contains("New 0"), "{empty}");
     assert!(empty.contains("no cards"), "{empty}");
@@ -475,7 +475,7 @@ fn cards_of_several_accounts_share_the_lanes_and_name_their_account() {
     other.account = 1;
     other.id = "1/FEAT-9".into();
     view.cards.push(other);
-    let text = app.event(BOARD, Msg::Board(Ok(view)));
+    let text = app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
     assert!(text.contains("Stuck 2"), "{text}");
     assert!(text.contains("shop, blog"), "{text}");
     assert!(line(&text, " FEAT-9 ").contains(" shop "), "{text}");
@@ -509,7 +509,7 @@ fn a_failed_board_read_says_why_and_r_reads_again() {
 #[test]
 fn a_failed_reread_keeps_the_board_and_says_why() {
     let mut app = shown();
-    let text = app.event(BOARD, Msg::Board(Err("offline".into())));
+    let text = app.event(BOARD, Msg::Board(Vec::new(), Err("offline".into())));
     assert!(text.contains("offline"), "{text}");
     assert!(text.contains("New 8"), "{text}");
 }
@@ -713,7 +713,7 @@ fn a_card_of_a_second_account_opens_its_own_thread() {
         cards: vec![other],
         missing: Vec::new(),
     };
-    app.event(BOARD, Msg::Board(Ok(view)));
+    app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
     let text = app.press("enter");
     assert_eq!(board(&app).crumb().as_deref(), Some("BUG-90"));
     assert!(text.contains("no item is called BUG-90"), "{text}");
@@ -1105,4 +1105,74 @@ fn text_outside_the_clip_is_skipped_but_still_advances() {
     assert_eq!(end, 8);
     assert_eq!(rows(&buffer)[0], "   clipp");
     assert_eq!(rows(&buffer)[1], "");
+}
+
+fn mobile(app: &Run) -> usize {
+    app.source
+        .board(&["Mobile app".to_owned()])
+        .expect("the sample has a board")
+        .cards
+        .len()
+}
+
+fn cards(app: &Run) -> usize {
+    board(app).view.as_ref().map_or(0, |view| view.cards.len())
+}
+
+#[test]
+fn a_first_load_that_lands_after_a_new_filter_is_read_again_for_it() {
+    let mut app = shown();
+    let all = cards(&app);
+    let full = app.source.board(&[]).expect("the sample has a board");
+    {
+        let board = board_mut(&mut app);
+        board.view = None;
+        board.projects = vec!["Mobile app".to_owned()];
+        board.asked = Vec::new();
+    }
+    let text = app.event(BOARD, Msg::Board(Vec::new(), Ok(full)));
+    let want = mobile(&app);
+    assert!(want < all, "the filter narrows the sample");
+    assert_eq!(cards(&app), want, "{text}");
+    assert_eq!(board(&app).asked, ["Mobile app"]);
+    assert!(text.contains(&format!("{want} item")), "{text}");
+}
+
+#[test]
+fn an_answer_for_an_older_filter_never_replaces_the_board_shown() {
+    let mut app = run(sample());
+    app.text();
+    app.advance(Duration::from_secs(1));
+    app.press("p down enter esc");
+    let shown = app.go(BOARD);
+    let want = mobile(&app);
+    assert_eq!(cards(&app), want, "{shown}");
+    let full = app.source.board(&[]).expect("the sample has a board");
+    let late = app.event(BOARD, Msg::Board(Vec::new(), Ok(full)));
+    assert_eq!(cards(&app), want, "{late}");
+    assert!(late.contains("Mobile app"), "{late}");
+    assert!(!late.contains("28 items"), "{late}");
+    let failed = app.event(BOARD, Msg::Board(Vec::new(), Err("offline".into())));
+    assert!(!failed.contains("offline"), "{failed}");
+    assert_eq!(cards(&app), want, "{failed}");
+}
+
+#[test]
+fn a_move_made_in_a_thread_opened_from_w_reaches_the_board_underneath() {
+    let mut app = shown();
+    assert!(lane(&app, "Needs you").contains(&"BUG-25".to_owned()));
+    app.press("w enter");
+    let done = Change {
+        status: Some("done".into()),
+        ..Change::default()
+    };
+    let issue = app
+        .source
+        .change(0, None, "BUG-25", &done)
+        .expect("the sample takes the change");
+    app.event(BOARD, Msg::Changed("BUG-25".into(), Ok(issue)));
+    app.advance(Duration::from_millis(1));
+    let back = app.press("esc");
+    assert!(back.contains("New 8"), "{back}");
+    assert!(!lane(&app, "Needs you").contains(&"BUG-25".to_owned()), "{back}");
 }

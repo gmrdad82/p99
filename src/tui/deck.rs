@@ -7,11 +7,13 @@ pub use crate::one_board::{BoardCard, LaneInfo as Column};
 pub use crate::wire::{MoveTo as Move, MovedCard as Moved};
 
 use crate::boards::raced;
+use crate::client::Client;
 use crate::one_board::BoardQuery;
 
 use super::source::{Source, fold};
 
 pub const MOVED: &str = "this card moved; refreshed";
+pub const SINCE: &str = "1.10";
 pub const LANES: [(Lane, &str, bool); 7] = [
     (Lane::New, "New", false),
     (Lane::Planned, "Planned", false),
@@ -203,14 +205,25 @@ pub fn unrouted(error: &str) -> bool {
     error == "no such route (404)"
 }
 
+pub fn older(error: &str) -> bool {
+    error.ends_with("(404)") || error.ends_with("(400)")
+}
+
+pub fn asked_behind(client: &Client, account: &str) -> String {
+    let version = client
+        .json::<Value>("GET", "/health", None)
+        .ok()
+        .and_then(|health| health["version"].as_str().map(str::to_owned));
+    behind(account, version.as_deref())
+}
+
 pub fn behind(account: &str, version: Option<&str>) -> String {
     let worker = version.map_or_else(
         || "an older P99".to_owned(),
         |v| format!("P99 {}", v.trim_start_matches('v')),
     );
     format!(
-        "{account}: its Worker is {worker}, the board needs {}; p99 deploy --account {account} upgrades it",
-        crate::VERSION
+        "{account}: its Worker is {worker}, the board needs {SINCE} or later; p99 deploy --account {account} upgrades it"
     )
 }
 
@@ -259,13 +272,7 @@ impl Source {
                     view.cards
                         .extend(board.cards.into_iter().map(|c| Card::new(account, c)));
                 }
-                Err(error) if unrouted(&error) => {
-                    let version = client
-                        .json::<Value>("GET", "/health", None)
-                        .ok()
-                        .and_then(|health| health["version"].as_str().map(str::to_owned));
-                    view.missing.push(behind(name, version.as_deref()));
-                }
+                Err(error) if unrouted(&error) => view.missing.push(asked_behind(&client, name)),
                 Err(error) => {
                     view.missing.push(format!("{name}: {error}"));
                     failed.get_or_insert(error);
@@ -283,16 +290,15 @@ impl Source {
         }
     }
 
-    pub fn labels(&self, account: usize, _card: bool) -> Result<Vec<String>, String> {
+    pub fn labels(&self, account: usize) -> Result<Vec<String>, String> {
         match self {
             Source::Demo(..) => Ok(default_lanes().into_iter().map(|c| c.label).collect()),
-            Source::Live(_) => {
-                let board = self.client(account, None)?.one_board(&BoardQuery {
-                    statuses: vec![Lane::New],
-                    ..BoardQuery::default()
-                })?;
-                Ok(board.board.lanes.into_iter().map(|c| c.label).collect())
-            }
+            Source::Live(_) => Ok(self
+                .client(account, None)?
+                .label_list()?
+                .into_iter()
+                .map(|label| label.name)
+                .collect()),
             Source::Broken(why) => Err(why.clone()),
         }
     }
@@ -474,11 +480,12 @@ mod tests {
     fn an_old_worker_gets_one_line_naming_both_versions_and_the_fix() {
         assert_eq!(
             behind("shop", Some("1.9.2")),
-            format!(
-                "shop: its Worker is P99 1.9.2, the board needs {}; p99 deploy --account shop upgrades it",
-                crate::VERSION
-            )
+            "shop: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account shop upgrades it"
         );
+        assert!(older("no such card (404)"));
+        assert!(older("not a card key (400)"));
+        assert!(!older("not an owner (403)"));
+        assert!(!older("the Worker answered 500"));
         assert!(behind("shop", None).starts_with("shop: its Worker is an older P99, "));
         assert!(behind("shop", Some("v1.8.0")).contains("P99 1.8.0,"));
         assert!(unrouted("no such route (404)"));

@@ -199,7 +199,15 @@ impl Inbox {
         }
     }
 
-    fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
+    pub(super) fn filtering(&self) -> bool {
+        self.filter.active()
+    }
+
+    pub(super) fn choosing(&self) -> bool {
+        self.picking.is_some()
+    }
+
+    pub(super) fn refresh(&mut self, cx: &mut Cx<'_, Msg>) {
         if self.entries.is_none() {
             return;
         }
@@ -572,9 +580,8 @@ impl Inbox {
         let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
         };
-        let card = self.issue().is_some_and(|issue| issue.project.is_some());
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account, card)));
+        cx.detach(move || Msg::Labels(source.labels(account)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {

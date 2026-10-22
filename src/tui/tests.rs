@@ -468,6 +468,12 @@ fn p_with_no_projects_says_how_to_file_one() {
     assert!(text.contains(super::projects::NONE_YET), "{text}");
     let failed = app.event(INBOX, Msg::Projects(Err("offline".into())));
     assert!(failed.contains("offline"), "{failed}");
+}
+
+#[test]
+fn a_failed_count_stays_quiet_and_a_failed_w_says_why() {
+    let mut app = run(sample());
+    settled(&mut app);
     let quiet = app.event(INBOX, Msg::Waiting(false, Err("not an owner (403)".into())));
     assert!(!quiet.contains("not an owner"), "{quiet}");
     let loud = app.event(INBOX, Msg::Waiting(true, Err("offline now".into())));
@@ -482,4 +488,72 @@ fn the_codes_tab_takes_no_project_filter() {
     assert!(!codes.contains("p projects"), "{codes}");
     let text = app.press("p");
     assert!(!text.contains("All projects"), "{text}");
+}
+
+#[test]
+fn a_late_project_or_needs_you_answer_never_opens_over_typing() {
+    let mut app = run(sample());
+    settled(&mut app);
+    app.press("/");
+    let names = vec!["Mobile app".to_owned(), "Storefront".to_owned()];
+    let typed = app.event(INBOX, Msg::Projects(Ok(names)));
+    assert!(!typed.contains("All projects"), "{typed}");
+    let cards = app.source.waiting().expect("the sample waits");
+    let still = app.event(INBOX, Msg::Waiting(true, Ok(cards)));
+    assert!(!still.contains("Needs you ·"), "{still}");
+    assert!(still.contains("Filter"), "{still}");
+    let failed = app.event(INBOX, Msg::Projects(Err("offline".into())));
+    assert!(!failed.contains("offline"), "{failed}");
+}
+
+#[test]
+fn a_late_project_answer_leaves_the_host_picker_and_its_choice_alone() {
+    let mut app = run(sample());
+    settled(&mut app);
+    let hosts = app.press("h");
+    assert!(hosts.contains("dev.example.com"), "{hosts}");
+    let names = vec!["Mobile app".to_owned(), "Storefront".to_owned()];
+    let over = app.event(INBOX, Msg::Projects(Ok(names)));
+    assert!(!over.contains("All projects"), "{over}");
+    assert!(over.contains("dev.example.com"), "{over}");
+    let picked = app.press("down enter");
+    assert!(!picked.contains("✓"), "{picked}");
+    assert!(!picked.contains("All hosts"), "{picked}");
+    assert!(!picked.contains("· Mobile app"), "{picked}");
+}
+
+#[test]
+fn esc_clears_the_text_filter_first_and_the_projects_on_the_next_esc() {
+    let mut app = run(sample());
+    settled(&mut app);
+    let chosen = app.press("p down enter esc");
+    assert!(chosen.contains("esc all projects"), "{chosen}");
+    let both = app.press("/ t a s k enter");
+    assert!(both.contains("esc clear filter"), "{both}");
+    assert!(!both.contains("esc all projects"), "{both}");
+    let first = app.press("esc");
+    assert!(first.contains("All hosts · Mobile app"), "{first}");
+    assert!(first.contains("esc all projects"), "{first}");
+    let second = app.press("esc");
+    assert!(!second.contains("· Mobile app"), "{second}");
+    assert!(second.contains("21 of 28 items"), "{second}");
+    assert!(!second.contains("esc all projects"), "{second}");
+}
+
+#[test]
+fn a_change_made_in_a_thread_opened_from_w_refreshes_the_inbox_underneath() {
+    let mut app = run(sample());
+    settled(&mut app);
+    app.press("w enter");
+    let done = Change {
+        status: Some("done".into()),
+        ..Change::default()
+    };
+    let issue = app
+        .source
+        .change(0, None, "BUG-25", &done)
+        .expect("the sample takes the change");
+    app.event(INBOX, Msg::Changed("BUG-25".into(), Ok(issue)));
+    let back = app.press("esc");
+    assert!(back.contains("20 of 28 items"), "{back}");
 }

@@ -22,6 +22,16 @@ pub trait Narrow {
     }
 
     fn narrow(&mut self, _projects: &[String], _cx: &mut Cx<'_, Msg>) {}
+
+    fn filtered(&self) -> bool {
+        false
+    }
+
+    fn picking(&self) -> bool {
+        false
+    }
+
+    fn touched(&mut self, _cx: &mut Cx<'_, Msg>) {}
 }
 
 impl Narrow for Inbox {
@@ -31,6 +41,18 @@ impl Narrow for Inbox {
 
     fn narrow(&mut self, projects: &[String], _cx: &mut Cx<'_, Msg>) {
         self.projects(projects);
+    }
+
+    fn filtered(&self) -> bool {
+        self.filtering()
+    }
+
+    fn picking(&self) -> bool {
+        self.choosing()
+    }
+
+    fn touched(&mut self, cx: &mut Cx<'_, Msg>) {
+        self.refresh(cx);
     }
 }
 
@@ -127,21 +149,24 @@ impl Source {
         match self {
             Source::Demo(..) => self.sample(|demo| Ok(demo.projects())),
             Source::Live(_) => {
-                let (mut lists, mut failed) = (Vec::new(), None);
+                let (mut lists, mut failed, mut answered) = (Vec::new(), None, false);
                 for (account, name) in self.accounts().iter().enumerate() {
                     let answer = self
                         .client(account, None)
                         .and_then(|client| client.json::<ProjectList>("GET", "/v1/projects", None));
                     match answer {
-                        Ok(list) => lists.push(list.projects.into_iter().map(|p| p.name).collect()),
-                        Err(error) if unrouted(&error) => lists.push(Vec::new()),
+                        Ok(list) => {
+                            answered = true;
+                            lists.push(list.projects.into_iter().map(|p| p.name).collect());
+                        }
+                        Err(error) if unrouted(&error) => {}
                         Err(error) => {
                             failed.get_or_insert(format!("{name}: {error}"));
                         }
                     }
                 }
                 match failed {
-                    Some(error) if lists.is_empty() => Err(error),
+                    Some(error) if !answered => Err(error),
                     _ => Ok(merge(lists)),
                 }
             }

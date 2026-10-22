@@ -8,7 +8,7 @@ use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, Span};
 use crate::card::Card;
 
 use super::Msg;
-use super::deck::{unrouted, wanted};
+use super::deck::{asked_behind, older, unrouted, wanted};
 use super::inbox::Inbox;
 use super::projects::{self, NONE_YET, Narrow, Shared};
 use super::source::Source;
@@ -51,7 +51,15 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
     }
 
     fn free(&self) -> bool {
-        !self.reading() && !self.inner.typing() && self.inner.crumb().is_none()
+        !self.reading()
+            && self.picking.is_none()
+            && !self.inner.picking()
+            && !self.inner.typing()
+            && self.inner.crumb().is_none()
+    }
+
+    fn clears_projects(&self) -> bool {
+        self.inner.narrows() && !self.inner.filtered() && !self.shared.chosen().is_empty()
     }
 
     fn ask(&mut self, open: bool, cx: &mut Cx<'_, Msg>) {
@@ -80,7 +88,7 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
                     self.soon(QUIET);
                 }
             }
-            Msg::Board(Ok(_)) | Msg::Shifted(_, Ok(_)) | Msg::Changed(_, Ok(_)) => {
+            Msg::Board(_, Ok(_)) | Msg::Shifted(_, Ok(_)) | Msg::Changed(_, Ok(_)) => {
                 self.soon(Duration::ZERO);
             }
             Msg::Commented(_, Ok(_)) | Msg::Deleted(_, Ok(_)) => self.soon(Duration::ZERO),
@@ -152,9 +160,9 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             }
         }
         match result {
-            Ok((_, cards)) if open => self.offer_waiting(cards, cx),
-            Err(error) if open => cx.say(error, Tone::Alert),
-            _ => {}
+            _ if !open || !self.free() => {}
+            Ok((_, cards)) => self.offer_waiting(cards, cx),
+            Err(error) => cx.say(error, Tone::Alert),
         }
     }
 }
@@ -185,13 +193,25 @@ impl Source {
             Source::Live(_) => {
                 let (mut count, mut cards, mut failed, mut answered) = (0, Vec::new(), None, false);
                 for (account, name) in self.accounts().iter().enumerate() {
-                    match self.client(account, None).and_then(|c| c.waiting()) {
+                    let client = match self.client(account, None) {
+                        Ok(client) => client,
+                        Err(error) => {
+                            failed.get_or_insert(format!("{name}: {error}"));
+                            continue;
+                        }
+                    };
+                    match client.waiting() {
                         Ok(list) => {
                             answered = true;
                             count += list.count;
                             cards.extend(list.cards.into_iter().map(|card| (account, card)));
                         }
                         Err(error) if unrouted(&error) => {}
+                        Err(error) if older(&error) => {
+                            if failed.is_none() {
+                                failed = Some(asked_behind(&client, name));
+                            }
+                        }
                         Err(error) => {
                             failed.get_or_insert(format!("{name}: {error}"));
                         }
@@ -282,9 +302,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                     cx.detach(move || Msg::Projects(source.projects()));
                     return;
                 }
-                KeyCode::Esc if self.inner.narrows() && !self.shared.chosen().is_empty() => {
+                KeyCode::Esc if self.clears_projects() => {
                     self.shared.choose(Vec::new());
                     self.apply(cx);
+                    return;
                 }
                 _ => {}
             }
@@ -313,9 +334,12 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             Msg::Waiting(open, result) => self.got(open, result, cx),
             Msg::Projects(Ok(names)) => {
                 self.shared.0.borrow_mut().known = names;
-                self.offer_projects(0, cx);
+                if self.free() {
+                    self.offer_projects(0, cx);
+                }
             }
-            Msg::Projects(Err(error)) => cx.say(error, Tone::Alert),
+            Msg::Projects(Err(error)) if self.free() => cx.say(error, Tone::Alert),
+            Msg::Projects(Err(_)) => {}
             Msg::Heard(account, text) if self.reading() => {
                 self.reader.event(Msg::Heard(account, text.clone()), cx);
                 self.inner.event(Msg::Heard(account, text), cx);
@@ -323,6 +347,12 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             Msg::Pushed(account, key) if self.reading() => {
                 self.reader.event(Msg::Pushed(account, key.clone()), cx);
                 self.inner.event(Msg::Pushed(account, key), cx);
+            }
+            event @ (Msg::Commented(_, Ok(_)) | Msg::Changed(_, Ok(_)) | Msg::Deleted(_, Ok(_)))
+                if self.reading() =>
+            {
+                self.reader.event(event, cx);
+                self.inner.touched(cx);
             }
             event @ (Msg::Thread(..)
             | Msg::Commented(..)
@@ -394,6 +424,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         if self.free() && self.inner.phase() == Phase::Ready && !self.inner.typing() {
             if self.inner.narrows() {
                 hints.push(Hint::new("p", "projects").rank(2));
+            }
+            if self.clears_projects() {
+                hints.push(Hint::new("esc", "all projects"));
             }
             hints.push(Hint::new("w", "needs you").rank(2));
         }

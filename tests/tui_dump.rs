@@ -322,3 +322,20 @@ fn p_narrows_the_inbox_and_the_board_to_the_projects_chosen() {
     let cleared = dump("120x34", "p down enter esc esc");
     assert!(cleared.contains("21 of 28 items"), "{cleared}");
 }
+
+#[test]
+fn the_waiting_badge_counts_down_as_cards_move_out_and_hides_at_zero() {
+    let needs = "tab l l l space l l l enter";
+    let stuck = format!("{needs} h h space l l enter");
+    let landed = format!("{stuck}{}", " h space l enter".repeat(4));
+    for size in ["120x34", "80x24"] {
+        for (keys, said) in [(needs, Some("2 waiting")), (stuck.as_str(), Some("1 waiting")), (landed.as_str(), None)] {
+            let text = dump(size, keys);
+            let head: String = text.lines().take(3).collect::<Vec<_>>().join("\n");
+            match said {
+                Some(said) => assert!(head.contains(said), "{size} {keys:?}:\n{text}"),
+                None => assert!(!head.contains("waiting"), "{size} {keys:?}:\n{text}"),
+            }
+        }
+    }
+}
