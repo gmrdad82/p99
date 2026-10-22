@@ -629,7 +629,7 @@ export async function postStreamTicket(c) {
   const hosts = v.all ? null : c.code ? c.code.hosts.filter((h) => c.dir.hosts.has(h)) : [v.host];
   const ticket = K.hex(crypto.getRandomValues(new Uint8Array(24)));
   const ttl = Math.min(TICKET_TTL_MS, Number(c.env.TICKET_TTL_MS) || TICKET_TTL_MS);
-  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, until: Date.now() + ttl });
+  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, code: c.code ? c.code.id : null, until: Date.now() + ttl });
   return K.json(201, { ticket, expires_in: Math.ceil(ttl / 1000) });
 }
 
@@ -647,7 +647,47 @@ export async function ticketStream(request, env, url) {
   return K.hubOf(env).fetch(new Request(target, request));
 }
 
-export async function redeemTicket(storage, url) {
+export async function liveCodes(DB, ids) {
+  const wanted = [...new Set(ids.filter((id) => id !== null && id !== undefined))];
+  if (wanted.length === 0) return new Set();
+  try {
+    const { results } = await DB.prepare("SELECT id FROM codes WHERE id IN (SELECT value FROM json_each(?1)) AND revoked_at IS NULL")
+      .bind(JSON.stringify(wanted))
+      .all();
+    return new Set(results.map((r) => r.id));
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    return null;
+  }
+}
+
+export async function liveSockets(DB, sockets) {
+  const live = await liveCodes(DB, sockets.map(([, seen]) => seen.code));
+  return sockets.filter(([socket, seen]) => {
+    if (seen.code === undefined || seen.code === null) return true;
+    if (live === null) return false;
+    if (live.has(seen.code)) return true;
+    try {
+      socket.close(4001, "this code was revoked");
+    } catch {}
+    return false;
+  });
+}
+
+export async function fanOut(DB, sockets, events) {
+  const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
+  for (const [socket, seen] of await liveSockets(DB, sockets)) {
+    const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
+    for (const [hosts, every, line] of lines) {
+      if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
+      try {
+        socket.send(line);
+      } catch {}
+    }
+  }
+}
+
+export async function redeemTicket(storage, url, DB) {
   const hash = url.searchParams.get("ticket");
   const key = `ticket:${hash}`;
   const entry = await storage.get(key);
@@ -655,7 +695,9 @@ export async function redeemTicket(storage, url) {
   if (!entry || entry.until < Date.now()) return null;
   const origin = url.searchParams.get("origin");
   if (entry.hosts !== null && !entry.hosts.includes(origin)) return null;
-  return { hosts: entry.hosts };
+  const code = entry.code ?? null;
+  if (code !== null && !(await liveCodes(DB, [code]))?.has(code)) return null;
+  return { hosts: entry.hosts, code };
 }
 
 export async function storeTicket(storage, hash, entry) {

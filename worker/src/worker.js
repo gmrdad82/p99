@@ -9,6 +9,8 @@ import {
   START_LABEL,
   closeItem,
   redeemTicket,
+  fanOut,
+  liveSockets,
   reopenItem,
   stageOf,
   statusOf,
@@ -979,6 +981,15 @@ async function flushPushes(c) {
   }
 }
 
+async function codesRevoked(env) {
+  if (!env.HUB) return;
+  try {
+    await hubOf(env).revoked();
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+  }
+}
+
 async function openStream(c) {
   if (!c.env.HUB) fail(404, "this Worker has no push yet; run p99 deploy");
   if ((c.request.headers.get("upgrade") || "").toLowerCase() !== "websocket") fail(400, "the stream takes a WebSocket upgrade");
@@ -997,15 +1008,17 @@ export class P99Hub extends DurableObject {
     if ((request.headers.get("upgrade") || "").toLowerCase() !== "websocket") return new Response(null, { status: 400 });
     const url = new URL(request.url);
     let hosts = url.searchParams.has("host") ? [url.searchParams.get("host")] : null;
+    let code = null;
     if (url.searchParams.has("ticket")) {
-      const redeemed = await redeemTicket(this.ctx.storage, url);
+      const redeemed = await redeemTicket(this.ctx.storage, url, this.env.DB);
       if (!redeemed) return errorResponse(401, "the stream ticket is unknown, used or expired");
       hosts = redeemed.hosts;
+      code = redeemed.code;
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ hosts });
+    server.serializeAttachment({ hosts, code });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1013,18 +1026,16 @@ export class P99Hub extends DurableObject {
     await storeTicket(this.ctx.storage, hash, entry);
   }
 
+  async revoked() {
+    await liveSockets(this.env.DB, this.#sockets());
+  }
+
+  #sockets() {
+    return this.ctx.getWebSockets().map((socket) => [socket, socket.deserializeAttachment() || {}]);
+  }
+
   async publish(events) {
-    const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
-    for (const socket of this.ctx.getWebSockets()) {
-      const seen = socket.deserializeAttachment() || {};
-      const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
-      for (const [hosts, every, line] of lines) {
-        if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
-        try {
-          socket.send(line);
-        } catch {}
-      }
-    }
+    await fanOut(this.env.DB, this.#sockets(), events);
   }
 
   async webSocketMessage() {}
@@ -2559,6 +2570,7 @@ async function revokeCode(c, rawId) {
     .first();
   codeCache.clear();
   if (!row) fail(404, "no such code");
+  await codesRevoked(c.env);
   return json(200, codeOf(row));
 }
 
@@ -3229,6 +3241,7 @@ useLinkKit({
   codeOf,
   fail,
   forgetCodes: () => codeCache.clear(),
+  codesRevoked,
   isEmail,
   isUid,
   json,
