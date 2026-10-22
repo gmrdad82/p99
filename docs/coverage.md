@@ -104,23 +104,26 @@ JavaScript is still not measured. The Worker suite ran 113 checks and 8 known re
 
 ## JavaScript
 
-Lines of worker/src run by the worker suite, and lines of the loader, panel, board and shot run by the browser checks. A line counts when the V8 block holding its first statement ran at least once; blank lines don't count.
+Lines of worker/src run by the worker suite, and lines of the loader, panel, board, shot, avatar and app run by the browser checks. A line counts when the V8 block holding its first statement ran at least once; blank lines don't count.
+
+The two kinds of row count lines differently. A file the Worker bundle loaded counts only the lines its source map points at (statements and expressions), so lone braces and comment lines don't count; a file that never loaded, and every browser file, counts each non-blank line. A Worker file's line count can therefore drop when it first loads, and its percentage reads a little higher than the same file would by the plain rule.
 
 ### How it's measured
 
-- **The Worker:** `cd worker && npm run coverage` runs the worker suite (`npm test`, its stories included) with coverage on. The Worker runs inside workerd under `wrangler dev`, so node's own coverage can't see it: the suite opens wrangler's inspector port, starts V8's precise coverage once the Worker answers, and takes it just before each `wrangler dev` stops, the safety stories' backup Worker included. The counts are on wrangler's bundle and are mapped back to each file of worker/src through the bundle's source map. The node-side code the suite imports directly (license.js, tries.js) is read from node's own `NODE_V8_COVERAGE`. The table prints at the end and is kept in worker/.wrangler/coverage/table.md. The browser files under worker/src/web are served as text by the Worker, so they're counted by the browser pass, not here.
-- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap) and the widget stories (stories-widget) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md.
+- **The Worker:** `cd worker && npm run coverage` runs the worker suite (`npm test`, its stories included) with coverage on. The Worker runs inside workerd under `wrangler dev`, so node's own coverage can't see it: the suite opens wrangler's inspector port, starts V8's precise coverage once the Worker answers, and takes it just before each `wrangler dev` stops, the safety stories' backup Worker included. The counts are on wrangler's bundle and are mapped back to each file of worker/src through the bundle's source map. The node-side code the suite imports directly (license.js, tries.js) is read from node's own `NODE_V8_COVERAGE`. The table prints at the end and is kept in worker/.wrangler/coverage/table.md. The run fails with one line when a Worker dump couldn't be saved, when a workerd script's source map isn't found, or when worker.js maps no covered line, so a broken run never passes with a plausible table. The source map is read from beside the bundle, or else the newest one of that name under worker/.wrangler/tmp, where wrangler writes its bundles. The browser files under worker/src/web are served as text by the Worker, so they're counted by the browser pass, not here.
+- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap) and the widget stories (stories-widget) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md. The pass fails when a check took no coverage of a P99 script or when no line of worker/src/web ran. A check that fails keeps the coverage of the pages it closed before failing; the pages still open when it exits don't count.
+- The coverage tools' own unit tests run in the full gate: worker/test/coverage-lines.test.mjs inside `npm test`, and render/web/coverage.test.mjs right after it.
 - The Worker's module top level runs before the inspector attaches, so it's counted as run; a function that ran only before the attach and never again shows as not run.
 
 ### Numbers
 
-Today's tables come from the two commands above at each integration, pasted here per area: the Worker (worker/src) and the browser (worker/src/web).
+Not measured yet: no run has happened on this branch. The integrator runs both commands once and pastes the two tables here, the Worker (worker/src) and the browser (worker/src/web).
 
 ### Uncovered critical paths, first in line
 
-Read from the suite before the first measured run; the measured tables decide the order from here.
+Chosen by reading the suite, before any measured run. The first measured tables check them: a critical path that measures lower than these three goes on this list.
 
 - Uploads' bad paths: a reused upload uid with other bytes, a bad uid, name or type, content that doesn't match its type, a region without a mark, and a body that differs from its signed hash. Covered now by worker/test/critical.mjs.
 - Signing's header checks: a missing or malformed auth or body hash, a clock off by more than a minute, a bad or missing actor, a signature over another path or method, and a JSON body that differs from its hash. Covered now by worker/test/critical.mjs.
-- Codes: minting's validation and its client_uid replay, a repeated or unknown revoke, an authenticator on a revoked code, and verify's 6-digit rule. Covered now by worker/test/critical.mjs.
+- Codes: minting's validation and its client_uid replay (a replay answers the first code, whatever the new body says), a repeated or unknown revoke, an authenticator on a revoked code, verify's 6-digit rule and its lockout after 10 wrong codes. Covered now by worker/test/critical.mjs.
 - Import's attachment and finish paths beyond the one import story in worker/test/run.mjs.

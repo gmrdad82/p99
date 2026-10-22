@@ -388,7 +388,10 @@ async function startDev(at, vars, logName) {
     if (cover) {
       const taking = cover;
       cover = null;
-      await taking.save(join(covering, `worker-${at}.json`)).catch((error) => console.error(`coverage: ${error.message}`));
+      await taking.save(join(covering, `worker-${at}.json`)).catch((error) => {
+        console.error(`coverage: ${error.message}`);
+        process.exitCode = 1;
+      });
     }
     signal("SIGTERM");
     const late = setTimeout(() => signal("SIGKILL"), 10000);
@@ -397,7 +400,7 @@ async function startDev(at, vars, logName) {
   };
   try {
     await waitForHealth(child, `http://127.0.0.1:${at}`, logName);
-    if (covering) cover = await coverWorker(at + 1000, work);
+    if (covering) cover = await coverWorker(at + 1000, join(work, "tmp"));
   } catch (error) {
     await stop();
     throw error;
@@ -1224,7 +1227,7 @@ async function run() {
     for (const name of ["capture", "elementsAt", "context"]) assert.equal(typeof module[name], "function", name);
   });
 
-  await criticalChecks({ base, call, browse, mint, check, issueBody, here, sha256, keys, sign, actorHeader });
+  await criticalChecks({ base, call, browse, mint, check, issueBody, here, sha256, keys, sign, actorHeader, state });
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });

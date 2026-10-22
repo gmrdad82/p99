@@ -473,7 +473,10 @@ async function startWorker({ wrangler, root, persist, port, inspector, vars, log
     if (cover) {
       const taking = cover;
       cover = null;
-      await taking.save(join(process.env.P99_COVERAGE, `worker-backup-${port}-${++covers}.json`)).catch((error) => console.error(`coverage: ${error.message}`));
+      await taking.save(join(process.env.P99_COVERAGE, `worker-backup-${port}-${++covers}.json`)).catch((error) => {
+        console.error(`coverage: ${error.message}`);
+        process.exitCode = 1;
+      });
     }
     signal("SIGTERM");
     const late = setTimeout(() => signal("SIGKILL"), 10000);
@@ -493,7 +496,7 @@ async function startWorker({ wrangler, root, persist, port, inspector, vars, log
       },
       60000,
     );
-    if (process.env.P99_COVERAGE) cover = await coverWorker(inspector, join(root, ".wrangler"));
+    if (process.env.P99_COVERAGE) cover = await coverWorker(inspector, join(root, ".wrangler", "tmp"));
   } catch (error) {
     await stop();
     throw error;

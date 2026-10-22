@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { decodeMappings, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
-import { collect, ownsFile, report, workerFiles } from "./coverage.mjs";
+import { collect, ownsFile, problems, report, workerFiles } from "./coverage.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const fn = (...ranges) => ({ functionName: "", isBlockCoverage: true, ranges: ranges.map(([startOffset, endOffset, count]) => ({ startOffset, endOffset, count })) });
@@ -193,4 +193,51 @@ test("an empty or missing dump folder reports every file at 0%", () => {
   assert.equal(collect(dir).size, 0);
   const shown = report(dir);
   for (const file of workerFiles()) assert.match(shown, new RegExp(`\\| src/${file.split(/[\\/]/).pop().replace(".", "\\.")} \\| 0\\.00% \\|`));
+});
+
+test("a workerd script whose source map can't be found fails the run instead of dropping out of the table", () => {
+  const dir = scratch();
+  try {
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "bundle.js", sourceMapURL: "gone.js.map", source: "x();\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.throws(() => collect(dir, { searchDir: dir }), /no source map for bundle\.js in worker-8787\.json/);
+    assert.throws(() => report(dir), /no source map/);
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "bundle.js", source: "x();\n//# sourceMappingURL=gone.js.map\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.throws(() => collect(dir, { searchDir: dir }), /no source map for bundle\.js/);
+    writeFileSync(
+      join(dir, "worker-8787.json"),
+      JSON.stringify({ kind: "workerd", loaded: true, scripts: [{ url: "internal", source: "x();\n", functions: [fn([0, 5, 1])] }] }),
+    );
+    assert.equal(collect(dir, { searchDir: dir }).size, 0);
+    assert.match(problems(dir, collect(dir, { searchDir: dir })).join("\n"), /worker\.js maps no covered line/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a map reference on another scheme than the script's file: url is not found rather than thrown", () => {
+  const url = pathToFileURL(join(root, ".wrangler", "tmp", "dev-1", "index.js")).href;
+  assert.equal(sourceMapOf({ url, sourceMapURL: "http://127.0.0.1:9229/index.js.map", source: "x();" }, null), null);
+  assert.equal(sourceMapOf({ url, sourceMapURL: "data-less.js.map", source: "x();" }, null), null);
+});
+
+test("a run with no Worker dump, or one where worker.js maps no covered line, is a failed run", () => {
+  const dir = scratch();
+  try {
+    const main = join(root, "src", "worker.js");
+    assert.match(problems(dir, new Map()).join("\n"), /no Worker dump was saved/);
+    writeFileSync(join(dir, "worker-backup-8800-1.json"), JSON.stringify({ kind: "workerd", scripts: [] }));
+    assert.match(problems(dir, new Map()).join("\n"), /worker\.js maps no covered line/);
+    assert.match(problems(dir, new Map([[main, new Map([[1, false], [2, false]])]])).join("\n"), /worker\.js maps no covered line/);
+    assert.deepEqual(problems(dir, new Map([[main, new Map([[1, false], [2, true]])]])), []);
+    rmSync(dir, { recursive: true, force: true });
+    assert.match(problems(dir, new Map([[main, new Map([[1, true]])]])).join("\n"), /no Worker dump was saved/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { SHOWN, cover, fold, ownScripts, report, servedParts } from "./coverage.mjs";
+import { SHOWN, cover, dumpCount, fold, ownScripts, problems, report, servedParts } from "./coverage.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -70,7 +70,7 @@ test("folding counts a file's lines once across pages, and drops lines a check a
   }
 });
 
-test("the browser table lists the loader, panel, board, shot and avatar even when no check loaded them", () => {
+test("the browser table lists the loader, panel, board, shot, avatar and app even when no check loaded them", () => {
   const dir = scratch();
   rmSync(dir, { recursive: true, force: true });
   const shown = report(dir);
@@ -152,4 +152,33 @@ test("a page whose coverage can't be read hands over nothing and still closes", 
   await (await ctx.newPage()).close();
   assert.equal(page.closed, true);
   assert.deepEqual(handed, []);
+});
+
+test("a check that took no coverage, or a pass where no web line ran, fails with one line each", () => {
+  const ran = new Map([[join(web, "p99.js"), new Map([[1, true], [2, false]])]]);
+  const idle = new Map([[join(web, "p99.js"), new Map([[1, false]])]]);
+  assert.deepEqual(problems([{ check: "capture-check.mjs", dumps: 2 }], ran), []);
+  assert.deepEqual(problems([{ check: "capture-check.mjs", dumps: 2 }, { check: "search-check.mjs", dumps: 0 }], ran), [
+    "coverage: search-check.mjs took no coverage of a P99 script",
+  ]);
+  assert.deepEqual(problems([{ check: "swap-check.mjs", dumps: 1 }], idle), ["coverage: no line of worker/src/web ran in any check"]);
+  assert.equal(problems([], new Map()).length, 1);
+});
+
+test("the dump count reads only JSON files, and a missing folder counts none", () => {
+  const dir = scratch();
+  try {
+    assert.equal(dumpCount(dir), 0);
+    writeFileSync(join(dir, "1-0.json"), "[]");
+    writeFileSync(join(dir, "table.md"), "");
+    assert.equal(dumpCount(dir), 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  assert.equal(dumpCount(dir), 0);
+});
+
+test("app.js counts in the browser table, so its row shows whichever checks ran", () => {
+  assert.ok(SHOWN.includes("app.js"));
+  assert.deepEqual(servedParts("http://app.localhost:8790/_p99/app.js", ""), [{ name: "app.js", from: 0 }]);
 });

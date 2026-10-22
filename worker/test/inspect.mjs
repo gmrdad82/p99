@@ -39,7 +39,12 @@ export async function coverWorker(port, searchDir) {
         if (!scriptSource) continue;
         const info = parsed.get(entry.scriptId) || {};
         const script = { url: entry.url, sourceMapURL: info.sourceMapURL || "", source: scriptSource, functions: entry.functions };
-        const found = sourceMapOf(script, searchDir);
+        let found = null;
+        try {
+          found = sourceMapOf(script, searchDir);
+        } catch (error) {
+          console.error(`coverage: ${entry.url}: ${error.message}`);
+        }
         scripts.push(found ? { ...script, map: found.map, mapDir: found.dir } : script);
       }
       await send("Profiler.stopPreciseCoverage").catch(() => {});

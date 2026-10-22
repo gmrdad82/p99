@@ -8,7 +8,7 @@ import { licenseState } from "../src/license.js";
 export const APP_HOST = "app.localhost";
 export const LICENSE_STATE = "owner";
 
-function totpOf(key, offset = 0) {
+export function totpOf(key, offset = 0) {
   const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   let bits = 0;
   let value = 0;

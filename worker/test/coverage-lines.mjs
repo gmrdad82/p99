@@ -123,7 +123,10 @@ export function sourceMapOf(script, searchDir) {
     return { map: JSON.parse(text), dir: script.url?.startsWith("file:") ? dirname(fileURLToPath(script.url)) : searchDir };
   }
   const candidates = [];
-  if (script.url?.startsWith("file:")) candidates.push(fileURLToPath(new URL(ref, script.url)));
+  if (script.url?.startsWith("file:")) {
+    const beside = new URL(ref, script.url);
+    if (beside.protocol === "file:") candidates.push(fileURLToPath(beside));
+  }
   if (isAbsolute(ref)) candidates.push(ref);
   const found = candidates.find((p) => existsSync(p)) || (searchDir ? newestNamed(searchDir, ref.split(/[\\/]/).pop()) : null);
   return found ? { map: JSON.parse(readFileSync(found, "utf8")), dir: dirname(found) } : null;

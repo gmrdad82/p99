@@ -19,7 +19,7 @@ export function ownsFile(file) {
   return file.startsWith(src + sep) && !file.startsWith(web) && file.endsWith(".js");
 }
 
-export function collect(dir, { searchDir = join(root, ".wrangler") } = {}) {
+export function collect(dir, { searchDir = join(root, ".wrangler", "tmp") } = {}) {
   const files = new Map();
   const add = (file, lines) => {
     if (ownsFile(file)) mergeLines(files, file, lines);
@@ -34,6 +34,8 @@ export function collect(dir, { searchDir = join(root, ".wrangler") } = {}) {
         for (const [file, lines] of mappedLines(script.source, counts, found.map, found.dir)) add(file, lines);
       } else if (script.url.startsWith("file:")) {
         add(fileURLToPath(script.url), plainLines(script.source, counts));
+      } else if (script.sourceMapURL || /[#@]\s*sourceMappingURL=/.test(script.source || "")) {
+        throw new Error(`coverage: no source map for ${script.url} in ${name}`);
       }
     }
   }
@@ -52,9 +54,17 @@ export function collect(dir, { searchDir = join(root, ".wrangler") } = {}) {
   return files;
 }
 
-export function report(dir) {
+export function problems(dir, files) {
+  const dumps = existsSync(dir) ? readdirSync(dir).filter((name) => name.startsWith("worker-") && name.endsWith(".json")) : [];
+  if (dumps.length === 0) return ["coverage: no Worker dump was saved; the inspector never answered or its save failed"];
+  const main = files.get(join(src, "worker.js"));
+  if (!main || ![...main.values()].some(Boolean)) return ["coverage: worker.js maps no covered line; the bundle's source map is not the Worker's"];
+  return [];
+}
+
+export function report(dir, files = collect(dir)) {
   const universe = workerFiles().map((file) => ({ name: `src/${file.slice(src.length + 1)}`, text: readFileSync(file, "utf8") }));
-  return table(rows(collect(dir), root, universe));
+  return table(rows(files, root, universe));
 }
 
 async function main() {
@@ -67,10 +77,20 @@ async function main() {
     env: { ...process.env, P99_COVERAGE: dir, NODE_V8_COVERAGE: join(dir, "node") },
   });
   const code = await new Promise((resolve) => child.once("exit", (status, signal) => resolve(signal ? 1 : status)));
-  const text = report(dir);
+  let files;
+  try {
+    files = collect(dir);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+  const text = report(dir, files);
   writeFileSync(join(dir, "table.md"), text + "\n");
   console.log(`\nWorker line coverage (worker/src, from the worker suite):\n\n${text}`);
-  process.exitCode = code;
+  const found = problems(dir, files);
+  for (const line of found) console.error(line);
+  process.exitCode = found.length > 0 ? 1 : code;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

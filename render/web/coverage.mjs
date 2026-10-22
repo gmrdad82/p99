@@ -10,8 +10,8 @@ const worker = join(repo, "worker");
 const web = join(worker, "src", "web");
 
 export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs"];
-export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js"];
-const SERVED = new Set([...SHOWN, "app.js"]);
+export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "app.js"];
+const SERVED = new Set(SHOWN);
 const CAPTURE_TAIL = "\nreturn exports;\n})();\n";
 
 export function ownScripts(entries) {
@@ -106,9 +106,19 @@ export function fold(dir, readText = (name) => readFileSync(join(web, name), "ut
   return files;
 }
 
-export function report(dir) {
+export function dumpCount(dir) {
+  return existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith(".json")).length : 0;
+}
+
+export function problems(taken, files) {
+  const found = taken.filter(({ dumps }) => dumps === 0).map(({ check }) => `coverage: ${check} took no coverage of a P99 script`);
+  if (![...files.values()].some((lines) => [...lines.values()].some(Boolean))) found.push("coverage: no line of worker/src/web ran in any check");
+  return found;
+}
+
+export function report(dir, files = fold(dir)) {
   const universe = SHOWN.map((name) => ({ name: `src/web/${name}`, text: readFileSync(join(web, name), "utf8") }));
-  return table(rows(fold(dir), worker, universe));
+  return table(rows(files, worker, universe));
 }
 
 function runCheck(check, dir) {
@@ -133,17 +143,21 @@ async function main() {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const failed = [];
+  const taken = [];
   for (const check of picked.length > 0 ? picked : CHECKS) {
     console.log(`coverage: ${check}`);
+    const before = dumpCount(dir);
     if ((await runCheck(check, dir)) !== 0) failed.push(check);
+    taken.push({ check, dumps: dumpCount(dir) - before });
   }
-  const text = report(dir);
+  const files = fold(dir);
+  const text = report(dir, files);
   writeFileSync(join(dir, "table.md"), text + "\n");
   console.log(`\nBrowser line coverage (worker/src/web, from the browser checks):\n\n${text}`);
-  if (failed.length > 0) {
-    console.error(`coverage: ${failed.join(", ")} failed; their pages count as far as they ran`);
-    process.exitCode = 1;
-  }
+  const found = problems(taken, files);
+  for (const line of found) console.error(line);
+  if (failed.length > 0) console.error(`coverage: ${failed.join(", ")} failed; only the pages they closed before failing count`);
+  if (failed.length + found.length > 0) process.exitCode = 1;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await main();

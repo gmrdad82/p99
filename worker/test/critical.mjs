@@ -1,11 +1,42 @@
 import { randomUUID } from "node:crypto";
+import { existsSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
+import { totpOf } from "./app.mjs";
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 1)]);
 const MARK = { rect: { x: 10, y: 20, w: 100, h: 40 }, viewport: { w: 1280, h: 800, scroll_x: 0, scroll_y: 0, dpr: 1 } };
 const ADA = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 
-export async function criticalChecks({ base, call, browse, mint, check, issueBody, here, sha256, keys, sign, actorHeader }) {
+export function stateFiles(state, kind) {
+  const dir = join(state, "v3", kind, kind === "d1" ? "miniflare-D1DatabaseObject" : "miniflare-R2BucketObject");
+  return existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".sqlite") && f !== "metadata.sqlite").map((f) => join(dir, f)) : [];
+}
+
+function readEach(files, sql, ...args) {
+  const found = [];
+  for (const file of files) {
+    const db = new DatabaseSync(file, { readOnly: true });
+    try {
+      found.push(...db.prepare(sql).all(...args).map((r) => ({ ...r })));
+    } finally {
+      db.close();
+    }
+  }
+  return found;
+}
+
+export function storedUpload(state, uid) {
+  const d1 = stateFiles(state, "d1");
+  assert.equal(d1.length, 1, `expected one D1 database under ${state}`);
+  return {
+    rows: readEach(d1, "SELECT id, stored_at FROM attachments WHERE client_uid = ?1", uid),
+    objects: readEach(stateFiles(state, "r2"), "SELECT key FROM _mf_objects WHERE key LIKE ?1", `%/${uid}`).map((r) => r.key),
+  };
+}
+
+export async function criticalChecks({ base, call, browse, mint, check, issueBody, here, sha256, keys, sign, actorHeader, state }) {
   const signedFetch = (method, path, { bytes = Buffer.alloc(0), hash = sha256(bytes), ts = Math.floor(Date.now() / 1000), actor, headers = {} } = {}) => {
     const actorText = actor === undefined ? actorHeader({ email: "grace@example.com", name: "Grace Hopper", agent: true }) : actor;
     const all = {
@@ -67,9 +98,12 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     assert.equal(listed.json.issues.some((i) => i.title === title), false);
   });
 
-  const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Uploads land once", marks: [MARK] }) });
-  assert.equal(filed.status, 201, JSON.stringify(filed.json));
-  const key = filed.json.key;
+  let key = "BUG-00000000";
+  await check("an item with one mark is filed for the upload checks", async () => {
+    const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Uploads land once", marks: [MARK] }) });
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    key = filed.json.key;
+  });
   const put = (uid, query, bytes, type) =>
     call("PUT", `/_p99/v1/issues/${key}/attachments/${encodeURIComponent(uid)}?host=${here}&${query}`, { raw: bytes, type });
 
@@ -123,6 +157,10 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     assert.equal(missing.status, 404);
     const item = await call("GET", `/_p99/v1/issues/${key}?host=${here}`);
     assert.equal(item.json.attachments.filter((a) => a.client_uid === uid).length, 1);
+    const stored = storedUpload(state, uid);
+    assert.equal(stored.rows.length, 1);
+    assert.ok(stored.rows[0].stored_at);
+    assert.equal(stored.objects.length, 1);
   });
 
   await check("an upload whose bytes differ from its signed X-Content-SHA256 is refused and leaves no file", async () => {
@@ -136,6 +174,16 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     await refusal(response, 400, /X-Content-SHA256/);
     const item = await call("GET", `/_p99/v1/issues/${key}?host=${here}`);
     assert.equal(item.json.attachments.some((a) => a.client_uid === uid), false);
+    assert.deepEqual(storedUpload(state, uid), { rows: [], objects: [] });
+    const retried = await signedFetch("PUT", `/_p99/v1/issues/${key}/attachments/${uid}?host=${here}&name=swap.txt`, {
+      bytes,
+      headers: { "content-type": "text/plain" },
+    });
+    assert.equal(retried.status, 201, await retried.clone().text());
+    const stored = storedUpload(state, uid);
+    assert.equal(stored.rows.length, 1);
+    assert.ok(stored.rows[0].stored_at);
+    assert.equal(stored.objects.length, 1);
   });
 
   await check("a browser upload is refused without a code, and a reporter attaches only to their own item", async () => {
@@ -177,6 +225,13 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     assert.equal(replay.status, 200);
     assert.equal(replay.json.code.id, first.json.code.id);
     assert.equal(replay.json.secret, undefined);
+    const changed = await call("POST", "/_p99/v1/codes", { body: { name: "Grace Hopper", email: "grace@example.com", hosts: ["unlisted.example.com"], manager: true, client_uid: uid } });
+    assert.equal(changed.status, 200, JSON.stringify(changed.json));
+    assert.equal(changed.json.code.id, first.json.code.id);
+    assert.equal(changed.json.code.name, "Ada Lovelace");
+    assert.equal(changed.json.code.email, "ada@example.com");
+    assert.deepEqual(changed.json.code.hosts, [here]);
+    assert.equal(changed.json.secret, undefined);
     assert.equal((await call("POST", "/_p99/v1/codes", { body, actor: ADA })).status, 409);
     const listed = await call("GET", `/_p99/v1/codes?host=${here}`);
     const row = listed.json.codes.find((cd) => cd.id === first.json.code.id);
@@ -207,5 +262,17 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
       await refusal((await browse("POST", "/verify", guarded.secret, { totp })), 400, /6 digits/);
     }
     assert.equal((await browse("GET", "/me", guarded.secret)).status, 428);
+  });
+
+  await check("verify locks after 10 wrong codes, and then refuses even the right one", async () => {
+    const locked = await mint("Grace Hopper", "grace@example.com", [here]);
+    const set = await call("POST", `/_p99/v1/codes/${locked.code.id}/totp`);
+    assert.equal(set.status, 200, JSON.stringify(set.json));
+    const near = new Set([-1, 0, 1].map((offset) => totpOf(set.json.totp_key, offset)));
+    const wrong = ["000000", "111111", "222222", "333333"].find((code) => !near.has(code));
+    for (let i = 1; i < 10; i++) await refusal((await browse("POST", "/verify", locked.secret, { totp: wrong })), 400, /doesn't match/);
+    await refusal((await browse("POST", "/verify", locked.secret, { totp: wrong })), 403, /too many wrong codes/);
+    await refusal((await browse("POST", "/verify", locked.secret, { totp: totpOf(set.json.totp_key) })), 403, /too many wrong codes/);
+    assert.equal((await browse("GET", "/me", locked.secret)).status, 428);
   });
 }
