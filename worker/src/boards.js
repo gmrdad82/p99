@@ -113,7 +113,10 @@ export async function patchLabel(c, rawId) {
   try {
     await DB.prepare("UPDATE labels SET name = ?2 WHERE id = ?1").bind(label.id, name).run();
   } catch (error) {
-    if (K.isUniqueViolation(error)) K.fail(409, `a label called ${name} exists`);
+    if (K.isUniqueViolation(error)) {
+      const old = await DB.prepare("SELECT 1 AS n FROM labels l JOIN archived a ON a.kind = 'label' AND a.id = l.id WHERE l.name = ?1").bind(name).first();
+      K.fail(409, old ? `an old label holds the name ${name}` : `a label called ${name} exists`);
+    }
     throw error;
   }
   pushOf(c, { type: "labels", host: null, action: "renamed", names: [label.name, name] });

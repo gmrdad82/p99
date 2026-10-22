@@ -49,7 +49,7 @@ CREATE TABLE one_lanes AS
 SELECT row_number() OVER (ORDER BY bc.position) - 1 AS lane, bc.label_id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1;
 
 UPDATE labels SET closes = CASE WHEN id = (SELECT label_id FROM one_lanes WHERE lane = 6) THEN 1 ELSE 0 END
-WHERE id IN (SELECT label_id FROM one_lanes);
+WHERE id IN (SELECT label_id FROM one_lanes) AND (SELECT count(*) FROM one_lanes) = 7;
 
 DROP TABLE IF EXISTS one_rank;
 CREATE TABLE one_rank AS
@@ -75,7 +75,7 @@ SELECT i.id AS item_id, i.label_id AS from_id, l.name AS from_name,
     ELSE 2
   END) AS to_id
 FROM items i JOIN labels l ON l.id = i.label_id
-WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold')
+WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold') AND (SELECT count(*) FROM one_lanes) = 7
   AND (i.label_id NOT IN (SELECT label_id FROM one_lanes)
     OR (i.open = 0) <> (i.label_id = (SELECT label_id FROM one_lanes WHERE lane = 6)));
 
@@ -97,7 +97,7 @@ WITH placed AS (
 SELECT i.id AS item_id, COALESCE(m.to_id, i.label_id) AS label_id,
   row_number() OVER (PARTITION BY COALESCE(m.to_id, i.label_id) ORDER BY p.rank IS NULL, p.rank, p.col, p.key, i.id DESC) - 1 AS n
 FROM items i LEFT JOIN one_map m ON m.item_id = i.id LEFT JOIN placed p ON p.item_id = i.id AND p.nth = 1
-WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold');
+WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold') AND (SELECT count(*) FROM one_lanes) = 7;
 
 UPDATE items SET label_id = (SELECT m.to_id FROM one_map m WHERE m.item_id = items.id)
 WHERE id IN (SELECT item_id FROM one_map);
@@ -125,12 +125,12 @@ UPDATE labels SET role = CASE id
 WHERE id IN (SELECT label_id FROM one_lanes WHERE lane IN (0, 2, 5, 6)) AND (SELECT count(*) FROM one_lanes) = 7;
 
 INSERT OR IGNORE INTO archived (kind, id, at)
-SELECT 'board', id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM boards WHERE cards = 0;
+SELECT 'board', id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM boards WHERE cards = 0 AND (SELECT count(*) FROM one_lanes) = 7;
 
 INSERT OR IGNORE INTO archived (kind, id, at)
-SELECT 'label', id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM labels WHERE id NOT IN (SELECT label_id FROM one_lanes);
+SELECT 'label', id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM labels WHERE id NOT IN (SELECT label_id FROM one_lanes) AND (SELECT count(*) FROM one_lanes) = 7;
 
-INSERT OR IGNORE INTO archived (kind, id, at) VALUES ('fold', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+INSERT OR IGNORE INTO archived (kind, id, at) SELECT 'fold', 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE (SELECT count(*) FROM one_lanes) = 7;
 
 DROP TABLE one_order;
 DROP TABLE one_map;

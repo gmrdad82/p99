@@ -19,6 +19,7 @@ import {
   oneBoardSql,
   sawLane,
 } from "../src/one-board.js";
+import { stageOf } from "../src/boards.js";
 
 const AT = (day) => `'2026-01-0${day}T00:00:00.000Z'`;
 const FOLD = "0016_one_board.sql";
@@ -146,10 +147,16 @@ function dump(db) {
   return Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
 }
 
-function seeded(root) {
+function seeded(root, extra = "") {
   const db = migrated(root, FOLD);
   db.exec(SEED);
+  db.exec(extra);
   return db;
+}
+
+function stages(db) {
+  const rows = db.prepare("SELECT i.id, i.open, i.resolution, l.role AS label_role FROM items i JOIN labels l ON l.id = i.label_id ORDER BY i.id").all();
+  return Object.fromEntries(rows.map((r) => [r.id, stageOf(r)]));
 }
 
 function laneNames(db) {
@@ -440,5 +447,69 @@ export async function foldChecks({ check, root }) {
     assert.equal(moved.changed_at, "2026-01-01T00:00:00.000Z");
     const shop = boardRows(db, { all: false, host: "shop.example.com" }, {}).find((r) => r.id === 14);
     assert.equal(shop.place, 1);
+  });
+
+  await check("[fold] an open item on a custom closing column goes to In progress, still open with no resolution, never to Done", async () => {
+    const db = seeded(root, item(15, "Shipped", { day: 2 }));
+    fold(root, db);
+    assert.equal(laneOfItem(db, 15), "In progress");
+    assert.deepEqual({ ...db.prepare("SELECT open, resolution, closed_at FROM items WHERE id = 15").get() }, { open: 1, resolution: null, closed_at: null });
+    const events = db.prepare("SELECT detail_json FROM events WHERE item_id = 15 AND kind = 'label'").all().map((e) => JSON.parse(e.detail_json));
+    assert.deepEqual(events, [{ from: "Shipped", to: "In progress", migrated: true }]);
+    assert.equal(laneOfItem(db, 7), "Done");
+  });
+
+  await check("[fold] a six-lane Cards board that already has a lane called Needs you is left untouched, not half-folded", async () => {
+    const db = seeded(root, "UPDATE labels SET name = 'Needs you' WHERE name = 'Stuck';");
+    const before = dump(db);
+    fold(root, db);
+    const after = dump(db);
+    for (const t of TABLES.filter((t) => t !== "archived")) assert.deepEqual(after[t], before[t], t);
+    assert.deepEqual(after.archived, []);
+    assert.equal(db.prepare("SELECT closes FROM labels WHERE name = 'Done'").get().closes, 1);
+    assert.deepEqual(laneNames(db), ["New", "Planned", "In progress", "Needs you", "Landed", "Done"]);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'one\\_%' ESCAPE '\\'").get().n, 0);
+  });
+
+  await check("[fold] a six-lane Cards board with a renamed lane gets Needs you fourth, the renamed lane kept in its place", async () => {
+    const db = seeded(root, "UPDATE labels SET name = 'Next up' WHERE name = 'Planned';");
+    fold(root, db);
+    assert.deepEqual(laneNames(db), ["New", "Next up", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
+    assert.deepEqual(db.prepare(LANES_SQL).all().map((l) => l.closes), [0, 0, 0, 0, 0, 0, 1]);
+    assert.equal(laneOfItem(db, 9), "Stuck");
+    assert.equal(db.prepare("SELECT count(*) AS n FROM archived WHERE kind = 'fold'").get().n, 1);
+  });
+
+  await check("[fold] a visitor's stage stays the same through the fold, save a report on a custom first column, which the plan sends to New", async () => {
+    const db = seeded(root);
+    const before = stages(db);
+    fold(root, db);
+    const after = stages(db);
+    const changed = Object.fromEntries(Object.keys(before).filter((id) => before[id] !== after[id]).map((id) => [id, [before[id], after[id]]]));
+    assert.deepEqual(changed, { 6: ["in_progress", "received"] });
+  });
+
+  await check("[fold] the archived boards stay as they were at the fold when items close, reopen or are filed afterwards", async () => {
+    const db = seeded(root, item(15, "Planned", { day: 3 }));
+    fold(root, db);
+    const read = () => db.prepare(ARCHIVED_CARDS).all(1, null, null).map((r) => [r.board_id, r.id, r.label]);
+    const atFold = read();
+    assert.equal(atFold.some((r) => r[1] === 15), false);
+    const after = "(SELECT at FROM archived WHERE kind = 'fold')";
+    db.exec(`
+      UPDATE items SET label_id = ${label("Done")}, open = 0, resolution = 'fixed', closed_at = ${after} WHERE id = 15;
+      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
+        VALUES (15, 'ada@example.com', 0, 'label', '{"from":"Planned","to":"Done"}', 1, ${after});
+      UPDATE items SET label_id = ${label("In progress")}, open = 1, resolution = NULL, closed_at = NULL WHERE id = 4;
+      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
+        VALUES (4, 'ada@example.com', 0, 'label', '{"from":"Done","to":"In progress"}', 1, ${after});
+      UPDATE items SET label_id = ${label("Done")}, open = 0, resolution = 'fixed', closed_at = ${after} WHERE id = 2;
+      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
+        VALUES (2, 'ada@example.com', 0, 'label', '{"from":"In progress","to":"Done"}', 1, ${after});
+    `);
+    db.exec(item(20, "Done", { open: 0, resolution: "fixed" }).replace(/'2026-01-01T00:00:00.000Z'/g, "'2999-01-01T00:00:00.000Z'"));
+    assert.deepEqual(read(), atFold);
+    assert.ok(atFold.some((r) => r[0] === 11 && r[1] === 4 && r[2] === "Done"));
+    assert.ok(atFold.some((r) => r[0] === 11 && r[1] === 2 && r[2] === "Doing"));
   });
 }

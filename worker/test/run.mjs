@@ -979,6 +979,37 @@ async function run() {
     assert.equal(await ticketSocket("0".repeat(48)), null);
   });
 
+  await check("a lane rename is heard on every socket, a one-host Owner's included, and a board short of seven lanes refuses a move", async () => {
+    const lanes = (await call("GET", "/_p99/v1/labels")).json.labels;
+    const planned = lanes[1];
+    const heard = [];
+    const socket = await ticketSocket((await browse("POST", "/stream-ticket", boss.secret)).json.ticket, heard);
+    assert.ok(socket, "the ticket opens");
+    try {
+      assert.equal((await call("PATCH", `/_p99/v1/labels/${planned.id}`, { body: { name: "Up next" } })).status, 200);
+      const rename = await until("the lane rename", () => heard.find((e) => e.type === "labels" && e.names[1] === "Up next"));
+      assert.deepEqual([rename.action, rename.names[0], rename.host], ["renamed", planned.name, null]);
+    } finally {
+      socket.close();
+      await call("PATCH", `/_p99/v1/labels/${planned.id}`, { body: { name: planned.name } });
+    }
+    const cards = d1count("SELECT id AS n FROM boards WHERE cards = 1");
+    const needs = lanes[3];
+    const position = d1count(`SELECT position AS n FROM board_columns WHERE board_id = ${cards} AND label_id = ${needs.id}`);
+    const key = await fileOn("Short of a lane");
+    wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `DELETE FROM board_columns WHERE board_id = ${cards} AND label_id = ${needs.id}`]);
+    try {
+      const short = await move({ key, from: "New", to: "planned" });
+      assert.deepEqual([short.status, short.json.message], [409, "this account's board has no seven lanes yet; run p99 deploy"]);
+    } finally {
+      wranglerSync([
+        "d1", "execute", "DB", "--local", "--persist-to", state, "--command",
+        `INSERT INTO board_columns (board_id, label_id, position) VALUES (${cards}, ${needs.id}, ${position})`,
+      ]);
+    }
+    assert.equal((await move({ key, from: "New", to: "planned" })).status, 200);
+  });
+
   await check("a reporter's mail opens their item with their code, its opt-out works only for that item, and an opted-out reporter gets no more mail", async () => {
     const linus = await mint("Linus Pauling", "linus@example.com", [here]);
     const one = (await browse("POST", "/issues", linus.secret, issueBody({ title: "First" }))).json.key;

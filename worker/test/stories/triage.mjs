@@ -293,18 +293,21 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
   });
 
   await check("triage: a label filter finds a label whatever its case, accents included, as a move does", async () => {
-    const accents = await ada.rename(laneIds[1], "Évalué");
-    assert.equal(accents.status, 200, JSON.stringify(accents.json));
-    const key = await filed(ada, { title: "Judged" });
-    assert.equal((await ada.move({ key, from: inbox, to: "évalué" })).status, 200);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), [key]);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("évalué")}`)), [key]);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("EVALUE")}`)), [key]);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("  évalué ")}`)), [key]);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évaluée")}`)), []);
-    assert.equal((await ada.move({ key, from: "ÉVALUÉ", to: inbox })).status, 200);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), []);
-    assert.equal((await ada.rename(laneIds[1], lanes[1].label)).status, 200);
+    try {
+      const accents = await ada.rename(laneIds[1], "Évalué");
+      assert.equal(accents.status, 200, JSON.stringify(accents.json));
+      const key = await filed(ada, { title: "Judged" });
+      assert.equal((await ada.move({ key, from: inbox, to: "évalué" })).status, 200);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), [key]);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("évalué")}`)), [key]);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("EVALUE")}`)), [key]);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("  évalué ")}`)), [key]);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évaluée")}`)), []);
+      assert.equal((await ada.move({ key, from: "ÉVALUÉ", to: inbox })).status, 200);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), []);
+    } finally {
+      await ada.rename(laneIds[1], lanes[1].label);
+    }
   });
 
   await check("triage: a filter or a move by a lane's name in another case with a dotted capital or a diaeresis finds that lane", async () => {
@@ -442,30 +445,33 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
   });
 
   await check("triage: two lanes whose names fold alike stay apart: an exact name wins, and a card moved between them answers 409", async () => {
-    assert.equal((await ada.rename(laneIds[1], "Révisé")).status, 200);
-    assert.equal((await ada.rename(laneIds[4], "revise")).status, 200);
-    const key = await filed(ada, { title: "Between twins" });
-    assert.equal((await ada.move({ key, from: inbox, to: "revise" })).status, 200);
-    assert.equal((await ada.get(key)).json.issue.label, "revise");
-    assert.deepEqual(keysOf(await ada.list("label=revise")), [key]);
-    assert.deepEqual(keysOf(await ada.list("label=REVISE")), [key]);
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), []);
-    assert.equal((await ada.move({ key, from: "Revise", to: "Révisé" })).status, 200);
-    assert.equal((await ada.get(key)).json.issue.label, "Révisé");
-    assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), [key]);
-    assert.deepEqual(keysOf(await ada.list("label=revise")), []);
-    const stale = await ada.move({ key, from: "revise", to: done });
-    assert.equal(stale.status, 409, JSON.stringify(stale.json));
-    assert.equal((await ada.get(key)).json.issue.label, "Révisé");
-    assert.equal((await ada.move({ key, from: "RÉVISÉ", to: "revise" })).status, 200);
-    assert.equal((await ada.get(key)).json.issue.label, "revise");
-    for (const move of [{ key, from: "revise", to: "RÉVISÉ" }, { key, from: "revise", to: "RÉVISÉ", board: 1 }]) {
-      const both = await ada.move(move);
-      assert.equal(both.status, 400, JSON.stringify(both.json));
-      assert.match(both.json.message, /RÉVISÉ names more than one lane; give its exact name/);
+    try {
+      assert.equal((await ada.rename(laneIds[1], "Révisé")).status, 200);
+      assert.equal((await ada.rename(laneIds[4], "revise")).status, 200);
+      const key = await filed(ada, { title: "Between twins" });
+      assert.equal((await ada.move({ key, from: inbox, to: "revise" })).status, 200);
       assert.equal((await ada.get(key)).json.issue.label, "revise");
+      assert.deepEqual(keysOf(await ada.list("label=revise")), [key]);
+      assert.deepEqual(keysOf(await ada.list("label=REVISE")), [key]);
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), []);
+      assert.equal((await ada.move({ key, from: "Revise", to: "Révisé" })).status, 200);
+      assert.equal((await ada.get(key)).json.issue.label, "Révisé");
+      assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), [key]);
+      assert.deepEqual(keysOf(await ada.list("label=revise")), []);
+      const stale = await ada.move({ key, from: "revise", to: done });
+      assert.equal(stale.status, 409, JSON.stringify(stale.json));
+      assert.equal((await ada.get(key)).json.issue.label, "Révisé");
+      assert.equal((await ada.move({ key, from: "RÉVISÉ", to: "revise" })).status, 200);
+      assert.equal((await ada.get(key)).json.issue.label, "revise");
+      for (const move of [{ key, from: "revise", to: "RÉVISÉ" }, { key, from: "revise", to: "RÉVISÉ", board: 1 }]) {
+        const both = await ada.move(move);
+        assert.equal(both.status, 400, JSON.stringify(both.json));
+        assert.match(both.json.message, /RÉVISÉ names more than one lane; give its exact name/);
+        assert.equal((await ada.get(key)).json.issue.label, "revise");
+      }
+    } finally {
+      await ada.rename(laneIds[1], lanes[1].label);
+      await ada.rename(laneIds[4], lanes[4].label);
     }
-    assert.equal((await ada.rename(laneIds[1], lanes[1].label)).status, 200);
-    assert.equal((await ada.rename(laneIds[4], lanes[4].label)).status, 200);
   });
 }

@@ -25,12 +25,16 @@ export const ARCHIVED_BOARDS = `SELECT b.id, b.name, b.owner, (SELECT username F
       (SELECT l.name, l.closes FROM board_columns bc JOIN labels l ON l.id = bc.label_id WHERE bc.board_id = b.id ORDER BY bc.position) x) AS columns
   FROM boards b WHERE b.cards = 0 AND ${ARCHIVED} AND (?1 OR b.host = ?2) AND (?3 IS NULL OR b.id = ?3)
   ORDER BY b.created_at, b.id`;
-export const ARCHIVED_CARDS = `WITH was AS (
+export const ARCHIVED_CARDS = `WITH fold AS (SELECT at FROM archived WHERE kind = 'fold' AND id = 0),
+  was AS (
     SELECT i.id, i.kind, i.title, i.host, i.assignee, COALESCE(
       (SELECT f.id FROM events e JOIN labels f ON f.name = json_extract(e.detail_json, '$.from')
        WHERE e.item_id = i.id AND e.kind = 'label' AND e.actor_email IS NULL AND json_extract(e.detail_json, '$.migrated') = 1
+       ORDER BY e.id LIMIT 1),
+      (SELECT f.id FROM events e JOIN labels f ON f.name = json_extract(e.detail_json, '$.from')
+       WHERE e.item_id = i.id AND e.kind = 'label' AND e.at >= (SELECT at FROM fold)
        ORDER BY e.id LIMIT 1), i.label_id) AS label_id
-    FROM items i WHERE i.project IS NULL AND (?1 OR i.host = ?2))
+    FROM items i WHERE i.project IS NULL AND (?1 OR i.host = ?2) AND i.created_at <= (SELECT at FROM fold))
   SELECT b.id AS board_id, w.id, w.kind, w.title, w.assignee, l.name AS label, bp.key AS ord,
     (SELECT username FROM people WHERE email = w.assignee) AS assignee_username
   FROM boards b JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
