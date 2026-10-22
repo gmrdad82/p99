@@ -210,3 +210,145 @@ fn the_key_never_shows_on_a_refused_request_or_a_401() {
         out.stderr
     );
 }
+
+const OTHER: &str = "other-account-key";
+const OTHER_REF: &str = "op://Example/p99/other";
+const ONE: &str = "P99_KEY signs one account; name it with --account";
+
+fn guarded_by(key: &'static str) -> impl Fn(&stub::Req) -> Reply + Send + Sync + 'static {
+    move |req| {
+        if req.path.starts_with("/_p99/") && !req.signed_by(key) {
+            Reply::problem(401, "bad signature")
+        } else {
+            fake::any(req)
+        }
+    }
+}
+
+fn two_accounts(name: &str, default: Option<&str>, main: &str, other: &str) -> (Home, Stub) {
+    let first = Stub::new(guarded);
+    let second = Stub::new(guarded_by(OTHER));
+    let default = default
+        .map(|d| format!("default_account = \"{d}\"\n"))
+        .unwrap_or_default();
+    let text = format!(
+        r#"{default}
+[me]
+name = "Ada Lovelace"
+email = "ada@example.com"
+
+[accounts.main]
+account_id = "acc1"
+token = "cf-token"
+key = "{main}"
+url = "{}/_p99"
+
+[accounts.other]
+account_id = "acc2"
+token = "cf-token"
+key = "{other}"
+url = "{}/_p99"
+
+[hosts."shop.example.com"]
+account = "main"
+
+[hosts."other.example.org"]
+account = "other"
+"#,
+        first.base, second.base
+    );
+    (Home::with_config(name, first, &text), second)
+}
+
+fn worker_calls(stub: &Stub) -> Vec<stub::Req> {
+    stub.seen()
+        .into_iter()
+        .filter(|c| c.path.starts_with("/_p99/"))
+        .collect()
+}
+
+#[test]
+fn p99_key_signs_the_default_account_and_the_others_keep_their_own_key() {
+    let (h, other) = two_accounts("key-two-default", Some("main"), REF, OTHER);
+    let bin = op_that_must_not_run(&h.dir);
+    let path = path_with(&bin);
+    for args in [
+        &["list", "--all", "--json"][..],
+        &["hosts"],
+        &["tui", "--dump", "120x30"],
+    ] {
+        let out = h.p99_env(args, &[("PATH", &path), ("P99_KEY", KEY)]);
+        out.ok();
+        assert!(!out.stdout.contains("bad signature"), "{}", out.stdout);
+        assert!(!out.stdout.contains("unreachable"), "{}", out.stdout);
+        never_shows(&out, KEY);
+        never_shows(&out, OTHER);
+    }
+    let mains = worker_calls(&h.stub);
+    let others = worker_calls(&other);
+    assert!(!mains.is_empty() && !others.is_empty());
+    assert!(mains.iter().all(|c| c.signed), "main signs with P99_KEY");
+    assert!(
+        others.iter().all(|c| c.signed_by(OTHER) && !c.signed),
+        "the other account signs with its own key, never P99_KEY"
+    );
+    assert!(!op_ran(&bin), "op ran though P99_KEY was set");
+}
+
+#[test]
+fn p99_key_signs_the_account_a_flag_or_a_host_names() {
+    let (h, other) = two_accounts("key-two-named", Some("main"), KEY, OTHER_REF);
+    let bin = op_that_must_not_run(&h.dir);
+    let path = path_with(&bin);
+    for args in [
+        &["list", "other.example.org", "--json"][..],
+        &["list", "--account", "other", "--json"],
+        &["list", "--all", "--account", "other", "--json"],
+        &["hosts", "--account", "other"],
+        &["tui", "--account", "other", "--dump", "120x30"],
+    ] {
+        let out = h.p99_env(args, &[("PATH", &path), ("P99_KEY", OTHER)]);
+        out.ok();
+        assert!(!out.stdout.contains("bad signature"), "{}", out.stdout);
+        never_shows(&out, OTHER);
+    }
+    assert!(worker_calls(&h.stub).is_empty(), "main was asked");
+    let others = worker_calls(&other);
+    assert!(!others.is_empty());
+    assert!(others.iter().all(|c| c.signed_by(OTHER)));
+    assert!(!op_ran(&bin), "the other account's reference was read");
+}
+
+#[test]
+fn p99_key_with_several_accounts_and_no_default_is_refused_until_one_is_named() {
+    let (h, other) = two_accounts("key-two-none", None, REF, OTHER_REF);
+    let bin = op_that_must_not_run(&h.dir);
+    let path = path_with(&bin);
+    for args in [
+        &["list", "--all"][..],
+        &["list", "--all", "--json"],
+        &["hosts"],
+    ] {
+        let out = h.p99_env(args, &[("PATH", &path), ("P99_KEY", KEY)]);
+        out.refused(ONE);
+        assert!(out.stdout.is_empty(), "{}", out.stdout);
+        never_shows(&out, KEY);
+    }
+    let out = h.p99_env(
+        &["tui", "--dump", "120x30"],
+        &[("PATH", &path), ("P99_KEY", KEY)],
+    );
+    assert!(out.stdout.contains(ONE), "{}", out.stdout);
+    never_shows(&out, KEY);
+    assert!(worker_calls(&h.stub).is_empty());
+    assert!(worker_calls(&other).is_empty());
+    let out = h.p99_env(
+        &["list", "--all", "--account", "main", "--json"],
+        &[("PATH", &path), ("P99_KEY", KEY)],
+    );
+    out.ok();
+    assert!(!worker_calls(&h.stub).is_empty());
+    assert!(worker_calls(&h.stub).iter().all(|c| c.signed));
+    assert!(worker_calls(&other).is_empty());
+    assert!(!op_ran(&bin));
+}

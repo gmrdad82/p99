@@ -52,11 +52,20 @@ enum Outcome {
 
 impl Client {
     pub fn for_account(config: &Config, account: &str, agent: bool) -> Result<Client, String> {
+        Client::among(config, account, Some(account), agent)
+    }
+
+    pub fn among(
+        config: &Config,
+        account: &str,
+        holder: Option<&str>,
+        agent: bool,
+    ) -> Result<Client, String> {
         let entry = config
             .accounts
             .get(account)
             .ok_or_else(|| format!("no account is called {account}"))?;
-        let key = crate::config::key(entry)?.into_bytes();
+        let key = crate::config::key(entry, holder == Some(account))?.into_bytes();
         let access = match (&entry.access_client_id, &entry.access_client_secret) {
             (None, None) => None,
             (Some(id), Some(secret)) => Some((id.clone(), crate::config::secret(secret)?)),

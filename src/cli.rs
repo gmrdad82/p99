@@ -659,6 +659,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
         );
     }
     let agent = global.agent;
+    let holder = crate::config::key_holder(config, global.account.as_deref())?;
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
             continue;
@@ -666,7 +667,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
         if config.bases(account, None).is_err() {
             continue;
         }
-        let seen = Client::for_account(config, account, agent).and_then(|c| c.hosts());
+        let seen = Client::among(config, account, holder.as_deref(), agent).and_then(|c| c.hosts());
         match seen {
             Ok(list) => {
                 for found in list {
@@ -1118,10 +1119,15 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     if let Some(found) = demo_list(global, args) {
         return listed(found, false, global);
     }
-    let accounts: Vec<String> = if args.all && global.account.is_none() {
-        config.accounts.keys().cloned().collect()
+    let (accounts, holder): (Vec<String>, Option<String>) = if args.all && global.account.is_none()
+    {
+        (
+            config.accounts.keys().cloned().collect(),
+            crate::config::key_holder(config, None)?,
+        )
     } else {
-        vec![account_of(config, global, args.host.as_deref())?]
+        let account = account_of(config, global, args.host.as_deref())?;
+        (vec![account.clone()], Some(account))
     };
     if accounts.is_empty() {
         return Err("no account yet; run p99 setup".into());
@@ -1136,7 +1142,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
     for account in &accounts {
-        let client = Client::for_account(config, account, agent)?;
+        let client = Client::among(config, account, holder.as_deref(), agent)?;
         let mut cursor: Option<String> = None;
         let mut taken = 0;
         while taken < args.limit {

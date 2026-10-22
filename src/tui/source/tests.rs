@@ -28,6 +28,7 @@ fn ghost(accounts: &[&str]) -> Source {
     Source::Live(Arc::new(Live {
         config,
         accounts: accounts.iter().map(|name| (*name).to_owned()).collect(),
+        holder: None,
         agent: false,
         clients: OnceLock::new(),
         listeners: Mutex::new(Vec::new()),
