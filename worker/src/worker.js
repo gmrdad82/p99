@@ -32,7 +32,7 @@ import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.j
 import { ipKey } from "./tries.js";
 import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
-import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
+import { CARD_READS, cardFilters } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import { ONE_BOARD_ROUTES } from "./one-board.js";
 import { NEEDS_ROUTES, leaveNeedsYou, waitingCount } from "./needs-you.js";
@@ -2072,7 +2072,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
-  back.after(results[5]);
+  back.after(results[results.length - back.statements.length]);
   push(c, "comment", row, { internal });
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });
@@ -3236,7 +3236,6 @@ const SIGNED_ROUTES = [
 useKit({
   MAX_JSON_BYTES,
   encoder,
-  cardSide,
   clean,
   eventStatement,
   fail,

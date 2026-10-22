@@ -286,7 +286,7 @@ async function unitChecks(check) {
     assert.equal(sql.includes("a'b"), false);
     assert.equal(oneBoardSql(ALL, { projects: [], hosts: [], source: null, statuses: [] }).binds.length, 0);
     assert.equal(BOARDS_GONE, "boards are one per account; see p99 board");
-    assert.equal(BOARDS_DEPRECATED, "one board per account since 1.10; read /board");
+    assert.equal(BOARDS_DEPRECATED, "one board per account since 1.11; read /board");
   });
 }
 

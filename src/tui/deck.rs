@@ -13,7 +13,7 @@ use crate::one_board::BoardQuery;
 use super::source::{Source, fold};
 
 pub const MOVED: &str = "this card moved; refreshed";
-pub const SINCE: &str = "1.10";
+pub const SINCE: &str = "1.11";
 pub const LANES: [(Lane, &str, bool); 7] = [
     (Lane::New, "New", false),
     (Lane::Planned, "Planned", false),
@@ -480,7 +480,7 @@ mod tests {
     fn an_old_worker_gets_one_line_naming_both_versions_and_the_fix() {
         assert_eq!(
             behind("shop", Some("1.9.2")),
-            "shop: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account shop upgrades it"
+            "shop: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --account shop upgrades it"
         );
         assert!(older("no such card (404)"));
         assert!(older("not a card key (400)"));

@@ -5,7 +5,7 @@ import { peopleOf } from "./people.js";
 import { namedBy, sameFolded } from "./text.js";
 
 export const BOARDS_GONE = "boards are one per account; see p99 board";
-export const BOARDS_DEPRECATED = "one board per account since 1.10; read /board";
+export const BOARDS_DEPRECATED = "one board per account since 1.11; read /board";
 export const NOT_ARCHIVED = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'board' AND a.id = b.id))";
 export const LIVE_LABEL = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'label' AND a.id = l.id))";
 

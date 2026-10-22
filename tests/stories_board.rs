@@ -245,7 +245,7 @@ fn the_board() -> Value {
 
 fn old_boards() -> Value {
     let mut all = the_board();
-    all["deprecated"] = json!("one board per account since 1.10; read /board");
+    all["deprecated"] = json!("one board per account since 1.11; read /board");
     all["archived"] = json!([
         {"id": 2, "name": "Web", "owner": {"username": "ada"}, "columns": [
             {"label": "Inbox", "closes": false}, {"label": "QA ready", "closes": false}, {"label": "Done", "closes": true}],
@@ -504,7 +504,7 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     assert_eq!(
         out.stderr,
-        "p99: p99 boards is deprecated: one board per account since 1.10; p99 board prints it\n"
+        "p99: p99 boards is deprecated: one board per account since 1.11; p99 board prints it\n"
     );
     assert_eq!(
         out.stdout,
@@ -520,7 +520,7 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
     assert!(json.stderr.is_empty(), "{}", json.stderr);
     assert_eq!(
         doc["deprecated"],
-        "one board per account since 1.10; read /board"
+        "one board per account since 1.11; read /board"
     );
     assert_eq!(doc["board"]["lanes"], lanes());
     assert_eq!(doc["archived"][0]["name"], "Web");
@@ -708,12 +708,12 @@ fn labels_lists_the_seven_lanes_and_renames_one_by_word_or_name() {
         out.stdout.lines().collect::<Vec<_>>(),
         [
             format!("{:<12} New", "new"),
+            format!("{:<12} Planned", "planned"),
             format!("{:<12} In progress", "in-progress"),
+            format!("{:<12} Needs you", "needs-you"),
+            format!("{:<12} Stuck", "stuck"),
             format!("{:<12} Landed", "landed"),
             format!("{:<12} {:<20} closes", "done", "Done"),
-            format!("{:<12} Needs you", "needs-you"),
-            format!("{:<12} Planned", "planned"),
-            format!("{:<12} Stuck", "stuck"),
         ]
     );
     let doc = json_of(&run(&worker, "labels", &["labels", "--json"]));

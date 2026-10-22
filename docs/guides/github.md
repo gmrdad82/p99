@@ -63,4 +63,4 @@ Only items of the host the webhook belongs to are touched; a key of another host
 
 ## Where the links show
 
-`p99 show` lists an item's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to Owners. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but a manager.
+`p99 show` lists an item's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to Owners. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but an Owner.

@@ -426,7 +426,7 @@ export async function migrateChecks({ check, root, work }) {
       state.db.exec(`UPDATE codes SET revoked_at = ${AT} WHERE manager = 1;`);
       const none = await plan();
       assert.equal(none.plan.owner, null);
-      assert.match(none.plan.decisions.join("\n"), /no live manager code exists to own the boards/);
+      assert.match(none.plan.decisions.join("\n"), /no live Owner code exists to own the boards/);
       const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", none.hash]);
       assert.equal(ok.status, 0, ok.stderr);
       assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 0").get().n, none.plan.boards.length);

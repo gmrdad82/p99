@@ -423,10 +423,6 @@ export async function cardsOf(c, rows) {
   return rows.map((row) => cardOf(row, links.get(row.id)));
 }
 
-export function cardSide(board, item) {
-  return `((${item}.project IS NOT NULL) = (${board}.cards = 1))`;
-}
-
 export function cardFilters(c, params, q, where) {
   const source = params.get("source");
   if (source === null) return where;

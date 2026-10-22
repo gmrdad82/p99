@@ -191,12 +191,16 @@ impl Source {
                 (count, cards.into_iter().map(|card| (0, card)).collect())
             }
             Source::Live(_) => {
-                let (mut count, mut cards, mut failed, mut answered) = (0, Vec::new(), None, false);
-                for (account, name) in self.accounts().iter().enumerate() {
+                let (mut count, mut cards, mut answered) = (0, Vec::new(), false);
+                let (mut failed, mut behind) = (None, None);
+                let names = self.accounts();
+                for (account, name) in names.iter().enumerate() {
                     let client = match self.client(account, None) {
                         Ok(client) => client,
                         Err(error) => {
-                            failed.get_or_insert(format!("{name}: {error}"));
+                            if behind.is_none() {
+                                failed.get_or_insert(format!("{name}: {error}"));
+                            }
                             continue;
                         }
                     };
@@ -206,21 +210,28 @@ impl Source {
                             count += list.count;
                             cards.extend(list.cards.into_iter().map(|card| (account, card)));
                         }
-                        Err(error) if unrouted(&error) => {}
-                        Err(error) if older(&error) => {
+                        Err(error) if unrouted(&error) || older(&error) => {
                             if failed.is_none() {
-                                failed = Some(asked_behind(&client, name));
+                                behind.get_or_insert(account);
                             }
                         }
                         Err(error) => {
-                            failed.get_or_insert(format!("{name}: {error}"));
+                            if behind.is_none() {
+                                failed.get_or_insert(format!("{name}: {error}"));
+                            }
                         }
                     }
                 }
-                match failed {
-                    Some(error) if !answered => return Err(error),
-                    _ => (count, cards),
+                if !answered {
+                    if let Some(error) = failed {
+                        return Err(error);
+                    }
+                    if let Some(account) = behind {
+                        let client = self.client(account, None)?;
+                        return Err(asked_behind(&client, &names[account]));
+                    }
                 }
+                (count, cards)
             }
             Source::Broken(why) => return Err(why.clone()),
         };

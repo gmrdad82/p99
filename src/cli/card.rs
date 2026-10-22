@@ -120,7 +120,7 @@ pub struct CardCommentArgs {
         help = "the text, or - to read it from standard input"
     )]
     pub text: String,
-    #[arg(long, help = "for managers only")]
+    #[arg(long, help = "for Owners only")]
     pub internal: bool,
 }
 

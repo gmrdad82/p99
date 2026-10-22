@@ -258,7 +258,7 @@ pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(
 
 fn lanes_of(client: &Client) -> Result<Vec<LaneInfo>, String> {
     let query = BoardQuery {
-        statuses: vec![Lane::Done],
+        statuses: vec![Lane::NeedsYou],
         ..BoardQuery::default()
     };
     match client.one_board::<OneBoard>(&query).map_err(refusal) {

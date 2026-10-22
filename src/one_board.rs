@@ -4,7 +4,7 @@ use crate::card::{Card, Lane, Person, Source};
 use crate::wire::{LaneCard, Owner};
 
 pub const DEPRECATED: &str =
-    "p99 boards is deprecated: one board per account since 1.10; p99 board prints it";
+    "p99 boards is deprecated: one board per account since 1.11; p99 board prints it";
 pub const OLD_WORKER: &str =
     "this Worker still has a board per person; run p99 deploy for the one board";
 pub const NO_LANES: &str = "this board has no lanes yet; run p99 deploy";
@@ -203,8 +203,15 @@ fn word_of<'a>(lanes: &'a [LaneInfo], name: &str) -> Option<&'a LaneInfo> {
 }
 
 pub fn lane_lines(labels: &[crate::wire::LabelEntry], lanes: &[LaneInfo]) -> Vec<String> {
-    labels
-        .iter()
+    let mut ordered: Vec<&crate::wire::LabelEntry> = labels.iter().collect();
+    ordered.sort_by_key(|label| {
+        lanes
+            .iter()
+            .position(|l| l.label.to_lowercase() == label.name.to_lowercase())
+            .unwrap_or(usize::MAX)
+    });
+    ordered
+        .into_iter()
         .map(|label| {
             let word = word_of(lanes, &label.name).map_or("", |l| l.word.word());
             format!(
@@ -425,12 +432,18 @@ mod tests {
             "Stuck",
         ]);
         let lines = lane_lines(&base_order, &lanes().lanes);
-        assert_eq!(lines.len(), 7);
-        assert_eq!(lines[0], format!("{:<12} New", "new"));
-        assert_eq!(lines[1], format!("{:<12} In progress", "in-progress"));
-        assert_eq!(lines[3], format!("{:<12} {:<20} closes", "done", "Done"));
-        assert_eq!(lines[4], format!("{:<12} Needs you", "needs-you"));
-        assert_eq!(lines[6], format!("{:<12} Stuck", "stuck"));
+        assert_eq!(
+            lines,
+            [
+                format!("{:<12} New", "new"),
+                format!("{:<12} Planned", "planned"),
+                format!("{:<12} In progress", "in-progress"),
+                format!("{:<12} Needs you", "needs-you"),
+                format!("{:<12} Stuck", "stuck"),
+                format!("{:<12} Landed", "landed"),
+                format!("{:<12} {:<20} closes", "done", "Done"),
+            ]
+        );
         let old = lane_lines(
             &entries(&["Inbox", "Doing", "Review", "Done", "QA", "Ops", "Web"]),
             &[],
@@ -440,7 +453,7 @@ mod tests {
         let custom = lane_lines(&entries(&["Triage", "New"]), &lanes().lanes);
         assert_eq!(
             custom,
-            [format!("{:<12} Triage", ""), format!("{:<12} New", "new")]
+            [format!("{:<12} New", "new"), format!("{:<12} Triage", "")]
         );
     }
 

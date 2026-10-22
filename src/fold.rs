@@ -50,6 +50,10 @@ pub fn odd_columns(columns: i64) -> String {
     )
 }
 
+pub fn needs_you_taken() -> String {
+    "the Cards board has six columns and one is already Needs you, so 0016 can't add the seventh lane: set them back with P99 1.9 (p99 boards set Cards --columns \"New,Planned,In progress,Stuck,Landed,Done\" --closes Done), then deploy again".to_owned()
+}
+
 pub fn cards_board(columns: Option<i64>) -> &'static str {
     match columns {
         None => "make",
@@ -77,13 +81,14 @@ pub fn shape(
     unplaced: i64,
 ) -> Result<(Value, Vec<String>), String> {
     let mut decisions = Vec::new();
-    let columns = boards
-        .iter()
-        .find(|b| count(b, "cards") == 1)
-        .map(|b| count(b, "columns"));
+    let cards = boards.iter().find(|b| count(b, "cards") == 1);
+    let columns = cards.map(|b| count(b, "columns"));
     let step = cards_board(columns);
     if step == "odd" {
         return Err(odd_columns(columns.unwrap_or_default()));
+    }
+    if step == "insert" && cards.is_some_and(|b| count(b, "needs") > 0) {
+        return Err(needs_you_taken());
     }
     let mut rows = Vec::new();
     for row in labels {
@@ -398,6 +403,20 @@ mod tests {
         );
         let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0, json!(0))], 0).unwrap();
         assert!(none.is_empty());
+    }
+
+    #[test]
+    fn a_six_column_cards_board_that_already_has_needs_you_stops_the_plan_with_a_remedy() {
+        let mut taken = board(5, "Cards", "ada@example.com", 1, 6, 0);
+        taken["needs"] = json!(1);
+        let stop = shape(&[taken], &[], 0).unwrap_err();
+        assert_eq!(stop, needs_you_taken());
+        assert!(stop.contains("p99 boards set Cards --columns"), "{stop}");
+        let mut seven = board(5, "Cards", "ada@example.com", 1, 7, 0);
+        seven["needs"] = json!(1);
+        assert!(shape(&[seven], &[], 0).is_ok());
+        assert!(shape(&[board(5, "Cards", "ada@example.com", 1, 6, 0)], &[], 0).is_ok());
+        assert!(Q_BOARDS.contains("l.name = 'Needs you') AS needs"));
     }
 
     #[test]

@@ -736,7 +736,7 @@ fn a_board_over_one_answering_and_one_routeless_account_shows_the_cards_and_one_
     assert_eq!(
         view.missing,
         [
-            "old: its Worker is P99 1.9.2, the board needs 1.10 or later; p99 deploy --account old upgrades it"
+            "old: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --account old upgrades it"
         ]
     );
 }
@@ -751,7 +751,7 @@ fn a_routeless_account_with_no_version_alone_gets_its_line_over_empty_lanes() {
     assert_eq!(view.lanes.len(), 7);
     assert_eq!(view.missing.len(), 1);
     assert!(
-        view.missing[0].starts_with("old: its Worker is an older P99, the board needs 1.10"),
+        view.missing[0].starts_with("old: its Worker is an older P99, the board needs 1.11"),
         "{:?}",
         view.missing
     );
@@ -799,10 +799,9 @@ fn the_count_comes_from_the_accounts_that_answer_and_skips_a_routeless_one() {
     let keys: Vec<(usize, &str)> = cards.iter().map(|(a, c)| (*a, c.key.as_str())).collect();
     assert_eq!(keys, [(0, "BUG-25")]);
     let alone = workers(&[("old", behind_named)]);
-    assert_eq!(
-        alone.waiting().expect("nothing answered, nothing failed").0,
-        0
-    );
+    let said = alone.waiting().expect_err("nothing answered");
+    assert!(said.starts_with("old: "), "{said}");
+    assert!(said.contains("p99 deploy --account old"), "{said}");
 }
 
 #[test]
@@ -811,7 +810,7 @@ fn a_worker_older_than_the_waiting_route_is_named_with_its_version() {
     assert_eq!(
         source.waiting().err().as_deref(),
         Some(
-            "pre: its Worker is P99 1.8.0, the board needs 1.10 or later; p99 deploy --account pre upgrades it"
+            "pre: its Worker is P99 1.8.0, the board needs 1.11 or later; p99 deploy --account pre upgrades it"
         )
     );
     let beside = workers(&[("shop", current), ("pre", before_waiting)]);

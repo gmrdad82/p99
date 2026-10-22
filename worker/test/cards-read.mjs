@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, MAX_VIA_CHARS, PROJECT_RULE, actorVia, laneIndex, laneWord, notCard, personOf, projectName, useKit } from "../src/cards.js";
-import { cardOf, cardSide, decodeCursor, emailsIn, limitOf, linkOf, scrubEmails, sinceOf } from "../src/cards-read.js";
+import { cardOf, decodeCursor, emailsIn, limitOf, linkOf, scrubEmails, sinceOf } from "../src/cards-read.js";
 
 const CARD_FIELDS = ["changed_at", "changed_by", "comments", "created_at", "host", "key", "kind", "label", "lane", "links", "project", "reporter", "status", "title"];
 const PERSON_FIELDS = ["agent", "name", "username", "via"];
@@ -193,10 +193,6 @@ async function unitChecks(check) {
     const bad = [[2, 1, "a0", 41], [2, 2, "a0", -41], ["2", 1, "a0", -41], [2, 1, 7, -41], [2, 1, "a0"], { lane: 2 }, [2, 1, "x".repeat(201), -41]];
     for (const value of bad) assert.throws(() => decodeCursor(Buffer.from(JSON.stringify(value)).toString("base64url")), refused(400, "cursor is not valid"), JSON.stringify(value));
     for (const junk of ["zz", "!!!", "41"]) assert.throws(() => decodeCursor(junk), refused(400, "cursor is not valid"), junk);
-  });
-
-  await check("a board shows cards only when it is the Cards board", async () => {
-    assert.equal(cardSide("b", "i"), "((i.project IS NOT NULL) = (b.cards = 1))");
   });
 }
 
