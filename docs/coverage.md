@@ -164,7 +164,7 @@ Rust: **89.0% of lines** (88.2% of regions, 88.1% of functions), up from 78.8%. 
 | src/migrate.rs | 94.40% | 1053 | 34.29% |
 | src/cloudflare.rs | 97.78% | 541 | 86.51% |
 
-## w199 cards, 2026-10-22 (agent/cards-i2, main 82ace46 plus the cards train)
+## w199 cards, 2026-10-22 (agent/cards-i2, main c095778 plus the cards train)
 
 Rust: **80.41% of lines** (79.53% of regions, 81.49% of functions), up from 78.8% after the fixes train. 583 tests pass under `cargo llvm-cov nextest`, none ignored.
 
@@ -184,15 +184,20 @@ Rust: **80.41% of lines** (79.53% of regions, 81.49% of functions), up from 78.8
 
 src/tui/demo/boards.rs stays below its old number because its six sample cards are `const fn` rows, which the compiler evaluates, so no test run counts them.
 
-JavaScript, node's own coverage (`NODE_V8_COVERAGE` over `npm test`; the worker has no `npm run coverage`): only the modules the suite imports into node count, so these are the pure helpers, not the routes, which run inside workerd and which node can't see.
+JavaScript, the Worker (`cd worker && npm run coverage`, as the JavaScript section below describes): the worker suite passes 253 checks with none known red, and the 32 unit tests pass. **94.67% of lines** of worker/src, up from 93.64% on main.
 
-| File | Lines covered | Lines |
-|---|---|---|
-| worker/src/cards.js | 95.12% | 41 |
-| worker/src/cards-read.js | 37.80% | 381 |
-| worker/src/boards.js | 18.93% | 708 |
+| File | Lines covered | Lines | Main |
+|---|---|---|---|
+| src/boards.js | 99.24% | 658 | 97.92% |
+| src/cards-read.js | 98.27% | 346 | new |
+| src/cards-write.js | 97.08% | 343 | new |
+| src/cards.js | 100.00% | 37 | new |
+| src/worker.js | 95.66% | 3159 | 94.71% |
+| **total** | **94.67%** | 6887 | 93.64% |
 
-Every card route runs in the worker suite against wrangler dev: 238 checks pass, none failed and none known red. Among them are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 28 of 28.
+JavaScript, the browser (`cd render/web && npm run coverage`, then the panel's filter story, render/web/filter-check.mjs, under the same coverage hook): **79.85% of lines** of worker/src/web, up from 78.83%. src/web/panel.js is at 87.39% of 1,888 lines (86.13% of 1,752 on main) and src/web/board.js at 91.32% of 887 (91.17% of 872); the loader by bytes stays at 94.23%. In that pass the widget stories passed 102 with 1 known red and failed 1, the hover story ("a panel that fails to load on hover…"): its requests ran out of the shared code's per-minute budget (429). It fails the same way on main c095778 when a run fits the same requests into one minute, so it is no card change.
+
+Every card route runs in the worker suite against wrangler dev. Among the checks are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 28 of 28.
 
 ## Uncovered critical paths, first in line
 
