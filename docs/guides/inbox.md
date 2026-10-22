@@ -13,7 +13,7 @@ Everything people file lands in one inbox per Cloudflare account, across all its
 
 An item is a `bug`, `feature` (an idea), `improvement`, `question` or `task` (tasks are filed by Owners). Its key is a prefix and a number, `BUG-12`, `FEAT-7`, `IMP-5`, `Q-10`, `TASK-6`, over one numbering per account: any prefix with the right number, or the bare number, names the same item, so `12`, `bug-12` and `BUG-12` all work.
 
-An item carries one **label**, its state: the lanes of the account's one board, New, Planned, In progress, Needs you, Stuck, Landed and Done, each renameable. A new item gets New, and Done **closes** it; a closed item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). Users see their own words in the panel: Received while the item is in New, In progress in any other open lane, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and about the item closing or reopening when mail is on; other lane changes mail no one.
+An item carries one **label**, its state: the lanes of the account's one board, `New`, `Planned`, `In progress`, `Needs you`, `Stuck`, `Landed` and `Done`, each renameable. A new item gets New, and Done **closes** it; a closed item says how it ended: `fixed`, `abandoned` (dropped) or `duplicate` (of another item). Users see their own words in the panel: Received while the item is in New, In progress in any other open lane, then Fixed, Dropped or Duplicate. Every change is recorded as an event, and the reporter is mailed about replies and about the item closing or reopening when mail is on; other lane changes mail no one.
 
 ## The one board
 
