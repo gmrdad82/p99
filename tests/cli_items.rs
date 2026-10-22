@@ -398,7 +398,7 @@ Thanks
 events
   2026-10-02 09:05  Ada Lovelace  label  {\"from\":\"Inbox\",\"to\":\"Doing\"}
   2026-10-02 09:06  grace@example.com  note  plain words
-  2026-10-01 09:30  -  created
+  2026-10-01 09:30  -  created\x20\x20
 ";
     assert_eq!(out.stdout, expected);
     let call = h.stub.call("GET", "/_p99/v1/issues/12");

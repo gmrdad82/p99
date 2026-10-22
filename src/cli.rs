@@ -101,7 +101,11 @@ pub enum Command {
         about = "post a site's new items, comments, status changes and shipped fixes to Slack or Discord"
     )]
     Hooks(crate::hooks::HooksArgs),
-    #[command(about = "link a host to a GitHub repository, and open GitHub issues for items")]
+    #[command(
+        about = "link a host to a GitHub repository, and open GitHub issues for items",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
     Github(crate::github::GithubArgs),
     #[command(about = "list the labels, the columns of every board; rename one")]
     Labels(crate::boards::LabelsArgs),

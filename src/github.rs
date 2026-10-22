@@ -229,6 +229,12 @@ fn set(
     }
     let repo = found["full_name"].as_str().unwrap_or(repo).to_owned();
     let (client, account) = client_for(config, global, Some(&host))?;
+    let listed: Value = client.json("GET", "/v1/github", None)?;
+    let relink = listed["hosts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|h| h["host"].as_str() == Some(host.as_str()));
     let secret = new_secret()?;
     let (token_name, hook_name) = secret_names(&host);
     let url = webhook_url(&host);
@@ -243,8 +249,15 @@ fn set(
             )?;
             Ok((hook, entry))
         });
-    let (hook, entry) =
-        linked.map_err(|error| unstore(config, &account, &[&token_name, &hook_name], error))?;
+    let (hook, entry) = linked.map_err(|error| {
+        if relink {
+            format!(
+                "{error}; {host} was linked before, so its secrets stay and its link may need p99 github set again"
+            )
+        } else {
+            unstore(config, &account, &[&token_name, &hook_name], error)
+        }
+    })?;
     if global.json {
         let mut answer = json!({"github": entry, "webhook": hook.is_some()});
         if hook.is_none() {

@@ -535,6 +535,14 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
     assert!(h.stub.seen().is_empty());
 }
 
+fn first_link(req: &Req) -> Reply {
+    if req.is("GET", "/_p99/v1/github") {
+        Reply::ok(json!({"hosts": []}))
+    } else {
+        fake::any(req)
+    }
+}
+
 fn failing_after_the_secrets(
     name: &str,
     status: u16,
@@ -545,7 +553,7 @@ fn failing_after_the_secrets(
         if req.is(fails, path) {
             Reply::json(status, json!({"message": "down"}))
         } else {
-            fake::any(req)
+            first_link(req)
         }
     })
 }
@@ -580,7 +588,7 @@ fn github_set_takes_the_secrets_back_off_the_worker_when_a_later_step_fails() {
         if req.is("POST", "/gh/repos/acme/shop/hooks") {
             Reply::json(422, json!({"message": "Validation Failed"}))
         } else {
-            fake::any(req)
+            first_link(req)
         }
     });
     hook.p99_env(&SET, &TOKEN)
@@ -603,9 +611,7 @@ fn github_set_takes_the_secrets_back_off_the_worker_when_a_later_step_fails() {
         "PUT",
         "/_p99/v1/github/shop.example.com",
     );
-    let out = worker.p99_env(&SET, &TOKEN);
-    assert_eq!(out.code, Some(1), "{}", out.stderr);
-    assert!(!out.stderr.contains("still holds"), "{}", out.stderr);
+    worker.p99_env(&SET, &TOKEN).refused("down (503)");
     removed_both_secrets(&worker);
     let second = Home::new("github-hook-secret-500", |req: &Req| {
         if req.is("PUT", SECRETS)
@@ -616,12 +622,12 @@ fn github_set_takes_the_secrets_back_off_the_worker_when_a_later_step_fails() {
         {
             Reply::cf_error(500, 10013, "secret store down")
         } else {
-            fake::any(req)
+            first_link(req)
         }
     });
-    let out = second.p99_env(&SET, &TOKEN);
-    assert_eq!(out.code, Some(1), "{}", out.stderr);
-    assert!(!out.stderr.contains("still holds"), "{}", out.stderr);
+    second.p99_env(&SET, &TOKEN).refused(
+        "Cloudflare /accounts/acc1/workers/scripts/p99/secrets: secret store down (10013)",
+    );
     removed_both_secrets(&second);
     assert!(
         second
@@ -642,7 +648,7 @@ fn github_set_says_which_secret_stayed_when_it_cannot_take_it_back() {
         } else if req.is("DELETE", &format!("{SECRETS}/{stuck}")) {
             Reply::cf_error(500, 10013, "secret store down")
         } else {
-            fake::any(req)
+            first_link(req)
         }
     });
     h.p99_env(&SET, &TOKEN).refused(&format!(
@@ -660,7 +666,7 @@ fn github_set_says_which_secret_stayed_when_it_cannot_take_it_back() {
         } else if req.under("DELETE", &format!("{SECRETS}/")) {
             Reply::cf_error(500, 10013, "secret store down")
         } else {
-            fake::any(req)
+            first_link(req)
         }
     });
     both.p99_env(&SET, &TOKEN).refused(&format!(
@@ -672,11 +678,76 @@ fn github_set_says_which_secret_stayed_when_it_cannot_take_it_back() {
         } else if req.under("DELETE", &format!("{SECRETS}/")) {
             Reply::cf_error(404, 10007, "not found")
         } else {
-            fake::any(req)
+            first_link(req)
         }
     });
     gone.p99_env(&SET, &TOKEN)
         .refused("GitHub answered 422: Validation Failed");
+}
+
+#[test]
+fn github_set_again_keeps_the_secrets_of_a_host_already_linked_when_a_step_fails() {
+    let relinked = |name: &str, fails: fn(&Req) -> Option<Reply>, said: &str| {
+        let h = Home::new(name, move |req: &Req| {
+            fails(req).unwrap_or_else(|| fake::any(req))
+        });
+        h.p99_env(&SET, &TOKEN).refused(&format!(
+            "{said}; shop.example.com was linked before, so its secrets stay and its link may need p99 github set again"
+        ));
+        assert!(h.stub.call("GET", "/_p99/v1/github").signed);
+        assert!(h.stub.under("DELETE", SECRETS).is_empty());
+        h
+    };
+    let h = relinked(
+        "github-again-hook-secret-500",
+        |req| {
+            (req.is("PUT", SECRETS)
+                && req.json()["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .starts_with("GITHUB_HOOK_"))
+            .then(|| Reply::cf_error(500, 10013, "secret store down"))
+        },
+        "Cloudflare /accounts/acc1/workers/scripts/p99/secrets: secret store down (10013)",
+    );
+    assert!(h.stub.calls("GET", "/gh/repos/acme/shop/hooks").is_empty());
+    assert!(
+        h.stub
+            .calls("PUT", "/_p99/v1/github/shop.example.com")
+            .is_empty()
+    );
+    let h = relinked(
+        "github-again-worker-503",
+        |req| {
+            req.is("PUT", "/_p99/v1/github/shop.example.com")
+                .then(|| Reply::json(503, json!({"message": "down"})))
+        },
+        "down (503)",
+    );
+    assert_eq!(h.stub.calls("PUT", SECRETS).len(), 2);
+    assert_eq!(h.stub.calls("POST", "/gh/repos/acme/shop/hooks").len(), 1);
+    relinked(
+        "github-again-hook-422",
+        |req| {
+            req.is("POST", "/gh/repos/acme/shop/hooks")
+                .then(|| Reply::json(422, json!({"message": "Validation Failed"})))
+        },
+        "GitHub answered 422: Validation Failed",
+    );
+}
+
+#[test]
+fn github_set_refuses_before_storing_anything_when_the_worker_cannot_list_its_links() {
+    let h = Home::new("github-list-503", |req: &Req| {
+        if req.is("GET", "/_p99/v1/github") {
+            Reply::json(503, json!({"message": "down"}))
+        } else {
+            fake::any(req)
+        }
+    });
+    h.p99_env(&SET, &TOKEN).refused("down (503)");
+    nothing_stored(&h);
+    assert!(h.stub.calls("GET", "/gh/repos/acme/shop/hooks").is_empty());
 }
 
 #[test]

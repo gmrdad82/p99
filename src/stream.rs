@@ -401,20 +401,21 @@ mod tests {
     #[test]
     fn a_bad_url_or_header_fails_before_connecting() {
         assert!(!failed(open("not a url", &[])).is_empty());
-        assert!(
-            !failed(open(
-                "ws://127.0.0.1:9/x",
-                &[("bad header", "v".to_owned())]
-            ))
-            .is_empty()
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("ws://{}/x", listener.local_addr().unwrap());
+        for header in [
+            ("bad header", "v".to_owned()),
+            ("x-ok", "bad\nvalue".to_owned()),
+        ] {
+            assert!(!failed(open(&url, &[header])).is_empty());
+        }
+        listener.set_nonblocking(true).unwrap();
+        assert_eq!(
+            listener.accept().map(drop).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock
         );
-        assert!(
-            !failed(open(
-                "ws://127.0.0.1:9/x",
-                &[("x-ok", "bad\nvalue".to_owned())]
-            ))
-            .is_empty()
-        );
+        let _probe = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        assert!(listener.accept().is_ok());
     }
 
     #[test]
