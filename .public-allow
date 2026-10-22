@@ -144,3 +144,15 @@ commit/45c9e6d72637:src/config.rs:981 a fake vault reference in the config tests
 commit/45c9e6d72637:src/config.rs:1011 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/c6b43b0f738c:tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at tests/cli_key.rs:17
 commit/c6b43b0f738c:tests/cli_key.rs:231 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to, as waived at tests/cli_key.rs:268
+tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the vault tool
+tests/cli_vault.rs:241 the tests check the error that names the tool P99 reads secrets through
+tests/stories_setup.rs:1309 a fake vault reference the setup story's fake op answers for the stored token
+tests/stories_setup.rs:1310 a fake vault reference the setup story's fake op answers for the stored key
+tests/stories_setup.rs:1336 a fake vault reference the setup story reads the stored key back through
+tests/stories_setup.rs:1381 a fake vault reference the setup story reads the stored token back through
+tests/stories_setup.rs:1405 a fake vault reference built from the vault name when the fake op gives no vault id
+tests/stories_setup.rs:1409 a fake vault reference built from the vault name when the fake op gives no vault id
+tests/stories_setup.rs:1428 the tests check the error that names the tool P99 stores secrets through
+tests/stories_setup.rs:1433 the tests check the error that names the tool P99 stores secrets through
+tests/stories_setup.rs:1438 the tests check the error that names the tool P99 stores secrets through
+tests/stories_setup.rs:1466 the tests check the error that names the tool P99 stores secrets through
