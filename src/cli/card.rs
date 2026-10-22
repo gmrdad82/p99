@@ -52,6 +52,12 @@ pub struct CardsArgs {
     pub limit: u32,
     #[arg(long, value_name = "c", help = "read on from a list's next_cursor")]
     pub cursor: Option<String>,
+    #[arg(
+        long,
+        conflicts_with_all = ["project", "status", "since", "source", "host", "cursor"],
+        help = "only the cards waiting on a person (needs-you, stuck, landed), newest change first"
+    )]
+    pub waiting: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -187,6 +193,9 @@ pub fn card_line(card: &Card, now: i64) -> String {
 }
 
 pub fn cards(config: &Config, global: &Global, args: &CardsArgs) -> Result<(), String> {
+    if args.waiting {
+        return super::waiting::waiting(config, global);
+    }
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let projects = args
         .project

@@ -1,6 +1,8 @@
 mod card;
+mod codes;
 mod delete;
 mod merge;
+mod waiting;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -53,7 +55,7 @@ pub enum Command {
     Hosts(HostsArgs),
     #[command(about = "mint a personal code for a person on one or more hosts")]
     Invite(InviteArgs),
-    #[command(about = "list the personal codes")]
+    #[command(about = "list the personal codes; delete a revoked one", visible_alias = "codes")]
     Invites(InvitesArgs),
     #[command(about = "revoke a personal code")]
     Revoke(RevokeArgs),
@@ -236,8 +238,12 @@ pub struct InviteArgs {
     pub name: String,
     #[arg(long, help = "the person's e-mail, which ties their items to them")]
     pub email: String,
-    #[arg(long, help = "let the person see and change every item")]
-    pub manager: bool,
+    #[arg(
+        long,
+        alias = "manager",
+        help = "make the person an Owner, who sees and changes every item"
+    )]
+    pub owner: bool,
     #[arg(
         long,
         help = "also ask for a 6-digit code from an authenticator app the first time each browser uses the link"
@@ -257,6 +263,8 @@ pub struct InviteArgs {
 pub struct InvitesArgs {
     #[arg(long, help = "only the codes for this host")]
     pub host: Option<String>,
+    #[arg(long, value_enum, help = "only the codes of this role")]
+    pub role: Option<crate::one_board::Role>,
     #[command(subcommand)]
     pub action: Option<InvitesAction>,
 }
@@ -270,6 +278,10 @@ pub enum InvitesAction {
         #[arg(help = "the code's id, from p99 invites")]
         id: i64,
     },
+    #[command(
+        about = "delete a revoked code for good, with its devices; asks for its last four characters typed back"
+    )]
+    Delete(codes::CodeDeleteArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -965,7 +977,7 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         name: args.name.clone(),
         email: args.email.clone(),
         hosts,
-        manager: args.manager,
+        manager: args.owner,
         totp: args.totp,
         mail: asked,
     })?;
@@ -1021,10 +1033,12 @@ fn code_state(code: &Code) -> &'static str {
 }
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
-    if let Some(InvitesAction::Totp { id }) = &args.action {
-        return totp(config, global, *id);
+    match &args.action {
+        Some(InvitesAction::Totp { id }) => return totp(config, global, *id),
+        Some(InvitesAction::Delete(a)) => return codes::delete(config, global, a),
+        None => {}
     }
-    let codes = match demo(global) {
+    let mut codes = match demo(global) {
         Some(d) => d
             .codes()
             .into_iter()
@@ -1034,6 +1048,9 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
             .0
             .codes(args.host.as_deref())?,
     };
+    if let Some(role) = args.role {
+        codes.retain(|c| crate::one_board::Role::of(c.manager) == role);
+    }
     if global.json {
         return print_json(&json!({"codes": codes}));
     }
@@ -1041,7 +1058,7 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
         println!("no codes");
     }
     for code in &codes {
-        let role = if code.manager { "manager" } else { "member" };
+        let role = crate::one_board::Role::of(code.manager).word();
         let role = if code.totp {
             format!("{role}, totp")
         } else {

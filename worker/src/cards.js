@@ -1,5 +1,6 @@
-export const LANES = ["new", "planned", "in-progress", "stuck", "landed", "done"];
-export const LANE_NAMES = ["New", "Planned", "In progress", "Stuck", "Landed", "Done"];
+export const LANES = ["new", "planned", "in-progress", "needs-you", "stuck", "landed", "done"];
+export const LANE_NAMES = ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"];
+export const WAITING_LANES = ["needs-you", "stuck", "landed"];
 export const MAX_PROJECT_CHARS = 40;
 export const MAX_VIA_CHARS = 80;
 export const MAX_REF_CHARS = 200;

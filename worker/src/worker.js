@@ -34,6 +34,10 @@ import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
+import { ONE_BOARD_ROUTES } from "./one-board.js";
+import { NEEDS_ROUTES, waitingCount } from "./needs-you.js";
+import { deleteCode, useCodesKit } from "./codes-delete.js";
+import { roleOf } from "./roles.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -1525,17 +1529,18 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const [counts, username] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c)]);
+  const [counts, username, waiting] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c), waitingCount(c)]);
   const config = c.hostRow.config;
   return json(200, {
     name: c.actor.name,
     email: c.actor.email,
     username,
     manager: c.manager,
+    role: roleOf(c.manager),
     host: c.hostRow.host,
     env: c.hostRow.env,
     version: c.env.VERSION || "dev",
-    counts,
+    counts: { ...counts, waiting },
     theme: config.theme || {},
     strings: config.strings || {},
     link: linkShown(c.env, config),
@@ -3163,12 +3168,13 @@ const ITEM_ROUTES = [
   ["POST", /^\/merge$/, postMerge],
 ];
 
-const CARD_ROUTES = [...CARD_READS, ...CARD_WRITES];
+const CARD_ROUTES = [...NEEDS_ROUTES, ...CARD_READS, ...CARD_WRITES];
 
 const BROWSER_ROUTES = [
   ["GET", /^\/me$/, getMe],
   ["POST", /^\/verify$/, postVerify],
   ...ITEM_ROUTES,
+  ...ONE_BOARD_ROUTES,
   ...BOARD_ROUTES,
   ...CARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
@@ -3195,6 +3201,7 @@ const SIGNED_ROUTES = [
   ["GET", /^\/counts$/, getCounts, { listed: true }],
   ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
+  ...ONE_BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...CARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ["GET", /^\/hosts$/, listHosts, {}],
@@ -3207,6 +3214,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
   ["POST", /^\/codes\/(\d{1,15})\/relink$/, relinkCode, {}],
+  ["DELETE", /^\/codes\/(\d{1,15})$/, deleteCode, {}],
   ["POST", /^\/people\/rename$/, renamePerson, {}],
   ...signedPeopleRoutes(),
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
@@ -3244,6 +3252,8 @@ useKit({
   sha256Hex,
   REPORTERS_TOKEN,
 });
+
+useCodesKit({ forget: () => codeCache.clear() });
 
 useCardKit({
   ITEM_SELECT,

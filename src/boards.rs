@@ -3,7 +3,8 @@ use std::io::{BufRead, IsTerminal, Write};
 use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
-use crate::wire::{BoardSpec, Issue, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
+use crate::one_board::{BoardQuery, DEPRECATED};
+use crate::wire::{BoardSpec, Issue, LaneBoard, LaneSpec, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
@@ -11,8 +12,8 @@ pub struct MoveArgs {
     pub key: String,
     #[arg(
         long,
-        value_name = "label",
-        help = "a label on your boards: its column"
+        value_name = "lane",
+        help = "a lane's word (new, planned, in-progress, needs-you, stuck, landed, done) or its name"
     )]
     pub to: String,
     #[arg(
@@ -63,9 +64,13 @@ pub enum BoardsAction {
 
 #[derive(Debug, clap::Args)]
 pub struct BoardArgs {
-    #[arg(help = "a board's name, or @username for that person's board; yours by default")]
-    pub which: Option<String>,
-    #[arg(long, help = "the boards of this host")]
+    #[arg(
+        long,
+        value_name = "name",
+        help = "only this project's cards; repeat it for several"
+    )]
+    pub project: Vec<String>,
+    #[arg(long, help = "only this host's items")]
     pub host: Option<String>,
 }
 
@@ -193,13 +198,6 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
     Ok(())
 }
 
-fn owner_of(board: &LaneBoard) -> String {
-    board
-        .owner
-        .as_ref()
-        .map_or_else(|| "someone".to_owned(), |o| o.handle())
-}
-
 fn columns_text(board: &LaneBoard) -> String {
     board
         .columns
@@ -216,24 +214,12 @@ fn columns_text(board: &LaneBoard) -> String {
 }
 
 fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), String> {
-    let boards = client(config, global, host)?.lanes()?;
+    let boards = client(config, global, host)?.old_boards()?;
     if global.json {
         return print_json(&boards);
     }
-    for board in &boards.boards {
-        out!(
-            "{:<5} {:<24} {:<16} {}",
-            board.id,
-            board.name,
-            if board.mine {
-                "yours".to_owned()
-            } else {
-                owner_of(board)
-            },
-            columns_text(board)
-        );
-    }
-    Ok(())
+    eprintln!("p99: {DEPRECATED}");
+    todo!("p99 boards' text: the archived boards' names")
 }
 
 fn specs(columns: &str, closes: Option<&str>) -> Result<Vec<LaneSpec>, String> {
@@ -288,78 +274,23 @@ pub fn run_boards(config: &Config, global: &Global, args: &BoardsArgs) -> Result
     Ok(())
 }
 
-fn pick<'a>(boards: &'a [LaneBoard], which: Option<&str>) -> Result<&'a LaneBoard, String> {
-    let found = match which.map(str::trim) {
-        None | Some("") => boards.iter().find(|b| b.mine),
-        Some(raw) if raw.starts_with('@') => {
-            let wanted = raw.trim_start_matches('@');
-            boards.iter().find(|b| {
-                b.owner
-                    .as_ref()
-                    .and_then(|o| o.username.as_deref())
-                    .is_some_and(|u| same(u, wanted))
-            })
-        }
-        Some(raw) => boards
-            .iter()
-            .find(|b| b.mine && same(&b.name, raw))
-            .or_else(|| boards.iter().find(|b| same(&b.name, raw)))
-            .or_else(|| boards.iter().find(|b| b.id.to_string() == raw)),
-    };
-    found.ok_or_else(|| match which {
-        Some(raw) => format!("no board is called {raw}; p99 boards lists them"),
-        None => "you have no board here yet".to_owned(),
-    })
-}
-
-pub fn columns(page: &LanePage) -> Vec<String> {
-    let board = &page.board;
-    let mut lines = vec![format!(
-        "{} ({}){}",
-        board.name,
-        if board.mine {
-            "yours".to_owned()
-        } else {
-            owner_of(board)
-        },
-        if board.mine { "" } else { ", watching" }
-    )];
-    for column in &board.columns {
-        let cards: Vec<&LaneCard> = page
-            .cards
-            .iter()
-            .filter(|c| same(&c.label, &column.label))
-            .collect();
-        lines.push(String::new());
-        lines.push(format!(
-            "{} ({}){}",
-            column.label,
-            cards.len(),
-            if column.closes { ", closes" } else { "" }
-        ));
-        for card in cards {
-            let mut line = format!("  {:<9} {}", card.key, card.title);
-            if let Some(who) = &card.assignee {
-                line.push_str(&format!("  {}", who.handle()));
-            }
-            lines.push(line);
-        }
-    }
-    lines
-}
-
 pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(), String> {
-    let client = client(config, global, args.host.as_deref())?;
-    let boards = client.lanes()?.boards;
-    let board = pick(&boards, args.which.as_deref())?;
-    let page = client.lane(board.id)?;
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let projects = args
+        .project
+        .iter()
+        .map(|p| crate::card::project(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let q = BoardQuery {
+        projects,
+        host: host.clone(),
+        ..BoardQuery::default()
+    };
+    let board = client(config, global, host.as_deref())?.one_board(&q)?;
     if global.json {
-        return print_json(&page);
+        return print_json(&board);
     }
-    for line in columns(&page) {
-        out!("{line}");
-    }
-    Ok(())
+    todo!("p99 board's text: the seven lanes and their cards")
 }
 
 fn confirm(question: &str) -> Result<bool, String> {

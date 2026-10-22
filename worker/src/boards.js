@@ -1,4 +1,5 @@
-import { notCard } from "./cards.js";
+import { LANES, notCard } from "./cards.js";
+import { moveByLane } from "./one-board.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
 import { isChars, namedBy, sameCase, sameFolded } from "./text.js";
@@ -32,11 +33,11 @@ const ORPHANS = `SELECT l.id FROM labels l WHERE NOT ${USED} AND NOT EXISTS (SEL
 const LABEL_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:+-]{0,31}$/u;
 const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5", "#986ee2", "#d260a8"];
 const MOVED = "this card moved; refreshed";
-const CARDS_FIXED = "the Cards board keeps its six lanes; rename a lane with p99 labels rename";
+const CARDS_FIXED = "the Cards board keeps its seven lanes; rename a lane with p99 labels rename";
 const CARDS_STAYS = "the Cards board stays";
 const CARDS_CLOSES = "a Cards board lane keeps its closes; done alone closes a card";
 const CARD_LANES = "SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 ORDER BY bc.position";
-const CARD_REOPENS = { inbox: 0, doing: 2, review: 4 };
+const CARD_REOPENS = { inbox: 0, doing: 2, review: 5 };
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 
@@ -578,6 +579,7 @@ export async function postMove(c) {
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
   for (const f of ["key", "from", "to"]) if (typeof body[f] !== "string" || body[f].length === 0) K.fail(400, `${f} is required`);
   for (const f of ["before", "after"]) if (body[f] !== undefined && body[f] !== null && typeof body[f] !== "string") K.fail(400, `${f} must be an item key`);
+  if (LANES.includes(body.to)) return moveByLane(c, body);
   const v = boardView(c);
   const { DB } = c.env;
   const id = findItem(body.key);

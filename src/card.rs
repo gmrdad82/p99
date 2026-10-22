@@ -16,6 +16,8 @@ pub enum Lane {
     New,
     Planned,
     InProgress,
+    #[value(alias = "needs you")]
+    NeedsYou,
     Stuck,
     Landed,
     Done,
@@ -27,6 +29,7 @@ impl Lane {
             Lane::New => "new",
             Lane::Planned => "planned",
             Lane::InProgress => "in-progress",
+            Lane::NeedsYou => "needs-you",
             Lane::Stuck => "stuck",
             Lane::Landed => "landed",
             Lane::Done => "done",

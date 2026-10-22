@@ -257,6 +257,9 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     } else if lanes {
         lanes_plan(cf, account, &mut plan, &mut decisions)?;
     }
+    if pending.iter().any(|p| p.starts_with("0016")) {
+        crate::fold::plan(cf, account, &mut plan, &mut decisions)?;
+    }
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
     if people {
@@ -913,6 +916,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     if let Some(url) = plan["url"].as_str() {
         out.push_str(&format!("  the CLI's url {url} stays\n"));
     }
+    crate::fold::render(&mut out, plan);
 
     out.push_str("\nDecisions\n");
     let decisions = list(&plan["decisions"]);

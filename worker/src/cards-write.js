@@ -3,7 +3,7 @@ import { loadCard } from "./cards-read.js";
 import { labelChangeStatements, placeIn } from "./boards.js";
 
 export const CARDS_BOARD = "Cards";
-const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e5534b", "#39a5a0"];
+const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e0823d", "#e5534b", "#39a5a0"];
 const UID_RULE = "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores";
 const STATUS_RULE = `status must be ${LANES.slice(0, -1).join(", ")} or ${LANES.at(-1)}`;
 const REF_RULE = `a link has 1 to ${MAX_REF_CHARS} characters`;

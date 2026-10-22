@@ -162,6 +162,25 @@ impl Client {
         )
     }
 
+    pub fn one_board(
+        &self,
+        q: &crate::one_board::BoardQuery,
+    ) -> Result<crate::one_board::OneBoard, String> {
+        self.json(
+            "GET",
+            &self.scoped(&format!("/v1/board{}", crate::one_board::query(q))),
+            None,
+        )
+    }
+
+    pub fn old_boards(&self) -> Result<crate::one_board::OldBoards, String> {
+        self.json("GET", &self.scoped("/v1/boards"), None)
+    }
+
+    pub fn waiting(&self) -> Result<crate::one_board::Waiting, String> {
+        self.json("GET", "/v1/cards/waiting", None)
+    }
+
     pub fn lanes(&self) -> Result<LaneBoards, String> {
         self.json("GET", &self.scoped("/v1/boards"), None)
     }
