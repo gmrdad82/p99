@@ -79,7 +79,7 @@ src/config.rs:611 a fake vault reference in the config tests that a reference is
 src/config.rs:447 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 src/config.rs:466 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-tests/cli_key.rs:215 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+tests/cli_key.rs:219 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 commit/39f553cef5bb:src/config.rs:487 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:493 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:494 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line

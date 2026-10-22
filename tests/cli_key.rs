@@ -173,7 +173,11 @@ fn watch_does_not_announce_the_vault_when_p99_key_is_set() {
     let bin = op_that_must_not_run(&h.dir);
     let out = h.p99_env(&["watch"], &[("PATH", &path_with(&bin)), ("P99_KEY", "  ")]);
     out.refused(EMPTY);
-    assert!(!out.stderr.contains("reading the account key"), "{}", out.stderr);
+    assert!(
+        !out.stderr.contains("reading the account key"),
+        "{}",
+        out.stderr
+    );
     assert!(!op_ran(&bin));
 }
 
