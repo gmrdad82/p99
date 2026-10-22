@@ -34,6 +34,7 @@ const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5"
 const MOVED = "this card moved; refreshed";
 const CARDS_FIXED = "the Cards board keeps its six lanes; rename a lane with p99 labels rename";
 const CARDS_STAYS = "the Cards board stays";
+const CARDS_CLOSES = "a Cards board lane keeps its closes; done alone closes a card";
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 
@@ -288,16 +289,20 @@ async function columnsOf(c, v, raw) {
   });
   if (new Set(wanted.map((w) => w.label.toLowerCase())).size !== wanted.length) K.fail(400, "a board's columns are different labels");
   const { DB } = c.env;
-  const [known, count] = await DB.batch([
+  const [known, count, lanes] = await DB.batch([
     DB.prepare("SELECT id, name, closes FROM labels WHERE name IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(wanted.map((w) => w.label))),
     DB.prepare(`SELECT count(*) AS n FROM labels l WHERE ${USED}`),
+    DB.prepare("SELECT bc.label_id AS id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1"),
   ]);
+  const cardLanes = new Set(lanes.results.map((r) => r.id));
   const byName = new Map(known.results.map((l) => [l.name.toLowerCase(), l]));
   const fresh = wanted.filter((w) => !byName.has(w.label.toLowerCase()));
   if (count.results[0].n + fresh.length > MAX_LABELS) K.fail(400, `an account holds up to ${MAX_LABELS} labels`);
   for (const w of wanted) {
     const l = byName.get(w.label.toLowerCase());
-    if (l && w.closes !== null && Boolean(l.closes) !== w.closes) await guardLabel(c, v, l.id);
+    if (!l || w.closes === null || Boolean(l.closes) === w.closes) continue;
+    if (cardLanes.has(l.id)) K.fail(409, CARDS_CLOSES);
+    await guardLabel(c, v, l.id);
   }
   return { wanted, byName };
 }

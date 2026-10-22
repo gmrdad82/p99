@@ -1247,7 +1247,7 @@ async function run() {
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await widgetStories({ base, call, browse, mint, check, red, issueBody, here, there, state, wrangler, root });
   await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });
-  await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
+  await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys, d1count });
   await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await check("board.js is served as the module the panel imports for managers", async () => {

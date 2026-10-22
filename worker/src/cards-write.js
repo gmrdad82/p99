@@ -86,6 +86,22 @@ function eventStatement(c, itemId, kind, detail, internal) {
   ).bind(itemId, c.actor.email, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c), viaOf(c));
 }
 
+function projectEvent(c, itemId, detail, labelId) {
+  return c.env.DB.prepare(
+    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+     SELECT ?1, ?2, 'project', ?3, 1, ?4, ?5, ?6 WHERE ?7 IS NULL OR (SELECT label_id FROM items WHERE id = ?1) = ?7`,
+  ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c), labelId);
+}
+
+function projectStatement(c, itemId, name, labelId) {
+  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1 AND (?4 IS NULL OR label_id = ?4)").bind(
+    itemId,
+    name,
+    c.now,
+    labelId,
+  );
+}
+
 function usernameStatement(c) {
   return c.env.DB.prepare("SELECT username FROM people WHERE email = ?1").bind(c.actor.email);
 }
@@ -167,14 +183,14 @@ export async function postCard(c) {
   }
   const project = await spelling(c, projectName(body.project));
   const kind = body.kind === undefined || body.kind === null ? "feature" : body.kind;
-  if (!K.KIND_PREFIXES[kind]) K.fail(400, "kind must be bug, feature, improvement, question or task");
+  if (typeof kind !== "string" || !Object.hasOwn(K.KIND_PREFIXES, kind)) K.fail(400, "kind must be bug, feature, improvement, question or task");
   const title = K.validTitle(body.title);
   if (title === null) K.fail(400, `title must be 1 to ${K.MAX_TITLE_CHARS} characters`);
   const text = K.clean(body.body ?? "");
   if (!K.isText(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
   const target = targetHost(c, body);
   const lanes = await cardsBoard(c);
-  const lane = laneAt(lanes, 0);
+  const lane = { ...laneAt(lanes, 0), closes: 0 };
   const place = await topOf(c, lanes.board, lane.id, 0);
   const uid = body.client_uid;
   const byUid = "FROM items WHERE client_uid = ?1";
@@ -235,7 +251,8 @@ export async function postCardStatus(c, rawKey) {
   const note = noteOf(body.note);
   if (note !== null && note.length > K.MAX_BODY_CHARS) K.fail(400, `note must be at most ${K.MAX_BODY_CHARS} characters`);
   if (note !== null && !K.isUid(body.client_uid)) K.fail(400, UID_RULE);
-  if (LANES[index] === "done") refuseAgentClose(c, row, { closes: 1 });
+  const closing = index === LANES.length - 1;
+  if (closing) refuseAgentClose(c, row, { closes: 1 });
   const key = K.keyOf(row.kind, row.id);
   const { DB } = c.env;
   if (note !== null) {
@@ -246,12 +263,12 @@ export async function postCardStatus(c, rawKey) {
     }
   }
   const lanes = await cardsBoard(c);
-  const to = laneAt(lanes, index);
-  const moving = row.label_id !== to.id;
-  const plan = moving ? labelChangeStatements(c, row, to, to.closes ? { resolution: "fixed" } : {}) : null;
+  const to = { ...laneAt(lanes, index), closes: closing ? 1 : 0 };
+  const moving = row.label_id !== to.id || Boolean(row.open) === closing;
+  const plan = moving ? labelChangeStatements(c, row, to, closing ? { resolution: "fixed" } : {}) : null;
   const statements = plan ? [...plan.statements] : [];
   let place = null;
-  if (moving) {
+  if (row.label_id !== to.id && !closing) {
     place = await topOf(c, lanes.board, to.id, row.id);
     statements.push(placeStatement(c, lanes.board, to.id, place, row.client_uid));
   }
@@ -335,11 +352,15 @@ export async function patchProject(c, row, body) {
     if (from === null) return K.issueResponse(c, row.id, 200);
     const inbox = await DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = 'inbox'").first();
     const plan = row.label_id !== inbox.id ? labelChangeStatements(c, row, inbox, {}) : null;
+    const guard = plan ? inbox.id : null;
     const results = await DB.batch([
       ...(plan ? plan.statements : []),
-      DB.prepare("UPDATE items SET project = NULL, updated_at = ?2, activity_at = ?2 WHERE id = ?1").bind(row.id, c.now),
-      eventStatement(c, row.id, "project", { from, to: null }, true),
-      DB.prepare("DELETE FROM board_positions WHERE item_id = ?1 AND board_id IN (SELECT id FROM boards WHERE cards = 1)").bind(row.id),
+      projectStatement(c, row.id, null, guard),
+      projectEvent(c, row.id, { from, to: null }, guard),
+      DB.prepare(
+        `DELETE FROM board_positions WHERE item_id = ?1 AND board_id IN (SELECT id FROM boards WHERE cards = 1)
+           AND (SELECT project FROM items WHERE id = ?1) IS NULL`,
+      ).bind(row.id),
       K.readStatement(c, row.id),
     ]);
     if (plan && !results[0].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
@@ -348,23 +369,25 @@ export async function patchProject(c, row, body) {
     return K.issueResponse(c, row.id, 200);
   }
   const name = await spelling(c, projectName(body.project));
-  if (from !== null && from.toLowerCase() === name.toLowerCase()) return K.json(200, { card: await loadCard(c, key) });
-  const statements = [
-    DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1").bind(row.id, name, c.now),
-    eventStatement(c, row.id, "project", { from, to: name }, true),
-    K.readStatement(c, row.id),
-  ];
+  if (from === name) return K.json(200, { card: await loadCard(c, key) });
   let plan = null;
+  let guard = null;
+  const statements = [];
   if (from === null) {
     const lanes = await cardsBoard(c);
-    const lane = laneAt(lanes, 0);
-    const card = { ...row, project: name };
-    plan = row.label_id !== lane.id ? labelChangeStatements(c, card, lane, {}) : null;
+    const lane = { ...laneAt(lanes, 0), closes: 0 };
+    plan = row.label_id !== lane.id || !row.open ? labelChangeStatements(c, { ...row, project: name }, lane, {}) : null;
+    guard = plan ? lane.id : null;
     const place = await topOf(c, lanes.board, lane.id, row.id);
     statements.push(...(plan ? plan.statements : []), placeStatement(c, lanes.board, lane.id, place, row.client_uid));
   }
-  const results = await DB.batch(statements);
-  if (plan && !results[3].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
+  const results = await DB.batch([
+    ...statements,
+    projectStatement(c, row.id, name, guard),
+    projectEvent(c, row.id, { from, to: name }, guard),
+    K.readStatement(c, row.id),
+  ]);
+  if (plan && !results[0].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
   if (plan) plan.after();
   K.push(c, "change", row, { what: ["project"] });
   return K.json(200, { card: await loadCard(c, key) });
