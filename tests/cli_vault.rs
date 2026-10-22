@@ -194,8 +194,18 @@ fn a_github_token_kept_in_the_vault_is_read_with_op_and_trimmed() {
     let stored = h
         .stub
         .calls("PUT", "/cf/accounts/acc1/workers/scripts/p99/secrets");
-    assert_eq!(stored.len(), 1);
-    assert_eq!(stored[0].json()["text"], "ghp_vaulted");
+    let tokens: Vec<_> = stored
+        .iter()
+        .map(|c| c.json())
+        .filter(|j| {
+            j["name"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("GITHUB_TOKEN_"))
+        })
+        .collect();
+    assert_eq!(tokens.len(), 1, "{tokens:?}");
+    assert_eq!(tokens[0]["text"], "ghp_vaulted");
+    assert!(stored.iter().all(|c| c.json()["text"] != " ghp_vaulted \n"));
 }
 
 #[test]
