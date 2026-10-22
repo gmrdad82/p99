@@ -1,5 +1,6 @@
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
+import { isChars, namedBy, sameCase, sameFolded } from "./text.js";
 
 export const RESOLUTIONS = ["fixed", "abandoned", "duplicate"];
 export const DEFAULT_ROLES = ["inbox", "doing", "review", "done"];
@@ -95,7 +96,7 @@ function labelName(raw) {
 
 function boardName(raw) {
   const name = typeof raw === "string" ? K.clean(raw).replace(/\s+/g, " ").trim() : "";
-  if (name.length < 1 || name.length > MAX_NAME_CHARS) K.fail(400, `name must be 1 to ${MAX_NAME_CHARS} characters`);
+  if (!isChars(name, 1, MAX_NAME_CHARS)) K.fail(400, `name must be 1 to ${MAX_NAME_CHARS} characters`);
   return name;
 }
 
@@ -105,8 +106,9 @@ function boardId(raw) {
   return Number(text);
 }
 
-function same(a, b) {
-  return typeof a === "string" && typeof b === "string" && a.toLowerCase() === b.toLowerCase();
+function sawLabel(row, from, columns) {
+  if (sameCase(row.label_name, from)) return true;
+  return sameFolded(row.label_name, from) && !columns.some((r) => r.label_id !== row.label_id && sameCase(r.name, from));
 }
 
 function boardsSql(where) {
@@ -588,9 +590,9 @@ export async function postMove(c) {
     if (on[0].host !== null && on[0].host !== row.host) K.fail(404, "no such board");
   }
   const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board));
-  const target = mine.find((r) => same(r.name, body.to));
+  const target = namedBy(mine, body.to, (r) => r.name)[0];
   if (!target) K.fail(400, hasBoard ? `${body.to} is not a column of that board` : `${body.to} is not a label on your boards`);
-  if (!same(row.label_name, body.from)) K.fail(409, MOVED, "moved");
+  if (!sawLabel(row, body.from, columns)) K.fail(409, MOVED, "moved");
   const to = { id: target.label_id, name: target.name, role: target.role, closes: target.closes };
   const resolution = body.resolution ?? null;
   if (resolution !== null && (!RESOLUTIONS.includes(resolution) || !to.closes)) K.fail(400, "a resolution goes with a label that closes");

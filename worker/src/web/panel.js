@@ -728,7 +728,7 @@ function filters(f) {
     [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.filter((s) => s !== "done").map((s) => [s, statusWord(s)]))
       .map(([v, l]) => h("option", { value: v, selected: (f.status || "open") === v, text: l })));
   const kind = h("select", { name: "kind" }, [["", say("filter_every_kind")]].concat(KINDS.map((k) => [k, say("kind_" + k)])).map(([v, l]) => h("option", { value: v, selected: f.kind === v, text: l })));
-  const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off", maxlength: "200" });
+  const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off", maxlength: "400" });
   let timer = 0;
   const apply = () => {
     clearTimeout(timer);
@@ -911,7 +911,7 @@ function pendingFiles(form, files) {
 function commentForm(i, manager) {
   const input = h("input", { type: "file", name: "files", multiple: true });
   const form = h("form", { class: "p99-comment-form", novalidate: true },
-    h("label", { class: "p99-field" }, h("span", { text: say("comment_label") }), h("textarea", { name: "body", maxlength: "20000", rows: "3", placeholder: say("comment_hint") })),
+    h("label", { class: "p99-field" }, h("span", { text: say("comment_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "3", placeholder: say("comment_hint") })),
     h("label", { class: "p99-field" }, h("span", { text: say("comment_files") }), input),
     h("ul", { class: "p99-file-list" }),
     manager ? h("label", { class: "p99-check" }, h("input", { type: "checkbox", name: "internal" }), " ", say("internal_note")) : null,
@@ -939,7 +939,7 @@ function submitComment(form, key) {
   status(form, say("sending"));
   const internal = form.elements.internal ? form.elements.internal.checked : false;
   const made = form.p99Comment ? Promise.resolve(form.p99Comment) : retrying(() =>
-    call("POST", "/issues/" + enc(key) + "/comments", JSON.stringify({ client_uid: form.p99Uid, body: body.slice(0, 20000), internal })));
+    call("POST", "/issues/" + enc(key) + "/comments", JSON.stringify({ client_uid: form.p99Uid, body: cut(body, 20000), internal })));
   made.then((res) => {
     form.p99Comment = res;
     const items = files.map((f) => ({ uid: f.uid, role: "file", name: f.file.name || "file", blob: f.file, comment: res.id, done: f.done, dead: f.dead, ref: f }));
@@ -1182,8 +1182,8 @@ function deleteBox(i) {
 function editForm(i) {
   const form = h("form", { class: "p99-edit", novalidate: true },
     h("h3", { text: say("edit") }),
-    h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "200", value: i.title, required: true })),
-    h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "20000", rows: "4", text: i.body || "" })),
+    h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "400", value: i.title, required: true })),
+    h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "4", text: i.body || "" })),
     statusLine(),
     h("button", { type: "submit", text: say("save") }));
   form.addEventListener("submit", (e) => { e.preventDefault(); patch(i.key, changed(form), form); });
@@ -1261,6 +1261,7 @@ function refused(failed) {
 function here() {
   return { origin: location.origin, path: location.pathname, title: document.title.slice(0, 300) };
 }
+function cut(s, n) { return s.length <= n ? s : Array.from(s).slice(0, n).join(""); }
 function bytes(v) { return new TextEncoder().encode(JSON.stringify(v)).length; }
 function lib() {
   if (!S.lib) {
@@ -1397,8 +1398,8 @@ function newForm(d) {
     h("h2", { id: "p99-title", text: say("new_title") }),
     h("fieldset", { class: "p99-kinds" }, h("legend", { text: say("new_kind") }), kinds.map((k, i) =>
       h("label", null, h("input", { type: "radio", name: "kind", value: k, checked: i === 0 }), " ", h("span", { text: say("kind_" + k) })))),
-    h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "200", required: true, autocomplete: "off", placeholder: say("new_title_hint") })),
-    h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "20000", rows: "5", placeholder: say("new_body_hint") })),
+    h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "400", required: true, autocomplete: "off", placeholder: say("new_title_hint") })),
+    h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "5", placeholder: say("new_body_hint") })),
     h("section", { class: "p99-capture", "aria-label": say("new_capture") },
       h("fieldset", { class: "p99-shots-pick" }, h("legend", { text: say("new_capture") }),
         pick("screenshot", true, false, say("attach_screen"), h("figure", { class: "p99-shot", "data-role": "screenshot" })),
@@ -1687,8 +1688,8 @@ function submitNew(form) {
         const body = fit({
           client_uid: d.uid,
           kind: kind ? kind.value : "bug",
-          title: title.slice(0, 200),
-          body: form.elements.body.value.slice(0, 20000),
+          title: cut(title, 200),
+          body: cut(form.elements.body.value, 20000),
           page: { url: d.at.origin + d.at.path, path: d.at.path.slice(0, 512), title: d.at.title },
           context,
           marks: JSON.parse(JSON.stringify(d.marks.map((m) => m.mark)))

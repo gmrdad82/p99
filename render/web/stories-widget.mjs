@@ -517,6 +517,35 @@ try {
     await ctx.close();
   });
 
+  await story("a visitor's title of 200 emoji is filed whole, and a longer one is cut at 200 characters without breaking an emoji", async () => {
+    const { ctx, p, errors } = await visit();
+    const head = `[${RUN}] `;
+    const typed = async (title) => {
+      await openForm(p);
+      await shotReady(p);
+      await p.locator(TITLE).click();
+      await p.keyboard.insertText(title);
+      return p.locator(TITLE).inputValue();
+    };
+    const whole = `${head}${"🚀".repeat(200 - [...head].length)}`;
+    check("200 characters of emoji fit in the title field", (await typed(whole)) === whole);
+    await p.locator(SEND).click();
+    await thread(p);
+    const filed = (await must("GET", `/issues?scope=all&host=${HOST}&q=${RUN}`)).issues.map((i) => i.title);
+    check(`the 200-emoji title arrives whole (${filed.length})`, filed.includes(whole));
+    await p.locator(S(".p99-x")).click();
+    await until("the panel to close", async () => !(await panelOpen(p)));
+    const long = `${head}${"🎉".repeat(194)}`;
+    check("the field takes more than 200 characters of emoji", (await typed(long)) === long);
+    await p.locator(SEND).click();
+    await thread(p);
+    const cut = `${head}${"🎉".repeat(200 - [...head].length)}`;
+    const titles = (await must("GET", `/issues?scope=all&host=${HOST}&q=${RUN}`)).issues.map((i) => i.title);
+    check("the longer title is cut to 200 characters, every emoji whole", titles.includes(cut) && titles.every((t) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(t)));
+    check(`no script error on the page (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
   await story("closing the panel while a report uploads and starting another keeps the new draft", async () => {
     const { ctx, p } = await visit();
     const uploading = gate();

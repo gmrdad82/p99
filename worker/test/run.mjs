@@ -9,6 +9,7 @@ import { mergeFeedChecks } from "./merge-feed.mjs";
 import { deleteChecks } from "./delete.mjs";
 import { linkChecks } from "./links.mjs";
 import { peopleChecks } from "./people.mjs";
+import { textChecks } from "./text.mjs";
 import { migrateChecks } from "./migrate.mjs";
 import { backupChecks } from "./backup.mjs";
 import { ticketChecks } from "./tickets.mjs";
@@ -1216,6 +1217,7 @@ async function run() {
   await mergeFeedChecks({ base, call, browse, mint, check, issueBody, here, there, placement: PLACEMENT });
   await deleteChecks({ base, call, browse, mint, check, issueBody, here, state, wrangler, root });
   await linkChecks({ base, call, browse, check, here, there, sent, keys, root, work });
+  await textChecks({ check });
   await peopleChecks({ call, browse, mint, check, issueBody, here, there });
   await safetyStories({ base, call, browse, mint, check, red, issueBody, here, there, keys, root, wrangler, work });
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
