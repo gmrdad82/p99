@@ -173,7 +173,7 @@ const dark = matchMedia("(prefers-color-scheme: dark)");
 
 export function open(opts) {
   const v = opts.view;
-  if (typeof v === "number" && v && v !== 401 && v !== 403 && v !== 428 && (!busyView(v) || S.open)) return Promise.resolve();
+  if (typeof v === "number" && v && v !== 401 && v !== 403 && v !== 428 && (!busyView(v) || S.open || opts.me || me)) return Promise.resolve();
   if (opts.space && opts.root !== root) {
     S.assets = null;
     S.list = null;
@@ -359,7 +359,7 @@ function download(a) {
 }
 
 function ensure() {
-  if (S.assets) return me || busyView(o.view) ? S.assets : S.assets.then(() => me || call("GET", "/me?path=" + enc(location.pathname)).then(adopt, () => {}));
+  if (S.assets) return me || o.space || busyView(o.view) ? S.assets : S.assets.then(reask);
   root = o.root;
   const css = fetch("/_p99/p99.css?v=" + V).then((r) => (r.ok ? r.text() : "")).catch(() => "");
   const self = me || busyView(o.view) ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
@@ -376,6 +376,17 @@ function ensure() {
   });
   S.assets.catch(() => { S.assets = null; });
   return S.assets;
+}
+function reask() {
+  if (me) return me;
+  return call("GET", "/me?path=" + enc(location.pathname), null, null, AbortSignal.timeout(BUSY_GIVE_UP_MS)).then(adopt, (e) => {
+    if (!e || (e.status !== 401 && e.status !== 403)) return;
+    if (e.status === 403) {
+      close(true);
+      gone();
+    }
+    throw e;
+  });
 }
 function theme(t) {
   if (!t || typeof t !== "object") return "";

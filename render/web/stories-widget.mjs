@@ -140,6 +140,15 @@ function refuseWrites() {
   }
 }
 
+function watchFetch() {
+  const real = window.fetch;
+  window.__p99Fetched = [];
+  window.fetch = function (u, ...rest) {
+    window.__p99Fetched.push(new URL(String(u instanceof Request ? u.url : u), location.href).pathname);
+    return real.call(this, u, ...rest);
+  };
+}
+
 function hideable() {
   let hidden = false;
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
@@ -406,6 +415,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
     await ctx.addInitScript(openShadow);
     await ctx.addInitScript(hideable);
+    await ctx.addInitScript(watchFetch);
     const seen = [];
     await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => {
       const status = statuses[seen.length];
@@ -432,6 +442,13 @@ try {
   const heard = (p) => p.evaluate(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-busy-heard")?.textContent || "");
   const busyShown = (p) => p.locator(S("[data-view=busy]")).count();
   const cached = (p) => p.evaluate(() => { try { return Boolean(JSON.parse(sessionStorage["p99:code"])[1].counts); } catch { return false; } });
+  const fetched = (p) => p.evaluate(() => window.__p99Fetched.slice());
+  const settle = (p, url) =>
+    p.evaluate(async (u) => {
+      await import(u);
+      for (let i = 0; i < 3; i++) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+    }, url);
+  const styled = (list) => list.some((u) => u === "/_p99/p99.css");
 
   for (const status of [429, 503]) {
     await story(`a visitor whose code link meets a ${status} from a busy P99 is told so, waits, and is signed in without asking again`, async () => {
@@ -637,11 +654,16 @@ try {
       return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
     });
     const p = await ctx.newPage();
+    const panels = [];
+    p.on("request", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
     await p.goto(PAGE);
     await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
     await until("the loader's /me", () => asks >= 1);
+    await until("the loader to read the 503", () => p.evaluate(() => performance.getEntriesByType("resource").some((e) => e.name.includes("/_p99/api/me"))));
+    await frames(p);
     await frames(p);
     check("no panel opens", !(await panelOpen(p)));
+    check(`the panel isn't even loaded for it (${panels.length})`, panels.length === 0);
     check(`it asks once and does not retry on its own (${asks})`, asks === 1);
     await openForm(p);
     check("the + opens an ordinary report form", (await busyShown(p)) === 0);
@@ -653,9 +675,48 @@ try {
     await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
     await until("the loader's /me", () => seen.length >= 1);
     await until("the panel module the 404 loads", () => panels.length >= 1);
-    for (let i = 0; i < 3; i++) await p.evaluate(() => new Promise((r) => queueMicrotask(r)));
+    await settle(p, panels[0]);
+    const asked = await fetched(p);
     check("the panel stays shut", !(await panelOpen(p)));
     check("no report form opened on its own", (await p.locator(S(".p99-new")).count()) === 0);
+    check(`the panel asks /me nothing more and loads no styles (${asked.join(",")})`, seen.length === 1 && asked.filter((u) => u === "/_p99/api/me").length === 1 && !styled(asked));
+    await p.evaluate(() => window.P99.open());
+    check("the + still opens an ordinary report form after it", await p.locator(TITLE).waitFor({ timeout: 20000 }).then(() => true, () => false));
+    await ctx.close();
+  });
+
+  await story("a visitor signed in from a code link who moves to another page while P99 is busy sees no panel and no form", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    await ctx.addInitScript(watchFetch);
+    let asks = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => {
+      if (++asks === 1) return route.fallback();
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
+    });
+    const p = await ctx.newPage();
+    const errors = [];
+    const panels = [];
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    p.on("requestfinished", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
+    await p.goto(`${PAGE}#p99=${busyCode}`);
+    await until("the code link's /me to sign them in", () => cached(p));
+    const busyAnswer = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/me" && r.status() === 503);
+    await p.evaluate(() => {
+      history.pushState(history.state, "", "/checkout/paid");
+      document.body.append(document.createElement("div"));
+    });
+    await busyAnswer;
+    await until("the panel module the 503 is handed to", () => panels.length >= 1);
+    await settle(p, panels[0]);
+    const asked = await fetched(p);
+    check(`the new page asked /me and met the 503 (${asks})`, asks === 2);
+    check("no panel opens", !(await panelOpen(p)));
+    check("no busy view and no report form", (await busyShown(p)) === 0 && (await p.locator(S(".p99-new")).count()) === 0);
+    check(`the panel asks nothing and loads no styles for it (${asked.join(",")})`, asked.filter((u) => u === "/_p99/api/me").length === 2 && !styled(asked));
+    check("the code is kept", (await kept(p)) === busyCode);
+    check("the + is there to report", await p.locator("p99-root >> .w .f").isVisible());
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
     await ctx.close();
   });
 
@@ -700,6 +761,24 @@ try {
       check("the line by the button says the link isn't valid", gone && /isn't valid here/.test(await p.locator("p99-root >> .p99-gone").textContent()));
       check("the panel is shut with no report form", !(await panelOpen(p)) && (await p.locator(S(".p99-new")).count()) === 0);
       check("the site forgets the code", (await kept(p)) === "");
+      await ctx.close();
+    });
+  }
+
+  for (const status of [401, 403]) {
+    await story(`a visitor who shuts the busy panel and presses + when P99 comes back with a ${status} is told the link isn't valid, with no form`, async () => {
+      const { ctx, p, seen, errors, panels } = await busyVisit([503, status]);
+      check("the panel says P99 is busy", await busyLine(p, 1));
+      await p.keyboard.press("Escape");
+      await until("the panel to shut", async () => !(await panelOpen(p)));
+      await p.locator("p99-root >> .w .f").click();
+      const gone = await p.locator("p99-root >> .p99-gone").waitFor({ timeout: 20000 }).then(() => true, () => false);
+      await settle(p, panels[0]);
+      check(`the + asked /me once more and met the ${status} (${seen.join(",")})`, seen.length === 2 && seen[1] === status);
+      check("the line by the button says the link isn't valid", gone && /isn't valid here/.test(await p.locator("p99-root >> .p99-gone").textContent()));
+      check("the panel is shut with no report form", !(await panelOpen(p)) && (await p.locator(S(".p99-new")).count()) === 0);
+      check("the site forgets the code", (await kept(p)) === "");
+      check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
       await ctx.close();
     });
   }
