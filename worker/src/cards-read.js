@@ -82,9 +82,9 @@ function oneSql(scope, id, body) {
       LEFT JOIN board_positions bp ON bp.board_id = ln.board_id AND bp.item_id = i.id AND bp.label_id = i.label_id
       WHERE i.id = ${id} AND i.project IS NOT NULL AND ${scope("i")}),
     peers AS (
-      SELECT o.id FROM t JOIN items o ON o.label_id = (SELECT label_id FROM lanes WHERE lane = t.lane) WHERE t.lane < ${DONE_LANE}
+      SELECT o.id FROM t JOIN items o ON o.label_id = (SELECT label_id FROM lanes WHERE lane = t.lane) WHERE t.lane < ${DONE_LANE} AND o.project IS NOT NULL
       UNION
-      SELECT o.id FROM t JOIN items o ON o.open = 1 WHERE t.lane = 0 AND o.label_id NOT IN (SELECT label_id FROM lanes)),
+      SELECT o.id FROM t JOIN items o ON o.open = 1 AND o.project IS NOT NULL WHERE t.lane = 0 AND o.label_id NOT IN (SELECT label_id FROM lanes)),
     page AS (
       SELECT t.lane, t.ord, t.ord IS NOT NULL AS keyed,
         CASE WHEN t.lane = ${DONE_LANE} THEN NULL ELSE 1 + (
@@ -181,7 +181,7 @@ export function linkOf(row) {
   return {
     ref: typeof detail.ref === "string" ? detail.ref : null,
     note: typeof detail.note === "string" ? detail.note : null,
-    by: row.by_email ? personOf(row.by_name, row.by_username, row.by_agent, row.by_via) : null,
+    by: personOf(row.by_name, row.by_username, row.by_agent, row.by_via),
     at: row.at,
   };
 }
@@ -210,7 +210,10 @@ async function linksFor(c, ids) {
   const { results } = await c.env.DB.prepare(linksSql()).bind(JSON.stringify(ids)).all();
   await settle(c, results, ids);
   const byItem = new Map(ids.map((id) => [id, []]));
-  for (const row of results) byItem.get(row.item_id).push(linkOf(row));
+  for (const row of results) {
+    const link = linkOf(row);
+    if (link.ref !== null) byItem.get(row.item_id).push(link);
+  }
   return byItem;
 }
 
@@ -312,7 +315,7 @@ export async function listCards(c) {
   if (since !== null) outer.push(`${CHANGED_AT} >= ${q.bind(sinceOf(since))}`);
   const source = params.get("source");
   if (source !== null) outer.push(`${CHANGED_AGENT} = ${q.bind(sourceOf(source))}`);
-  const host = params.get("host");
+  const host = c.browser ? (params.get("site") === "1" ? c.hostRow.host : null) : params.get("host");
   if (host !== null && host !== "*") outer.push(`i.host = ${q.bind(host.toLowerCase())}`);
   const cursor = params.get("cursor");
   if (cursor) {

@@ -133,7 +133,7 @@ async function unitChecks(check) {
     assert.deepEqual(linkOf(row), { ref: "v1.2.0", note: null, by: { name: "Ada Lovelace", username: "ada", agent: false, via: null }, at: row.at });
     assert.deepEqual(linkOf({ ...row, detail_json: "not json" }), { ref: null, note: null, by: { name: "Ada Lovelace", username: "ada", agent: false, via: null }, at: row.at });
     assert.deepEqual([linkOf({ ...row, detail_json: '{"ref":42,"note":["x"]}' }).ref, linkOf({ ...row, detail_json: "null" }).note], [null, null]);
-    assert.equal(linkOf({ ...row, by_email: null }).by, null);
+    assert.deepEqual(linkOf({ ...row, by_email: null, by_name: null, by_username: null, by_agent: 0 }).by, { name: null, username: null, agent: false, via: null });
     assert.equal(/@/.test(JSON.stringify(linkOf(row))), false);
   });
 
@@ -546,6 +546,18 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await browse("GET", `/cards/${alphaHere.key}`, boss.secret)).status, 200);
     const projects = (await browse("GET", "/projects", boss.secret)).json.projects;
     assert.deepEqual(projects.find((p) => p.name === "Read Alpha"), { name: "Read Alpha", open: 3, done: 0 });
+  });
+
+  await check("in the browser host= only routes the request; site=1 keeps this host's cards", async () => {
+    const boss = await mint("Emmy Noether", "emmy@example.com", [here, there], true);
+    const every = keysOf((await browse("GET", `/cards?${project("Read Alpha")}&host=${there}`, boss.secret)).json);
+    assert.ok(every.includes(alphaHere.key));
+    assert.ok(every.includes(alphaThere.key));
+    const site = await browse("GET", `/cards?${project("Read Alpha")}&site=1`, boss.secret);
+    assert.equal(site.status, 200, JSON.stringify(site.json));
+    assert.ok(site.json.cards.length > 0);
+    assert.ok(site.json.cards.every((cd) => cd.host === here));
+    assert.equal(keysOf(site.json).includes(alphaThere.key), false);
   });
 
   await check("source on /issues filters today's list by the last change's person or agent", async () => {

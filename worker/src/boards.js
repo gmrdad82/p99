@@ -35,6 +35,8 @@ const MOVED = "this card moved; refreshed";
 const CARDS_FIXED = "the Cards board keeps its six lanes; rename a lane with p99 labels rename";
 const CARDS_STAYS = "the Cards board stays";
 const CARDS_CLOSES = "a Cards board lane keeps its closes; done alone closes a card";
+const CARD_LANES = "SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 ORDER BY bc.position";
+const CARD_REOPENS = { inbox: 0, doing: 2, review: 4 };
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 
@@ -292,16 +294,17 @@ async function columnsOf(c, v, raw) {
   const [known, count, lanes] = await DB.batch([
     DB.prepare("SELECT id, name, closes FROM labels WHERE name IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(wanted.map((w) => w.label))),
     DB.prepare(`SELECT count(*) AS n FROM labels l WHERE ${USED}`),
-    DB.prepare("SELECT bc.label_id AS id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1"),
+    DB.prepare("SELECT bc.label_id AS id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1 ORDER BY bc.position"),
   ]);
   const cardLanes = new Set(lanes.results.map((r) => r.id));
+  const doneLane = lanes.results.at(-1)?.id;
   const byName = new Map(known.results.map((l) => [l.name.toLowerCase(), l]));
   const fresh = wanted.filter((w) => !byName.has(w.label.toLowerCase()));
   if (count.results[0].n + fresh.length > MAX_LABELS) K.fail(400, `an account holds up to ${MAX_LABELS} labels`);
   for (const w of wanted) {
     const l = byName.get(w.label.toLowerCase());
     if (!l || w.closes === null || Boolean(l.closes) === w.closes) continue;
-    if (cardLanes.has(l.id)) K.fail(409, CARDS_CLOSES);
+    if (cardLanes.has(l.id) && w.closes !== (l.id === doneLane)) K.fail(409, CARDS_CLOSES);
     await guardLabel(c, v, l.id);
   }
   return { wanted, byName };
@@ -502,14 +505,21 @@ async function closingLabel(c, row) {
   ).first();
 }
 
+async function cardLane(c, row, index) {
+  if (row.project == null) return null;
+  const { results } = await c.env.DB.prepare(CARD_LANES).all();
+  const lane = results.at(index);
+  return lane ? { ...lane, closes: index === -1 ? 1 : 0 } : null;
+}
+
 export async function closeItem(c, row, resolution, opts = {}) {
-  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : await closingLabel(c, row);
+  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : (await cardLane(c, row, -1)) ?? (await closingLabel(c, row));
   if (!to) K.fail(409, "no label closes items; mark one with p99 boards set --closes");
   return applyLabel(c, row, to, { ...opts, resolution });
 }
 
 export async function reopenItem(c, row, role = "inbox") {
-  const to = await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = ?1").bind(role).first();
+  const to = (await cardLane(c, row, CARD_REOPENS[role] ?? 0)) ?? (await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = ?1").bind(role).first());
   return applyLabel(c, row, to, {});
 }
 

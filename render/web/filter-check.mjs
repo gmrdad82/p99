@@ -82,10 +82,10 @@ function cardsAnswer(url) {
   const projects = q.getAll("project").map((p) => p.toLowerCase());
   const statuses = q.getAll("status");
   const source = q.get("source");
-  const host = q.get("host");
+  const site = q.get("site") === "1";
   return CARDS.filter((c) => (!projects.length || projects.includes(c.project.toLowerCase()))
     && (!statuses.length || statuses.includes(c.status))
-    && (!host || c.host === host)
+    && (!site || c.host === HOST)
     && (!source || (source === "agent") === c.changed_by.agent));
 }
 
@@ -192,9 +192,9 @@ try {
     await source(p, "");
     await choose(p, "site");
     s = await settled(p, (s) => s.view === "site" && s.keys.length > 0);
-    check(`Only this website asks /cards for this host and hides the item tabs and filters (${asked.join(" ")}; ${s.keys})`, asked.some((a) => a.includes(`host=${HOST}`)) && !s.tabs && !s.filters && s.keys.join() === "FEAT-901,FEAT-903");
-    const sent = asked.filter((a) => a.startsWith("/_p99/api/cards?")).map((a) => new URLSearchParams(a.split("?")[1]).getAll("host"));
-    check(`Only this website sends one host, this page's hostname (${JSON.stringify(sent)})`, sent.length > 0 && sent.every((h) => h.length === 1 && h[0] === HOST));
+    check(`Only this website asks /cards for this host and hides the item tabs and filters (${asked.join(" ")}; ${s.keys})`, asked.some((a) => a.includes("site=1")) && !s.tabs && !s.filters && s.keys.join() === "FEAT-901,FEAT-903");
+    const sent = asked.filter((a) => a.startsWith("/_p99/api/cards?")).map((a) => new URLSearchParams(a.split("?")[1]));
+    check(`Only this website sends site=1 and no host of its own (${JSON.stringify(sent.map(String))})`, sent.length > 0 && sent.every((q) => q.getAll("site").join() === "1" && !q.has("host")));
     check(`this website's cards open in the panel, not on a new tab (${s.here}; ${s.away})`, s.away.length === 0 && s.here.join() === "#p99=FEAT-901,#p99=FEAT-903");
     await p.locator(S('.p99-card-row a[href="#p99=FEAT-903"]')).click();
     const inPanel = await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item]"), null, { timeout: 8000 }).then(() => true, () => false);
@@ -278,7 +278,7 @@ try {
         note: r.querySelector(".p99-board-filter")?.hidden === false ? r.querySelector(".p99-board-filter").textContent : null,
       };
     });
-    check(`under Landed the board overlay keeps only landed cards and says so (${JSON.stringify(landed)})`, landed.cards.every((k) => k === "FEAT-901") && !landed.cards.includes(byAgent) && !landed.cards.includes(byPerson) && /Landed/i.test(landed.note || ""));
+    check(`under Landed the personal board overlay hides every plain item and says so (${JSON.stringify(landed)})`, landed.cards.length === 0 && /Landed/i.test(landed.note || ""));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", "{not json"));
     await p.close();

@@ -103,6 +103,14 @@ fn flag(value: &Value, field: &str) -> Result<bool, String> {
     }
 }
 
+fn label(value: &Value, field: &str) -> Result<(), String> {
+    if absent(value, field) || value.get(field).is_some_and(Value::is_string) {
+        Ok(())
+    } else {
+        Err(format!("{field} must be a string"))
+    }
+}
+
 fn email(value: &Value, field: &str) -> Result<(), String> {
     if is_email(need(value, field)?) {
         Ok(())
@@ -123,6 +131,7 @@ fn person(value: &Value, field: &str) -> Result<(), String> {
         ));
     }
     flag(who, "agent").map_err(|e| format!("{field}.{e}"))?;
+    label(who, "via").map_err(|e| format!("{field}.{e}"))?;
     flag(who, "manager").map_err(|e| format!("{field}.{e}"))?;
     Ok(())
 }
@@ -288,6 +297,7 @@ fn check_event(value: &Value) -> Result<(), String> {
             email(actor, "email").map_err(|e| format!("actor.{e}"))?;
         }
         flag(actor, "agent").map_err(|e| format!("actor.{e}"))?;
+        label(actor, "via").map_err(|e| format!("actor.{e}"))?;
     }
     object_or_absent(value, "detail")?;
     flag(value, "internal")?;
@@ -682,5 +692,26 @@ mod tests {
         assert!(errors[2].starts_with("line 4:"));
         assert!(errors[3].starts_with("line 5: not JSON"));
         assert!(errors[4].starts_with("line 6: type must be"));
+    }
+
+    #[test]
+    fn an_agent_label_in_a_bundle_is_text_or_absent() {
+        let lines = concat!(
+            r#"{"type":"item","key":"BUG-7","kind":"bug","title":"x","reporter":{"email":"ada@example.com","agent":true,"via":"pci"},"created_at":"2025-03-01T10:00:00Z"}"#,
+            "\n",
+            r#"{"type":"comment","item":"BUG-7","uid":"c-1","author":{"email":"ada@example.com","agent":true,"via":null},"body":"Seen.","created_at":"2025-03-02T09:00:00Z"}"#,
+            "\n",
+            r#"{"type":"comment","item":"BUG-7","uid":"c-2","author":{"email":"ada@example.com","agent":true,"via":7},"body":"Seen.","created_at":"2025-03-02T09:00:00Z"}"#,
+            "\n",
+            r#"{"type":"event","item":"BUG-7","kind":"label","actor":{"email":"ada@example.com","agent":true,"via":["pci"]},"at":"2025-03-02T09:00:00Z"}"#,
+            "\n",
+            r#"{"type":"event","item":"BUG-7","kind":"label","actor":{"email":"ada@example.com","agent":true,"via":"pci"},"at":"2025-03-02T09:00:00Z"}"#,
+        );
+        let errors = validate(lines, Path::new(".")).unwrap_err();
+        assert_eq!(errors.len(), 2, "{errors:#?}");
+        assert!(errors[0].starts_with("line 3:"), "{}", errors[0]);
+        assert!(errors[0].contains("author.via must be a string"), "{}", errors[0]);
+        assert!(errors[1].starts_with("line 4:"), "{}", errors[1]);
+        assert!(errors[1].contains("actor.via must be a string"), "{}", errors[1]);
     }
 }

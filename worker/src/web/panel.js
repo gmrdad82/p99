@@ -803,7 +803,7 @@ function keepPick(p) {
 function siteHost() { return o.space || location.hostname; }
 function cardQuery(p, cursor) {
   const q = new URLSearchParams();
-  if (p.view === "site" && !o.space) q.set("host", siteHost());
+  if (p.view === "site") q.set("site", "1");
   if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
   if (p.view === "landed") q.set("status", "landed");
   if (p.source) q.set("source", p.source);
