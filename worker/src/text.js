@@ -21,6 +21,19 @@ export function sameFolded(a, b) {
   return typeof a === "string" && typeof b === "string" && fold(a) === fold(b);
 }
 
+export function sameCase(a, b) {
+  return typeof a === "string" && typeof b === "string" && asciiLower(a) === asciiLower(b);
+}
+
+export function namedBy(list, asked, nameOf) {
+  const exact = list.filter((x) => sameCase(nameOf(x), asked));
+  return exact.length > 0 ? exact : list.filter((x) => sameFolded(nameOf(x), asked));
+}
+
+function asciiLower(text) {
+  return text.replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+}
+
 export function searchMatch(column, text, bind) {
   return `instr(${column}, ${bind(fold(text))}) > 0`;
 }

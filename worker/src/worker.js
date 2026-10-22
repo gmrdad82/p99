@@ -363,7 +363,7 @@ function clean(value) {
 }
 
 function isText(value, min, max) {
-  return isChars(value, min, max);
+  return typeof value === "string" && value.length >= min && value.length <= max;
 }
 
 function isNumber(value) {
@@ -1655,7 +1655,7 @@ async function createIssue(c) {
   const title = validTitle(body.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const text = clean(body.body ?? "");
-  if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+  if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const page = validPage(body.page);
   if (!page) fail(400, "page must have an http(s) url, a path starting with / and a title");
   const context = body.context ?? {};
@@ -1917,7 +1917,7 @@ async function patchIssue(c, rawKey) {
   if (has("body")) {
     if (!c.manager && !(reporter && fresh)) fail(403, "only a manager, or the reporter while the item is new, may change the details");
     const text = clean(body.body);
-    if (!isText(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+    if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
   }
   if (has("kind")) {
@@ -2781,7 +2781,7 @@ function importItem(r, host) {
   const title = validTitle(r.title);
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const body = clean(r.body ?? "");
-  if (!isText(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
+  if (!isChars(body, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const env = r.env ?? host.env;
   if (!isEnvName(env)) fail(400, "env must name an environment");
   const context = r.context ?? {};

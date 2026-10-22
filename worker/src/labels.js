@@ -1,4 +1,4 @@
-import { fold } from "./text.js";
+import { namedBy } from "./text.js";
 
 let fail, requireManager;
 
@@ -23,8 +23,8 @@ export async function labelFilters(c, params, q, where) {
   if (wanted.length === 0) return;
   requireManager(c);
   if (wanted.length > 1) fail(400, "an item has one label; ask for one");
-  const asked = fold(wanted[0].trim().replace(/\s+/g, " "));
+  const asked = wanted[0].trim().replace(/\s+/g, " ");
   const { results } = await c.env.DB.prepare("SELECT id, name FROM labels").all();
-  const ids = results.filter((l) => fold(l.name) === asked).map((l) => q.bind(l.id));
+  const ids = namedBy(results, asked, (l) => l.name).map((l) => q.bind(l.id));
   where.push(ids.length > 0 ? `i.label_id IN (${ids.join(", ")})` : "0");
 }

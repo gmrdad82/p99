@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chars, fold, isChars, sameFolded, searchMatch } from "../src/text.js";
+import { chars, fold, isChars, namedBy, sameCase, sameFolded, searchMatch } from "../src/text.js";
 
 export async function textChecks({ check }) {
   await check("text: fold drops accents and case, Turkish dotted capitals and diaeresis included", async () => {
@@ -47,17 +47,41 @@ export async function textChecks({ check }) {
     assert.equal(sameFolded(undefined, undefined), false);
   });
 
-  await check("text: searchMatch binds the folded query whole, so any length and % _ \\ stay literal", async () => {
+  await check("text: sameCase folds ASCII case only, as D1's NOCASE does", async () => {
+    assert.equal(sameCase("Revise", "REVISE"), true);
+    assert.equal(sameCase("Révisé", "RÉVISÉ"), false);
+    assert.equal(sameCase("Révisé", "revise"), false);
+    assert.equal(sameCase("Doing", "DOİNG"), false);
+    assert.equal(sameCase("a", null), false);
+  });
+
+  await check("text: namedBy prefers labels named exactly, up to ASCII case, and falls back to the fold", async () => {
+    const labels = [{ id: 1, name: "Révisé" }, { id: 2, name: "revise" }, { id: 3, name: "Doing" }];
+    const ids = (asked) => namedBy(labels, asked, (l) => l.name).map((l) => l.id);
+    assert.deepEqual(ids("revise"), [2]);
+    assert.deepEqual(ids("REVISE"), [2]);
+    assert.deepEqual(ids("Révisé"), [1]);
+    assert.deepEqual(ids("RÉVISÉ"), [1, 2]);
+    assert.deepEqual(ids("DOİNG"), [3]);
+    assert.deepEqual(ids("revisé"), [1, 2]);
+    assert.deepEqual(ids("nowhere"), []);
+    assert.deepEqual(namedBy([], "revise", (l) => l.name), []);
+  });
+
+  await check("text: searchMatch binds one folded needle that instr finds in folded text at any length, with % _ \\ literal", async () => {
     const bound = [];
     const bind = (v) => {
       bound.push(v);
-      return `?${bound.length + 1}`;
+      return `?${bound.length}`;
     };
     const long = "Crème 100% snake_case back\\slash ".repeat(6).trim();
-    assert.equal(searchMatch("i.search_text", long, bind), "instr(i.search_text, ?2) > 0");
-    assert.deepEqual(bound, [fold(long)]);
-    assert.ok(!bound[0].includes("crème"));
-    assert.ok(bound[0].includes("100% snake_case back\\slash"));
-    assert.ok(!/LIKE|ESCAPE/.test(searchMatch("c", "x", bind)));
+    assert.equal([...long].length > 50, true);
+    assert.equal(searchMatch("i.search_text", long, bind), "instr(i.search_text, ?1) > 0");
+    assert.equal(bound.length, 1);
+    const instr = (hay, needle) => hay.indexOf(needle) + 1 > 0;
+    assert.equal(instr(fold(`Before. ${long.toUpperCase()} after.`), bound[0]), true);
+    assert.equal(instr(fold(long.replace("100%", "1000")), bound[0]), false);
+    searchMatch("i.search_text", "snake_case", bind);
+    assert.equal(instr(fold("snakeXcase"), bound[1]), false);
   });
 }
