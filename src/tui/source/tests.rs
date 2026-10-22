@@ -208,7 +208,7 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 #[test]
 fn the_sample_offers_a_card_its_lanes_and_a_plain_item_its_boards_labels() {
     let source = Source::demo(Duration::ZERO);
-    let entries = source.inbox().expect("the sample reads");
+    let entries = source.inbox().expect("the sample reads").entries;
     let card = entries
         .iter()
         .find(|e| e.summary.project.is_some() && e.summary.label.as_deref() == Some("Done"))

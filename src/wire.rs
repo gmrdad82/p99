@@ -61,7 +61,7 @@ pub struct Person {
     pub name: String,
     #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub via: Option<String>,
 }
 
@@ -295,7 +295,7 @@ pub struct Author {
     pub manager: bool,
     #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient")]
     pub via: Option<String>,
 }
 

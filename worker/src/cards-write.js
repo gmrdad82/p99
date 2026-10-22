@@ -187,7 +187,7 @@ export async function postCard(c) {
   const title = K.validTitle(body.title);
   if (title === null) K.fail(400, `title must be 1 to ${K.MAX_TITLE_CHARS} characters`);
   const text = K.clean(body.body ?? "");
-  if (!K.isText(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
+  if (!K.isChars(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
   const target = targetHost(c, body);
   const lanes = await cardsBoard(c);
   const lane = { ...laneAt(lanes, 0), closes: 0 };
@@ -249,7 +249,7 @@ export async function postCardStatus(c, rawKey) {
   const index = typeof body.status === "string" ? laneIndex(body.status) : -1;
   if (index < 0) K.fail(400, STATUS_RULE);
   const note = noteOf(body.note);
-  if (note !== null && note.length > K.MAX_BODY_CHARS) K.fail(400, `note must be at most ${K.MAX_BODY_CHARS} characters`);
+  if (note !== null && !K.isChars(note, 0, K.MAX_BODY_CHARS)) K.fail(400, `note must be at most ${K.MAX_BODY_CHARS} characters`);
   if (note !== null && !K.isUid(body.client_uid)) K.fail(400, UID_RULE);
   const closing = index === LANES.length - 1;
   if (closing) refuseAgentClose(c, row, { closes: 1 });

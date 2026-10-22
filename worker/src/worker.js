@@ -3255,7 +3255,7 @@ useCardKit({
   eventStatement,
   fail,
   firstRows,
-  isText,
+  isChars,
   isUid,
   isUniqueViolation,
   issueResponse,
