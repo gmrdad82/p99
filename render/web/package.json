@@ -13,6 +13,7 @@
     "manage-check": "node manage-check.mjs",
     "search-check": "node search-check.mjs",
     "filter-check": "node filter-check.mjs",
+    "app-check": "node app-check.mjs",
     "pitomd": "node pitomd.mjs",
     "badges": "node badges.mjs",
     "stories-widget": "node stories-widget.mjs",

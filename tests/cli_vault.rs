@@ -159,3 +159,88 @@ fn a_plain_key_never_runs_op() {
     assert!(!bin.join("asked").exists(), "op ran for a plain key");
     assert!(h.stub.seen().iter().all(|c| c.signed));
 }
+
+const GH_REF: &str = "op://Example/github/token";
+
+fn github_set(h: &Home, bin: &Path) -> home::Out {
+    h.p99_env(
+        &[
+            "github",
+            "set",
+            "shop.example.com",
+            "--repo",
+            "acme/shop",
+            "--token-ref",
+            GH_REF,
+        ],
+        &[("PATH", &path_with(bin))],
+    )
+}
+
+#[test]
+fn a_github_token_kept_in_the_vault_is_read_with_op_and_trimmed() {
+    let h = Home::new("vault-gh-read", fake::any);
+    let bin = fake_op(
+        &h.dir,
+        &format!(
+            "if [ \"$1\" = read ] && [ \"$3\" = \"{GH_REF}\" ]; then printf ' ghp_vaulted \\n'; else exit 9; fi"
+        ),
+    );
+    github_set(&h, &bin).ok();
+    let asked = std::fs::read_to_string(bin.join("asked")).unwrap();
+    assert_eq!(asked, format!("read --no-newline {GH_REF}\n"));
+    let repo = h.stub.call("GET", "/gh/repos/acme/shop");
+    assert_eq!(repo.header("authorization"), Some("Bearer ghp_vaulted"));
+    let stored = h
+        .stub
+        .calls("PUT", "/cf/accounts/acc1/workers/scripts/p99/secrets");
+    assert_eq!(stored[0].json()["text"], "ghp_vaulted");
+}
+
+#[test]
+fn a_github_token_the_vault_holds_empty_is_refused_before_github_is_asked() {
+    let h = Home::new("vault-gh-empty", fake::any);
+    let bin = fake_op(&h.dir, "printf ' \\n\\t'");
+    github_set(&h, &bin).refused(&format!("{GH_REF} is empty"));
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn a_github_token_op_refuses_names_the_reference_and_what_op_said() {
+    let h = Home::new("vault-gh-refused", fake::any);
+    let bin = fake_op(
+        &h.dir,
+        "echo '[ERROR] \"github\" is not an item in the \"Example\" vault' >&2\nexit 1",
+    );
+    github_set(&h, &bin).refused(&format!(
+        "{GH_REF}: [ERROR] \"github\" is not an item in the \"Example\" vault"
+    ));
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn a_github_token_without_op_installed_says_to_install_it() {
+    let h = Home::new("vault-gh-missing", fake::any);
+    let empty = h.dir.join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    let out = h.p99_env(
+        &[
+            "github",
+            "set",
+            "shop.example.com",
+            "--repo",
+            "acme/shop",
+            "--token-ref",
+            GH_REF,
+        ],
+        &[("PATH", empty.to_str().unwrap())],
+    );
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr.starts_with(&format!("p99: {GH_REF}: "))
+            && out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+        "{}",
+        out.stderr
+    );
+    assert!(h.stub.seen().is_empty());
+}

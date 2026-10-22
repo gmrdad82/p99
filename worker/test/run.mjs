@@ -24,6 +24,8 @@ import { coverWorker } from "./inspect.mjs";
 import { cardReadChecks } from "./cards-read.mjs";
 import { cardWriteChecks } from "./cards-write.mjs";
 import { markChecks } from "./marks.mjs";
+import { githubChecks, githubStub, githubVars } from "./github.mjs";
+import { placementChecks } from "./placement.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -339,6 +341,8 @@ async function main() {
   for (const host of ["127.0.0.1", "localhost"]) {
     vars.push(`GITHUB_HOOK_${sha256(Buffer.from(host)).slice(0, 16).toUpperCase()}:github-hook-secret`);
   }
+  const github = await githubStub();
+  vars.push(...githubVars("localhost", github.address().port));
   const resend = await fakeResend();
   vars.push("RESEND_API_KEY:test-resend", `RESEND_API_URL:http://127.0.0.1:${resend.address().port}`);
   let dev = null;
@@ -356,6 +360,8 @@ async function main() {
   } finally {
     await dev?.stop();
     stub.close();
+    github.close();
+    github.closeAllConnections();
     resend.close();
     resend.closeAllConnections();
   }
@@ -1250,6 +1256,8 @@ async function run() {
   await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys, d1count });
   await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });
+  await placementChecks({ base, call, browse, mint, check, here, placement: PLACEMENT });
+  await githubChecks({ base, call, check, issueBody, here, there });
   await check("board.js is served as the module the panel imports for managers", async () => {
     const response = await fetch(`${base}/_p99/board.js?v=dev`);
     assert.equal(response.status, 200);
