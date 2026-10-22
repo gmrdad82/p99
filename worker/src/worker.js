@@ -35,7 +35,7 @@ import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import { ONE_BOARD_ROUTES } from "./one-board.js";
-import { NEEDS_ROUTES, waitingCount } from "./needs-you.js";
+import { NEEDS_ROUTES, leaveNeedsYou, waitingCount } from "./needs-you.js";
 import { deleteCode, useCodesKit } from "./codes-delete.js";
 import { roleOf } from "./roles.js";
 import loaderSource from "./web/p99.js";
@@ -2025,6 +2025,7 @@ async function postComment(c, rawKey) {
   if (body.internal !== undefined && typeof body.internal !== "boolean") fail(400, "internal must be a boolean");
   if (internal) requireManager(c);
   checkUsage(c, "comments", 1, used);
+  const back = await leaveNeedsYou(c, row);
   let results;
   try {
     results = await DB.batch([
@@ -2060,6 +2061,7 @@ async function postComment(c, rawKey) {
       ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid, agentOf(c), viaOf(c)),
       readStatement(c, row.id),
       usageStatement(c, "comments", 1),
+      ...back.statements,
     ]);
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -2068,6 +2070,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
+  back.after(results[5]);
   push(c, "comment", row, { internal });
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });

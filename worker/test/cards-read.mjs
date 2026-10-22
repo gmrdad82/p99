@@ -31,7 +31,7 @@ function cardRow(over = {}) {
     kind: "feature",
     project: "Splicer",
     label_name: "Stuck",
-    lane: 3,
+    lane: 4,
     place: 2,
     title: "Export keeps every audio track",
     host: "shop.example.com",
@@ -55,15 +55,15 @@ function cardRow(over = {}) {
 async function unitChecks(check) {
   unitKit();
 
-  await check("the six status words name the lanes by position, both ways", async () => {
-    assert.deepEqual(LANES, ["new", "planned", "in-progress", "stuck", "landed", "done"]);
-    assert.deepEqual(LANE_NAMES, ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]);
+  await check("the seven status words name the lanes by position, both ways", async () => {
+    assert.deepEqual(LANES, ["new", "planned", "in-progress", "needs-you", "stuck", "landed", "done"]);
+    assert.deepEqual(LANE_NAMES, ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
     LANES.forEach((word, at) => {
       assert.equal(laneIndex(word), at);
       assert.equal(laneWord(at), word);
     });
-    for (const bad of ["blocked", "Done", "in_progress", "", undefined, null]) assert.equal(laneIndex(bad), -1);
-    for (const bad of [-1, 6, 1.5, undefined]) assert.equal(laneWord(bad), null);
+    for (const bad of ["blocked", "Done", "in_progress", "needs you", "Needs-you", "", undefined, null]) assert.equal(laneIndex(bad), -1);
+    for (const bad of [-1, 7, 1.5, undefined]) assert.equal(laneWord(bad), null);
   });
 
   await check("a person is name, username, agent and via, with via only on an agent", async () => {
@@ -119,7 +119,10 @@ async function unitChecks(check) {
     });
     assert.deepEqual(Object.keys(card).sort(), CARD_FIELDS);
     assert.equal(/@/.test(JSON.stringify(card)), false);
-    const done = cardOf(cardRow({ lane: 5, place: 7, label_name: "Shipped" }));
+    const needs = cardOf(cardRow({ lane: 3, place: 1, label_name: "Needs you" }));
+    assert.deepEqual([needs.status, needs.label, needs.lane], ["needs-you", "Needs you", 1]);
+    assert.equal(cardOf(cardRow({ lane: 5, place: 3 })).status, "landed");
+    const done = cardOf(cardRow({ lane: 6, place: 7, label_name: "Shipped" }));
     assert.equal(done.status, "done");
     assert.equal(done.lane, null);
     assert.equal(done.label, "Shipped");
@@ -579,84 +582,11 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await call("GET", `/_p99/v1/issues?scope=all&source=everyone`, { actor: ada })).status, 400);
   });
 
-  const keysOn = async (id, host, actor = ada) => (await call("GET", `/_p99/v1/boards/${id}${host ? `?host=${host}` : ""}`, { actor })).json.cards.map((cd) => cd.key);
-  const findCardsBoard = async () => {
-    for (const b of (await call("GET", "/_p99/v1/boards", { actor: ada })).json.boards) if ((await keysOn(b.id)).includes(lanes.a)) return b;
-    return null;
-  };
-  const cardsOwner = async (id) => {
-    for (const who of [ada, bare]) if ((await call("GET", "/_p99/v1/boards", { actor: who })).json.boards.some((b) => b.id === id && b.mine)) return who;
-    return null;
-  };
-
-  await check("the Cards board shows only cards, and every other board only plain items", async () => {
-    const cardsBoard = await findCardsBoard();
-    assert.ok(cardsBoard);
-    assert.equal(cardsBoard.columns.length, LANE_NAMES.length);
-    const onCards = await keysOn(cardsBoard.id);
-    const every = new Set(keysOf(await list(`${LANES.map((w) => `status=${w}`).join("&")}&limit=500`)));
-    assert.ok(onCards.length > 0);
-    assert.ok(onCards.every((key) => every.has(key)), "only cards on the Cards board");
-    for (const key of [lanes.a, lanes.f, alphaThere.key]) assert.ok(onCards.includes(key), key);
-    const plain = (await call("POST", `/_p99/v1/issues?host=${here}`, { actor: ada, body: issueBody({ title: "Plain on Done" }) })).json.key;
-    const mine = (await call("GET", `/_p99/v1/boards?host=${here}`, { actor: ada })).json.boards.find((b) => b.mine);
-    assert.ok(mine);
-    const closed = await call("POST", `/_p99/v1/move?host=${here}`, { actor: ada, body: { key: plain, from: "Inbox", to: "Done", board: mine.id } });
-    assert.equal(closed.status, 200, JSON.stringify(closed.json));
-    assert.equal((await keysOn(cardsBoard.id)).includes(plain), false, "a closed plain item stays off the Cards board");
-    const onMine = await keysOn(mine.id, here);
-    assert.ok(onMine.includes(plain));
-    assert.equal(onMine.includes(lanes.f), false, "a done card stays off a personal board");
-    assert.ok(onMine.every((key) => !every.has(key)), "no card on a personal board");
-    const anchored = await call("POST", `/_p99/v1/move?host=${here}`, { actor: ada, body: { key: plain, from: "Done", to: "Done", board: mine.id, after: lanes.f } });
-    assert.equal(anchored.status, 400, JSON.stringify(anchored.json));
-    assert.equal(anchored.json.message, `${lanes.f} is not in that column of the board`);
-  });
-
-  await check("a move never puts a plain item on the Cards board nor a card on another board", async () => {
-    const cardsBoard = await findCardsBoard();
-    const owner = await cardsOwner(cardsBoard.id);
-    assert.ok(owner, "someone here owns the Cards board");
-    const move = (body, actor = owner) => call("POST", "/_p99/v1/move", { actor, body });
-    const plain = (await call("POST", `/_p99/v1/issues?host=${here}`, { actor: owner, body: issueBody({ title: "Plain, kept off the lanes" }) })).json.key;
-    const card = await file("Read Sides", "Card, kept off personal boards", owner);
-    const personal = (await call("GET", `/_p99/v1/boards?host=${here}`, { actor: owner })).json.boards.find((b) => b.mine && b.id !== cardsBoard.id);
-    assert.ok(personal, "the owner has a personal board here");
-
-    const onto = await move({ key: plain, from: "Inbox", to: "Planned", board: cardsBoard.id });
-    assert.equal(onto.status, 409, JSON.stringify(onto.json));
-    assert.equal(onto.json.message, notCard(plain));
-    const loose = await move({ key: plain, from: "Inbox", to: "Stuck" });
-    assert.equal(loose.status, 400, JSON.stringify(loose.json));
-    assert.equal(loose.json.message, "Stuck is not a label on your boards");
-
-    const off = await move({ key: card.key, from: "New", to: personal.columns[0].label, board: personal.id });
-    assert.equal(off.status, 400, JSON.stringify(off.json));
-    assert.equal(off.json.message, `${card.key} is a card; it moves on the Cards board`);
-    const stray = await move({ key: card.key, from: "New", to: "Inbox" });
-    assert.equal(stray.status, 400, JSON.stringify(stray.json));
-    assert.equal(stray.json.message, "Inbox is not a label on your boards");
-
-    const shown = (await call("GET", `/_p99/v1/cards/${card.key}`, { actor: owner })).json.card;
-    assert.equal(shown.status, "new");
-    assert.equal(shown.label, "New");
-    assert.equal((await keysOn(cardsBoard.id)).includes(plain), false);
-    assert.ok((await keysOn(personal.id, here, owner)).includes(plain));
-
-    const lane = await move({ key: card.key, from: "New", to: "Planned" });
-    assert.equal(lane.status, 200, JSON.stringify(lane.json));
-    const placed = await move({ key: card.key, from: "Planned", to: "Planned", board: cardsBoard.id });
-    assert.equal(placed.status, 200, JSON.stringify(placed.json));
-    assert.ok((await keysOn(cardsBoard.id)).includes(card.key));
-    assert.equal((await call("GET", `/_p99/v1/cards/${card.key}`, { actor: owner })).json.card.status, "planned");
-  });
-
   await check("paging crosses from unplaced to placed cards in one lane, and one card's place matches the list", async () => {
-    const cardsBoard = await findCardsBoard();
-    const owner = await cardsOwner(cardsBoard.id);
+    const owner = ada;
     const mixed = [];
     for (let n = 0; n < 3; n++) mixed.push((await file("Read Mixed", `Mixed card ${n}`, owner)).key);
-    const placed = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "New", to: "New", board: cardsBoard.id } });
+    const placed = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "New", to: "new" } });
     assert.equal(placed.status, 200, JSON.stringify(placed.json));
     mixed.push((await file("Read Mixed", "Mixed card 3", owner)).key);
     const loose = await call("PATCH", `/_p99/v1/issues/${mixed[3]}`, { actor: ada, body: { status: "doing" } });
@@ -699,16 +629,5 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.deepEqual(all.map((cd) => cd.lane), all.map((_, at) => at + 1));
     const one = (await browse("GET", `/cards/${near[0].key}`, boss.secret)).json.card;
     assert.equal(one.lane, 1);
-  });
-
-  await check("a board takes up to six columns and refuses a seventh", async () => {
-    const mary = { email: "mary@example.com", name: "Mary Somerville", agent: false };
-    const columns = ["Inbox", "Read one", "Read two", "Read three", "Read four", { label: "Done", closes: true }];
-    const seven = await call("POST", `/_p99/v1/boards?host=${there}`, { actor: mary, body: { name: "Seven", columns: [...columns.slice(0, 5), "Read five", columns[5]] } });
-    assert.equal(seven.status, 400);
-    assert.equal(seven.json.message, "a board has 3 to 6 columns");
-    const six = await call("POST", `/_p99/v1/boards?host=${there}`, { actor: mary, body: { name: "Six", columns } });
-    assert.equal(six.status, 201, JSON.stringify(six.json));
-    assert.equal(six.json.columns.length, 6);
   });
 }

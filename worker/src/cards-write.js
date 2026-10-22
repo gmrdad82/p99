@@ -1,4 +1,4 @@
-import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName } from "./cards.js";
+import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { labelChangeStatements, placeIn } from "./boards.js";
 
@@ -13,7 +13,11 @@ const LANES_SQL = `SELECT b.id AS board, l.id, l.name, l.role, l.closes FROM boa
   WHERE b.cards = 1 ORDER BY bc.position`;
 const AUTHOR = "(SELECT username FROM people WHERE email = cm.author_email) AS author_username";
 
-function lanesOf(results) {
+export function lanesStatement(c) {
+  return c.env.DB.prepare(LANES_SQL);
+}
+
+export function lanesOf(results) {
   if (results.length === 0) return null;
   return { board: results[0].board, lanes: results.map((r) => ({ id: r.id, name: r.name, role: r.role ?? null, closes: r.closes })) };
 }
@@ -50,11 +54,11 @@ function laneAt(lanes, index) {
   return lane;
 }
 
-async function topOf(c, board, labelId, selfId) {
+export async function topOf(c, board, labelId, selfId) {
   const { results } = await c.env.DB.prepare(
     `SELECT i.id, bp.key FROM items i
      LEFT JOIN board_positions bp ON bp.board_id = ?1 AND bp.item_id = i.id AND bp.label_id = i.label_id
-     WHERE i.label_id = ?2 AND i.project IS NOT NULL
+     WHERE i.label_id = ?2
      ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`,
   )
     .bind(board, labelId)
@@ -62,7 +66,7 @@ async function topOf(c, board, labelId, selfId) {
   return placeIn(results, selfId, null, null);
 }
 
-function placeStatement(c, board, labelId, place, uid) {
+export function placeStatement(c, board, labelId, place, uid) {
   return c.env.DB.prepare(
     `INSERT INTO board_positions (board_id, item_id, label_id, key)
      SELECT ?1, COALESCE(NULLIF(json_extract(j.value, '$.id'), 0), (SELECT id FROM items WHERE client_uid = ?4)), ?2, json_extract(j.value, '$.key')
@@ -86,20 +90,12 @@ function eventStatement(c, itemId, kind, detail, internal) {
   ).bind(itemId, c.actor.email, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c), viaOf(c));
 }
 
-function projectEvent(c, itemId, detail, labelId) {
-  return c.env.DB.prepare(
-    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
-     SELECT ?1, ?2, 'project', ?3, 1, ?4, ?5, ?6 WHERE ?7 IS NULL OR (SELECT label_id FROM items WHERE id = ?1) = ?7`,
-  ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c), labelId);
+function projectEvent(c, itemId, detail) {
+  return eventStatement(c, itemId, "project", detail, true);
 }
 
-function projectStatement(c, itemId, name, labelId) {
-  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1 AND (?4 IS NULL OR label_id = ?4)").bind(
-    itemId,
-    name,
-    c.now,
-    labelId,
-  );
+function projectStatement(c, itemId, name) {
+  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1").bind(itemId, name, c.now);
 }
 
 function usernameStatement(c) {
@@ -345,52 +341,15 @@ export async function postCardComment(c, rawKey) {
 export async function patchProject(c, row, body) {
   K.requireManager(c);
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
+  refuseAgentUncard(c, row, body);
   const from = row.project ?? null;
+  const name = body.project === null ? null : await spelling(c, projectName(body.project));
+  const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
+  if (from === name) return answer();
   const { DB } = c.env;
-  const key = K.keyOf(row.kind, row.id);
-  if (body.project === null) {
-    if (from === null) return K.issueResponse(c, row.id, 200);
-    const inbox = await DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = 'inbox'").first();
-    const plan = row.label_id !== inbox.id ? labelChangeStatements(c, row, inbox, {}) : null;
-    const guard = plan ? inbox.id : null;
-    const results = await DB.batch([
-      ...(plan ? plan.statements : []),
-      projectStatement(c, row.id, null, guard),
-      projectEvent(c, row.id, { from, to: null }, guard),
-      DB.prepare(
-        `DELETE FROM board_positions WHERE item_id = ?1 AND board_id IN (SELECT id FROM boards WHERE cards = 1)
-           AND (SELECT project FROM items WHERE id = ?1) IS NULL`,
-      ).bind(row.id),
-      K.readStatement(c, row.id),
-    ]);
-    if (plan && !results[0].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
-    if (plan) plan.after();
-    K.push(c, "change", row, { what: ["project"] });
-    return K.issueResponse(c, row.id, 200);
-  }
-  const name = await spelling(c, projectName(body.project));
-  if (from === name) return K.json(200, { card: await loadCard(c, key) });
-  let plan = null;
-  let guard = null;
-  const statements = [];
-  if (from === null) {
-    const lanes = await cardsBoard(c);
-    const lane = { ...laneAt(lanes, 0), closes: 0 };
-    plan = row.label_id !== lane.id || !row.open ? labelChangeStatements(c, { ...row, project: name }, lane, {}) : null;
-    guard = plan ? lane.id : null;
-    const place = await topOf(c, lanes.board, lane.id, row.id);
-    statements.push(...(plan ? plan.statements : []), placeStatement(c, lanes.board, lane.id, place, row.client_uid));
-  }
-  const results = await DB.batch([
-    ...statements,
-    projectStatement(c, row.id, name, guard),
-    projectEvent(c, row.id, { from, to: name }, guard),
-    K.readStatement(c, row.id),
-  ]);
-  if (plan && !results[0].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
-  if (plan) plan.after();
+  await DB.batch([projectStatement(c, row.id, name), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
   K.push(c, "change", row, { what: ["project"] });
-  return K.json(200, { card: await loadCard(c, key) });
+  return answer();
 }
 
 export const CARD_WRITES = [
