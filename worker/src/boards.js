@@ -245,7 +245,7 @@ export async function getBoards(c) {
   K.requireManager(c);
   const v = boardView(c);
   await ensureBoard(c, v);
-  const { results } = await c.env.DB.prepare(`${boardsSql("(?1 OR b.host = ?2)")} ORDER BY b.owner IS NOT ?3, owner_username, b.owner, b.id`)
+  const { results } = await c.env.DB.prepare(`${boardsSql("(?1 OR b.host = ?2)")} ORDER BY b.owner IS NOT ?3, is_cards, owner_username, b.owner, b.id`)
     .bind(...scopeBinds(v), c.actor.email)
     .all();
   return K.json(200, { boards: results.map((r) => boardOf(c, r)) });

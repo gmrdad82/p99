@@ -45,7 +45,7 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
     const kinds = t.events.filter((e) => e.kind === "created" || e.kind === "comment");
     assert.deepEqual(kinds.map((e) => e.kind), ["created", "comment"]);
     for (const e of kinds) assert.deepEqual([e.agent, e.via], [true, LABEL], e.kind);
-    const listed = await call("GET", `/_p99/v1/issues?host=${here}&scope=all&status=any&q=${encodeURIComponent("agent's label rides")}`);
+    const listed = await call("GET", `/_p99/v1/issues?host=${here}&scope=all&status=any&q=${encodeURIComponent("label rides along")}`);
     assert.equal(listed.status, 200, JSON.stringify(listed.json));
     const row = listed.json.issues.find((i) => i.key === filed.key);
     assert.ok(row, "the item is listed");
@@ -186,9 +186,9 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
     const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
     const filed = await browse("POST", "/issues", ada.secret, issueBody({ title: "Marks: the mail event is labelled" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
-    await comment(filed.json.key, agent(LABEL), "The agent answers, and mail goes out.");
+    const said = await comment(filed.json.key, agent(LABEL), "The agent answers, and mail goes out.");
     let mails = [];
-    await until("the mail event", async () => (mails = (await thread(filed.json.key)).events.filter((e) => e.kind === "mail")).length > 0);
+    await until("the mail event", async () => (mails = (await thread(filed.json.key)).events.filter((e) => e.kind === "mail" && e.at >= said.created_at)).length > 0);
     for (const e of mails) assert.deepEqual([e.agent, e.via], [true, LABEL]);
   });
 

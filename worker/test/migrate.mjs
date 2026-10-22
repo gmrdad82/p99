@@ -267,7 +267,7 @@ export async function migrateChecks({ check, root, work }) {
         p.people.usernames.map((u) => [u.email, u.username, u.why]),
         [["ada.l@example.com", "ada.lovelace2", "numbered"], ["jo@example.com", "member", "member"], ["new@example.com", "new", "e-mail"]],
       );
-      assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace*"], ["grace@example.com", "@grace.hopper*"], ["owner@example.com", null]]);
+      assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace 🤖"], ["grace@example.com", "@grace.hopper 🤖"], ["owner@example.com", null]]);
       assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items]), [["BUG", 3], ["FEAT", 1], ["IMP", 1], ["Q", 1], ["TASK", 1]]);
       assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
       assert.equal(p.url, "https://p99.example.com/_p99");
@@ -307,7 +307,7 @@ export async function migrateChecks({ check, root, work }) {
       if (state.db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'people'").get()) {
         const people = Object.fromEntries(state.db.prepare("SELECT email, username FROM people").all().map((r) => [r.email, r.username]));
         for (const u of now.plan.people.usernames) assert.equal(people[u.email], u.username, u.email);
-        for (const a of now.plan.agents.filter((a) => a.shown)) assert.equal(`@${people[a.email]}*`, a.shown);
+        for (const a of now.plan.agents.filter((a) => a.shown)) assert.equal(a.shown, `@${people[a.email]} 🤖`);
       }
       const again = await run(["deploy", "--no-check"]);
       assert.equal(again.status, gatedBundled(bundled) ? 0 : 1, again.stderr);
@@ -349,7 +349,7 @@ export async function migrateChecks({ check, root, work }) {
         p.people.usernames.map((u) => [u.email, u.username, u.why]),
         [["jo@example.com", "member", "member"], ["new@example.com", "new", "e-mail"]],
       );
-      assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace*"], ["owner@example.com", null]]);
+      assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace 🤖"], ["owner@example.com", null]]);
       assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items, k.open]), [["BUG", 5, 2], ["FEAT", 1, 1], ["IMP", 1, 0], ["Q", 1, 1], ["TASK", 1, 1]]);
       assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
       assert.equal(p.decisions.length, 3, p.decisions.join("\n"));
@@ -410,7 +410,7 @@ export async function migrateChecks({ check, root, work }) {
       const people = Object.fromEntries(state.db.prepare("SELECT email, username FROM people").all().map((r) => [r.email, r.username]));
       assert.equal(Object.keys(people).length, old.plan.people.rows);
       for (const u of old.plan.people.usernames) assert.equal(people[u.email], u.username, u.email);
-      for (const a of old.plan.agents.filter((a) => a.shown)) assert.equal(`@${people[a.email]}*`, a.shown);
+      for (const a of old.plan.agents.filter((a) => a.shown)) assert.equal(a.shown, `@${people[a.email]} 🤖`);
     });
 
     await check("a 1.7 account whose managers are all revoked plans no owner, asks for a manager code, and deploys boards with none", async () => {

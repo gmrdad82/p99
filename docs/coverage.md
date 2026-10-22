@@ -135,6 +135,30 @@ Rust: **77.3% of lines** (76.0% of regions, 78.7% of functions) for the combined
 | src/wire.rs | 88.20% | 161 | 81.37% |
 
 What is left in the CLI: delete's confirmation on a terminal (the tests have no TTY, so only `--yes` and the piped refusal run); setup's interactive walk; `watch`'s settle and longest-wait limits, since its reconnect tests wait out the real 1 s and 2 s backoff; and the deploy story's own runs, which clear the environment and so drop the coverage profile, slightly undercounting setup.rs and cloudflare.rs.
+## w199 cards, 2026-10-22 (agent/cards-i1, main edf87c6 plus the cards train)
+
+Rust: **64.9% of lines** (63.7% of regions, 67.3% of functions), up from 61.4%. 370 tests pass under `cargo llvm-cov nextest`; the same 10 stories stay known red and ignored.
+
+| File | Lines covered | Lines | Last measured |
+|---|---|---|---|
+| src/card.rs | 99.75% | 400 | new |
+| src/cli/card.rs | 98.36% | 428 | new |
+| src/config.rs | 91.76% | 352 | 84.40% |
+| src/import.rs | 47.22% | 612 | 42.20% |
+| src/tui/deck.rs | 97.63% | 211 | 96.59% |
+| src/tui/demo/boards.rs | 85.22% | 291 | 90.71% |
+| src/tui/inbox.rs | 97.47% | 1224 | 97.32% |
+| src/tui/source.rs | 97.21% | 358 | 97.19% |
+| src/wire.rs | 85.25% | 183 | 44.72% |
+
+JavaScript, node's own coverage (`NODE_V8_COVERAGE` over `npm test`): only the modules the suite imports into node count, so these are the pure helpers, not the routes, which run inside workerd.
+
+| File | Lines covered | Lines |
+|---|---|---|
+| worker/src/cards.js | 96.97% | 33 |
+| worker/src/cards-read.js | 38.23% | 327 |
+
+Every card route runs in the worker suite against wrangler dev: 184 checks pass with the 8 known reds of main, among them the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). The panel's filter story (render/web/filter-check.mjs) passes its 23 checks in headless Chromium.
 
 ## w200 fixes train, 2026-10-22 (agent/fixes-i1, main 2812847 plus the story-bug fixes)
 

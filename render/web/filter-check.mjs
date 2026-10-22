@@ -75,6 +75,7 @@ const CARDS = [
   card("FEAT-902", "Manfred", "stuck", "Stuck", "elsewhere.example.com", person("Grace Hopper", false)),
   card("FEAT-903", "Splicer", "new", "New", HOST, person("Ada Lovelace", false)),
 ];
+let NEAR = "FEAT-903";
 const PROJECTS = [{ name: "Manfred", open: 1, done: 0 }, { name: "Splicer", open: 2, done: 0 }];
 
 function cardsAnswer(url) {
@@ -141,6 +142,8 @@ try {
   const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false })).secret;
   const byAgent = (await file("An agent filed this", { ...ADA, agent: true, via: "pci" })).key;
   const byPerson = (await file("A person filed this", GRACE)).key;
+  NEAR = (await must("POST", `/cards?host=${HOST}`, { client_uid: randomUUID(), project: "Splicer", title: "Splicer: a card on this website", host: HOST })).card.key;
+  CARDS[2] = card(NEAR, "Splicer", "new", "New", HOST, person("Ada Lovelace", false));
 
   const browser = await chromium.launch({
     executablePath: "/usr/bin/chromium",
@@ -192,11 +195,11 @@ try {
     await source(p, "");
     await choose(p, "site");
     s = await settled(p, (s) => s.view === "site" && s.keys.length > 0);
-    check(`Only this website asks /cards for this host and hides the item tabs and filters (${asked.join(" ")}; ${s.keys})`, asked.some((a) => a.includes("site=1")) && !s.tabs && !s.filters && s.keys.join() === "FEAT-901,FEAT-903");
+    check(`Only this website asks /cards for this host and hides the item tabs and filters (${asked.join(" ")}; ${s.keys})`, asked.some((a) => a.includes("site=1")) && !s.tabs && !s.filters && s.keys.join() === `FEAT-901,${NEAR}`);
     const sent = asked.filter((a) => a.startsWith("/_p99/api/cards?")).map((a) => new URLSearchParams(a.split("?")[1]));
     check(`Only this website sends site=1 and no host of its own (${JSON.stringify(sent.map(String))})`, sent.length > 0 && sent.every((q) => q.getAll("site").join() === "1" && !q.has("host")));
-    check(`this website's cards open in the panel, not on a new tab (${s.here}; ${s.away})`, s.away.length === 0 && s.here.join() === "#p99=FEAT-901,#p99=FEAT-903");
-    await p.locator(S('.p99-card-row a[href="#p99=FEAT-903"]')).click();
+    check(`this website's cards open in the panel, not on a new tab (${s.here}; ${s.away})`, s.away.length === 0 && s.here.join() === `#p99=FEAT-901,#p99=${NEAR}`);
+    await p.locator(S(`.p99-card-row a[href="#p99=${NEAR}"]`)).click();
     const inPanel = await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item]"), null, { timeout: 8000 }).then(() => true, () => false);
     check(`clicking this website's card opens it in place, in the same page (${inPanel}, ${ctx.pages().length} page)`, inPanel && ctx.pages().length === 1);
 
@@ -208,7 +211,7 @@ try {
     check(`a long card list stops at a page and offers more (${s.keys}; more ${s.more})`, s.keys.join() === "FEAT-901" && s.more);
     await p.locator(S(".p99-more")).click();
     s = await settled(p, (s) => s.keys.length === 2);
-    check(`more reads the next page with the cursor (${s.keys}; ${asked.join(" ")})`, s.keys.join() === "FEAT-901,FEAT-903" && asked.some((a) => a.includes("cursor=page-2")));
+    check(`more reads the next page with the cursor (${s.keys}; ${asked.join(" ")})`, s.keys.join() === `FEAT-901,${NEAR}` && asked.some((a) => a.includes("cursor=page-2")));
     paged = false;
 
     asked.length = 0;
@@ -229,7 +232,7 @@ try {
 
     await source(p, "human");
     s = await settled(p, (s) => s.source === "human" && s.keys.length === 2);
-    check(`People keeps the cards whose last change was a person's (${s.keys})`, s.keys.join() === "FEAT-902,FEAT-903" && s.robots.length === 0);
+    check(`People keeps the cards whose last change was a person's (${s.keys})`, s.keys.join() === `FEAT-902,${NEAR}` && s.robots.length === 0);
     await source(p, "agent");
     s = await settled(p, (s) => s.source === "agent" && s.keys.length === 1);
     check(`Agents keeps the agent's card, shown with ${ROBOT} (${s.keys}; ${s.robots})`, s.keys.join() === "FEAT-901" && s.robots.join() === ROBOT);

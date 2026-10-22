@@ -549,7 +549,8 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
   });
 
   await check("in the browser host= only routes the request; site=1 keeps this host's cards", async () => {
-    const boss = await mint("Emmy Noether", "emmy@example.com", [here, there], true);
+    const hosts = (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.map((h) => h.host);
+    const boss = await mint("Emmy Noether", "emmy@example.com", hosts, true);
     const every = keysOf((await browse("GET", `/cards?${project("Read Alpha")}&host=${there}`, boss.secret)).json);
     assert.ok(every.includes(alphaHere.key));
     assert.ok(every.includes(alphaThere.key));
@@ -616,7 +617,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     const cardsBoard = await findCardsBoard();
     const owner = await cardsOwner(cardsBoard.id);
     assert.ok(owner, "someone here owns the Cards board");
-    const move = (body, actor = owner) => call("POST", `/_p99/v1/move?host=${here}`, { actor, body });
+    const move = (body, actor = owner) => call("POST", "/_p99/v1/move", { actor, body });
     const plain = (await call("POST", `/_p99/v1/issues?host=${here}`, { actor: owner, body: issueBody({ title: "Plain, kept off the lanes" }) })).json.key;
     const card = await file("Read Sides", "Card, kept off personal boards", owner);
     const personal = (await call("GET", `/_p99/v1/boards?host=${here}`, { actor: owner })).json.boards.find((b) => b.mine && b.id !== cardsBoard.id);
@@ -655,15 +656,15 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     const owner = await cardsOwner(cardsBoard.id);
     const mixed = [];
     for (let n = 0; n < 3; n++) mixed.push((await file("Read Mixed", `Mixed card ${n}`, owner)).key);
-    const placed = await call("POST", `/_p99/v1/move?host=${here}`, { actor: owner, body: { key: mixed[0], from: "New", to: "New", board: cardsBoard.id } });
+    const placed = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "New", to: "New", board: cardsBoard.id } });
     assert.equal(placed.status, 200, JSON.stringify(placed.json));
     mixed.push((await file("Read Mixed", "Mixed card 3", owner)).key);
     const loose = await call("PATCH", `/_p99/v1/issues/${mixed[3]}`, { actor: ada, body: { status: "doing" } });
     assert.equal(loose.status, 200, JSON.stringify(loose.json));
     const whole = await list(`${project("Read Mixed")}&limit=500`);
-    assert.deepEqual(keysOf(whole), [mixed[3], mixed[0], mixed[2], mixed[1]]);
-    assert.ok(whole.cards.every((cd) => cd.status === "new"));
-    assert.notEqual(whole.cards[0].label, "New");
+    assert.deepEqual(keysOf(whole), [mixed[0], mixed[2], mixed[1], mixed[3]]);
+    assert.deepEqual(whole.cards.map((cd) => cd.status), ["new", "new", "new", "in-progress"]);
+    assert.equal(whole.cards[3].label, "In progress");
     const seen = [];
     let cursor = null;
     let pages = 0;
@@ -675,7 +676,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
       pages += 1;
     } while (cursor && pages < 10);
     assert.deepEqual(seen, keysOf(whole));
-    const lanesSeen = whole.cards.map((cd) => cd.lane);
+    const lanesSeen = whole.cards.slice(0, 3).map((cd) => cd.lane);
     assert.deepEqual(lanesSeen, [...lanesSeen].sort((a, b) => a - b));
     assert.equal(new Set(lanesSeen).size, lanesSeen.length);
     const everyLane = await list(`${LANES.map((w) => `status=${w}`).join("&")}&limit=500`);
