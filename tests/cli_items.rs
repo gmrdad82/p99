@@ -366,7 +366,7 @@ fn show_prints_the_whole_thread_in_order() {
     let expected = "\
 BUG-12  Bug  Inbox
 The total does not update
-reported by Grace Hopper* on shop.example.com  2026-10-01 09:30  from production
+reported by Grace Hopper 🤖 on shop.example.com  2026-10-01 09:30  from production
 page: https://shop.example.com/cart
 assigned to @ada.lovelace
 merged into BUG-3
@@ -392,7 +392,7 @@ attachments
 Looking
   attachment 41
 
-2026-10-02 10:00 linus@example.com*
+2026-10-02 10:00 linus@example.com 🤖
 Thanks
 
 events

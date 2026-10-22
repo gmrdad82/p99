@@ -53,6 +53,9 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("text.js", ES),
     worker!("license.js", ES),
     worker!("standalone.js", ES),
+    worker!("cards.js", ES),
+    worker!("cards-read.js", ES),
+    worker!("cards-write.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
     worker!("web/board.js", TEXT),
@@ -88,6 +91,7 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0012_people.sql"),
     migration!("0013_app.sql"),
     migration!("0014_backup_cut.sql"),
+    migration!("0015_cards.sql"),
 ];
 
 pub const GATED: &[&str] = &["0004", "0011", "0012", "0013"];

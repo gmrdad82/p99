@@ -42,7 +42,7 @@ fn a_dump_draws_the_sample_inbox_as_text_and_quits() {
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
     assert_eq!(text.lines().count(), 34, "{text}");
-    for said in ["P99", "16 of 22 items", "BUG-11", "sample data", "Free"] {
+    for said in ["P99", "21 of 28 items", "BUG-11", "sample data", "Free"] {
         assert!(text.contains(said), "{said}:\n{text}");
     }
     assert!(!text.contains('\x1b'), "{text}");
@@ -80,7 +80,7 @@ fn a_dump_while_loading_shows_no_items_yet() {
     let run = p99(&["tui", "--demo", "--dump", "120x34", "--loading"]);
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
-    assert!(!text.contains("16 of 22 items"), "{text}");
+    assert!(!text.contains("21 of 28 items"), "{text}");
     assert!(!text.contains("BUG-11"), "{text}");
     assert!(text.contains("Reading the inbox…"), "{text}");
 }
@@ -89,7 +89,7 @@ fn a_dump_while_loading_shows_no_items_yet() {
 fn an_ansi_dump_carries_colour_codes() {
     let text = out(&p99(&["tui", "--demo", "--dump", "120x34", "--ansi"]));
     assert!(text.contains("\x1b["), "{text}");
-    assert!(text.contains("16 of 22 items"), "{text}");
+    assert!(text.contains("21 of 28 items"), "{text}");
 }
 
 #[test]

@@ -10,6 +10,8 @@ pub struct Actor {
     pub name: String,
     #[serde(skip_serializing_if = "is_false")]
     pub agent: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

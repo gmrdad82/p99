@@ -51,7 +51,11 @@ enum Outcome {
 }
 
 impl Client {
-    pub fn for_account(config: &Config, account: &str, agent: bool) -> Result<Client, String> {
+    pub fn for_account(
+        config: &Config,
+        account: &str,
+        agent: &Option<Option<String>>,
+    ) -> Result<Client, String> {
         Client::among(config, account, Some(account), agent)
     }
 
@@ -59,7 +63,7 @@ impl Client {
         config: &Config,
         account: &str,
         holder: Option<&str>,
-        agent: bool,
+        agent: &Option<Option<String>>,
     ) -> Result<Client, String> {
         let entry = config
             .accounts
@@ -76,8 +80,10 @@ impl Client {
             }
         };
         let me = config.me_for(account);
+        let (agent, via) = crate::config::agent(agent, &me);
         let actor = Actor {
-            agent: crate::config::agent(agent, &me),
+            agent,
+            via,
             email: me.email,
             name: me.name,
         };
@@ -802,6 +808,7 @@ mod tests {
                 email: "ada@example.com".to_owned(),
                 name: "Ada Lovelace".to_owned(),
                 agent: false,
+                via: None,
             },
             host: None,
             access: None,

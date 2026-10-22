@@ -26,6 +26,19 @@ impl Board {
     }
 }
 
+pub fn offered(boards: &[Board], card: bool) -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    let side = boards
+        .iter()
+        .filter(|b| b.cards == card && (b.mine || card));
+    for column in side.flat_map(|b| &b.columns) {
+        if !labels.contains(&column.label) {
+            labels.push(column.label.clone());
+        }
+    }
+    labels
+}
+
 pub fn sort(view: &mut BoardView) {
     let BoardView { board, cards } = view;
     let rank = |card: &Card| board.lane(&card.label).unwrap_or(usize::MAX);
@@ -154,24 +167,13 @@ impl Source {
         }
     }
 
-    pub fn labels(&self, account: usize) -> Result<Vec<String>, String> {
+    pub fn labels(&self, account: usize, card: bool) -> Result<Vec<String>, String> {
         let boards = match self {
-            Source::Demo(..) => return self.sample(|demo| Ok(demo.labels())),
+            Source::Demo(..) => self.sample(|demo| Ok(demo.boards()))?,
             Source::Live(_) => self.client(account, None)?.lanes()?,
             Source::Broken(why) => return Err(why.clone()),
         };
-        let mut labels: Vec<String> = Vec::new();
-        for column in boards
-            .boards
-            .iter()
-            .filter(|b| b.mine)
-            .flat_map(|b| &b.columns)
-        {
-            if !labels.contains(&column.label) {
-                labels.push(column.label.clone());
-            }
-        }
-        Ok(labels)
+        Ok(offered(&boards.boards, card))
     }
 
     pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {

@@ -1,3 +1,4 @@
+mod card;
 mod delete;
 mod merge;
 
@@ -31,9 +32,12 @@ pub struct Global {
     #[arg(
         long,
         global = true,
-        help = "act as an agent of the configured person, shown as their name with a * (or P99_AGENT=1)"
+        value_name = "label",
+        num_args = 0..=1,
+        require_equals = true,
+        help = "act as an agent of the configured person, shown as their name with 🤖; --agent=<label> says which (or P99_AGENT=<label>)"
     )]
-    pub agent: bool,
+    pub agent: Option<Option<String>>,
     #[arg(
         long,
         global = true,
@@ -77,6 +81,16 @@ pub enum Command {
     Status(StatusArgs),
     #[command(about = "move an item to a label on your boards, or beside another card")]
     Move(crate::boards::MoveArgs),
+    #[command(about = "list cards in lane order, from the Cards board")]
+    Cards(card::CardsArgs),
+    #[command(
+        about = "show, file, comment on, move or link one card",
+        subcommand_required = true,
+        arg_required_else_help = false
+    )]
+    Card(card::CardArgs),
+    #[command(about = "list the project names cards carry")]
+    Projects,
     #[command(about = "list your boards and others'; set one's columns")]
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print a board's columns and cards")]
@@ -372,7 +386,7 @@ pub struct AssignArgs {
 }
 
 #[derive(Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file"])))]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file", "project", "no_project"])))]
 pub struct EditArgs {
     #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
@@ -389,6 +403,19 @@ pub struct EditArgs {
     pub text_file: Option<PathBuf>,
     #[arg(long, help = "the host the item belongs to")]
     pub host: Option<String>,
+    #[arg(
+        long,
+        value_name = "name",
+        conflicts_with_all = ["title", "text", "text_file", "no_project"],
+        help = "make the item a card of this project, in lane new"
+    )]
+    pub project: Option<String>,
+    #[arg(
+        long,
+        conflicts_with_all = ["title", "text", "text_file"],
+        help = "make a card a plain item again, back in Inbox"
+    )]
+    pub no_project: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -447,6 +474,9 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Move(a) => crate::boards::run_move(&config, global, &a),
         Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
+        Command::Cards(a) => card::cards(&config, global, &a),
+        Command::Card(a) => card::card(&config, global, &a),
+        Command::Projects => card::projects(&config, global),
         Command::Assign(a) => assign(&config, global, &a),
         Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
@@ -508,10 +538,11 @@ fn event_line(text: &str) -> Option<String> {
     let event: Value = serde_json::from_str(text).ok()?;
     let field = |name: &str| event[name].as_str().unwrap_or("-").to_owned();
     let by = &event["by"];
-    let name = who(
+    let name = who_via(
         "",
         by["name"].as_str().unwrap_or("P99"),
         by["agent"].as_bool().unwrap_or(false),
+        by["via"].as_str(),
     );
     let step = || {
         format!(
@@ -578,7 +609,7 @@ pub(crate) fn client_for(
     host: Option<&str>,
 ) -> Result<(Client, String), String> {
     let account = account_of(config, global, host)?;
-    let client = Client::for_account(config, &account, global.agent)?.aimed(host);
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(host);
     Ok((client, account))
 }
 
@@ -601,9 +632,20 @@ pub(crate) fn when(stamp: &str) -> String {
 fn who(email: &str, name: &str, agent: bool) -> String {
     let base = if name.is_empty() { email } else { name };
     if agent {
-        format!("{base}*")
+        format!("{base} {}", crate::card::ROBOT)
     } else {
         base.to_owned()
+    }
+}
+
+fn who_via(email: &str, name: &str, agent: bool, via: Option<&str>) -> String {
+    let base = who(email, name, agent);
+    match via
+        .map(str::trim)
+        .filter(|label| agent && !label.is_empty())
+    {
+        Some(label) => format!("{base} ({label})"),
+        None => base,
     }
 }
 
@@ -663,7 +705,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             },
         );
     }
-    let agent = global.agent;
+    let agent = &global.agent;
     let holder = crate::config::key_holder(config, global.account.as_deref())?;
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
@@ -781,7 +823,7 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     );
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(config, &account, global.agent)?.aimed(Some(&host));
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
     let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
@@ -1143,7 +1185,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         args.host.clone()
     };
     let scope = if args.mine { "mine" } else { "all" };
-    let agent = global.agent;
+    let agent = &global.agent;
     let limit = args.limit as usize;
     let mut found: Vec<Summary> = Vec::new();
     let mut more = false;
@@ -1221,7 +1263,12 @@ fn print_thread(thread: &Thread) {
         .unwrap_or(false);
     out!(
         "reported by {} on {}  {}{}",
-        who(text("email"), text("name"), agent),
+        who_via(
+            text("email"),
+            text("name"),
+            agent,
+            reporter.get("via").and_then(Value::as_str)
+        ),
         issue.host.as_deref().unwrap_or("-"),
         when(&issue.created_at),
         if issue.env.is_empty() {
@@ -1306,7 +1353,12 @@ fn print_thread(thread: &Thread) {
         out!(
             "\n{} {}{}",
             when(&comment.created_at),
-            who(&author.email, &author.name, author.agent),
+            who_via(
+                &author.email,
+                &author.name,
+                author.agent,
+                author.via.as_deref()
+            ),
             if comment.internal { "  [internal]" } else { "" }
         );
         out!("{}", comment.body);
@@ -1325,10 +1377,12 @@ fn print_thread(thread: &Thread) {
             out!(
                 "  {}  {}  {}  {}",
                 when(&e.at),
-                e.actor_name
-                    .as_deref()
-                    .or(e.actor.as_deref())
-                    .unwrap_or("-"),
+                who_via(
+                    e.actor.as_deref().unwrap_or("-"),
+                    e.actor_name.as_deref().unwrap_or_default(),
+                    e.agent,
+                    e.via.as_deref(),
+                ),
                 e.kind,
                 detail
             );
@@ -1458,6 +1512,9 @@ fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), Str
 }
 
 fn edit(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String> {
+    if args.project.is_some() || args.no_project {
+        return card::edit_project(config, global, args);
+    }
     let body = match (&args.text, &args.text_file) {
         (Some(text), _) => Some(text_arg(text)?),
         (None, Some(path)) if path.as_os_str() == "-" => Some(read_stdin()?.trim_end().to_owned()),

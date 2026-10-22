@@ -1,3 +1,4 @@
+import { notCard } from "./cards.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
 import { isChars, namedBy, sameCase, sameFolded } from "./text.js";
@@ -22,7 +23,7 @@ export const LABEL_COLUMNS = "lb.name AS label_name, lb.role AS label_role, lb.c
 export const LABEL_JOIN = "JOIN labels lb ON lb.id = i.label_id";
 
 const MIN_COLUMNS = 3;
-const MAX_COLUMNS = 5;
+const MAX_COLUMNS = 6;
 const MAX_BOARDS = 3;
 const MAX_LABELS = 200;
 const MAX_NAME_CHARS = 100;
@@ -31,6 +32,11 @@ const ORPHANS = `SELECT l.id FROM labels l WHERE NOT ${USED} AND NOT EXISTS (SEL
 const LABEL_NAME = /^[\p{L}\p{N}][\p{L}\p{N} ._:+-]{0,31}$/u;
 const COLORS = ["#e5534b", "#e0823d", "#c69026", "#57ab5a", "#39a5a0", "#539bf5", "#986ee2", "#d260a8"];
 const MOVED = "this card moved; refreshed";
+const CARDS_FIXED = "the Cards board keeps its six lanes; rename a lane with p99 labels rename";
+const CARDS_STAYS = "the Cards board stays";
+const CARDS_CLOSES = "a Cards board lane keeps its closes; done alone closes a card";
+const CARD_LANES = "SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 ORDER BY bc.position";
+const CARD_REOPENS = { inbox: 0, doing: 2, review: 4 };
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
 
@@ -77,7 +83,7 @@ function nameSql(column) {
 }
 
 function pushOf(c, event) {
-  const full = { by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null, at: c.now, ...event };
+  const full = { by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent), via: c.actor.agent ? (c.actor.via ?? null) : null } : null, at: c.now, ...event };
   noteHook(c, full);
   if (c.env.HUB) c.pushes.push(full);
 }
@@ -112,7 +118,7 @@ function sawLabel(row, from, columns) {
 }
 
 function boardsSql(where) {
-  return `SELECT b.id, b.name, b.host, b.owner, ${nameSql("b.owner")} AS owner_username,
+  return `SELECT b.id, b.name, b.host, b.owner, b.cards AS is_cards, ${nameSql("b.owner")} AS owner_username,
     (SELECT json_group_array(json_object('id', l.id, 'label', l.name, 'closes', l.closes)) FROM
       (SELECT l.id, l.name, l.closes FROM board_columns bc JOIN labels l ON l.id = bc.label_id WHERE bc.board_id = b.id ORDER BY bc.position) l
     ) AS columns
@@ -126,6 +132,7 @@ function boardOf(c, row) {
     name: row.name,
     owner: person(row.owner, row.owner_username),
     mine: row.owner !== null && row.owner === c.actor.email,
+    cards: Boolean(row.is_cards),
     columns: columns.map((col) => ({ label: col.label, closes: Boolean(col.closes) })),
   };
 }
@@ -218,7 +225,7 @@ async function ensureBoard(c, v) {
     DB.prepare("UPDATE boards SET owner = ?1, updated_at = ?2 WHERE owner IS NULL AND (?3 OR host = ?4)").bind(me, c.now, ...scopeBinds(v)),
     DB.prepare(
       `INSERT INTO boards (name, host, owner, created_at, updated_at)
-       SELECT ?4, ?2, ?1, ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE owner = ?1 AND host IS ?2)
+       SELECT ?4, ?2, ?1, ?3, ?3 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE owner = ?1 AND host IS ?2 AND cards = 0)
        RETURNING id`,
     ).bind(me, at, c.now, c.actor.name ? `${c.actor.name}'s board` : "My board"),
   ]);
@@ -238,7 +245,7 @@ export async function getBoards(c) {
   K.requireManager(c);
   const v = boardView(c);
   await ensureBoard(c, v);
-  const { results } = await c.env.DB.prepare(`${boardsSql("(?1 OR b.host = ?2)")} ORDER BY b.owner IS NOT ?3, owner_username, b.owner, b.id`)
+  const { results } = await c.env.DB.prepare(`${boardsSql("(?1 OR b.host = ?2)")} ORDER BY b.owner IS NOT ?3, is_cards, owner_username, b.owner, b.id`)
     .bind(...scopeBinds(v), c.actor.email)
     .all();
   return K.json(200, { boards: results.map((r) => boardOf(c, r)) });
@@ -259,7 +266,7 @@ export async function getBoard(c, rawId) {
       (SELECT i.id, i.kind, i.title, l.name AS label, i.assignee, CASE WHEN i.assignee IS NULL THEN NULL ELSE ${nameSql("i.assignee")} END AS assignee_username,
          bp.key AS ord, bc.position AS col
        FROM board_columns bc JOIN labels l ON l.id = bc.label_id
-       JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?1 OR i.host = ?2)
+       JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?1 OR i.host = ?2) AND ${K.cardSide("b", "i")}
        LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
        WHERE bc.board_id = b.id
        ORDER BY bc.position, bp.key IS NOT NULL, bp.key, i.id DESC) x
@@ -285,16 +292,21 @@ async function columnsOf(c, v, raw) {
   });
   if (new Set(wanted.map((w) => w.label.toLowerCase())).size !== wanted.length) K.fail(400, "a board's columns are different labels");
   const { DB } = c.env;
-  const [known, count] = await DB.batch([
+  const [known, count, lanes] = await DB.batch([
     DB.prepare("SELECT id, name, closes FROM labels WHERE name IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(wanted.map((w) => w.label))),
     DB.prepare(`SELECT count(*) AS n FROM labels l WHERE ${USED}`),
+    DB.prepare("SELECT bc.label_id AS id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1 ORDER BY bc.position"),
   ]);
+  const cardLanes = new Set(lanes.results.map((r) => r.id));
+  const doneLane = lanes.results.at(-1)?.id;
   const byName = new Map(known.results.map((l) => [l.name.toLowerCase(), l]));
   const fresh = wanted.filter((w) => !byName.has(w.label.toLowerCase()));
   if (count.results[0].n + fresh.length > MAX_LABELS) K.fail(400, `an account holds up to ${MAX_LABELS} labels`);
   for (const w of wanted) {
     const l = byName.get(w.label.toLowerCase());
-    if (l && w.closes !== null && Boolean(l.closes) !== w.closes) await guardLabel(c, v, l.id);
+    if (!l || w.closes === null || Boolean(l.closes) === w.closes) continue;
+    if (cardLanes.has(l.id) && w.closes !== (l.id === doneLane)) K.fail(409, CARDS_CLOSES);
+    await guardLabel(c, v, l.id);
   }
   return { wanted, byName };
 }
@@ -343,7 +355,7 @@ function sweepLabels(DB) {
 }
 
 async function ownBoard(c, v, rawId) {
-  const b = await c.env.DB.prepare("SELECT id, name, host, owner FROM boards WHERE id = ?1").bind(boardId(rawId)).first();
+  const b = await c.env.DB.prepare("SELECT id, name, host, owner, cards FROM boards WHERE id = ?1").bind(boardId(rawId)).first();
   if (!b || !sees(v, b.host)) K.fail(404, "no such board");
   if (b.owner !== c.actor.email) K.fail(403, "only its owner changes a board; others watch it");
   return b;
@@ -363,7 +375,7 @@ export async function postBoard(c) {
   const { DB } = c.env;
   const made = await DB.prepare(
     `INSERT INTO boards (name, host, owner, created_at, updated_at)
-     SELECT ?1, ?2, ?3, ?4, ?4 WHERE (SELECT count(*) FROM boards WHERE owner = ?3 AND host IS ?2) < ?5
+     SELECT ?1, ?2, ?3, ?4, ?4 WHERE (SELECT count(*) FROM boards WHERE owner = ?3 AND host IS ?2 AND cards = 0) < ?5
      RETURNING id`,
   )
     .bind(name, space(v), c.actor.email, c.now, MAX_BOARDS)
@@ -380,6 +392,7 @@ export async function putBoard(c, rawId) {
   const v = boardView(c);
   const b = await ownBoard(c, v, rawId);
   const name = body.name === undefined ? b.name : boardName(body.name);
+  if (b.cards && body.columns !== undefined) K.fail(409, CARDS_FIXED);
   const plan = body.columns === undefined ? null : await columnsOf(c, v, body.columns);
   if (name !== b.name) await c.env.DB.prepare("UPDATE boards SET name = ?2, updated_at = ?3 WHERE id = ?1").bind(b.id, name, c.now).run();
   if (plan) await writeColumns(c, b.id, plan);
@@ -392,8 +405,9 @@ export async function deleteBoard(c, rawId) {
   K.requireManager(c);
   const v = boardView(c);
   const b = await ownBoard(c, v, rawId);
+  if (b.cards) K.fail(409, CARDS_STAYS);
   const { DB } = c.env;
-  const left = await DB.prepare("SELECT count(*) AS n FROM boards WHERE owner = ?1 AND host IS ?2").bind(b.owner, b.host).first();
+  const left = await DB.prepare("SELECT count(*) AS n FROM boards WHERE owner = ?1 AND host IS ?2 AND cards = 0").bind(b.owner, b.host).first();
   if (left.n <= 1) K.fail(409, "that is your last board here; it stays");
   await DB.batch([
     DB.prepare("DELETE FROM board_columns WHERE board_id = ?1").bind(b.id),
@@ -417,6 +431,7 @@ function itemMail(c, row, closed, resolution, mergedInto) {
 }
 
 function labelStatements(c, row, to, opts = {}) {
+  K.refuseAgentClose(c, row, to);
   const { DB } = c.env;
   const closes = Boolean(to.closes);
   const wasOpen = Boolean(row.open);
@@ -437,6 +452,7 @@ function labelStatements(c, row, to, opts = {}) {
   const events = [];
   const actor = c.actor ? c.actor.email ?? null : null;
   const agent = c.actor && c.actor.agent ? 1 : 0;
+  const via = agent ? (c.actor.via ?? null) : null;
   if (row.label_id !== to.id) events.push({ kind: "label", detail: { from: row.label_name, to: to.name }, internal: 1 });
   if (statusChanged) {
     const detail = { from: stageOf(row), to: stageOf(next) };
@@ -446,10 +462,10 @@ function labelStatements(c, row, to, opts = {}) {
   if (events.length > 0) {
     statements.push(
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?7
          FROM json_each(?5) WHERE (SELECT label_id FROM items WHERE id = ?1) = ?6`,
-      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id),
+      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id, via),
     );
   }
   const after = () => {
@@ -490,14 +506,21 @@ async function closingLabel(c, row) {
   ).first();
 }
 
+async function cardLane(c, row, index) {
+  if (row.project == null) return null;
+  const { results } = await c.env.DB.prepare(CARD_LANES).all();
+  const lane = results.at(index);
+  return lane ? { ...lane, closes: index === -1 ? 1 : 0 } : null;
+}
+
 export async function closeItem(c, row, resolution, opts = {}) {
-  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : await closingLabel(c, row);
+  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : (await cardLane(c, row, -1)) ?? (await closingLabel(c, row));
   if (!to) K.fail(409, "no label closes items; mark one with p99 boards set --closes");
   return applyLabel(c, row, to, { ...opts, resolution });
 }
 
 export async function reopenItem(c, row, role = "inbox") {
-  const to = await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = ?1").bind(role).first();
+  const to = (await cardLane(c, row, CARD_REOPENS[role] ?? 0)) ?? (await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = ?1").bind(role).first());
   return applyLabel(c, row, to, {});
 }
 
@@ -529,7 +552,7 @@ function anchorOf(body) {
   return null;
 }
 
-function placeIn(column, selfId, anchor, anchorId) {
+export function placeIn(column, selfId, anchor, anchorId) {
   const list = column.filter((r) => r.id !== selfId);
   let slot = 0;
   if (anchor) {
@@ -567,14 +590,14 @@ export async function postMove(c) {
   const reads = await DB.batch([
     DB.prepare(`SELECT i.*, ${LABEL_COLUMNS}, ${nameSql("i.assignee")} AS assignee_username FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`).bind(id, ...scopeBinds(v)),
     DB.prepare(
-      `SELECT b.id, b.host, b.owner, l.id AS label_id, l.name, l.role, l.closes FROM boards b
+      `SELECT b.id, b.host, b.owner, b.cards, l.id AS label_id, l.name, l.role, l.closes FROM boards b
        JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
-       WHERE (b.owner = ?1 OR b.id = ?2) AND (?3 OR b.host = ?4)`,
+       WHERE (b.owner = ?1 OR b.id = ?2 OR b.cards = 1) AND (?3 OR b.host = ?4)`,
     ).bind(c.actor.email, board, ...scopeBinds(v)),
     hasBoard
       ? DB.prepare(
           `SELECT i.id, i.label_id, bp.key FROM boards b JOIN board_columns bc ON bc.board_id = b.id
-           JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?2 OR i.host = ?3)
+           JOIN items i ON i.label_id = bc.label_id AND (b.host IS NULL OR i.host = b.host) AND (?2 OR i.host = ?3) AND ${K.cardSide("b", "i")}
            LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = i.id AND bp.label_id = i.label_id
            WHERE b.id = ?1 ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`,
         ).bind(board, ...scopeBinds(v))
@@ -582,14 +605,20 @@ export async function postMove(c) {
   ]);
   const row = reads[0].results[0];
   if (!row) K.fail(404, `no item ${body.key}`);
+  const isCard = row.project !== null;
   const columns = reads[1].results;
   if (hasBoard) {
     const on = columns.filter((r) => r.id === board);
     if (on.length === 0) K.fail(404, "no such board");
     if (on[0].owner !== c.actor.email) K.fail(403, "only its owner moves cards on a board; others watch it");
     if (on[0].host !== null && on[0].host !== row.host) K.fail(404, "no such board");
+    if (Boolean(on[0].cards) !== isCard) {
+      const key = K.keyOf(row.kind, row.id);
+      if (isCard) K.fail(400, `${key} is a card; it moves on the Cards board`);
+      K.fail(409, notCard(key));
+    }
   }
-  const mine = columns.filter((r) => r.owner === c.actor.email && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board));
+  const mine = columns.filter((r) => (r.owner === c.actor.email || (isCard && r.cards)) && (r.host === null || r.host === row.host) && (!hasBoard || r.id === board) && Boolean(r.cards) === isCard);
   const named = namedBy(mine, body.to, (r) => r.name);
   if (new Set(named.map((r) => r.label_id)).size > 1) K.fail(400, `${body.to} names more than one label; give its exact name`);
   const target = named[0];

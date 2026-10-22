@@ -31,6 +31,9 @@ import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, sign
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
 import { chars, fold, isChars, searchMatch } from "./text.js";
+import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
+import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
+import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -378,8 +381,10 @@ function decodeActor(header) {
   if (!isEmail(actor.email)) return null;
   if (!isText(actor.name, 0, 200)) return null;
   if (actor.agent !== null && actor.agent !== undefined && typeof actor.agent !== "boolean") return null;
+  if (actor.via !== null && actor.via !== undefined && typeof actor.via !== "string") return null;
   const email = actor.email.toLowerCase();
-  return { email, name: actor.name || email, agent: actor.agent === true };
+  const agent = actor.agent === true;
+  return { email, name: actor.name || email, agent, via: agent ? actorVia(actor.via) : null };
 }
 
 function isLocal(url) {
@@ -650,11 +655,15 @@ function agentOf(c) {
   return c.actor && c.actor.agent ? 1 : 0;
 }
 
+function viaOf(c) {
+  return c.actor && c.actor.agent ? (c.actor.via ?? null) : null;
+}
+
 function eventStatement(c, itemId, actorEmail, kind, detail, internal = false) {
   return c.env.DB.prepare(
-    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-  ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c));
+    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+  ).bind(itemId, actorEmail, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c), viaOf(c));
 }
 
 function searchText(title, body) {
@@ -803,6 +812,7 @@ function summaryOf(row, c, lc) {
     stage: stageOf(row),
     label: c.manager ? row.label_name : null,
     resolution: row.resolution ?? null,
+    project: c.manager ? (row.project ?? null) : null,
     title: row.title,
     host: row.host,
     env: row.origin_env,
@@ -811,6 +821,7 @@ function summaryOf(row, c, lc) {
       email: c.manager || row.reporter_email === c.actor.email ? row.reporter_email : null,
       name: row.reporter_name,
       agent: Boolean(row.reporter_agent),
+      via: row.reporter_agent ? (row.reporter_via ?? null) : null,
     },
     assignee: c.manager ? assigneeOf(row) : null,
     created_at: row.created_at,
@@ -843,6 +854,7 @@ function commentOf(row, c, attachmentIds = []) {
       name: row.author_name,
       manager: Boolean(row.author_manager),
       agent: Boolean(row.author_agent),
+      via: row.author_agent ? (row.author_via ?? null) : null,
     },
     body: row.body,
     internal: Boolean(row.internal),
@@ -880,6 +892,7 @@ function eventOf(row, c, names, handles) {
     actor: open ? row.actor_email : null,
     actor_name: name,
     agent: Boolean(row.actor_agent),
+    via: row.actor_agent ? (row.actor_via ?? null) : null,
     kind: row.kind,
     detail,
     at: row.at,
@@ -935,7 +948,7 @@ function sendMail(c, row, recipients, data) {
     key: keyOf(row.kind, row.id),
     kind: row.kind,
     title: row.title,
-    actorName: c.actor ? (c.actor.agent ? `${c.actor.name}*` : c.actor.name) : "P99",
+    actorName: c.actor ? (c.actor.agent ? `${c.actor.name} ${ROBOT}` : c.actor.name) : "P99",
     ...data,
   };
   c.outbox.push({
@@ -960,7 +973,7 @@ function push(c, type, row, extra = {}) {
     key: row ? keyOf(row.kind, row.id) : null,
     host: row ? (row.host ?? null) : (c.scope.host ?? null),
     title: row ? row.title : null,
-    by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent) } : null,
+    by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent), via: viaOf(c) } : null,
     at: c.now,
     ...extra,
   };
@@ -1144,10 +1157,10 @@ async function flushMail(c) {
       detail: JSON.stringify({ to: m.to, template: m.template, ...outcomes[i] }),
     }));
     await env.DB.prepare(
-      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-       SELECT json_extract(value, '$.item_id'), ?2, 'mail', json_extract(value, '$.detail'), 1, ?3, ?4 FROM json_each(?1)`,
+      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+       SELECT json_extract(value, '$.item_id'), ?2, 'mail', json_extract(value, '$.detail'), 1, ?3, ?4, ?5 FROM json_each(?1)`,
     )
-      .bind(JSON.stringify(events), c.actor ? c.actor.email : null, c.now, agentOf(c))
+      .bind(JSON.stringify(events), c.actor ? c.actor.email : null, c.now, agentOf(c), viaOf(c))
       .run();
   } catch (error) {
     console.error(`mail flush failed: ${error.message}`);
@@ -1551,6 +1564,7 @@ async function listIssues(c) {
   const hostScope = scopeClause(c, q);
   if (hostScope) where.push(hostScope);
   await labelFilters(c, params, q, where);
+  cardFilters(c, params, q, where);
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1588,8 +1602,8 @@ async function listIssues(c) {
   const limit = limitText === null ? DEFAULT_LIST_LIMIT : Number(limitText);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST_LIMIT) fail(400, `limit must be 1 to ${MAX_LIST_LIMIT}`);
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
-  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.title, i.host, i.origin_env, i.page_url, i.page_path,
-      i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.assignee, i.created_at, i.updated_at,
+  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.project, i.title, i.host, i.origin_env, i.page_url, i.page_path,
+      i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, i.assignee, i.created_at, i.updated_at,
       i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, ${LABEL_COLUMNS},
       ${assigneeColumn()}, ${activity} > COALESCE(r.read_at, '') AS unread
     FROM items i ${LABEL_JOIN} LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id
@@ -1660,8 +1674,8 @@ async function createIssue(c) {
       DB.prepare(
         `INSERT INTO items (client_uid, kind, label_id, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
-           created_at, updated_at, host, reporter_agent, search_text)
-         VALUES (?1, ?2, ${START_LABEL}, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17)
+           created_at, updated_at, host, reporter_agent, search_text, reporter_via)
+         VALUES (?1, ?2, ${START_LABEL}, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17, ?18)
          RETURNING id, (SELECT name FROM labels WHERE role = 'inbox') AS label_name`,
       ).bind(
         body.client_uid,
@@ -1681,11 +1695,12 @@ async function createIssue(c) {
         target.host,
         agentOf(c),
         searchText(title, text),
+        viaOf(c),
       ),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT id, ?2, 'created', ?3, 0, ?4, ?5 ${byUid}`,
-      ).bind(body.client_uid, c.actor.email, JSON.stringify({ kind: body.kind, title }), c.now, agentOf(c)),
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+         SELECT id, ?2, 'created', ?3, 0, ?4, ?5, ?6 ${byUid}`,
+      ).bind(body.client_uid, c.actor.email, JSON.stringify({ kind: body.kind, title }), c.now, agentOf(c), viaOf(c)),
       DB.prepare(
         `INSERT INTO reads (actor_email, item_id, read_at) SELECT ?2, id, ?3 ${byUid}
          ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
@@ -1717,6 +1732,7 @@ async function createIssue(c) {
     reporter_email: c.actor.email,
     reporter_name: c.actor.name,
     reporter_agent: c.actor.agent,
+    reporter_via: viaOf(c),
     reporter_json: reporter,
     assignee: null,
     duplicate_of: null,
@@ -1801,7 +1817,7 @@ async function getIssue(c, rawKey) {
 
 function mergedStatement(c, id) {
   return c.env.DB.prepare(
-    "SELECT id, kind, title, host, reporter_email, reporter_name, reporter_agent FROM items WHERE duplicate_of = ?1 ORDER BY id",
+    "SELECT id, kind, title, host, reporter_email, reporter_name, reporter_agent, reporter_via FROM items WHERE duplicate_of = ?1 ORDER BY id",
   ).bind(id);
 }
 
@@ -1816,6 +1832,7 @@ function mergedOf(rows, c) {
         email: r.reporter_email,
         name: r.reporter_name,
         agent: Boolean(r.reporter_agent),
+        via: r.reporter_agent ? (r.reporter_via ?? null) : null,
       },
     }));
 }
@@ -1853,15 +1870,16 @@ async function postMerge(c) {
   });
   const folded = (r) => r.duplicate_of === into && !r.open && r.resolution === "duplicate";
   const moving = sources.filter((r) => !folded(r));
+  for (const row of moving) refuseAgentClose(c, row, { closes: 1 });
   const actor = c.actor.email;
   const statements = [];
   for (const row of moving) {
     const key = keyOf(row.kind, row.id);
     statements.push(
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT id, ?2, 'merge', json_object('into', ?3), 0, ?4, ?5 FROM items WHERE duplicate_of = ?1`,
-      ).bind(row.id, actor, targetKey, c.now, agentOf(c)),
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+         SELECT id, ?2, 'merge', json_object('into', ?3), 0, ?4, ?5, ?6 FROM items WHERE duplicate_of = ?1`,
+      ).bind(row.id, actor, targetKey, c.now, agentOf(c), viaOf(c)),
       DB.prepare("UPDATE items SET duplicate_of = ?2, updated_at = ?3 WHERE duplicate_of = ?1").bind(row.id, into, c.now),
       DB.prepare("UPDATE items SET duplicate_of = ?2 WHERE id = ?1").bind(row.id, into),
       eventStatement(c, row.id, actor, "merge", { into: targetKey }),
@@ -1890,6 +1908,7 @@ async function patchIssue(c, rawKey) {
   const body = await readJson(c, MAX_JSON_BYTES);
   refuseGone(body);
   const row = await loadItem(c, rawKey);
+  if (Object.prototype.hasOwnProperty.call(body, "project")) return patchProject(c, row, body);
   const reporter = row.reporter_email === c.actor.email;
   const fresh = Boolean(row.open) && row.label_role === "inbox";
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
@@ -1947,6 +1966,7 @@ async function patchIssue(c, rawKey) {
   const closing = wanted !== undefined && wanted !== null && (row.open || wanted !== row.resolution || duplicateOf !== row.duplicate_of);
   if (reopening && !c.manager && !(reporter && row.resolution === "fixed" && (role ?? "inbox") === "inbox")) fail(403, "this change is not allowed");
   if (closing && !c.manager && !(reporter && wanted === "abandoned" && row.open)) fail(403, "this change is not allowed");
+  if (closing) refuseAgentClose(c, row, { closes: 1 });
 
   const statements = [];
   const actor = c.actor.email;
@@ -2005,8 +2025,8 @@ async function postComment(c, rawKey) {
     results = await DB.batch([
       DB.prepare(
         `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal,
-           origin_env, created_at, author_agent)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+           origin_env, created_at, author_agent, author_via)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
          RETURNING *`,
       ).bind(
         row.id,
@@ -2019,6 +2039,7 @@ async function postComment(c, rawKey) {
         actionEnv(c, row),
         c.now,
         agentOf(c),
+        viaOf(c),
       ),
       DB.prepare(
         `UPDATE items SET comment_count = comment_count + 1,
@@ -2028,10 +2049,10 @@ async function postComment(c, rawKey) {
          WHERE id = ?1`,
       ).bind(row.id, internal ? 0 : 1, c.now),
       DB.prepare(
-        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-         SELECT ?1, ?2, 'comment', json_object('comment_id', id, 'internal', json(?3)), ?4, ?5, ?7
+        `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+         SELECT ?1, ?2, 'comment', json_object('comment_id', id, 'internal', json(?3)), ?4, ?5, ?7, ?8
          FROM comments WHERE client_uid = ?6`,
-      ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid, agentOf(c)),
+      ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid, agentOf(c), viaOf(c)),
       readStatement(c, row.id),
       usageStatement(c, "comments", 1),
     ]);
@@ -2274,8 +2295,8 @@ async function putAttachment(c, rawKey, rawUid) {
        WHERE id = ?3 AND ${mine}`,
     ).bind(reserved.id, token, row.id, reserved.internal ? 0 : 1, c.now),
     DB.prepare(
-      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent)
-       SELECT ?3, ?4, 'attachment', ?5, ?6, ?7, ?8 WHERE ${mine}`,
+      `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+       SELECT ?3, ?4, 'attachment', ?5, ?6, ?7, ?8, ?9 WHERE ${mine}`,
     ).bind(
       reserved.id,
       token,
@@ -2291,6 +2312,7 @@ async function putAttachment(c, rawKey, rawUid) {
       reserved.internal,
       c.now,
       agentOf(c),
+      viaOf(c),
     ),
     DB.prepare(
       `INSERT INTO usage (actor_email, day, bytes) SELECT ?3, ?4, ?5 WHERE ${mine}
@@ -2631,15 +2653,22 @@ function importFlag(value, what) {
   return value;
 }
 
+function importVia(value, agent, what) {
+  if (value !== undefined && value !== null && typeof value !== "string") fail(400, `${what} must be a string`);
+  return agent ? actorVia(value) : null;
+}
+
 function importPerson(value, what) {
   if (!isObject(value)) fail(400, `${what} must be an object with an email`);
   const email = importEmail(value.email, `${what}.email`);
   const name = value.name ?? "";
   if (!isText(name, 0, 200)) fail(400, `${what}.name must be at most 200 characters`);
+  const agent = importFlag(value.agent, `${what}.agent`);
   return {
     email,
     name: name.trim() || email,
-    agent: importFlag(value.agent, `${what}.agent`),
+    agent,
+    via: importVia(value.via, agent, `${what}.via`),
     manager: importFlag(value.manager, `${what}.manager`),
   };
 }
@@ -2756,6 +2785,7 @@ function importRecord(r, host) {
       item,
       email,
       agent: actor ? importFlag(actor.agent, "actor.agent") : false,
+      via: actor ? importVia(actor.via, importFlag(actor.agent, "actor.agent"), "actor.via") : null,
       kind: r.kind,
       detailJson,
       internal: importFlag(r.internal, "internal"),
@@ -2823,9 +2853,9 @@ function importItemStatement(DB, r, host) {
   return DB.prepare(
     `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
        reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json,
-       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at, resolution)
+       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at, resolution, reporter_via)
      VALUES (?1, ?2, ?3, (SELECT id FROM labels WHERE role = ?4), ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24, ?25)`,
+       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24, ?25, ?26)`,
   ).bind(
     r.id,
     `import-${r.id}`,
@@ -2852,6 +2882,7 @@ function importItemStatement(DB, r, host) {
     r.createdAt,
     r.closedAt,
     r.resolution,
+    r.reporter.via,
   );
 }
 
@@ -2859,16 +2890,16 @@ function importItemStatement(DB, r, host) {
 function importCommentStatement(DB, r) {
   return DB.prepare(
     `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env,
-       created_at, author_agent)
-     SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, origin_env, ?8, ?9 FROM items WHERE id = ?1`,
-  ).bind(r.item, r.uid, r.author.email, r.author.name, r.author.manager ? 1 : 0, r.body, r.internal ? 1 : 0, r.createdAt, r.author.agent ? 1 : 0);
+       created_at, author_agent, author_via)
+     SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, origin_env, ?8, ?9, ?10 FROM items WHERE id = ?1`,
+  ).bind(r.item, r.uid, r.author.email, r.author.name, r.author.manager ? 1 : 0, r.body, r.internal ? 1 : 0, r.createdAt, r.author.agent ? 1 : 0, r.author.via);
 }
 
 function importRowStatement(DB, r) {
   if (r.type === "event") {
     return DB.prepare(
-      "INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    ).bind(r.item, r.email, r.agent ? 1 : 0, r.kind, r.detailJson, r.internal ? 1 : 0, r.at);
+      "INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at, actor_via) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    ).bind(r.item, r.email, r.agent ? 1 : 0, r.kind, r.detailJson, r.internal ? 1 : 0, r.at, r.via);
   }
   if (r.type === "landing") {
     return DB.prepare("INSERT INTO landings (item_id, env, sha, at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING").bind(
@@ -3132,11 +3163,14 @@ const ITEM_ROUTES = [
   ["POST", /^\/merge$/, postMerge],
 ];
 
+const CARD_ROUTES = [...CARD_READS, ...CARD_WRITES];
+
 const BROWSER_ROUTES = [
   ["GET", /^\/me$/, getMe],
   ["POST", /^\/verify$/, postVerify],
   ...ITEM_ROUTES,
   ...BOARD_ROUTES,
+  ...CARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
   ...peopleRoutes(),
 ];
@@ -3162,6 +3196,7 @@ const SIGNED_ROUTES = [
   ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
   ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
+  ...CARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ["GET", /^\/hosts$/, listHosts, {}],
   ["PUT", /^\/hosts\/([^/]+)$/, putHost, {}],
   ["DELETE", /^\/hosts\/([^/]+)$/, deleteHost, {}],
@@ -3188,6 +3223,7 @@ const SIGNED_ROUTES = [
 useKit({
   MAX_JSON_BYTES,
   encoder,
+  cardSide,
   clean,
   eventStatement,
   fail,
@@ -3201,11 +3237,43 @@ useKit({
   loadDirectory,
   parseKey,
   readJson,
+  refuseAgentClose,
   requireEmptyBody,
   requireManager,
   sendMail,
   sha256Hex,
   REPORTERS_TOKEN,
+});
+
+useCardKit({
+  ITEM_SELECT,
+  MAX_BODY_CHARS,
+  MAX_JSON_BYTES,
+  MAX_TITLE_CHARS,
+  KIND_PREFIXES,
+  clean,
+  eventStatement,
+  fail,
+  firstRows,
+  isChars,
+  isUid,
+  isUniqueViolation,
+  issueResponse,
+  json,
+  keyOf,
+  loadItem,
+  parseKey,
+  postComment,
+  push,
+  query,
+  readJson,
+  readStatement,
+  requireEmptyBody,
+  requireManager,
+  runHandler,
+  searchText,
+  summaryOf,
+  validTitle,
 });
 
 useGithubKit({
@@ -3314,7 +3382,7 @@ function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
     signed: false,
     bodyHash: declaredHash && /^[0-9a-f]{64}$/.test(declaredHash) ? declaredHash : null,
     code,
-    actor: { email: code.email.toLowerCase(), name: code.name, agent: false },
+    actor: { email: code.email.toLowerCase(), name: code.name, agent: false, via: null },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
     scope: { all: false, host: hostRow.host },
     hostRow,

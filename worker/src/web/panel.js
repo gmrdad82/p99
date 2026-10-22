@@ -13,6 +13,11 @@ const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
+const ROBOT = "🤖";
+const PICK_KEY = "p99:pick";
+const VIEWS = ["all", "site", "projects", "landed"];
+const SOURCES = ["", "human", "agent"];
+const MAX_PICKED = 50;
 const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
 const OOXML = "application/vnd.openxmlformats-officedocument.";
 const ODF = "application/vnd.oasis.opendocument.";
@@ -55,6 +60,18 @@ const WORDS = {
   status_duplicate: "Duplicate",
   only_branch: "The fix is written but isn't in a build yet.",
   list_title: "Items",
+  view_label: "Show",
+  view_all: "All",
+  view_site: "Only this website",
+  view_projects: "Projects",
+  view_landed: "Landed, waiting for your check",
+  source_label: "Last change by",
+  source_all: "Everyone",
+  source_human: "People",
+  source_agent: "Agents",
+  projects_none: "No projects yet.",
+  cards_empty: "No cards here.",
+  agent: "Agent",
   tab_page: "This page",
   tab_mine: "Mine",
   tab_all: "All",
@@ -268,11 +285,19 @@ function nameOf(p) {
 function isAgent(p, agent) {
   return agent === true || (Boolean(p) && typeof p === "object" && p.agent === true);
 }
-function who(p, agent) {
-  return nameOf(p) + (isAgent(p, agent) ? "*" : "");
+function viaOf(p, via) {
+  const v = typeof via === "string" ? via : p && typeof p === "object" && typeof p.via === "string" ? p.via : "";
+  return v.trim();
 }
-function person(p, agent) {
-  return [nameOf(p), isAgent(p, agent) ? h("span", { class: "p99-ai", title: "AI", text: "*" }) : null];
+function who(p, agent) {
+  if (!isAgent(p, agent)) return nameOf(p);
+  const label = viaOf(p);
+  return nameOf(p) + " " + ROBOT + (label ? " (" + label + ")" : "");
+}
+function person(p, agent, via) {
+  if (!isAgent(p, agent)) return [nameOf(p)];
+  const label = viaOf(p, via);
+  return [nameOf(p), " ", h("span", { class: "p99-ai", title: label ? say("agent") + " · " + label : say("agent"), text: ROBOT }), label ? h("small", { class: "p99-via", text: label }) : null];
 }
 
 function api(path) {
@@ -446,7 +471,14 @@ function boardModule() {
 function openBoard() {
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
-  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, only: shownKeys, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+}
+function pickWord() {
+  const p = picked();
+  const words = [];
+  if (p.view !== "all") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
+  if (p.source) words.push(say("source_" + p.source));
+  return words.join(" · ");
 }
 function keys(e) {
   if (e.key === "Escape") {
@@ -745,8 +777,87 @@ function defaultList() {
   if (me && me.manager) return { scope: "all", status: "open", kind: "", q: "" };
   return { scope: "mine", status: "open", kind: "", q: "" };
 }
+function pickOf(raw) {
+  const p = raw && typeof raw === "object" ? raw : {};
+  const names = Array.isArray(p.projects) ? p.projects.filter((n) => typeof n === "string" && n.length > 0 && n.length <= 40) : [];
+  return {
+    view: VIEWS.includes(p.view) ? p.view : "all",
+    projects: names.slice(0, MAX_PICKED),
+    source: SOURCES.includes(p.source) ? p.source : ""
+  };
+}
+function picked() {
+  if (!me || !me.manager) return pickOf(null);
+  if (!S.pick) {
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(PICK_KEY) || "null"); } catch (x) {}
+    S.pick = pickOf(raw);
+  }
+  return S.pick;
+}
+function keepPick(p) {
+  S.pick = pickOf(p);
+  try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (x) {}
+  return S.pick;
+}
+function siteHost() { return o.space || location.hostname; }
+function cardQuery(p, cursor) {
+  const q = new URLSearchParams();
+  if (p.view === "site") q.set("site", "1");
+  if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
+  if (p.view === "landed") q.set("status", "landed");
+  if (p.source) q.set("source", p.source);
+  if (cursor) q.set("cursor", cursor);
+  return "/cards?" + q;
+}
+function shownKeys() {
+  const p = picked();
+  if (p.view === "all" && !p.source) return Promise.resolve(null);
+  const keys = new Set();
+  const read = (path, field, cursor, left) => call("GET", path(cursor)).then((res) => {
+    ((res && res[field]) || []).forEach((r) => keys.add(r.key));
+    return res && res.next_cursor && left > 1 ? read(path, field, res.next_cursor, left - 1) : keys;
+  });
+  if (p.view === "all") return read((c) => listQuery({ scope: "all", status: "any" }, c) + "&limit=100", "issues", null, 5);
+  return read((c) => cardQuery(p, c) + "&limit=500" + (p.view === "landed" ? "" : "&status=new&status=planned&status=in-progress&status=stuck&status=landed&status=done"), "cards", null, 5);
+}
+function pickBar() {
+  if (!me || !me.manager) return null;
+  const p = picked();
+  const view = h("select", { name: "view" }, VIEWS.map((v) => h("option", { value: v, selected: p.view === v, text: say("view_" + v) })));
+  const projects = h("fieldset", { class: "p99-projects", hidden: p.view !== "projects" }, h("legend", { text: say("view_projects") }));
+  const sources = h("fieldset", { class: "p99-sources" }, h("legend", { text: say("source_label") }), SOURCES.map((v) =>
+    h("label", null, h("input", { type: "radio", name: "source", value: v, checked: p.source === v }), h("span", { text: say("source_" + (v || "all")) }))));
+  const bar = h("form", { class: "p99-pick", onsubmit: (e) => e.preventDefault() }, h("label", { class: "p99-view-pick" }, h("span", { text: say("view_label") }), view), projects, sources);
+  const apply = () => {
+    const ready = projects.dataset.ready === "1";
+    const names = ready ? Array.from(projects.querySelectorAll("input[name=project]:checked")).map((x) => x.value) : picked().projects;
+    const checked = bar.querySelector("input[name=source]:checked");
+    const next = keepPick({ view: view.value, projects: names, source: checked ? checked.value : "" });
+    projects.hidden = next.view !== "projects";
+    if (!projects.hidden) fillProjects(projects, next);
+    list(S.list || defaultList());
+  };
+  bar.addEventListener("change", apply);
+  if (!projects.hidden) fillProjects(projects, p);
+  return bar;
+}
+function fillProjects(box, p) {
+  if (box.dataset.asked) return;
+  box.dataset.asked = "1";
+  call("GET", "/projects").then((res) => {
+    const names = ((res && res.projects) || []).map((x) => x && x.name).filter((n) => typeof n === "string");
+    const chosen = new Set(p.projects.map((n) => n.toLowerCase()));
+    box.append(...(names.length
+      ? names.map((n) => h("label", null, h("input", { type: "checkbox", name: "project", value: n, checked: chosen.has(n.toLowerCase()) }), h("span", { text: n })))
+      : [h("p", { class: "p99-empty", text: say("projects_none") })]));
+    box.dataset.ready = "1";
+  }).catch(() => { delete box.dataset.asked; });
+}
 function listQuery(f, cursor) {
   const q = new URLSearchParams({ scope: f.scope, status: f.status || "open" });
+  const p = picked();
+  if (p.source) q.set("source", p.source);
   if (f.scope === "page") q.set("path", location.pathname);
   if (f.kind) q.set("kind", f.kind);
   if (f.q) q.set("q", f.q);
@@ -762,6 +873,10 @@ function list(f) {
   const view = shown || listView(f);
   const results = view.querySelector(".p99-results");
   const form = view.querySelector(".p99-filters");
+  const p = picked();
+  const carded = p.view !== "all";
+  form.hidden = carded;
+  view.querySelector(".p99-tabs").hidden = carded;
   for (const a of view.querySelectorAll(".p99-tabs a")) {
     if (a.dataset.scope === f.scope) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -778,13 +893,17 @@ function list(f) {
     form.classList.remove("is-busy");
     results.replaceChildren(...kids);
   };
-  call("GET", listQuery(f), null, null, ask.signal).then((res) => {
+  const page = (cursor, signal) => call("GET", carded ? cardQuery(p, cursor) : listQuery(f, cursor), null, null, signal).then((res) => ({
+    rows: ((res && (carded ? res.cards : res.issues)) || []).map(carded ? cardRow : row),
+    next: res && res.next_cursor
+  }));
+  page(null, ask.signal).then(({ rows, next }) => {
     if (seq !== S.seq) return;
-    const rows = (res && res.issues) || [];
     const items = h("ol", { class: "p99-items" });
-    rows.forEach((r) => items.append(row(r)));
-    settle(rows.length ? items : h("p", { class: "p99-empty", text: f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") ? "list_empty_filtered" : "list_empty") }));
-    more(results, items, f, res && res.next_cursor);
+    items.append(...rows);
+    const empty = carded ? say("cards_empty") : f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") || p.source ? "list_empty_filtered" : "list_empty");
+    settle(rows.length ? items : h("p", { class: "p99-empty", text: empty }));
+    more(results, items, page, next);
   }).catch((e) => {
     if (seq !== S.seq) return;
     settle(h("div", { class: "p99-failed" },
@@ -798,18 +917,17 @@ function listView(f) {
   const nav = h("nav", { class: "p99-tabs", "aria-label": say("list_title") }, tabs.map((t) =>
     h("a", { href: "#", "data-scope": t, text: say("tab_" + t), onclick: (e) => { e.preventDefault(); list(Object.assign({}, S.list || f, { scope: t })); } })
   ));
-  return h("section", { class: "p99-view", "data-view": "list" }, title, nav, filters(f), h("div", { class: "p99-results" }));
+  return h("section", { class: "p99-view", "data-view": "list" }, title, pickBar(), nav, filters(f), h("div", { class: "p99-results" }));
 }
-function more(box, items, f, cursor) {
+function more(box, items, page, cursor) {
   if (!cursor) return;
   const b = h("button", { type: "button", class: "p99-more", text: say("more") });
   b.addEventListener("click", () => {
     b.disabled = true;
-    call("GET", listQuery(f, cursor)).then((res) => {
-      const rows = ((res && res.issues) || []).map(row);
+    page(cursor).then(({ rows, next }) => {
       b.remove();
       items.append(...rows);
-      more(box, items, f, res && res.next_cursor);
+      more(box, items, page, next);
     }).catch(() => { b.disabled = false; });
   });
   box.append(b);
@@ -841,7 +959,7 @@ function filters(f) {
 }
 function row(r) {
   const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
-  if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter)));
+  if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter, false, "")));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread },
@@ -853,6 +971,25 @@ function row(r) {
       kindPill(r.kind),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
+}
+
+function cardRow(c) {
+  const meta = [h("span", { class: "p99-project", text: c.project || "" })];
+  if (c.host) meta.push(" · ", h("span", { class: "p99-host", text: c.host }));
+  if (c.changed_by) meta.push(" · ", h("span", { class: "p99-reporter" }, person(c.changed_by, false, "")));
+  meta.push(" · ", h("time", { text: when(c.changed_at || c.created_at) }));
+  if (c.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: c.comments }, c.comments) }));
+  const here = !c.host || c.host === siteHost();
+  const go = here
+    ? { href: "#p99=" + c.key, onclick: (e) => { e.preventDefault(); item(c.key); } }
+    : { href: "https://" + c.host + "/#p99=" + c.key, target: "_blank", rel: "noopener noreferrer" };
+  return h("li", { class: "p99-item p99-card-row", "data-lane": c.status, "data-kind": c.kind },
+    h("a", go,
+      h("span", { class: "p99-key", text: c.key }),
+      h("b", { class: "p99-item-title", text: c.title }),
+      pill("p99-status", "data-lane", c.status, c.label || c.status),
+      kindPill(c.kind),
+      h("small", { class: "p99-meta" }, meta)));
 }
 
 function item(key) {
@@ -982,7 +1119,7 @@ function entries(t, byId, mine) {
     }
     const text = eventText(x.ev);
     if (!text) return null;
-    return h("li", { class: "p99-event", "data-event-kind": x.ev.kind }, h("small", null, h("b", null, person(x.ev.actor_name || x.ev.actor, x.ev.agent)), " ", text, " · ", h("time", { text: when(x.ev.at) })));
+    return h("li", { class: "p99-event", "data-event-kind": x.ev.kind }, h("small", null, h("b", null, person(x.ev.actor_name || x.ev.actor, x.ev.agent, x.ev.via)), " ", text, " · ", h("time", { text: when(x.ev.at) })));
   });
 }
 function pendingFiles(form, files) {

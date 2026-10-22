@@ -506,13 +506,12 @@ impl Inbox {
         if reading {
             self.open = None;
             let by = &event["by"];
-            let name = by["name"].as_str().unwrap_or("Someone");
-            let star = if by["agent"].as_bool().unwrap_or(false) {
-                "*"
-            } else {
-                ""
-            };
-            cx.say(format!("{name}{star} deleted {key}"), Tone::Alert);
+            let name = person(
+                by["name"].as_str().unwrap_or("Someone"),
+                "",
+                by["agent"].as_bool().unwrap_or(false),
+            );
+            cx.say(format!("{name} deleted {key}"), Tone::Alert);
         }
     }
 
@@ -562,8 +561,9 @@ impl Inbox {
         let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
         };
+        let card = self.issue().is_some_and(|issue| issue.project.is_some());
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account)));
+        cx.detach(move || Msg::Labels(source.labels(account, card)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {
@@ -803,6 +803,10 @@ fn lines(
         reporter["email"].as_str().unwrap_or_default(),
         reporter["agent"].as_bool().unwrap_or(false),
     );
+    let reporter_via = via_of(
+        reporter["agent"].as_bool().unwrap_or(false),
+        reporter["via"].as_str(),
+    );
     let dot = || Span::styled(" · ", palette.muted);
     let mut out: Vec<Line<'static>> = Vec::new();
     for (at, part) in text::wrap(&issue.title, width.saturating_sub(issue.key.len() + 2))
@@ -862,18 +866,25 @@ fn lines(
             None => Span::styled("unassigned", palette.muted),
         },
     ]));
-    out.push(Line::from(vec![
+    let mut reported = vec![
         Span::styled(who, palette.strong),
         Span::styled(
             format!(" reported it {}", since(&issue.created_at)),
             palette.muted,
         ),
+    ];
+    if let Some(label) = reporter_via {
+        reported.push(dot());
+        reported.push(Span::styled(format!("via {label}"), palette.muted));
+    }
+    reported.extend([
         dot(),
         Span::styled(
             format!("updated {}", since(&issue.updated_at)),
             palette.muted,
         ),
-    ]));
+    ]);
+    out.push(Line::from(reported));
     out.push(Line::default());
     for paragraph in issue.body.lines() {
         if paragraph.trim().is_empty() {
@@ -969,6 +980,10 @@ fn lines(
                 palette.strong
             },
         )];
+        if let Some(label) = via_of(author.agent, author.via.as_deref()) {
+            head.push(dot());
+            head.push(Span::styled(format!("via {label}"), palette.muted));
+        }
         if comment.internal {
             head.push(dot());
             head.push(Span::styled("internal", palette.warn));
@@ -991,7 +1006,13 @@ fn lines(
                 .actor_name
                 .as_deref()
                 .or(event.actor.as_deref())
-                .map(|a| format!(" by {a}"))
+                .map(|a| {
+                    let name = person(a, "", event.agent);
+                    match via_of(event.agent, event.via.as_deref()) {
+                        Some(label) => format!(" by {name} ({label})"),
+                        None => format!(" by {name}"),
+                    }
+                })
                 .unwrap_or_default();
             let at = format!("  {:>4}  ", ago(&event.at));
             out.push(Line::from(vec![
@@ -1002,6 +1023,11 @@ fn lines(
         }
     }
     out
+}
+
+fn via_of(agent: bool, via: Option<&str>) -> Option<String> {
+    via.filter(|label| agent && !label.trim().is_empty())
+        .map(|label| label.trim().to_owned())
 }
 
 impl Screen<Msg> for Inbox {

@@ -22,7 +22,7 @@ use super::source::Source;
 const TALL: i32 = 4;
 const PITCH: i32 = 5;
 const SLIDE: Duration = Duration::from_millis(180);
-const LANES: usize = 5;
+const LANES: usize = 6;
 const QUIET: Duration = Duration::from_millis(250);
 const MAKE: &str = "p99 boards set <name> --columns \"Inbox,Doing,Done\" makes one.";
 

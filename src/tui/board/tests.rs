@@ -334,7 +334,7 @@ fn b_lists_my_boards_first_then_the_watched_ones_and_opens_the_one_picked() {
         row(&pick, "Shop") <= row(&pick, "@grace.hopper · QA"),
         "{pick}"
     );
-    let qa = app.press("down enter");
+    let qa = app.press("down down enter");
     for head in ["QA ready 2", "Testing 1", "Verified 1"] {
         assert!(qa.contains(head), "{head}:\n{qa}");
     }
@@ -348,7 +348,7 @@ fn b_lists_my_boards_first_then_the_watched_ones_and_opens_the_one_picked() {
     assert_eq!(current(&app).as_deref(), Some("IMP-4"));
     let back = app.press("b");
     assert!(back.contains("Shop"), "{back}");
-    let shop = app.press("up enter");
+    let shop = app.press("up up enter");
     assert!(shop.contains("Inbox 7"), "{shop}");
 }
 
@@ -366,7 +366,7 @@ fn picking_the_board_shown_or_cancelling_reads_nothing() {
 #[test]
 fn a_watched_board_cannot_be_carried_by_keys_or_mouse() {
     let mut app = shown();
-    app.press("b down enter");
+    app.press("b down down enter");
     let text = app.press("space");
     assert!(board(&app).lift.is_none());
     assert!(!board(&app).typing());

@@ -63,7 +63,7 @@ commit/8d51052cc978:tests/cli_vault.rs:141 the tests check the error that names 
 commit/07fdf97a2cfe:tests/stories_deploy.rs:1279 the deploy story's fake config reference, made neutral in a later commit (pci 2631)
 commit/ea55d653924a:tests/stories_deploy.rs:1279 the deploy story's fake config reference as the story train merged it, made neutral in a later commit (pci 2631)
 commit/dfca0352d62d:tests/stories_deploy.rs:1279 the deploy story's fake vault reference on agent/deploy, made neutral in a later commit (pci 2631)
-tests/stories_deploy.rs:1298 a fake op reference in the deploy story that proves P99_TOKEN wins over it
+tests/stories_deploy.rs:1299 a fake op reference in the deploy story that proves P99_TOKEN wins over it
 commit/1a3a547e00d0:tests/stories_deploy.rs:1291 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1291
 commit/3c400e8d8864:docs/coverage.md:142 the coverage notes named the vault tool, reworded in the next commit
 commit/75762d079524:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
@@ -72,12 +72,12 @@ commit/8d51052cc978:tests/cli_admin.rs:911 the tests check the p99 link error th
 commit/8d51052cc978:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
 commit/bc73ea7941c0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
 commit/6045d3de82ac:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
-src/config.rs:959 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:965 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:966 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:996 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:832 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-src/config.rs:851 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+src/config.rs:976 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:982 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:983 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:1013 a fake vault reference in the config tests that a reference is no inline secret
+src/config.rs:849 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
+src/config.rs:868 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 tests/cli_key.rs:16 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 tests/cli_key.rs:219 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
 commit/39f553cef5bb:src/config.rs:487 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
@@ -120,3 +120,25 @@ commit/e8c75e971d87:docs/guides/invite.md:62 the invite guide explains the code'
 commit/e8c75e971d87:docs/guides/invite.md:124 the invite guide names the password managers that take the authenticator setup, as waived at its current line
 commit/ebc7177998f3:docs/guides/invite.md:62 the invite guide explains the code's secret-reference form, as waived at its current line
 commit/ebc7177998f3:docs/guides/invite.md:124 the invite guide names the password managers that take the authenticator setup, as waived at its current line
+commit/1a6e5ac82d97:README.md:131 the README names password managers that take the authenticator setup, as waived at its current line, on the rebased cards branch
+commit/1a6e5ac82d97:docs/config.md:65 the config docs explain secret references to users, as waived at its current line, on the rebased cards branch
+commit/1a6e5ac82d97:docs/hosts.md:69 the hosts docs name the vault the secret references read, as waived for docs/hosts.md, on the rebased cards branch
+commit/1a6e5ac82d97:tests/stories_deploy.rs:1298 the deploy story's fake op reference that proves P99_TOKEN wins over it, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:832 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:851 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:959 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:965 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:966 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/1a6e5ac82d97:src/config.rs:996 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/7b22f095d897:src/config.rs:832 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/7b22f095d897:src/config.rs:851 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/7b22f095d897:src/config.rs:959 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/7b22f095d897:src/config.rs:965 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/7b22f095d897:src/config.rs:966 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/7b22f095d897:src/config.rs:996 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/45c9e6d72637:src/config.rs:847 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/45c9e6d72637:src/config.rs:866 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference, as waived at its current line
+commit/45c9e6d72637:src/config.rs:974 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/45c9e6d72637:src/config.rs:980 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/45c9e6d72637:src/config.rs:981 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/45c9e6d72637:src/config.rs:1011 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line

@@ -18,11 +18,11 @@ fn issue(demo: &mut Demo, key: &str) -> Issue {
 fn the_sample_holds_every_kind_and_state_with_unique_keys() {
     let demo = Demo::new();
     let list = demo.list();
-    assert_eq!(list.len(), 22);
+    assert_eq!(list.len(), 28);
     let mut keys: Vec<&str> = list.iter().map(|e| e.summary.key.as_str()).collect();
     keys.sort_unstable();
     keys.dedup();
-    assert_eq!(keys.len(), 22);
+    assert_eq!(keys.len(), 28);
     for kind in ["bug", "feature", "improvement", "question", "task"] {
         assert!(list.iter().any(|e| e.summary.kind == kind), "{kind}");
     }
@@ -287,7 +287,7 @@ fn deleting_an_original_reopens_its_duplicates_and_counts_what_went() {
     assert_eq!(copy.status, "inbox");
     assert_eq!(copy.resolution, None);
     assert_eq!(copy.duplicate_of, None);
-    assert_eq!(demo.list().len(), 21);
+    assert_eq!(demo.list().len(), 27);
     let none = demo.delete("BUG-12").expect("the sample takes it");
     assert!(none.unlinked.is_empty());
 }

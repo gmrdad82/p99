@@ -61,6 +61,8 @@ pub struct Person {
     pub name: String,
     #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    pub via: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -97,6 +99,12 @@ pub struct Summary {
     pub label: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
@@ -176,6 +184,12 @@ pub struct Issue {
     pub label: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub resolution: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub project: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub board: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
@@ -281,6 +295,8 @@ pub struct Author {
     pub manager: bool,
     #[serde(default, deserialize_with = "lenient")]
     pub agent: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    pub via: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -329,6 +345,10 @@ pub struct Event {
     pub actor: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub actor_name: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub agent: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    pub via: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub kind: String,
     #[serde(default, deserialize_with = "lenient")]
@@ -844,6 +864,8 @@ pub struct LaneBoard {
     #[serde(default, deserialize_with = "lenient")]
     pub mine: bool,
     #[serde(default, deserialize_with = "lenient")]
+    pub cards: bool,
+    #[serde(default, deserialize_with = "lenient")]
     pub columns: Vec<Lane>,
 }
 
@@ -1018,6 +1040,31 @@ pub struct ImportFinish {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn via_reads_on_people_authors_and_events_and_defaults_to_none() {
+        let summary: Summary = serde_json::from_value(serde_json::json!({
+            "id": 7, "key": "BUG-7", "kind": "bug", "title": "t",
+            "reporter": {"email": "ada@example.com", "name": "Ada Lovelace", "agent": true, "via": "pci"}
+        }))
+        .unwrap();
+        assert!(summary.reporter.agent);
+        assert_eq!(summary.reporter.via.as_deref(), Some("pci"));
+        let author: Author =
+            serde_json::from_str(r#"{"name":"Ada Lovelace","agent":true,"via":"pci·splicer"}"#)
+                .unwrap();
+        assert_eq!(author.via.as_deref(), Some("pci·splicer"));
+        let event: Event =
+            serde_json::from_str(r#"{"kind":"label","agent":true,"via":"pci","at":"x"}"#).unwrap();
+        assert!(event.agent);
+        assert_eq!(event.via.as_deref(), Some("pci"));
+        let old: Event = serde_json::from_str(r#"{"kind":"label","at":"x"}"#).unwrap();
+        assert!(!old.agent);
+        assert_eq!(old.via, None);
+        let person: Person =
+            serde_json::from_str(r#"{"name":"Grace Hopper","agent":false,"via":null}"#).unwrap();
+        assert_eq!(person.via, None);
+    }
 
     #[test]
     fn printed_text_loses_escapes_and_bidi_controls() {

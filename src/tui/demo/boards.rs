@@ -110,6 +110,85 @@ pub(super) const ITEMS: [super::Item; 10] = [
     ),
 ];
 
+pub(super) const CARDS: [super::Item; 6] = [
+    card(
+        "feature",
+        "new",
+        "Export keeps every audio track",
+        false,
+        27 * HOUR,
+    ),
+    card(
+        "task",
+        "planned",
+        "Thumbnails for the clip rail",
+        false,
+        28 * HOUR,
+    ),
+    card(
+        "bug",
+        "in-progress",
+        "Waveform drifts after a cut",
+        true,
+        29 * HOUR,
+    ),
+    card(
+        "bug",
+        "stuck",
+        "Spanish cues lose their accents",
+        true,
+        30 * HOUR,
+    ),
+    card(
+        "feature",
+        "landed",
+        "Roll-up player plays the cut",
+        true,
+        31 * HOUR,
+    ),
+    card(
+        "task",
+        "done",
+        "Silence removed by default",
+        false,
+        16 * DAY,
+    ),
+];
+
+const fn card(
+    kind: &'static str,
+    status: &'static str,
+    title: &'static str,
+    agent: bool,
+    updated: i64,
+) -> super::Item {
+    super::Item {
+        kind,
+        status,
+        resolution: if matches!(status.as_bytes(), b"done") {
+            Some("fixed")
+        } else {
+            None
+        },
+        title,
+        host: "shop.example.com",
+        path: "/",
+        grace: false,
+        agent,
+        created: updated + HOUR,
+        updated,
+        unread: false,
+        assignee: None,
+        body: "",
+    }
+}
+
+pub(super) const FIRST_CARD: i64 = (super::ITEMS.len() + ITEMS.len() + 1) as i64;
+
+pub(super) fn is_card(issue: &Issue) -> bool {
+    issue.project.is_some()
+}
+
 #[allow(clippy::too_many_arguments)]
 const fn extra(
     kind: &'static str,
@@ -149,6 +228,17 @@ const SHOP: [(&str, bool); 4] = [
     ("Done", true),
 ];
 
+const LANES: [(&str, bool); 6] = [
+    ("New", false),
+    ("Planned", false),
+    ("In progress", false),
+    ("Stuck", false),
+    ("Landed", false),
+    ("Done", true),
+];
+
+const CARDS_BOARD: i64 = 3;
+
 const QA: [(&str, bool); 3] = [("QA ready", false), ("Testing", false), ("Verified", true)];
 
 const LABELED: [(i64, &str); 2] = [(14, "Testing"), (21, "Verified")];
@@ -168,6 +258,7 @@ fn board(id: i64, name: &str, owner: &str, mine: bool, columns: &[(&str, bool)])
             username: Some(owner.into()),
         }),
         mine,
+        cards: id == CARDS_BOARD,
         columns: columns
             .iter()
             .map(|&(label, closes)| Column {
@@ -191,6 +282,11 @@ pub(super) fn status_label(status: &str) -> &'static str {
         "doing" => "Doing",
         "review" => "QA ready",
         "done" => "Done",
+        "new" => "New",
+        "planned" => "Planned",
+        "in-progress" => "In progress",
+        "stuck" => "Stuck",
+        "landed" => "Landed",
         _ => "Inbox",
     }
 }
@@ -201,6 +297,7 @@ impl Shelf {
             boards: vec![
                 board(1, "Shop", "ada.lovelace", true, &SHOP),
                 board(2, "QA", "grace.hopper", false, &QA),
+                board(CARDS_BOARD, "Cards", "ada.lovelace", true, &LANES),
             ],
             orders: HashMap::new(),
         };
@@ -212,8 +309,11 @@ impl Shelf {
     }
 
     fn append(&mut self, key: &str, label: &str) {
+        let card = wire::item_number(key).is_some_and(|id| id >= FIRST_CARD);
         for board in &self.boards {
-            if board.lane(label).is_none() || self.orders.contains_key(&(board.id, key.to_owned()))
+            if board.lane(label).is_none()
+                || (board.id == CARDS_BOARD) != card
+                || self.orders.contains_key(&(board.id, key.to_owned()))
             {
                 continue;
             }
@@ -285,6 +385,9 @@ impl Demo {
             .filter_map(|issue| {
                 let label = issue.label.clone().unwrap_or_default();
                 board.lane(&label)?;
+                if (board.id == CARDS_BOARD) != is_card(issue) {
+                    return None;
+                }
                 Some(Card {
                     key: issue.key.clone(),
                     kind: issue.kind.clone(),
@@ -307,8 +410,14 @@ impl Demo {
     }
 
     pub fn shift(&mut self, request: &Move) -> Result<Moved, String> {
-        let mine: Vec<&Board> = self.shelf.boards.iter().filter(|b| b.mine).collect();
-        let closes = mine
+        let card = self.find(&request.key).is_ok_and(|t| is_card(&t.issue));
+        let side: Vec<&Board> = self
+            .shelf
+            .boards
+            .iter()
+            .filter(|b| b.cards == card && (b.mine || card))
+            .collect();
+        let closes = side
             .iter()
             .flat_map(|b| &b.columns)
             .find(|c| c.label == request.to)
@@ -360,29 +469,14 @@ impl Demo {
             self.shelf.orders.insert((id, key.clone()), order);
         }
         self.shelf.append(&key, &request.to);
+        let home = if card { CARDS_BOARD } else { 1 };
         let card = self
-            .board(Some(request.board.unwrap_or(1)))?
+            .board(Some(request.board.unwrap_or(home)))?
             .cards
             .into_iter()
             .find(|c| c.key == key)
             .ok_or_else(|| format!("no card is called {key}"))?;
         Ok(Moved { card })
-    }
-
-    pub fn labels(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for column in self
-            .shelf
-            .boards
-            .iter()
-            .filter(|b| b.mine)
-            .flat_map(|b| &b.columns)
-        {
-            if !out.contains(&column.label) {
-                out.push(column.label.clone());
-            }
-        }
-        out
     }
 }
 

@@ -63,7 +63,7 @@ fn keys_appended_or_squeezed_in_again_and_again_never_collide() {
 fn the_sample_has_my_board_and_a_watched_one_with_their_own_lanes() {
     let demo = Demo::new();
     let shelf = demo.boards().boards;
-    assert_eq!(shelf.len(), 2);
+    assert_eq!(shelf.len(), 3);
     assert!(shelf[0].mine && !shelf[1].mine);
     assert_eq!(shelf[1].whose(), "@grace.hopper");
     let shop = demo.board(None).expect("the sample has it");
@@ -78,7 +78,66 @@ fn the_sample_has_my_board_and_a_watched_one_with_their_own_lanes() {
         demo.board(Some(9)).err().as_deref(),
         Some("no board is called 9 (404)")
     );
-    assert_eq!(demo.labels(), ["Inbox", "Doing", "QA ready", "Done"]);
+    let plain = ["Inbox", "Doing", "QA ready", "Done"];
+    let lanes = ["New", "Planned", "In progress", "Stuck", "Landed", "Done"];
+    assert_eq!(crate::tui::deck::offered(&shelf, false), plain);
+    assert_eq!(crate::tui::deck::offered(&shelf, true), lanes);
+    assert!(shelf.iter().filter(|b| b.cards).all(|b| b.name == "Cards"));
+}
+
+#[test]
+fn a_card_is_offered_the_cards_lanes_even_when_its_board_is_someone_elses() {
+    let mut shelf = Demo::new().boards().boards;
+    for board in shelf.iter_mut().filter(|b| b.cards) {
+        board.mine = false;
+    }
+    assert_eq!(
+        crate::tui::deck::offered(&shelf, true),
+        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+    );
+    assert_eq!(
+        crate::tui::deck::offered(&shelf, false),
+        ["Inbox", "Doing", "QA ready", "Done"]
+    );
+    shelf.retain(|b| !b.cards);
+    assert!(crate::tui::deck::offered(&shelf, true).is_empty());
+}
+
+#[test]
+fn a_done_card_reopens_into_its_own_lanes_and_never_onto_a_plain_board() {
+    let mut demo = Demo::new();
+    let done = demo
+        .threads
+        .iter()
+        .find(|t| is_card(&t.issue) && t.issue.status == "done")
+        .map(|t| t.issue.clone())
+        .expect("the sample has a done card");
+    assert_eq!(done.label.as_deref(), Some("Done"));
+    assert_eq!(done.project.as_deref(), Some("Storefront"));
+    let offered = crate::tui::deck::offered(&demo.boards().boards, done.project.is_some());
+    assert!(offered.contains(&"Landed".to_owned()));
+    assert!(!offered.contains(&"Doing".to_owned()));
+    let refused = demo.shift(&to(&done.key, "Done", "Doing", None));
+    assert_eq!(
+        refused.err().as_deref(),
+        Some("Doing is not a label on your boards")
+    );
+    let moved = demo
+        .shift(&to(&done.key, "Done", "Landed", None))
+        .expect("a card reopens into Landed");
+    assert_eq!(moved.card.label, "Landed");
+    let plain = demo
+        .threads
+        .iter()
+        .find(|t| !is_card(&t.issue) && t.issue.label.as_deref() == Some("Inbox"))
+        .map(|t| t.issue.key.clone())
+        .expect("the sample has a plain item in Inbox");
+    assert_eq!(
+        demo.shift(&to(&plain, "Inbox", "Stuck", None))
+            .err()
+            .as_deref(),
+        Some("Stuck is not a label on your boards")
+    );
 }
 
 #[test]

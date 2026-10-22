@@ -49,7 +49,7 @@ pub enum BoardsAction {
         #[arg(
             long,
             value_name = "labels",
-            help = "3 to 5 labels, comma-separated, such as \"Inbox,Doing,QA ready,Done\""
+            help = "3 to 6 labels, comma-separated, such as \"Inbox,Doing,QA ready,Done\""
         )]
         columns: String,
         #[arg(

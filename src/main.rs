@@ -1,6 +1,7 @@
 mod app;
 mod boards;
 mod bundle;
+mod card;
 mod cli;
 mod client;
 mod cloudflare;

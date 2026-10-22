@@ -288,7 +288,7 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     let mut agents = Vec::new();
     for row in select(cf, account, Q_AGENTS)? {
         let email = text(&row, "email");
-        let shown = usernames.get(&email).map(|u| format!("@{u}*"));
+        let shown = usernames.get(&email).map(|u| agent_shown(u));
         if shown.is_none() {
             decisions.push(format!(
                 "{} acts through agents but has no code and no assigned items, so 0012 gives them no username: mint them a code, or accept that their agent actions show without one",
@@ -953,9 +953,19 @@ fn render_members(out: &mut String, plan: &Value) {
     }
 }
 
+fn agent_shown(username: &str) -> String {
+    format!("@{username} {}", crate::card::ROBOT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_in_the_plan_shows_with_the_robot_never_an_asterisk() {
+        assert_eq!(agent_shown("ada.lovelace"), "@ada.lovelace 🤖");
+        assert!(!agent_shown("ada.lovelace").contains('*'));
+    }
 
     #[test]
     fn the_hash_is_the_sha256_of_sorted_compact_json() {
