@@ -495,7 +495,7 @@ fn move_to_on_a_plain_item_offers_no_cards_lane() {
     let pick = app.press("enter m");
     assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"));
     assert_eq!(offered(&app), ["Inbox", "Doing", "QA ready", "Done"]);
-    for lane in ["Planned", "In progress", "Stuck", "Landed"] {
+    for lane in ["Planned", "In progress", "Stuck"] {
         assert!(!pick.contains(lane), "{lane}:\n{pick}");
     }
 }

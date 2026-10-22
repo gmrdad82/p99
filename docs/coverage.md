@@ -164,14 +164,14 @@ Rust: **89.0% of lines** (88.2% of regions, 88.1% of functions), up from 78.8%. 
 | src/migrate.rs | 94.40% | 1053 | 34.29% |
 | src/cloudflare.rs | 97.78% | 541 | 86.51% |
 
-## w199 cards, 2026-10-22 (agent/cards-i2, main c095778 plus the cards train)
+## w199 cards, 2026-10-22 (agent/cards-i3, main 51d4432 plus the cards train)
 
-Rust: **80.41% of lines** (79.53% of regions, 81.49% of functions), up from 78.8% after the fixes train. 583 tests pass under `cargo llvm-cov nextest`, none ignored.
+Rust: **89.87% of lines** (89.11% of regions, 88.94% of functions), up from 89.0% after the setup stories. 615 tests pass under `cargo llvm-cov nextest`, none ignored.
 
 | File | Lines covered | Lines | Last measured |
 |---|---|---|---|
 | src/card.rs | 99.75% | 400 | new |
-| src/cli/card.rs | 98.16% | 434 | new |
+| src/cli/card.rs | 98.19% | 443 | new |
 | src/cli.rs | 89.46% | 1186 | 88.3% (the CLI) |
 | src/client.rs | 88.18% | 702 | not listed |
 | src/config.rs | 98.37% | 797 | 96.67% |
@@ -182,9 +182,9 @@ Rust: **80.41% of lines** (79.53% of regions, 81.49% of functions), up from 78.8
 | src/tui/source.rs | 97.45% | 392 | 97.19% |
 | src/wire.rs | 93.31% | 254 | 88.20% |
 
-src/tui/demo/boards.rs stays below its old number because its six sample cards are `const fn` rows, which the compiler evaluates, so no test run counts them.
+src/tui/demo/boards.rs stays below its old number because its six sample cards are `const fn` rows, which the compiler evaluates, so no test run counts them. The inbox's move picker is covered on a card as well as on a plain item: a story opens the sample's done card, finds its lanes offered and none of the plain board's labels, and moves it to Landed.
 
-JavaScript, the Worker (`cd worker && npm run coverage`, as the JavaScript section below describes): the worker suite passes 253 checks with none known red, and the 32 unit tests pass. **94.67% of lines** of worker/src, up from 93.64% on main.
+JavaScript, the Worker (`cd worker && npm run coverage`, as the JavaScript section below describes): the worker suite passes 253 checks with none known red, and the unit tests pass. **94.60% of lines** of worker/src, up from 93.64% on main.
 
 | File | Lines covered | Lines | Main |
 |---|---|---|---|
@@ -192,12 +192,12 @@ JavaScript, the Worker (`cd worker && npm run coverage`, as the JavaScript secti
 | src/cards-read.js | 98.27% | 346 | new |
 | src/cards-write.js | 97.08% | 343 | new |
 | src/cards.js | 100.00% | 37 | new |
-| src/worker.js | 95.66% | 3159 | 94.71% |
-| **total** | **94.67%** | 6887 | 93.64% |
+| src/worker.js | 95.50% | 3159 | 94.71% |
+| **total** | **94.60%** | 6887 | 93.64% |
 
-JavaScript, the browser (`cd render/web && npm run coverage`, then the panel's filter story, render/web/filter-check.mjs, under the same coverage hook): **79.85% of lines** of worker/src/web, up from 78.83%. src/web/panel.js is at 87.39% of 1,888 lines (86.13% of 1,752 on main) and src/web/board.js at 91.32% of 887 (91.17% of 872); the loader by bytes stays at 94.23%. In that pass the widget stories passed 102 with 1 known red and failed 1, the hover story ("a panel that fails to load on hover…"): its requests ran out of the shared code's per-minute budget (429). It fails the same way on main c095778 when a run fits the same requests into one minute, so it is no card change.
+JavaScript, the browser (`cd render/web && npm run coverage`, then the panel's filter story, render/web/filter-check.mjs, under the same coverage hook): **81.05% of lines** of worker/src/web, up from 80.1% after the sign-in retry. src/web/panel.js is at 89.32% of 1,976 lines (88.26% of 1,840 on main) and src/web/board.js at 91.32% of 887 (91.17% of 872); the loader by bytes stays at 94.93%. In that pass the widget stories passed 227 and failed 1, the hover story ("a panel that fails to load on hover…"), whose wait for the widget ran out at 20 s; a plain run of the widget stories on the same tree right after passed all 229, so that pass's figures are short only the pages that story left open.
 
-Every card route runs in the worker suite against wrangler dev. Among the checks are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 28 of 28.
+Every card route runs in the worker suite against wrangler dev. Among the checks are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 30 of 30.
 
 ## Uncovered critical paths, first in line
 
