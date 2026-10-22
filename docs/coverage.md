@@ -157,14 +157,17 @@ JavaScript, for the first time in part: the worker suite now loads some Worker m
 
 tests/stories_setup.rs runs `p99 setup --yes` and `p99 deploy` through the binary against a stateful Cloudflare stub built on tests/cli/fake.rs, which drops a Worker's secrets on an upload that doesn't keep them, as Cloudflare does: a fresh account, a second run that finds everything there, a D1 database and R2 bucket adopted by name, tokens lacking the zone list, a host's zone, D1 or account permissions, a disabled token and an account-scoped one, the setup refusals named in the story, a Worker of the same name on another database, a route another Worker holds, and for deploy `--no-check`, a 502 after and on the upload, a refused token in plain text and with `--json`, and `--accept-plan` with a right, wrong and malformed hash. Its runs keep the environment, so the coverage profile counts them; tests/stories_deploy.rs now keeps `LLVM_PROFILE_FILE` through its cleared environment, so its stories (a fresh deploy, an account at 0014, no Worker yet, the 1.7 and 1.8 plans, a migration failing midway) count too. New unit tests cover setup.rs's hostname, host spec, route, binding, token status and `--yes` helpers and migrate.rs's fold, skeleton, plan words and read-only guard. Still untested in setup: the missing `--mail-from` with a Resend key, the rate-namespace refusals, and the interactive walk.
 
-| File | Lines covered | Lines | w197 |
+Rust: **89.0% of lines** (88.2% of regions, 88.1% of functions), up from 78.8%. 546 tests pass and none is ignored. By area: the TUI (src/tui*) 96.9% of 4,413 lines, the CLI (src/cli*) 88.3% of 2,021, the rest 84.7% of 7,685. cloudflare.rs moved with them, since the deploy stories now count.
+
+| File | Lines covered | Lines | before |
 |---|---|---|---|
-| src/setup.rs | measured at integration | | 27.18% |
-| src/migrate.rs | measured at integration | | 34.29% |
+| src/setup.rs | 82.55% | 1639 | 27.18% |
+| src/migrate.rs | 94.29% | 1050 | 34.29% |
+| src/cloudflare.rs | 97.78% | 541 | 86.51% |
 
 ## Uncovered critical paths, first in line
 
-- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 27% before w201; the integrator refreshes it), migrate (34%) and import (42%).
+- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and import (42%).
 - Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
 - delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
 - The Worker, the loader, the panel and the board (JavaScript): see [JavaScript](#javascript).

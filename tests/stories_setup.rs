@@ -523,7 +523,15 @@ fn running_setup_again_finds_everything_there_and_changes_nothing_it_made() {
     let seen = h.stub.seen().len();
 
     let again = h.p99_env(
-        &["setup", "--yes", "--host", "shop.example.com", "--no-mail"],
+        &[
+            "setup",
+            "--yes",
+            "--account",
+            "main",
+            "--host",
+            "shop.example.com",
+            "--no-mail",
+        ],
         &[("P99_TOKEN", TOKEN)],
     );
     again.ok();
@@ -914,7 +922,15 @@ fn a_worker_of_the_same_name_on_another_database_is_left_alone() {
     assert_eq!(cf.lock().unwrap().buckets, ["p99"]);
     assert!(main["key"].as_str().is_some_and(is_hex));
     let again = h.p99_env(
-        &["setup", "--yes", "--no-mail", "--worker", "p99-site"],
+        &[
+            "setup",
+            "--yes",
+            "--account",
+            "main",
+            "--no-mail",
+            "--worker",
+            "p99-site",
+        ],
         &[("P99_TOKEN", TOKEN)],
     );
     again.ok();
@@ -1095,6 +1111,13 @@ fn a_cloudflare_5xx_on_the_upload_leaves_the_running_worker_and_its_secrets_as_t
             .all(|w| w == &format!("PUT {UPLOAD}") || w.ends_with("/query")),
         "{:?}",
         cf_writes(&h)
+    );
+    let sqls = sqls(&h);
+    assert!(!sqls.is_empty());
+    assert!(
+        sqls.iter().all(|(s, _)| s.starts_with("SELECT ")
+            || s.starts_with("CREATE TABLE IF NOT EXISTS d1_migrations")),
+        "{sqls:?}"
     );
 }
 
