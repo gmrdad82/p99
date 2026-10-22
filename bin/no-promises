@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ $# -ne 1 ] || [ ! -d "$1" ]; then
+  echo "usage: bin/no-promises <dir>" >&2
+  exit 2
+fi
+
+pages=()
+while IFS= read -r page; do
+  pages+=("$page")
+done < <(find "$1" -name '*.md' -type f | sort)
+[ ${#pages[@]} -gt 0 ] || exit 1
+
+awk '
+  FNR == 1 { fence = 0 }
+  /^[ ]*(```|~~~)/ { fence = !fence; next }
+  fence { next }
+  {
+    s = $0
+    gsub(/``[^`]*(`[^`]+)*``/, " ", s)
+    gsub(/`[^`]*`/, " ", s)
+    s = tolower(s)
+    if (s ~ /(^|[^a-z0-9_])(roadmap|planned|coming|upcoming|next release)([^a-z0-9_]|$)/) {
+      print FILENAME ":" FNR ":" $0
+      found = 1
+    }
+  }
+  END { exit !found }
+' "${pages[@]}"

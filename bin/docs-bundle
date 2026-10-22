@@ -276,9 +276,9 @@ fi
 if grep -rnE '/home/|/Users/|~/[[:upper:]][[:lower:]]+/' "$out" >&2; then
   fail "the pages above name a local path"
 fi
-if grep -rniwE 'roadmap|planned|coming|upcoming|next release' "$out" --include='*.md' >&2; then
-  fail "the pages above promise something; say what the code does today"
-fi
+promises=0
+bin/no-promises "$out" >&2 || promises=$?
+[ "$promises" = 1 ] || fail "the pages above promise something; say what the code does today"
 
 if tar --version 2>/dev/null | grep -q GNU; then
   tar --owner=0 --group=0 --numeric-owner --sort=name -czf "$tarball" -C "$work" docs
