@@ -296,7 +296,7 @@ async function recorder(p, frames) {
       await advance(4);
       held++;
     }
-    writeFileSync(join(frames, String(n++).padStart(5, "0") + ".png"), Buffer.from(shot.data, "base64"));
+    writeFileSync(join(frames, String(n++).padStart(6, "0") + ".png"), Buffer.from(shot.data, "base64"));
   };
   const r = {
     at: { x: 900, y: 420 },
@@ -466,7 +466,8 @@ function find(dir, test) {
 
 function gif() {
   const web = join(work, "web.mp4");
-  execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", String(FPS), "-i", join(work, "frames", "%05d.png"), "-c:v", "libx264", "-preset", "veryfast", "-qp", "0", "-pix_fmt", "yuv420p", "-r", String(FPS), web], { stdio: "inherit" });
+  rmSync(web, { force: true });
+  execFileSync("pcod", ["frames", join(work, "frames"), web, "--fps", String(FPS), "--route", "cpu", "--crf", "0"], { stdio: "inherit" });
   const term = find(join(work, "renders"), (n) => n.endsWith(".mp4"));
   if (!term) throw new Error("pitomd: run the tui step first");
   const joined = join(work, "pitomd.mp4");
