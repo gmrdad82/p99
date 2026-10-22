@@ -194,6 +194,7 @@ fn a_github_token_kept_in_the_vault_is_read_with_op_and_trimmed() {
     let stored = h
         .stub
         .calls("PUT", "/cf/accounts/acc1/workers/scripts/p99/secrets");
+    assert_eq!(stored.len(), 1);
     assert_eq!(stored[0].json()["text"], "ghp_vaulted");
 }
 

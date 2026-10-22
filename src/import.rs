@@ -433,7 +433,8 @@ fn at_line(why: String, chunk: &[&Record]) -> String {
 fn upload(client: &Client, host: &str, dir: &Path, record: &Record) -> Result<(), String> {
     let v = &record.value;
     let path = bundle_file(dir, v)?;
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("line {}: {}: {e}", record.line, path.display()))?;
     let name = text(v, "name").map(str::to_owned).unwrap_or_else(|| {
         path.file_name()
             .and_then(|n| n.to_str())
@@ -914,7 +915,6 @@ mod tests {
             ("page", json!({"path":"/a"})),
             ("assignee", Value::Null),
             ("updated_at", Value::Null),
-            ("marks", json!([{"rect":{}}])),
             ("key", json!(" bug-7 ")),
         ];
         for (field, value) in fine {

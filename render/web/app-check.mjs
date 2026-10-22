@@ -109,7 +109,7 @@ function openShadow() {
 
 function launch() {
   return chromium.launch({
-    executablePath: "/usr/bin/chromium",
+    executablePath: process.env.P99_CHROMIUM || "/usr/bin/chromium",
     env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
     args: [`--host-resolver-rules=MAP ${APP_HOST} 127.0.0.1`, `--unsafely-treat-insecure-origin-as-secure=${APP}`, "--hide-scrollbars"],
   });
@@ -292,6 +292,10 @@ async function check(back) {
     assert.equal(await g.p.locator("p99-root").count(), 0);
     ok("a space whose panel fails to load says so and leaves no panel behind");
     await g.p.unroute(isPanel);
+    await g.p.click(".app-problem button");
+    await waitScreen(g.p, "space");
+    await g.p.waitForFunction(() => document.querySelectorAll("p99-root").length === 1 && !document.querySelector(".app-wait"));
+    ok("Try again after a failed panel load loads the panel and mounts it once");
     assert.deepEqual(g.errors, []);
     await g.ctx.close();
 

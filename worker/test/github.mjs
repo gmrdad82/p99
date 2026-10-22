@@ -143,10 +143,9 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     const item = await fileOn(there, "The cart forgets the gift note");
     const opened = await open(item.key);
     assert.equal(opened.status, 201, JSON.stringify(opened.json));
-    assert.deepEqual(
-      { ...opened.json, at: undefined },
-      { key: item.key, existing: false, kind: "issue", rel: "opened", repo: REPO, number: 7, url: `https://github.com/${REPO}/issues/7`, at: undefined },
-    );
+    const { at, ...rest } = opened.json;
+    assert.deepEqual(rest, { key: item.key, existing: false, kind: "issue", rel: "opened", repo: REPO, number: 7, url: `https://github.com/${REPO}/issues/7` });
+    assert.ok(Number.isFinite(Date.parse(at)), String(at));
     assert.equal(gh.seen.length, 1);
     const asked = gh.seen[0];
     assert.equal(asked.method, "POST");
@@ -252,6 +251,24 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     );
     assert.equal(gh.seen[0].auth, `Bearer ${GITHUB_TOKEN}`);
     assert.ok((await threadOf(item.key, there)).closed_at);
+  });
+
+  await check("a merged pull request reads at most three full pages of commits and never asks for a fourth", async () => {
+    reset();
+    assert.equal((await link(there)).status, 200);
+    const item = await fileOn(there);
+    const filler = Array.from({ length: 100 }, (_, i) => ({ commit: { message: `Step ${i + 1}` } }));
+    gh.answers.set(`GET /repos/${REPO}/pulls/64/commits`, (asked) =>
+      asked.path.endsWith("page=4") ? { status: 200, body: [{ commit: { message: `Fixes: ${item.key}` } }] } : { status: 200, body: filler },
+    );
+    const capped = await deliver(merged(64, "No trailer here."));
+    assert.equal(capped.status, 200, JSON.stringify(capped.json));
+    assert.deepEqual(capped.json.changed, []);
+    assert.deepEqual(
+      gh.seen.map((s) => s.path),
+      [1, 2, 3].map((page) => `/repos/${REPO}/pulls/64/commits?per_page=100&page=${page}`),
+    );
+    assert.equal((await threadOf(item.key, there)).closed_at, null);
   });
 
   await check("commits GitHub won't give leave the pull request's own words to decide", async () => {

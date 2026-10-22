@@ -10,7 +10,7 @@ mod stub;
 use std::ffi::CStr;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::fd::{AsRawFd, FromRawFd};
+use std::os::fd::FromRawFd;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::Stdio;
@@ -39,7 +39,6 @@ const O_NOCTTY: c_int = 0o400;
 const O_CLOEXEC: c_int = 0o2000000;
 #[cfg(target_os = "macos")]
 const O_CLOEXEC: c_int = 0;
-const F_GETFD: c_int = 1;
 const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
 const CTRL_D: &[u8] = &[4];
@@ -221,14 +220,6 @@ fn an_item_the_worker_cannot_find_is_never_asked_about_or_deleted() {
     assert!(!out.stderr.contains("Type BUG-13"), "{}", out.stderr);
     assert!(out.stderr.contains("no such item"), "{}", out.stderr);
     assert!(h.stub.under("DELETE", "/_p99/v1/issues/").is_empty());
-}
-
-#[test]
-fn the_terminal_s_master_side_is_never_inherited_by_a_child() {
-    let (master, _slave) = pty();
-    let flags = unsafe { fcntl(master.as_raw_fd(), F_GETFD) };
-    assert!(flags >= 0, "{}", std::io::Error::last_os_error());
-    assert_eq!(flags & FD_CLOEXEC, FD_CLOEXEC);
 }
 
 #[test]

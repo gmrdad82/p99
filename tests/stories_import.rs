@@ -859,7 +859,7 @@ fn a_dry_run_in_json_has_no_finish_and_no_uploads() {
 
 #[test]
 fn a_finish_the_worker_refuses_keeps_its_words_and_status() {
-    let (h, ledger) = home("import-finish-409", |l| {
+    let (h, ledger) = home("import-finish-400", |l| {
         l.trouble = Some((
             "finish",
             1,
@@ -924,7 +924,7 @@ fn a_file_gone_after_the_check_names_its_line_and_path_and_never_finishes() {
     ledger.lock().unwrap().vanish = Some(path.clone());
     let out = import(&h, &[]);
     assert_eq!(out.code, Some(1), "{}", out.stderr);
-    let said = format!("p99: {}: ", shown("files/receipt.png"));
+    let said = format!("p99: line 3: {}: ", shown("files/receipt.png"));
     assert!(
         out.stderr.lines().any(|l| l.starts_with(&said)),
         "{}",
