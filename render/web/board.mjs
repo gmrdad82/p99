@@ -14,59 +14,70 @@ const web = join(repo, "worker", "src", "web");
 const out = resolve(repo, process.env.P99_RENDERS || "tmp/renders");
 const PORT = Number(process.env.P99_BOARD_PORT || 8823);
 const UPSTREAM = Number(process.env.P99_WORKER_PORT || 8813);
-const HOST = "shop.example.com";
+export const HOST = "shop.example.com";
+export const ELSEWHERE = "elsewhere.example.com";
 const ORIGIN = `http://${HOST}`;
 const CODE = "boarddraft01";
+export const USER_CODE = "boardvisit01";
 const VIEW = { width: 1440, height: 900 };
 const SIZES = [["360", { width: 360, height: 780 }], ["411", { width: 411, height: 860 }], ["1440", VIEW]];
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
 const ADA = { name: "Ada Lovelace", email: "ada@example.com", username: "ada.lovelace" };
 const GRACE = { name: "Grace Hopper", email: "grace@example.com", username: "grace.hopper" };
 const LIN = { name: "Lin Okafor", email: "lin@example.com", username: "lin.okafor" };
-const face = (p) => (p ? { username: p.username, avatar: null } : null);
 
-const col = (label, closes = false) => ({ label, closes });
-const boards = [
-  { id: "1", name: "Shop", owner: ADA, columns: [col("Inbox"), col("Doing"), col("QA ready"), col("Done", true)] },
-  { id: "2", name: "Launch", owner: ADA, columns: [col("Inbox"), col("Doing"), col("Done", true)] },
-  { id: "3", name: "QA", owner: GRACE, columns: [col("QA ready"), col("Testing"), col("Done", true)] },
-  { id: "4", name: "Long", owner: ADA, columns: [col("Backlog"), col("Review"), col("Shipped", true)] },
-];
+export const LANES = [["new", "New"], ["planned", "Planned"], ["in-progress", "In progress"], ["needs-you", "Needs you"], ["stuck", "Stuck"], ["landed", "Landed"], ["done", "Done", true]]
+  .map(([word, label, closes = false]) => ({ word, label, closes }));
+const laneOf = (to) => LANES.find((l) => l.word === to) || LANES.filter((l) => l.label.toLowerCase() === String(to).toLowerCase())[0] || null;
 const long = (label, tag) => Array.from({ length: 30 }, (_, i) => [`${tag}-${i + 1}`, "task", `${label} card ${i + 1}`, label, null]);
 const items = [
-  ["BUG-14", "bug", "The cart total doesn't update after removing a bag", "Inbox", GRACE],
-  ["FEAT-9", "feature", "Let returning customers reorder from a receipt", "Inbox", null],
-  ["IMP-6", "improvement", "The grind size chart is hard to read on a phone", "Inbox", null],
-  ["BUG-11", "bug", "Gift card field accepts letters and then rejects the order", "Doing", ADA],
-  ["TASK-3", "task", "Swap the hero photo for the autumn roast", "Doing", LIN],
-  ["BUG-9", "bug", "Product images jump while the page loads", "QA ready", ADA],
-  ["Q-4", "question", "Can we ship to the Canary Islands?", "QA ready", GRACE],
-  ["BUG-12", "bug", "Apple Pay sheet closes on the second tap", "Testing", ADA],
+  ["BUG-14", "bug", "The cart total doesn't update after removing a bag", "New", GRACE],
+  ["FEAT-9", "feature", "Let returning customers reorder from a receipt", "New", null, "Splicer"],
+  ["IMP-6", "improvement", "The grind size chart is hard to read on a phone", "New", null],
+  ["BUG-11", "bug", "Gift card field accepts letters and then rejects the order", "In progress", ADA],
+  ["TASK-3", "task", "Swap the hero photo for the autumn roast", "In progress", LIN, "Splicer", HOST, true],
+  ["BUG-9", "bug", "Product images jump while the page loads", "Landed", ADA],
+  ["Q-4", "question", "Can we ship to the Canary Islands?", "Landed", GRACE],
+  ["BUG-12", "bug", "Apple Pay sheet closes on the second tap", "Stuck", ADA],
+  ["BUG-31", "bug", "The other shop's receipt prints twice", "Stuck", null, "Manfred", ELSEWHERE],
   ["BUG-7", "bug", "Order confirmation mail shows the wrong delivery date", "Done", ADA],
-  ["FEAT-5", "feature", "Show the roast date on every bag", "Done", LIN],
-  ...long("Backlog", "LB"),
-  ...long("Review", "LR"),
-].map(([key, kind, title, label, assignee]) => ({ key, kind, title, label, assignee, reporter: GRACE }));
-const orders = new Map(boards.map((b) => [b.id, new Map()]));
-for (const b of boards) {
+  ["FEAT-5", "feature", "Show the roast date on every bag", "Done", LIN, "Manfred"],
+  ...long("Planned", "LB"),
+  ...long("Needs you", "LR"),
+].map(([key, kind, title, label, assignee, project = null, host = HOST, agent = false]) => ({ key, kind, title, label, assignee, project, host, agent, reporter: GRACE }));
+const orders = new Map();
+{
   const n = new Map();
   for (const it of items) {
-    if (!b.columns.some((c) => c.label === it.label)) continue;
     const k = (n.get(it.label) || 0) + 1;
     n.set(it.label, k);
-    orders.get(b.id).set(it.key, String(k / 10));
+    orders.set(it.key, String(k / 10));
   }
 }
 
-const summary = (b, me) => ({ id: b.id, name: b.name, owner: face(b.owner), mine: b.owner === me, columns: b.columns });
-function boardView(id, me) {
-  const b = boards.find((x) => x.id === id);
-  if (!b) return null;
-  const at = (l) => b.columns.findIndex((c) => c.label === l);
-  const o = orders.get(b.id);
-  const cards = items.filter((i) => at(i.label) >= 0).map((i) => ({ key: i.key, kind: i.kind, title: i.title, label: i.label, assignee: face(i.assignee), order: o.get(i.key) || "0.5" }))
+const at = (label) => LANES.findIndex((l) => l.label === label);
+const cardOf = (i) => {
+  const lane = LANES[at(i.label)];
+  const peers = items.filter((x) => x.label === i.label).sort((x, y) => (orders.get(x.key) < orders.get(y.key) ? -1 : 1));
+  return {
+    key: i.key, kind: i.kind, project: i.project, status: lane.word, label: i.label, lane: lane.closes ? null : peers.indexOf(i) + 1,
+    title: i.title, host: i.host, assignee: i.assignee ? i.assignee.username : null, order: orders.get(i.key) || "0.5",
+    changed_at: "2026-10-22T09:00:00.000Z", changed_by: { name: ADA.name, username: ADA.username, agent: i.agent, via: i.agent ? "pci" : null },
+  };
+};
+export function oneBoard(query = new URLSearchParams()) {
+  const projects = query.getAll("project").map((p) => p.toLowerCase());
+  const statuses = query.getAll("status");
+  const host = query.get("host");
+  const source = query.get("source");
+  const cards = items
+    .filter((i) => (!projects.length || (i.project && projects.includes(i.project.toLowerCase())))
+      && (!statuses.length || statuses.includes(LANES[at(i.label)].word))
+      && (!host || i.host === host)
+      && (!source || (source === "agent") === i.agent))
+    .map(cardOf)
     .sort((x, y) => at(x.label) - at(y.label) || (x.order < y.order ? -1 : x.order > y.order ? 1 : 0));
-  return { board: summary(b, me), cards };
+  return { board: { lanes: LANES.map(({ word, label, closes }) => ({ word, label, closes })) }, cards };
 }
 
 const sockets = new Set();
@@ -76,43 +87,44 @@ function frame(text) {
   return Buffer.concat([head, body]);
 }
 function publish(ev) {
-  for (const s of sockets) s.write(frame(JSON.stringify({ ...ev, host: HOST })));
+  for (const s of sockets) s.write(frame(JSON.stringify({ host: HOST, ...ev })));
 }
 
 function between(lo, hi) { return String(((lo == null ? 0 : Number(lo)) + (hi == null ? 1 : Number(hi))) / 2); }
-function move(body, me = ADA) {
+function move(body, word = false) {
   const it = items.find((i) => i.key === body.key);
   if (!it) return [404, { message: "no such item" }];
-  if (it.label !== body.from) return [409, { error: "moved", message: "this card moved; refreshed" }];
-  const b = body.board != null ? boards.find((x) => x.id === String(body.board)) : null;
-  if (body.board != null && !b) return [404, { message: "no such board" }];
-  if (b && b.owner !== me) return [403, { message: "that board isn't yours" }];
-  if (!boards.some((x) => x.owner === me && x.columns.some((c) => c.label === body.to))) return [403, { message: "that label isn't on your boards" }];
+  if (it.label.toLowerCase() !== String(body.from).toLowerCase()) return [409, { error: "moved", message: "this card moved; refreshed" }];
+  const lane = laneOf(body.to);
+  if (!lane) return [400, { message: "to is not a lane" }];
   const from = it.label;
-  it.label = body.to;
-  if (from !== body.to) publish({ type: "label", key: it.key, from, to: body.to });
-  let order = null;
-  if (b) {
-    const o = orders.get(b.id);
-    const peers = items.filter((i) => i !== it && i.label === body.to).map((i) => ({ key: i.key, order: o.get(i.key) || "0.5" })).sort((x, y) => (x.order < y.order ? -1 : 1));
-    const at = body.before ? peers.findIndex((x) => x.key === body.before) : body.after ? peers.findIndex((x) => x.key === body.after) + 1 : 0;
-    order = between(at > 0 ? peers[at - 1].order : null, at < peers.length ? peers[at].order : null);
-    o.set(it.key, order);
-    publish({ type: "order", board: b.id, key: it.key, order });
-  }
-  return [200, { card: { key: it.key, kind: it.kind, title: it.title, label: it.label, assignee: face(it.assignee), order } }];
+  it.label = lane.label;
+  if (from !== lane.label) publish({ type: "label", key: it.key, from, to: word ? lane.word : lane.label, host: it.host });
+  const peers = items.filter((i) => i !== it && i.label === lane.label).map((i) => ({ key: i.key, order: orders.get(i.key) || "0.5" })).sort((x, y) => (x.order < y.order ? -1 : 1));
+  const spot = body.before ? peers.findIndex((x) => x.key === body.before) : body.after ? peers.findIndex((x) => x.key === body.after) + 1 : 0;
+  const order = between(spot > 0 ? peers[spot - 1].order : null, spot < peers.length ? peers[spot].order : null);
+  orders.set(it.key, order);
+  publish({ type: "order", key: it.key, order, host: it.host });
+  return [200, { card: cardOf(it) }];
 }
 
-function api(method, path, body) {
-  if (path.startsWith("/me")) return [200, { name: ADA.name, email: ADA.email, username: ADA.username, avatar: null, manager: true, host: HOST, env: "production", version: "draft", counts: { mine_open: 0, mine_unread: 0, page_open: 2 }, theme: { accent: "#b5621e" }, strings: {} }];
-  if (method === "GET" && path === "/boards") return [200, { boards: boards.map((b) => summary(b, ADA)).sort((a, b) => b.mine - a.mine) }];
-  if (method === "GET" && path.startsWith("/boards/")) {
-    const v = boardView(decodeURIComponent(path.slice(8)), ADA);
-    return v ? [200, v] : [404, { message: "no such board" }];
+const ME = { name: ADA.name, email: ADA.email, username: ADA.username, avatar: null, manager: true, role: "owner", host: HOST, env: "production", version: "draft", counts: { mine_open: 0, mine_unread: 0, page_open: 2, waiting: 3 }, theme: { accent: "#b5621e" }, strings: {} };
+const USER = { ...ME, name: GRACE.name, email: GRACE.email, username: GRACE.username, manager: false, role: "user", counts: { mine_open: 1, mine_unread: 0, page_open: 0, waiting: null } };
+
+function api(method, path, body, owner) {
+  const url = new URL(path, "http://stub");
+  if (url.pathname === "/me") return [200, owner ? ME : USER];
+  if (method === "GET" && url.pathname === "/issues") return [200, { issues: [], next_cursor: null }];
+  if (!owner) return [403, { message: "only an Owner can do this" }];
+  if (method === "GET" && url.pathname === "/board") return [200, oneBoard(url.searchParams)];
+  if (method === "GET" && url.pathname === "/labels") return [200, { labels: LANES.map((l, i) => ({ id: i + 1, name: l.label, closes: l.closes })) }];
+  if (method === "GET" && url.pathname === "/projects") return [200, { projects: [{ name: "Manfred", open: 2, done: 0 }, { name: "Splicer", open: 2, done: 0 }] }];
+  if (method === "GET" && url.pathname === "/cards/waiting") {
+    const cards = oneBoard(new URLSearchParams("status=needs-you&status=stuck&status=landed")).cards;
+    return [200, { count: cards.length, cards }];
   }
-  if (method === "POST" && path === "/move") return move(JSON.parse(body || "{}"));
-  if (method === "POST" && path === "/stream-ticket") return [201, { ticket: "draft-ticket", expires_in: 60 }];
-  if (method === "GET" && path.startsWith("/issues")) return [200, { issues: [], next_cursor: null }];
+  if (method === "POST" && url.pathname === "/move") return move(JSON.parse(body || "{}"));
+  if (method === "POST" && url.pathname === "/stream-ticket") return [201, { ticket: "draft-ticket", expires_in: 60 }];
   return [404, { message: "no such route" }];
 }
 
@@ -130,14 +142,15 @@ function serveFile(res, path) {
   res.end(text);
 }
 
-function stub() {
+export function stub() {
   const server = createServer((req, res) => {
     const url = new URL(req.url, "http://localhost");
     if (!url.pathname.startsWith("/_p99/api/")) return serveFile(res, url.pathname);
     let body = "";
     req.on("data", (c) => (body += c));
     req.on("end", () => {
-      const [status, data] = req.headers["x-p99-code"] === CODE ? api(req.method, url.pathname.slice(9), body) : [401, { message: "unknown code" }];
+      const code = req.headers["x-p99-code"];
+      const [status, data] = code === CODE || code === USER_CODE ? api(req.method, url.pathname.slice(9) + url.search, body, code === CODE) : [401, { message: "unknown code" }];
       res.writeHead(status, { "content-type": "application/json" });
       res.end(JSON.stringify(data));
     });
@@ -156,8 +169,7 @@ function stub() {
     name: "stub",
     code: CODE,
     key: (id) => id,
-    board: (id) => id,
-    other: async (body, who = GRACE) => move(body, who),
+    other: async (body, word = false) => move(body, word),
     drop: () => { for (const s of sockets) s.destroy(); },
     open: () => sockets.size,
     close: () => server.close(),
@@ -199,34 +211,24 @@ async function worker() {
     if (!res.ok) { const e = new Error(`${method} ${pq}: ${res.status} ${text}`); e.status = res.status; throw e; }
     return text ? JSON.parse(text) : null;
   };
-  const at = `?host=${HOST}`;
+  const on = `?host=${HOST}`;
   await signed("PUT", "/envs/production", { kind: "release", position: 1, notify: false });
   await signed("PUT", `/hosts/${HOST}`, { env: "production", config: { theme: { accent: "#b5621e" } } });
-  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true });
-  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: true });
-  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST], manager: true });
-  const ids = new Map();
-  const own = async (who, list) => {
-    const first = (await signed("GET", `/boards${at}`, null, who)).boards.find((b) => b.mine);
-    const made = [];
-    for (const [k, b] of list.entries()) {
-      const body = { name: b.name, columns: b.columns };
-      const got = k === 0 ? await signed("PUT", `/boards/${first.id}${at}`, body, who) : await signed("POST", `/boards${at}`, body, who);
-      made.push(((got && got.board) || got || first).id ?? first.id);
-    }
-    list.forEach((b, k) => ids.set(b.id, made[k]));
-  };
-  await own(ADA, boards.filter((b) => b.owner === ADA));
-  await own(GRACE, boards.filter((b) => b.owner === GRACE));
+  await signed("PUT", `/hosts/${ELSEWHERE}`, { env: "production", config: {} });
+  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST, ELSEWHERE], manager: true });
+  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, ELSEWHERE], manager: true });
+  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST, ELSEWHERE], manager: true });
   const keys = new Map();
   let uid = 0;
   for (const it of items) {
-    const made = await signed("POST", `/issues${at}`, { client_uid: `00000000-0000-4000-8000-${String(++uid).padStart(12, "0")}`, kind: it.kind, title: it.title, body: "", page: { url: `https://${HOST}/checkout`, path: "/checkout", title: "Checkout" }, context: {}, marks: [] }, it.reporter);
+    const on = `?host=${it.host}`;
+    const made = await signed("POST", `/issues${on}`, { client_uid: `00000000-0000-4000-8000-${String(++uid).padStart(12, "0")}`, kind: it.kind, title: it.title, body: "", page: { url: `https://${it.host}/checkout`, path: "/checkout", title: "Checkout" }, context: {}, marks: [] }, it.reporter);
     keys.set(it.key, made.key);
-    if (it.assignee) await signed("PATCH", `/issues/${made.key}${at}`, { assignee: it.assignee.username });
-    const by = boards.find((b) => b.owner === ADA && b.columns.some((c) => c.label === it.label)) ? ADA : GRACE;
-    const on = boards.find((b) => b.owner === by && b.columns.some((c) => c.label === it.label));
-    if (it.label !== "Inbox") await signed("POST", `/move${at}`, { key: made.key, from: "Inbox", to: it.label, board: ids.get(on.id) }, by);
+    if (it.assignee) await signed("PATCH", `/issues/${made.key}${on}`, { assignee: it.assignee.username });
+    if (it.project) await signed("PATCH", `/issues/${made.key}${on}`, { project: it.project });
+    const now = (await signed("GET", `/issues/${made.key}${on}`)).issue.label;
+    const lane = LANES[at(it.label)];
+    if (now.toLowerCase() !== lane.label.toLowerCase()) await signed("POST", `/move${on}`, { key: made.key, from: now, to: lane.word });
   }
   const piped = new Set();
   const server = createServer((req, res) => {
@@ -255,14 +257,13 @@ async function worker() {
     up.on("error", gone);
   });
   await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
-  const sent = (body) => ({ ...body, key: keys.get(body.key), ...(body.board != null ? { board: ids.get(body.board) } : {}), ...(body.before ? { before: keys.get(body.before) } : {}), ...(body.after ? { after: keys.get(body.after) } : {}) });
+  const sent = (body) => ({ ...body, key: keys.get(body.key), ...(body.before ? { before: keys.get(body.before) } : {}), ...(body.after ? { after: keys.get(body.after) } : {}) });
   return {
     name: "worker",
     code: minted.secret,
     key: (id) => keys.get(id),
-    board: (id) => ids.get(id),
     other: async (body, who = GRACE) => {
-      try { return [200, await signed("POST", `/move${at}`, sent(body), who)]; } catch (e) { return [e.status || 500, { message: e.message }]; }
+      try { return [200, await signed("POST", `/move${on}`, sent(body), who)]; } catch (e) { return [e.status || 500, { message: e.message }]; }
     },
     drop: () => { for (const p of piped) { p.socket.destroy(); p.up.destroy(); } },
     open: () => piped.size,
@@ -270,14 +271,14 @@ async function worker() {
   };
 }
 
-function openShadow() {
+export function openShadow() {
   const s = Element.prototype.attachShadow;
   Element.prototype.attachShadow = function (init) {
     return s.call(this, { ...init, mode: "open" });
   };
 }
 
-function launch() {
+export function launch() {
   return chromium.launch({
     executablePath: "/usr/bin/chromium",
     env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
@@ -285,16 +286,17 @@ function launch() {
   });
 }
 
-async function board(browser, back, opts = {}) {
+export async function board(browser, back, opts = {}) {
   const ctx = await browser.newContext({ viewport: opts.view || VIEW, deviceScaleFactor: 1, colorScheme: opts.scheme || process.env.P99_SCHEME || "light", reducedMotion: opts.motion || "no-preference", hasTouch: !!opts.touch, isMobile: !!opts.touch });
   await ctx.addInitScript(openShadow);
+  if (opts.pick) await ctx.addInitScript((v) => localStorage.setItem("p99:pick", v), JSON.stringify(opts.pick));
   const p = await ctx.newPage();
   const errors = [];
   const seen = [];
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("request", (r) => {
     const u = new URL(r.url());
-    if (u.pathname.startsWith("/_p99/api/")) seen.push({ method: r.method(), path: u.pathname.slice(9), body: r.postData() ? JSON.parse(r.postData()) : null });
+    if (u.pathname.startsWith("/_p99/api/")) seen.push({ method: r.method(), path: u.pathname.slice(9), query: u.search, body: r.postData() ? JSON.parse(r.postData()) : null });
   });
   await p.goto(`${ORIGIN}/checkout#p99=${back.code}`);
   await p.waitForFunction(() => {
@@ -343,13 +345,15 @@ async function drag(p, from, to, steps = 12) {
   }
 }
 
-async function pick(p, text, key = false) {
-  if (key) {
-    await p.locator("p99-root .p99-pick-board").focus();
-    await p.keyboard.press("Enter");
-  } else await p.locator("p99-root .p99-pick-board").click();
-  await shown(p, ".p99-menu.is-open");
-  await p.locator(`p99-root .p99-menu [role=option]:has-text("${text}")`).click();
+async function reopen(p, source) {
+  await R(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board .p99-x").click());
+  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board").hidden);
+  if (!(await R(p, () => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]")))) await p.locator("p99-root .w button:not(.f)").click();
+  await p.locator(`p99-root .p99-panel.is-open .p99-pick input[name=source][value="${source}"]`).check({ force: true });
+  await p.locator("p99-root .p99-board-open").click();
+  await p.waitForFunction(() => { const r = document.querySelector("p99-root").shadowRoot; return r.querySelector(".p99-board.is-open") && r.querySelectorAll(".p99-card").length > 5; });
+  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live");
+  await p.waitForTimeout(400);
 }
 
 async function check(back) {
@@ -361,10 +365,11 @@ async function check(back) {
     const { p, errors, seen } = await board(browser, back);
     const moves = () => seen.filter((c) => c.method === "POST" && c.path === "/move");
     const lastMove = () => moves().at(-1)?.body;
-    assert.equal(await title(p), "Shop");
-    assert.deepEqual(await R(p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-col"), (c) => c.dataset.label)), ["Inbox", "Doing", "QA ready", "Done"]);
-    assert.equal(await column(p, "Testing"), null);
-    ok("the board opens on my first board, its columns are its labels, and items labelled elsewhere stay off it");
+    assert.equal(await title(p), "Board");
+    assert.deepEqual(await R(p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-col"), (c) => [c.dataset.word, c.dataset.label])), LANES.map((l) => [l.word, l.label]));
+    assert.deepEqual(await R(p, () => { const r = document.querySelector("p99-root").shadowRoot; return [!!r.querySelector(".p99-pick-board"), !!r.querySelector(".p99-menu"), !!r.querySelector(".p99-watch")]; }), [false, false, false]);
+    assert.ok(seen.some((c) => c.method === "GET" && c.path === "/board") && !seen.some((c) => c.path.startsWith("/boards")));
+    ok("the Board button opens the one board from /board: seven lanes in order, no picker, no /boards read");
 
     await p.evaluate(() => {
       self.__loaf = [];
@@ -376,13 +381,13 @@ async function check(back) {
     await p.mouse.up();
     await settle(p);
     assert.ok(easing.every((x) => x.startsWith("cubic-bezier")), `card animations ease: ${easing}`);
-    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "Inbox", to: "Doing", board: back.board("1"), before: K("TASK-3") });
-    const next = async () => { const d = await column(p, "Doing"); return d[d.indexOf(K("FEAT-9")) + 1]; };
+    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "New", to: "in-progress", before: K("TASK-3") });
+    const next = async () => { const d = await column(p, "In progress"); return d[d.indexOf(K("FEAT-9")) + 1]; };
     assert.equal(await next(), K("TASK-3"));
     await p.waitForTimeout(400);
     assert.equal(await next(), K("TASK-3"));
     const loaf = await R(p, () => self.__loaf);
-    ok(`mouse drag sends {key, from, to, board, before}, and the live echo keeps FEAT-9 before TASK-3 (${loaf.length} long animation frames)`);
+    ok(`mouse drag sends {key, from, to, before} with the lane's word and no board, and the live echo keeps FEAT-9 before TASK-3 (${loaf.length} long animation frames)`);
 
     await p.locator(card(K("BUG-9"))).focus();
     await p.keyboard.press("Space");
@@ -390,8 +395,8 @@ async function check(back) {
     await p.keyboard.press("Enter");
     await settle(p);
     assert.equal(lastMove().key, K("BUG-9"));
-    assert.equal(lastMove().from, "QA ready");
-    assert.equal(lastMove().to, "Done");
+    assert.equal(lastMove().from, "Landed");
+    assert.equal(lastMove().to, "done");
     await p.waitForTimeout(500);
     await settle(p);
     assert.ok((await column(p, "Done")).includes(K("BUG-9")));
@@ -403,7 +408,7 @@ async function check(back) {
     await p.keyboard.press("ArrowLeft");
     await p.keyboard.press("Escape");
     await settle(p);
-    assert.ok((await column(p, "QA ready")).includes(K("Q-4")));
+    assert.ok((await column(p, "Landed")).includes(K("Q-4")));
     assert.equal(seen.slice(before).filter((c) => c.path === "/move").length, 0);
     assert.equal(await hidden(p), false);
     ok("keyboard: Escape puts Q-4 back with no move sent, and the board stays open");
@@ -414,42 +419,42 @@ async function check(back) {
     await p.mouse.up();
     await shown(p, ".p99-board-note");
     await settle(p);
-    assert.ok((await column(p, "Inbox")).includes(K("IMP-6")));
-    ok("a failed move animates IMP-6 back to Inbox and says so");
+    assert.ok((await column(p, "New")).includes(K("IMP-6")));
+    ok("a failed move animates IMP-6 back to New and says so");
 
-    await back.other({ key: "BUG-14", from: "Inbox", to: "QA ready", board: "3" });
-    await shown(p, inCol("QA ready", K("BUG-14")));
+    await back.other({ key: "BUG-14", from: "New", to: "landed" });
+    await shown(p, inCol("Landed", K("BUG-14")));
     const live = await R(p, (id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`).getAnimations().map((a) => a.effect.getTiming().easing), K("BUG-14"));
     await settle(p);
     assert.ok(live.length && live.every((x) => x.startsWith("cubic-bezier")), `live move eases: ${live}`);
-    ok("live: Grace's handoff to QA ready slides BUG-14 onto my board, eased");
+    ok("live: Grace, another Owner, moves BUG-14 to Landed and it slides there on my board, eased");
 
-    const loads = () => seen.filter((c) => c.method === "GET" && c.path.startsWith("/boards/")).length;
+    const loads = () => seen.filter((c) => c.method === "GET" && c.path === "/board").length;
     const was = loads();
     await p.route("**/_p99/api/move", async (r) => {
-      await back.other({ key: "BUG-11", from: "Doing", to: "QA ready", board: "3" });
+      await back.other({ key: "BUG-11", from: "In progress", to: "landed" });
       return r.continue();
     }, { times: 1 });
     await drag(p, K("BUG-11"), K("BUG-7"));
     await p.waitForTimeout(260);
     await p.mouse.up();
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board-note")?.textContent === "this card moved; refreshed");
-    await p.waitForFunction((id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-label="QA ready"] .p99-card[data-id="${id}"]`), K("BUG-11"));
+    await p.waitForFunction((id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-label="Landed"] .p99-card[data-id="${id}"]`), K("BUG-11"));
     await settle(p);
     assert.ok(loads() > was);
-    assert.equal(lastMove().from, "Doing");
+    assert.equal(lastMove().from, "In progress");
     ok("a stale drag (Grace moved BUG-11 first) gets the 409 line, the board reloads, and BUG-11 sits where she put it");
 
-    await back.other({ key: "Q-4", from: "QA ready", to: "Testing", board: "3" });
-    await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("Q-4"));
-    ok("live: a label my board doesn't have takes Q-4 off it");
+    await back.other({ key: "Q-4", from: "Landed", to: "Stuck" });
+    await shown(p, inCol("Stuck", K("Q-4")));
+    ok("live: a move by lane name slides Q-4 into Stuck");
 
-    await back.other({ key: "FEAT-9", from: "Doing", to: "Doing", board: "1", after: "TASK-3" }, ADA);
+    await back.other({ key: "FEAT-9", from: "In progress", to: "in-progress", after: "TASK-3" }, ADA);
     await p.waitForTimeout(500);
     await settle(p);
-    const doing = await column(p, "Doing");
+    const doing = await column(p, "In progress");
     assert.equal(doing.at(-1), K("FEAT-9"));
-    ok("live: an order event from my other tab slides FEAT-9 to the end of Doing");
+    ok("live: an order event from my other tab slides FEAT-9 to the end of In progress");
 
     back.drop();
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live").dataset.state !== "live");
@@ -481,15 +486,15 @@ async function check(back) {
     await p.mouse.up();
     await settle(p);
     assert.equal(moves().length, sent0 + 1);
-    assert.deepEqual(lastMove(), { key: K("TASK-3"), from: "Doing", to: "Done", board: back.board("1"), before: done[1] });
+    assert.deepEqual(lastMove(), { key: K("TASK-3"), from: "In progress", to: "done", before: done[1] });
     assert.deepEqual(await column(p, "Done"), [done[0], K("TASK-3"), ...done.slice(1)]);
     ok("a drag that sweeps the bottom edge of a short column, then moves up, drops where the pointer is");
 
     const sent1 = moves().length;
     await drag(p, K("FEAT-9"), K("IMP-6"));
-    await back.other({ key: "BUG-14", from: "QA ready", to: "Done", board: "3" });
+    await back.other({ key: "BUG-14", from: "Landed", to: "done" });
     await p.waitForTimeout(500);
-    const held = (await column(p, "QA ready")).includes(K("BUG-14"));
+    const held = (await column(p, "Landed")).includes(K("BUG-14"));
     await p.mouse.up();
     await settle(p);
     await shown(p, inCol("Done", K("BUG-14")));
@@ -499,18 +504,18 @@ async function check(back) {
     assert.equal(held, true);
     assert.deepEqual(twice, [1, 1]);
     assert.equal(moves().length, sent1 + 1);
-    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "Doing", to: "Inbox", board: back.board("1"), before: K("IMP-6") });
-    assert.deepEqual(await column(p, "Inbox"), [K("FEAT-9"), K("IMP-6")]);
+    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "In progress", to: "new", before: K("IMP-6") });
+    assert.deepEqual(await column(p, "New"), [K("FEAT-9"), K("IMP-6")]);
     ok("live: Grace's move during my mouse drag waits for the drop, then applies once, with one move sent");
 
-    const gets = () => seen.filter((c) => c.method === "GET" && c.path.startsWith("/boards/"));
-    const got = () => p.waitForResponse((r) => r.request().method() === "GET" && /\/_p99\/api\/boards\/[^/]+$/.test(new URL(r.url()).pathname));
+    const gets = () => seen.filter((c) => c.method === "GET" && c.path === "/board");
+    const got = () => p.waitForResponse((r) => r.request().method() === "GET" && new URL(r.url()).pathname === "/_p99/api/board");
     const once = (ids) => R(p, (xs) => xs.map((id) => document.querySelector("p99-root").shadowRoot.querySelectorAll(`.p99-card[data-id="${id}"]`).length), ids);
     const ghosted = () => R(p, () => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-ghost"));
     const hold = async () => {
       let open, came;
       const gate = new Promise((r) => (open = r)), arrived = new Promise((r) => (came = r));
-      await p.route("**/_p99/api/boards/*", async (r) => { came(); await gate; return r.continue(); }, { times: 1 });
+      await p.route((u) => u.pathname === "/_p99/api/board", async (r) => { came(); await gate; return r.continue(); }, { times: 1 });
       return { arrived, open };
     };
     const press = async (id) => {
@@ -527,7 +532,7 @@ async function check(back) {
       return r.continue();
     }, { times: 1 });
     await drag(p, K("IMP-6"), K("FEAT-9"));
-    await back.other({ key: "IMP-6", from: "Inbox", to: "Inbox", board: "1", after: "FEAT-9" }, ADA);
+    await back.other({ key: "IMP-6", from: "New", to: "new", after: "FEAT-9" }, ADA);
     await p.waitForTimeout(500);
     const queued = await ghosted();
     const posted = p.waitForResponse((r) => r.request().method() === "POST" && new URL(r.url()).pathname.endsWith("/move"));
@@ -541,23 +546,27 @@ async function check(back) {
     assert.equal(queued, true);
     assert.equal(gets().filter((c) => seen.indexOf(c) >= dropAt).length, 1);
     assert.equal(moves().length, sent2 + 1);
-    assert.deepEqual(lastMove(), { key: K("IMP-6"), from: "Inbox", to: "Inbox", board: back.board("1"), before: K("FEAT-9") });
-    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6"), K("FEAT-9")]);
+    assert.deepEqual(lastMove(), { key: K("IMP-6"), from: "New", to: "new", before: K("FEAT-9") });
+    assert.deepEqual(await column(p, "New"), [K("IMP-6"), K("FEAT-9")]);
     ok("an order event about the card I'm dragging waits for the drop; its reload goes out after my move's POST, once");
+
+    await reopen(p, "human");
+    assert.equal(await R(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board-filter").textContent), "showing People");
+    assert.ok(seen.some((c) => c.method === "GET" && c.path === "/board" && new URLSearchParams(c.query).get("source") === "human"));
 
     const done1 = await column(p, "Done");
     const dest = await p.locator(card(done1[0])).boundingBox();
     const qa = await p.locator(card(K("BUG-11"))).boundingBox();
     const sent3 = moves().length;
     const h1 = await hold();
-    await back.other({ key: "Q-4", from: "Testing", to: "Done", board: "3" });
+    await back.other({ key: "Q-4", from: "Stuck", to: "done" });
     await h1.arrived;
     await drag(p, K("FEAT-9"), K("BUG-11"));
     const landed = got();
     h1.open();
     await landed;
     await p.waitForTimeout(100);
-    const during = { qa: await column(p, "QA ready"), ghost: await ghosted(), q4: (await once([K("Q-4")]))[0] };
+    const during = { qa: await column(p, "Landed"), ghost: await ghosted(), q4: (await column(p, "Stuck")).includes(K("Q-4")) };
     const x0 = qa.x + qa.width / 2, y0 = qa.y + 6, x1 = dest.x + dest.width / 2, y1 = dest.y + 6;
     for (let i = 1; i <= 12; i++) {
       await p.mouse.move(x0 + ((x1 - x0) * i) / 12, y0 + ((y1 - y0) * i) / 12);
@@ -571,69 +580,74 @@ async function check(back) {
     await shown(p, inCol("Done", K("Q-4")));
     await settle(p);
     const after = await column(p, "Done");
-    assert.deepEqual(during, { qa: [K("FEAT-9"), K("BUG-11")], ghost: true, q4: 0 });
+    assert.deepEqual(during, { qa: [K("FEAT-9"), K("BUG-11")], ghost: true, q4: true });
     assert.equal(follows, K("FEAT-9"));
     assert.equal(moves().length, sent3 + 1);
-    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "Inbox", to: "Done", board: back.board("1"), before: done1[0] });
+    assert.deepEqual(lastMove(), { key: K("FEAT-9"), from: "New", to: "done", before: done1[0] });
     const postAt = seen.findIndex((c, i) => i >= upAt && c.method === "POST" && c.path === "/move");
     assert.ok(postAt >= 0 && gets().some((c) => seen.indexOf(c) > postAt));
     assert.ok(after.indexOf(K("FEAT-9")) >= 0 && after.indexOf(K("FEAT-9")) < after.indexOf(done1[0]));
-    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6")]);
-    assert.deepEqual(await column(p, "QA ready"), [K("BUG-11")]);
+    assert.deepEqual(await column(p, "New"), [K("IMP-6")]);
+    assert.deepEqual(await column(p, "Landed"), [K("BUG-11")]);
     assert.deepEqual(await once([K("FEAT-9"), K("Q-4"), K("BUG-11")]), [1, 1, 1]);
-    ok("a board load that lands while I drag keeps the ghost and the slot under the pointer; it paints after the drop's POST");
+    ok("under a filter a move reloads the board; a load that lands while I drag keeps the ghost and the slot under the pointer, and paints after the drop's POST");
 
     const sent4 = moves().length;
     const h2 = await hold();
-    await back.other({ key: "BUG-12", from: "Testing", to: "QA ready", board: "3" });
+    await back.other({ key: "BUG-12", from: "Stuck", to: "landed" });
     await h2.arrived;
     await press(K("IMP-6"));
     const landed2 = got();
     h2.open();
     await landed2;
     await p.waitForTimeout(400);
-    const pressed = { bug12: (await once([K("BUG-12")]))[0], ghost: await ghosted() };
+    const pressed = { bug12: (await column(p, "Landed")).includes(K("BUG-12")), ghost: await ghosted() };
     await p.mouse.up();
-    await shown(p, inCol("QA ready", K("BUG-12")));
+    await shown(p, inCol("Landed", K("BUG-12")));
     await shutPanel(p);
-    assert.deepEqual(pressed, { bug12: 0, ghost: false });
+    assert.deepEqual(pressed, { bug12: false, ghost: false });
     assert.equal(moves().length, sent4);
     assert.equal(await hidden(p), false);
     ok("a board load that lands during a press that never lifts paints when the button comes up");
 
-    await back.other({ key: "BUG-12", from: "QA ready", to: "Testing", board: "3" });
-    await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("BUG-12"));
+    await back.other({ key: "BUG-12", from: "Landed", to: "stuck" });
+    await shown(p, inCol("Stuck", K("BUG-12")));
+    await settle(p);
     const h3 = await hold();
-    await back.other({ key: "BUG-12", from: "Testing", to: "Done", board: "3" });
+    await back.other({ key: "BUG-12", from: "Stuck", to: "done" });
     await h3.arrived;
     await press(K("IMP-6"));
     const landed3 = got();
     h3.open();
     await landed3;
     await p.waitForTimeout(400);
-    const cancelled = (await once([K("BUG-12")]))[0];
+    const cancelled = (await column(p, "Done")).includes(K("BUG-12"));
     await R(p, (id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`).dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, composed: true, pointerId: 1, pointerType: "mouse" })), K("IMP-6"));
     await shown(p, inCol("Done", K("BUG-12")));
     await p.mouse.up();
     await shutPanel(p);
-    assert.equal(cancelled, 0);
+    assert.equal(cancelled, false);
     assert.equal(moves().length, sent4);
     ok("a board load that lands during a press the browser cancels paints at the cancel");
 
-    await back.other({ key: "BUG-12", from: "Done", to: "Testing", board: "3" });
-    await p.waitForFunction((id) => !document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`), K("BUG-12"));
+    await back.other({ key: "BUG-12", from: "Done", to: "stuck" });
+    await shown(p, inCol("Stuck", K("BUG-12")));
+    await settle(p);
     await press(K("IMP-6"));
     await p.mouse.move(6, 6);
     await p.mouse.up();
     const outside = { ghost: await ghosted(), hidden: await hidden(p) };
-    await back.other({ key: "BUG-12", from: "Testing", to: "QA ready", board: "3" });
-    await shown(p, inCol("QA ready", K("BUG-12")));
+    await back.other({ key: "BUG-12", from: "Stuck", to: "landed" });
+    await shown(p, inCol("Landed", K("BUG-12")));
     await settle(p);
     await shutPanel(p);
     assert.deepEqual(outside, { ghost: false, hidden: false });
     assert.equal(moves().length, sent4);
-    assert.deepEqual(await column(p, "Inbox"), [K("IMP-6")]);
+    assert.deepEqual(await column(p, "New"), [K("IMP-6")]);
     ok("a press released outside the board ends there, so the next reload still paints");
+
+    await reopen(p, "");
+    assert.equal(await R(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board-filter").hidden), true);
 
     await R(p, () => { self.__stop = (e) => e.stopPropagation(); document.addEventListener("pointerup", self.__stop); });
     const sent5 = moves().length;
@@ -641,7 +655,7 @@ async function check(back) {
     await p.waitForTimeout(260);
     await p.mouse.up();
     await settle(p);
-    const pair = async (a, b) => { const c = await column(p, "QA ready"); return c.indexOf(a) >= 0 && c.indexOf(b) === c.indexOf(a) + 1; };
+    const pair = async (a, b) => { const c = await column(p, "Landed"); return c.indexOf(a) >= 0 && c.indexOf(b) === c.indexOf(a) + 1; };
     const hosted = { ghost: await ghosted(), qa: await pair(K("IMP-6"), K("BUG-11")), first: lastMove() };
     await shutPanel(p);
     await drag(p, K("BUG-11"), K("IMP-6"));
@@ -651,16 +665,14 @@ async function check(back) {
     await settle(p);
     await shutPanel(p);
     await R(p, () => document.removeEventListener("pointerup", self.__stop));
-    assert.deepEqual(hosted, { ghost: false, qa: true, first: { key: K("IMP-6"), from: "Inbox", to: "QA ready", board: back.board("1"), before: K("BUG-11") } });
+    assert.deepEqual(hosted, { ghost: false, qa: true, first: { key: K("IMP-6"), from: "New", to: "landed", before: K("BUG-11") } });
     assert.equal(relifted, true);
     assert.equal(moves().length, sent5 + 2);
-    assert.deepEqual(lastMove(), { key: K("BUG-11"), from: "QA ready", to: "QA ready", board: back.board("1"), before: K("IMP-6") });
+    assert.deepEqual(lastMove(), { key: K("BUG-11"), from: "Landed", to: "landed", before: K("IMP-6") });
     assert.equal(await pair(K("BUG-11"), K("IMP-6")), true);
     assert.equal(await ghosted(), false);
     ok("a host page that stops pointerup on its document still lets my drop land, and the next press lifts");
 
-    await pick(p, "Long");
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "Long");
     await settle(p);
     const lane = (l) => `p99-root .p99-col[data-label="${l}"] .p99-cards`;
     const roll = (l, y) => R(p, ([x, v]) => {
@@ -692,66 +704,66 @@ async function check(back) {
         ghost: !!r.querySelector(".p99-ghost"),
       };
     });
-    const tidy = { counts: [true, true, true], once: true, stray: 0, ghost: false };
+    const tidy = { counts: LANES.map(() => true), once: true, stray: 0, ghost: false };
     const ahead = (list, id, at) => { const l = list.filter((x) => x !== id); l.splice(l.indexOf(at), 0, id); return l; };
 
-    const back0 = await column(p, "Backlog"), rev0 = await column(p, "Review");
+    const back0 = await column(p, "Planned"), rev0 = await column(p, "Needs you");
     assert.deepEqual([back0.length, rev0.length], [30, 30]);
-    const lb = await p.locator(lane("Backlog")).boundingBox();
+    const lb = await p.locator(lane("Planned")).boundingBox();
     const lifted0 = await p.locator(card(back0[1])).boundingBox();
-    assert.ok(30 * lifted0.height > 2 * lb.height, `Backlog overflows: ${30 * lifted0.height} in ${lb.height}`);
+    assert.ok(30 * lifted0.height > 2 * lb.height, `Planned overflows: ${30 * lifted0.height} in ${lb.height}`);
     const sentL = moves().length;
     const ax = lifted0.x + lifted0.width / 2, ay = lifted0.y + 20, cx = lb.x + lb.width / 2;
     await p.mouse.move(ax, ay);
     await p.mouse.down();
     await glide(ax, ay, cx, lb.y + lb.height - 16);
     const far = 5 * lifted0.height;
-    await p.waitForFunction(([sel, v]) => document.querySelector("p99-root").shadowRoot.querySelector(sel).scrollTop >= v, ['.p99-col[data-label="Backlog"] .p99-cards', far]);
+    await p.waitForFunction(([sel, v]) => document.querySelector("p99-root").shadowRoot.querySelector(sel).scrollTop >= v, ['.p99-col[data-label="Planned"] .p99-cards', far]);
     await glide(cx, lb.y + lb.height - 16, cx, lb.y + lb.height / 2, 4);
     await calm();
-    const rolled = await roll("Backlog");
-    const t1 = await spot("Backlog", 100, back0[1]);
+    const rolled = await roll("Planned");
+    const t1 = await spot("Planned", 100, back0[1]);
     await glide(cx, lb.y + lb.height / 2, t1.x, t1.y);
     await p.waitForTimeout(260);
     await p.mouse.up();
     await settle(p);
     assert.ok(rolled >= far && back0.indexOf(t1.id) >= 6, `autoscrolled ${rolled}px to ${t1.id}`);
     assert.equal(moves().length, sentL + 1);
-    assert.deepEqual(lastMove(), { key: back0[1], from: "Backlog", to: "Backlog", board: back.board("4"), before: t1.id });
-    assert.deepEqual(await column(p, "Backlog"), ahead(back0, back0[1], t1.id));
+    assert.deepEqual(lastMove(), { key: back0[1], from: "Planned", to: "planned", before: t1.id });
+    assert.deepEqual(await column(p, "Planned"), ahead(back0, back0[1], t1.id));
     assert.deepEqual(await tally(), tidy);
     ok(`a long column autoscrolls under a held drag (${Math.round(rolled)}px) and the drop lands on the card under the pointer`);
 
-    const back1 = await column(p, "Backlog");
-    await roll("Backlog", 3 * lifted0.height);
-    await roll("Review", 0);
-    const s2 = await spot("Backlog", 150);
-    const lr = await p.locator(lane("Review")).boundingBox();
+    const back1 = await column(p, "Planned");
+    await roll("Planned", 3 * lifted0.height);
+    await roll("Needs you", 0);
+    const s2 = await spot("Planned", 150);
+    const lr = await p.locator(lane("Needs you")).boundingBox();
     await p.mouse.move(s2.x, s2.y);
     await p.mouse.down();
     await glide(s2.x, s2.y, s2.x, s2.y + 12, 3);
     await p.waitForFunction(() => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-ghost"));
-    const scrolledTo = await roll("Review", 6 * lifted0.height);
+    const scrolledTo = await roll("Needs you", 6 * lifted0.height);
     await p.waitForTimeout(100);
-    const t2 = await spot("Review", 100);
+    const t2 = await spot("Needs you", 100);
     await glide(s2.x, s2.y + 12, t2.x, t2.y);
     await p.waitForTimeout(260);
-    const kept = await roll("Review");
+    const kept = await roll("Needs you");
     await p.mouse.up();
     await settle(p);
-    assert.ok(scrolledTo >= 5 * lifted0.height && rev0.indexOf(t2.id) >= 6, `Review scrolled ${scrolledTo}px to ${t2.id}`);
+    assert.ok(scrolledTo >= 5 * lifted0.height && rev0.indexOf(t2.id) >= 6, `Needs you scrolled ${scrolledTo}px to ${t2.id}`);
     assert.equal(moves().length, sentL + 2);
-    assert.deepEqual(lastMove(), { key: s2.id, from: "Backlog", to: "Review", board: back.board("4"), before: t2.id });
-    assert.deepEqual(await column(p, "Backlog"), back1.filter((x) => x !== s2.id));
-    assert.deepEqual(await column(p, "Review"), ahead(rev0, s2.id, t2.id));
+    assert.deepEqual(lastMove(), { key: s2.id, from: "Planned", to: "needs-you", before: t2.id });
+    assert.deepEqual(await column(p, "Planned"), back1.filter((x) => x !== s2.id));
+    assert.deepEqual(await column(p, "Needs you"), ahead(rev0, s2.id, t2.id));
     assert.deepEqual(await tally(), tidy);
     ok(`a column scrolled mid-drag takes the cross on the card under the pointer (scrolled ${Math.round(scrolledTo)}px, ${Math.round(kept)}px at the drop)`);
 
-    const back2 = await column(p, "Backlog"), rev2 = await column(p, "Review");
-    await roll("Backlog", 0);
-    await roll("Review", 0);
+    const back2 = await column(p, "Planned"), rev2 = await column(p, "Needs you");
+    await roll("Planned", 0);
+    await roll("Needs you", 0);
     const a3 = await p.locator(card(back2[1])).boundingBox();
-    const r3 = await spot("Review", 0);
+    const r3 = await spot("Needs you", 0);
     await p.mouse.move(a3.x + a3.width / 2, a3.y + 20);
     await p.mouse.down();
     await glide(a3.x + a3.width / 2, a3.y + 20, r3.x, r3.y + 2 * r3.h);
@@ -764,16 +776,16 @@ async function check(back) {
     await p.mouse.up();
     await settle(p);
     await shutPanel(p);
-    assert.deepEqual(crossed, { col: "Review", focus: true });
+    assert.deepEqual(crossed, { col: "Needs you", focus: true });
     assert.equal(home, back2[1]);
     assert.equal(await hidden(p), false);
     assert.equal(moves().length, sentL + 2);
-    assert.deepEqual(await column(p, "Backlog"), back2);
-    assert.deepEqual(await column(p, "Review"), rev2);
+    assert.deepEqual(await column(p, "Planned"), back2);
+    assert.deepEqual(await column(p, "Needs you"), rev2);
     assert.deepEqual(await tally(), tidy);
     ok("Escape on a mouse drag that crossed columns puts the card home, sends nothing, and both counts match");
 
-    const back3 = await column(p, "Backlog"), rev3 = await column(p, "Review");
+    const back3 = await column(p, "Planned"), rev3 = await column(p, "Needs you");
     const a4 = await p.locator(card(back3[0])).boundingBox();
     const ax4 = a4.x + a4.width / 2, ay4 = a4.y + 20;
     await p.mouse.move(ax4, ay4);
@@ -781,7 +793,7 @@ async function check(back) {
     await glide(ax4, ay4, ax4, ay4 + 3 * a4.height);
     await calm();
     const slid = await R(p, (id) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-card[data-id="${id}"]`).style.translate, back3[0]);
-    await p.setViewportSize({ width: 700, height: VIEW.height });
+    await p.setViewportSize({ width: 1000, height: VIEW.height });
     await p.waitForTimeout(200);
     await calm();
     const t4b = await p.locator(card(rev3[1])).boundingBox();
@@ -789,7 +801,7 @@ async function check(back) {
     await p.waitForTimeout(260);
     await p.mouse.up();
     await settle(p);
-    const narrow = await p.locator(lane("Review")).boundingBox();
+    const narrow = await p.locator(lane("Needs you")).boundingBox();
     const a5 = await p.locator(card(back3[2])).boundingBox();
     await p.mouse.move(a5.x + a5.width / 2, a5.y + 20);
     await p.mouse.down();
@@ -804,40 +816,18 @@ async function check(back) {
     await p.setViewportSize(VIEW);
     await p.waitForTimeout(200);
     assert.ok(parseFloat(slid.split(" ")[1]) >= 2 * a4.height, `two slots down: ${slid}`);
-    assert.ok(narrow.x < lb.x + lb.width, `the narrow layout moved Review under where Backlog was (${narrow.x})`);
+    assert.ok(narrow.x < lr.x, `the narrow layout moved Needs you left of where it was (${narrow.x} < ${lr.x})`);
     assert.equal(relift, true);
     assert.equal(moves().length, sentL + 3);
-    assert.deepEqual(lastMove(), { key: back3[0], from: "Backlog", to: "Review", board: back.board("4"), before: rev3[1] });
-    assert.deepEqual(await column(p, "Backlog"), back3.slice(1));
-    assert.deepEqual(await column(p, "Review"), ahead(rev3, back3[0], rev3[1]));
+    assert.deepEqual(lastMove(), { key: back3[0], from: "Planned", to: "needs-you", before: rev3[1] });
+    assert.deepEqual(await column(p, "Planned"), back3.slice(1));
+    assert.deepEqual(await column(p, "Needs you"), ahead(rev3, back3[0], rev3[1]));
     assert.deepEqual(await tally(), tidy);
     ok("a window resized mid-drag measures again: the drop lands where the pointer is in the new layout, and the next press lifts");
 
-    await pick(p, "@" + GRACE.username);
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "QA");
-    await settle(p);
-    const watch = await R(p, () => { const r = document.querySelector("p99-root").shadowRoot; return { line: r.querySelector(".p99-watch").textContent, mine: r.querySelector(".p99-board").dataset.mine, help: r.querySelectorAll(".p99-card[aria-describedby]").length }; });
-    assert.deepEqual(watch, { line: "watching @" + GRACE.username, mine: "false", help: 0 });
-    const sent = moves().length;
-    await drag(p, K("BUG-11"), K("BUG-12"));
-    await p.waitForTimeout(200);
-    const ghost = await R(p, () => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-ghost"));
-    await p.mouse.up();
-    await shutPanel(p);
-    await p.locator(card(K("BUG-12"))).focus();
-    await p.keyboard.press("Space");
-    const lifted = await R(p, () => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-card.is-lifted"));
-    await shutPanel(p);
-    assert.equal(moves().length, sent);
-    assert.equal(ghost || lifted, false);
-    ok("the picker lists Grace's board by @username; on it I watch read-only: no drag, no lift, no move sent");
-
-    await pick(p, "Launch", true);
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "Launch");
-    assert.equal(await R(p, () => document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-col").length), 3);
-    await pick(p, "Shop");
-    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector("#p99-board-title").textContent === "Shop");
-    ok("the picker switches between my boards (3 and 4 columns)");
+    const anyOwner = await R(p, () => { const r = document.querySelector("p99-root").shadowRoot; return { mine: r.querySelector(".p99-board").dataset.mine, help: r.querySelectorAll(".p99-card[aria-describedby=p99-drag-help]").length === r.querySelectorAll(".p99-card").length }; });
+    assert.deepEqual(anyOwner, { mine: "true", help: true });
+    ok("every card on the one board can be moved by me, an Owner, with the drag help on each");
 
     await p.locator(card(K("FEAT-9"))).click();
     await shown(p, ".p99-panel.is-open");
@@ -860,6 +850,20 @@ async function check(back) {
     await quiet.p.mouse.up();
     assert.deepEqual(running, []);
     ok("with reduced motion nothing animates");
+    await quiet.ctx.close();
+
+    const cardsOf = (b) => R(b.p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card"), (e) => e.dataset.id));
+    const boardRead = (b) => b.seen.filter((c) => c.method === "GET" && c.path === "/board").at(-1)?.query ?? null;
+    const every = await board(browser, back);
+    assert.ok((await cardsOf(every)).includes(K("BUG-31")), `All shows ${ELSEWHERE}'s BUG-31`);
+    assert.equal(boardRead(every), "");
+    await every.ctx.close();
+    const site = await board(browser, back, { pick: { view: "site", projects: [], source: "" } });
+    const here = await cardsOf(site);
+    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
+    assert.equal(boardRead(site), `?host=${HOST}`);
+    await site.ctx.close();
+    ok(`All shows every host's cards; Only this website asks /board?host=${HOST} and the answer keeps that host alone`);
 
     for (const [size, view] of SIZES) {
       for (const scheme of ["light", "dark"]) {

@@ -187,6 +187,7 @@ test("every check the pass runs is a file here, and the board runs its checks ag
   for (const check of CHECKS) assert.ok(existsSync(join(here, check)), check);
   for (const check of Object.keys(ARGS)) assert.ok(CHECKS.includes(check), check);
   assert.deepEqual(ARGS["board.mjs"], ["check", "--worker"]);
+  assert.ok(CHECKS.includes("stories-board.mjs"));
   const board = readFileSync(join(here, "board.mjs"), "utf8");
   assert.match(board, /process\.argv\[2\] === "check"/);
   assert.match(board, /process\.argv\.includes\("--worker"\)/);

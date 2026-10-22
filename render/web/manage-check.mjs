@@ -257,7 +257,7 @@ try {
 
     const moves = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-manage .p99-move-to option"), (o) => o.value));
     const drop = await p.evaluate(() => { const o = document.querySelector("p99-root").shadowRoot.querySelector(".p99-manage .p99-move-to option:last-child"); return o && o.dataset.drop; });
-    check(`${label}: Move to lists the labels on my boards and ends with Drop (${moves.join(" | ")})`, moves[0] === "Inbox" && moves.includes("Done") && drop === "Done");
+    check(`${label}: Move to lists the seven lanes in lane order, the item's own first, and ends with Drop (${moves.join(" | ")})`, moves.join("|") === "New|Planned|In progress|Needs you|Stuck|Landed|Done|" && drop === "Done");
     const gone = await p.evaluate(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-tag-pick, .p99-manage [name=priority], .p99-manage [name=status]"));
     check(`${label}: no labels picker, Priority or Status select in Manage`, gone);
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });
@@ -277,8 +277,8 @@ try {
         await moved.p.waitForTimeout(1500);
         return (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
       };
-      const doing = await pickMove({ label: "Doing" });
-      check(`Save with Move to Doing moves the item (${doing.label}, ${doing.stage})`, doing.label === "Doing" && doing.stage === "in_progress");
+      const doing = await pickMove({ label: "In progress" });
+      check(`Save with Move to In progress moves the item (${doing.label}, ${doing.stage})`, doing.label === "In progress" && doing.stage === "in_progress");
       const dropped = await pickMove({ label: "Drop (close without fixing)" });
       check(`Drop closes it under Done without fixing (${dropped.label}, ${dropped.resolution}, ${dropped.stage})`, dropped.label === "Done" && dropped.resolution === "abandoned" && dropped.stage === "dropped");
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { resolution: null });

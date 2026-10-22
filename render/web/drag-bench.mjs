@@ -29,6 +29,7 @@ const work = join(repo, "tmp", "bench", "drag");
 const OUT = resolve(repo, flags.get("out") || join(work, "drag-bench.json"));
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2" };
 const COLUMNS = ["Inbox", "Doing", "QA ready", "Done"];
+const WORDS_OF = ["new", "in-progress", "landed", "done"];
 const WORDS = "cart total coupon refund invoice shipping banner header footer search filter checkout address postcode payment receipt avatar upload preview colour contrast mobile tablet layout spacing tooltip modal dropdown carousel".split(" ");
 const PEOPLE = [null, { username: "ada.lovelace", avatar: null }, null, { username: "grace.hopper", avatar: null }];
 
@@ -65,6 +66,7 @@ function side(name, web) {
     if (path.startsWith("/me")) return [200, { name: "Ada Lovelace", email: "ada@example.com", username: "ada.lovelace", avatar: null, manager: true, host, env: "production", version: "bench", counts: { mine_open: 0, mine_unread: 0, page_open: 0 }, theme: { accent: "#b5621e" }, strings: {} }];
     if (method === "GET" && path === "/boards") return [200, { boards: [board] }];
     if (method === "GET" && path === "/boards/1") return [200, { board, cards }];
+    if (method === "GET" && path === "/board") return [200, { board: { lanes: COLUMNS.map((label, i) => ({ word: WORDS_OF[i], label, closes: label === "Done" })) }, cards }];
     if (method === "POST" && path === "/move") {
       const b = JSON.parse(body || "{}");
       const c = cards.find((x) => x.key === b.key);

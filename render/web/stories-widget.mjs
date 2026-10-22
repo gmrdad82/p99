@@ -1117,6 +1117,34 @@ try {
     await ctx.close();
   });
 
+  await story("an Owner's comment is marked and set off; a role on the author wins over manager, and manager stands in when no role is sent", async () => {
+    const { ctx, p, item } = await threadFor(tag("A thread with Owners' comments"));
+    const at = "2026-01-05T09:00:00.000Z";
+    const said = (n, author) => ({ id: `c-${n}`, body: `${tag("said")} ${n}`, created_at: at, internal: false, attachments: [], author });
+    const extra = [
+      said("owner", { name: "Grace Hopper", email: "grace@example.com", role: "owner" }),
+      said("manager", { name: "Lin Okafor", email: "lin@example.com", manager: true }),
+      said("user", { name: "Alan Turing", email: "alan@example.com", role: "user", manager: true }),
+      said("plain", { name: "Alan Turing", email: "alan@example.com" }),
+    ];
+    await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}`, async (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      const res = await route.fetch();
+      const j = await res.json();
+      j.comments = (j.comments || []).concat(extra);
+      await route.fulfill({ response: res, json: j });
+    });
+    await p.evaluate((k) => window.P99.open(k), item.key);
+    await p.locator(S(".p99-comment .p99-body"), { hasText: `${tag("said")} plain` }).first().waitFor({ timeout: 20000 });
+    const marks = await p.evaluate((t) => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-comment"))
+      .filter((li) => li.textContent.includes(t))
+      .map((li) => ({ who: li.querySelector(".p99-body").textContent.split(" ").pop(), owner: li.hasAttribute("data-owner"), margin: parseFloat(getComputedStyle(li).marginRight) })), tag("said"));
+    const by = Object.fromEntries(marks.map((m) => [m.who, m]));
+    check(`role owner and manager-without-role are marked, role user and a plain author are not (${JSON.stringify(marks)})`, by.owner?.owner && by.manager?.owner && by.user && !by.user.owner && by.plain && !by.plain.owner);
+    check(`an Owner's comment sits off the right edge, a User's does not (${by.owner?.margin}, ${by.plain?.margin})`, by.owner?.margin > 0 && by.owner.margin > (by.plain?.margin ?? 0));
+    await ctx.close();
+  });
+
   await story("a comment at the daily limit is told at once, keeps its words, and offers no Retry", async () => {
     const { ctx, p, item, posts } = await threadFor(tag("A thread at the day's comments"));
     await p.route((u) => u.pathname === `/_p99/api/issues/${item.key}/comments`, (route) =>
@@ -1208,6 +1236,117 @@ try {
     const own = (t.issue.context.errors || []).filter((m) => /panel\.js|imported module|_p99/i.test(m));
     check(`the report carries no error of P99's own (${own.join(" | ")})`, item && own.length === 0);
     check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  const meWith = (counts, manager) => ({ name: ADA.name, email: ADA.email, username: "ada", manager, role: manager ? "owner" : "user", host: HOST, env: "production", version: "dev", counts, theme: {}, strings: {}, link: true, license: "free" });
+  const dotPage = async (answers, motion = "no-preference") => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: motion });
+    await ctx.addInitScript(openShadow);
+    let n = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(answers[Math.min(n++, answers.length - 1)]) }));
+    const p = await ctx.newPage();
+    await p.goto(`${PAGE}#p99=${code}`);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the first /me", () => n >= 1);
+    await frames(p);
+    return { ctx, p, asked: () => n };
+  };
+  const dot = (p) => p.evaluate(() => {
+    const r = document.querySelector("p99-root").shadowRoot;
+    const q = r.querySelector(".w .b:not(.f)");
+    const n = q && q.querySelector(".n");
+    const cs = n && getComputedStyle(n);
+    return {
+      menu: !!q && !q.hidden,
+      text: n ? n.textContent : null,
+      accent: !!n && n.classList.contains("u"),
+      scale: cs ? cs.scale : null,
+      easing: cs ? cs.transitionTimingFunction : null,
+      duration: cs ? cs.transitionDuration : null,
+      onPlus: !!r.querySelector(".w .f .n"),
+    };
+  });
+  const owner = (waiting, unread, page) => meWith({ mine_open: 1, mine_unread: unread, page_open: page, waiting }, true);
+  const visitor = (unread, page, open = 1) => meWith({ mine_open: open, mine_unread: unread, page_open: page, waiting: null }, false);
+
+  for (const [name, me, want] of [
+    ["an Owner with cards waiting sees their count on the ⋯ button first, in the accent, never on the +", owner(3, 2, 7), { menu: true, text: "3", accent: true, onPlus: false }],
+    ["an Owner's waiting count counts before their unread and the page's items, however small", owner(1, 9, 9), { menu: true, text: "1", accent: true, onPlus: false }],
+    ["an Owner with nothing waiting sees today's unread count, in the accent", owner(0, 4, 5), { menu: true, text: "4", accent: true, onPlus: false }],
+    ["an Owner with nothing waiting and nothing unread sees the page's open items, plain", owner(0, 0, 5), { menu: true, text: "5", accent: false, onPlus: false }],
+    ["an Owner with nothing at all keeps the ⋯ button and no dot", owner(0, 0, 0), { menu: true, text: "", accent: false, onPlus: false }],
+    ["more than 99 waiting shows 99+", owner(120, 0, 0), { menu: true, text: "99+", accent: true, onPlus: false }],
+    ["a visitor's dot is unchanged: their unread first, in the accent", visitor(2, 6), { menu: true, text: "2", accent: true, onPlus: false }],
+    ["a visitor with no unread sees the page's open items, plain", visitor(0, 6), { menu: true, text: "6", accent: false, onPlus: false }],
+    ["a visitor's waiting stays null, so nothing new shows when they have nothing", visitor(0, 0, 0), { menu: false, text: "", accent: false, onPlus: false }],
+  ]) {
+    await story(`the dot: ${name}`, async () => {
+      const { ctx, p } = await dotPage([me]);
+      const d = await dot(p);
+      const got = { menu: d.menu, text: d.text, accent: d.accent, onPlus: d.onPlus };
+      check(`${name} (${JSON.stringify(got)})`, JSON.stringify(got) === JSON.stringify(want));
+      if (d.menu) check(`the dot is ${want.text ? "full size" : "scaled to nothing"} when it ${want.text ? "counts" : "has nothing"} (${d.scale})`, want.text ? d.scale === "none" || d.scale === "1" : d.scale === "0");
+      await ctx.close();
+    });
+  }
+
+  await story("the dot grows in eased, never linear, when something starts waiting after a page change", async () => {
+    const { ctx, p, asked } = await dotPage([owner(0, 0, 0), owner(2, 0, 0)]);
+    const before = await dot(p);
+    check(`no dot at first (${JSON.stringify(before)})`, before.menu && before.text === "" && before.scale === "0");
+    check(`its transition is eased over 0.3s (${before.easing}, ${before.duration})`, before.easing !== "linear" && !/linear/.test(before.easing) && before.duration === "0.3s");
+    await p.evaluate(() => {
+      history.pushState(null, "", "/checkout/review");
+      document.body.append(document.createElement("i"));
+    });
+    await until("the second /me", () => asked() >= 2);
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n")?.textContent === "2");
+    const growing = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().map((a) => ({ property: a.transitionProperty, easing: a.effect.getTiming().easing, state: a.playState })));
+    const scale = growing.find((a) => a.property === "scale");
+    check(`the 2 grows in through a scale transition that eases (${JSON.stringify(growing)})`, !!scale && scale.easing !== "linear");
+    await until("the transition's end", async () => (await dot(p)).scale !== "0" && (await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().length)) === 0, 3000);
+    const after = await dot(p);
+    check(`then it sits at full size in the accent (${JSON.stringify(after)})`, after.text === "2" && after.accent && (after.scale === "none" || after.scale === "1"));
+    await ctx.close();
+  });
+
+  for (const [name, me, board] of [
+    ["a Worker that sends no role: manager stands in, so a manager is an Owner", (() => { const m = owner(0, 0, 1); delete m.role; return m; })(), true],
+    ["a Worker that sends no role: a non-manager is a User", (() => { const m = visitor(0, 1); delete m.role; return m; })(), false],
+    ["a role of user wins over a manager flag", { ...owner(0, 0, 1), role: "user" }, false],
+    ["a role of owner wins over a missing manager flag", { ...visitor(0, 1), role: "owner", manager: false }, true],
+  ]) {
+    await story(`roles: ${name}`, async () => {
+      const { ctx, p } = await dotPage([me]);
+      await p.locator("p99-root >> .w .b:not(.f)").click();
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]"), null, { timeout: 20000 });
+      const got = await p.evaluate(() => { const r = document.querySelector("p99-root").shadowRoot; return { board: !!r.querySelector(".p99-board-open"), pick: !!r.querySelector(".p99-panel.is-open .p99-pick") }; });
+      check(`${name}: Board ${board ? "and the filter show" : "and the filter stay off"} (${JSON.stringify(got)})`, got.board === board && got.pick === board);
+      await ctx.close();
+    });
+  }
+
+  await story("the dot's empty rule shrinks only the dot: the panel's fields, checkboxes and images keep their size", async () => {
+    const { ctx, p } = await dotPage([owner(0, 0, 0)]);
+    await p.locator("p99-root >> .w .f").click();
+    await p.locator(TITLE).waitFor({ timeout: 20000 });
+    await frames(p);
+    const boxes = await p.evaluate(() => {
+      const panel = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open");
+      const all = Array.from(panel.querySelectorAll("input:not([type=hidden]), textarea, img"));
+      const box = (e) => { const r = e.getBoundingClientRect(); return { tag: e.tagName.toLowerCase(), type: e.type || "", scale: getComputedStyle(e).scale, w: r.width, h: r.height }; };
+      return {
+        scaled: all.filter((e) => getComputedStyle(e).scale === "0").map(box),
+        title: box(panel.querySelector(".p99-new input[name=title]")),
+        body: box(panel.querySelector(".p99-new textarea[name=body]")),
+        check: panel.querySelector(".p99-new input[type=checkbox]") ? box(panel.querySelector(".p99-new input[type=checkbox]")) : null,
+        lockup: panel.querySelector("img.p99-lockup") ? box(panel.querySelector("img.p99-lockup")) : null,
+      };
+    });
+    const sized = (b) => !!b && b.scale !== "0" && b.w > 0 && b.h > 0;
+    check(`no input, textarea or image in the panel is scaled to nothing (${JSON.stringify(boxes.scaled)})`, boxes.scaled.length === 0);
+    check(`the title, the description, a checkbox and the lockup each keep a box (${JSON.stringify(boxes)})`, sized(boxes.title) && sized(boxes.body) && sized(boxes.check) && sized(boxes.lockup));
     await ctx.close();
   });
 
