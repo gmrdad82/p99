@@ -1300,7 +1300,13 @@ esac
             &h,
             &bin,
             true,
-            &["--vault", "Example", "--host", "shop.example.com", "--no-mail"],
+            &[
+                "--vault",
+                "Example",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
         );
         out.ok();
 
@@ -1336,7 +1342,10 @@ esac
             calls.contains(&"read --no-newline op://vlt1/item2/credential".to_owned()),
             "{calls:?}"
         );
-        assert_eq!(cf.lock().unwrap().secret("KEY_P99").as_deref(), Some(key.as_str()));
+        assert_eq!(
+            cf.lock().unwrap().secret("KEY_P99").as_deref(),
+            Some(key.as_str())
+        );
 
         for line in [
             "  ok  P99 Cloudflare token kept in the vault Example",
@@ -1357,7 +1366,13 @@ esac
             &h,
             &bin,
             true,
-            &["--vault", "Example", "--host", "shop.example.com", "--no-mail"],
+            &[
+                "--vault",
+                "Example",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
         )
         .ok();
         let before = h.config();
@@ -1367,7 +1382,13 @@ esac
             &h,
             &bin,
             false,
-            &["--account", "main", "--host", "shop.example.com", "--no-mail"],
+            &[
+                "--account",
+                "main",
+                "--host",
+                "shop.example.com",
+                "--no-mail",
+            ],
         );
         again.ok();
         assert_eq!(h.config(), before);
@@ -1376,12 +1397,19 @@ esac
             "2"
         );
         let calls = asked(&bin);
-        assert!(calls.iter().all(|c| c.starts_with("read --no-newline ")), "{calls:?}");
+        assert!(
+            calls.iter().all(|c| c.starts_with("read --no-newline ")),
+            "{calls:?}"
+        );
         assert!(
             calls.contains(&"read --no-newline op://vlt1/item1/credential".to_owned()),
             "{calls:?}"
         );
-        assert!(again.stdout.contains("  ok  the account has its key"), "{}", again.stdout);
+        assert!(
+            again.stdout.contains("  ok  the account has its key"),
+            "{}",
+            again.stdout
+        );
         let bearer = format!("Bearer {TOKEN}");
         assert!(
             h.stub
@@ -1389,8 +1417,14 @@ esac
                 .iter()
                 .all(|r| r.header("authorization") == Some(bearer.as_str()))
         );
-        let key = item(&bin, 2)["fields"][0]["value"].as_str().unwrap().to_owned();
-        assert_eq!(cf.lock().unwrap().secret("KEY_P99").as_deref(), Some(key.as_str()));
+        let key = item(&bin, 2)["fields"][0]["value"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert_eq!(
+            cf.lock().unwrap().secret("KEY_P99").as_deref(),
+            Some(key.as_str())
+        );
         never_shows(&[&again], &[key.as_str()]);
     }
 
@@ -1414,7 +1448,13 @@ esac
     fn no_vault_never_runs_op_even_when_a_vault_is_named() {
         let (h, _cf) = blank("setup-no-vault", fresh());
         let bin = op(&h.dir, MADE);
-        run(&h, &bin, true, &["--vault", "Example", "--no-vault", "--no-mail"]).ok();
+        run(
+            &h,
+            &bin,
+            true,
+            &["--vault", "Example", "--no-vault", "--no-mail"],
+        )
+        .ok();
         assert!(asked(&bin).is_empty(), "{:?}", asked(&bin));
         assert_eq!(h.toml()["accounts"]["main"]["token"].as_str(), Some(TOKEN));
     }
@@ -1427,11 +1467,7 @@ esac
                 "echo '[ERROR] vault \"Example\" was not found' >&2; exit 1",
                 "the 1Password CLI: [ERROR] vault \"Example\" was not found",
             ),
-            (
-                "setup-vault-garbled",
-                "true",
-                "the 1Password CLI: ",
-            ),
+            ("setup-vault-garbled", "true", "the 1Password CLI: "),
             (
                 "setup-vault-no-id",
                 r#"printf '{"vault":{"id":"vlt1"}}'"#,

@@ -58,8 +58,18 @@ fn pty() -> (File, File) {
         "{}",
         std::io::Error::last_os_error()
     );
-    assert_eq!(unsafe { grantpt(fd) }, 0, "{}", std::io::Error::last_os_error());
-    assert_eq!(unsafe { unlockpt(fd) }, 0, "{}", std::io::Error::last_os_error());
+    assert_eq!(
+        unsafe { grantpt(fd) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
+    );
+    assert_eq!(
+        unsafe { unlockpt(fd) },
+        0,
+        "{}",
+        std::io::Error::last_os_error()
+    );
     let name = unsafe { ptsname(fd) };
     assert!(!name.is_null());
     let name = unsafe { CStr::from_ptr(name) }.to_str().unwrap().to_owned();
@@ -187,7 +197,10 @@ fn a_wrong_key_typed_back_keeps_the_item() {
         let h = delete_home(name);
         let out = at_terminal(&h, &["delete", "BUG-12"], typed);
         out.refused("BUG-12 is kept: the key typed back didn't match");
-        assert_eq!(out.stderr, format!("{PROMPT}p99: BUG-12 is kept: the key typed back didn't match\n"));
+        assert_eq!(
+            out.stderr,
+            format!("{PROMPT}p99: BUG-12 is kept: the key typed back didn't match\n")
+        );
         assert!(out.stdout.is_empty(), "{name}: {}", out.stdout);
         assert_eq!(deleted(&h), 0, "{name}");
     }

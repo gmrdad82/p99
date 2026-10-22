@@ -878,7 +878,11 @@ mod tests {
     fn client_on(bases: &[&str]) -> Client {
         Client {
             account: "main".to_owned(),
-            bases: bases.iter().map(|b| (*b).to_owned()).collect::<Vec<_>>().into(),
+            bases: bases
+                .iter()
+                .map(|b| (*b).to_owned())
+                .collect::<Vec<_>>()
+                .into(),
             target: None,
             answered: Arc::new(AtomicUsize::new(0)),
             key: b"test-secret".to_vec(),
@@ -918,8 +922,8 @@ mod tests {
 
     #[test]
     fn the_host_that_answered_last_is_asked_before_the_aimed_one() {
-        let aimed = client_on(&[SHOP, DEV, "https://www.example.com/_p99"])
-            .aimed(Some("www.example.com"));
+        let aimed =
+            client_on(&[SHOP, DEV, "https://www.example.com/_p99"]).aimed(Some("www.example.com"));
         assert_eq!(aimed.order(), [2, 0, 1]);
         aimed.answered.store(2, Ordering::Relaxed);
         assert_eq!(aimed.order(), [1, 2, 0]);
@@ -980,31 +984,51 @@ mod tests {
         assert_eq!(asked(&closed_log), ["GET /_p99/v1/hosts HTTP/1.1"]);
         assert_eq!(asked(&open_log), ["GET /_p99/v1/hosts HTTP/1.1"]);
         let _: Value = client.json("GET", "/v1/hosts", None).unwrap();
-        assert_eq!(asked(&closed_log).len(), 1, "the closed host was asked again");
+        assert_eq!(
+            asked(&closed_log).len(),
+            1,
+            "the closed host was asked again"
+        );
         assert_eq!(asked(&open_log).len(), 2);
     }
 
     #[test]
     fn a_web_page_where_p99_should_answer_is_named_when_no_host_answers() {
-        let (page, _) = answering(vec![(200, "text/html; charset=utf-8", "", "<html>shop</html>")]);
+        let (page, _) = answering(vec![(
+            200,
+            "text/html; charset=utf-8",
+            "",
+            "<html>shop</html>",
+        )]);
         let (closed, _) = answering(vec![ACCESS]);
         let client = client_on(&[&page, &closed]);
         let said = client.json::<Value>("GET", "/v1/hosts", None).unwrap_err();
         assert_eq!(
             said,
-            format!("{} answered with a web page instead of answering as P99", host_of(&page))
+            format!(
+                "{} answered with a web page instead of answering as P99",
+                host_of(&page)
+            )
         );
     }
 
     #[test]
     fn a_redirect_elsewhere_is_named_when_no_host_answers() {
-        let (moved, _) = answering(vec![(301, "text/plain", "https://www.example.com/_p99/v1/hosts", "")]);
+        let (moved, _) = answering(vec![(
+            301,
+            "text/plain",
+            "https://www.example.com/_p99/v1/hosts",
+            "",
+        )]);
         let (page, _) = answering(vec![(404, "text/html", "", "<html>not here</html>")]);
         let client = client_on(&[&moved, &page]);
         let said = client.json::<Value>("GET", "/v1/hosts", None).unwrap_err();
         assert_eq!(
             said,
-            format!("{} redirected to www.example.com instead of answering as P99", host_of(&moved))
+            format!(
+                "{} redirected to www.example.com instead of answering as P99",
+                host_of(&moved)
+            )
         );
     }
 
@@ -1023,7 +1047,12 @@ mod tests {
 
     #[test]
     fn a_host_that_answers_as_p99_with_an_error_is_not_passed_over() {
-        let (refusing, _) = answering(vec![(403, "application/json", "", r#"{"message":"this code can't see that host"}"#)]);
+        let (refusing, _) = answering(vec![(
+            403,
+            "application/json",
+            "",
+            r#"{"message":"this code can't see that host"}"#,
+        )]);
         let (open, open_log) = answering(vec![HOSTS]);
         let said = client_on(&[&refusing, &open])
             .json::<Value>("GET", "/v1/hosts", None)
@@ -1039,7 +1068,10 @@ mod tests {
         let said = client_on(&[&gone, &open])
             .json::<Value>("GET", "/v1/hosts", None)
             .unwrap_err();
-        assert!(said.starts_with(&format!("cannot reach {gone}: ")), "{said}");
+        assert!(
+            said.starts_with(&format!("cannot reach {gone}: ")),
+            "{said}"
+        );
         assert!(asked(&open_log).is_empty());
     }
 }
