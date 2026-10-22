@@ -1314,6 +1314,12 @@ fn a_hand_broken_config_line_never_echoes_the_token_or_a_key_in_its_error() {
     assert!(out.stderr.starts_with("p99: "), "{}", out.stderr);
     assert!(h.calls().is_empty());
     never_shows_a_secret(&[&out], &[]);
+    assert!(out.stderr.contains("line 5, key token"), "{}", out.stderr);
+    assert!(
+        out.stderr.contains("the value is not shown"),
+        "{}",
+        out.stderr
+    );
 
     let unquoted = plain_config().replace(
         &format!("resend_key = \"{RESEND}\""),

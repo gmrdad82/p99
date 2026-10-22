@@ -657,7 +657,33 @@ export async function liveCodes(DB, ids) {
     return new Set(results.map((r) => r.id));
   } catch (error) {
     console.error(error && error.stack ? error.stack : String(error));
-    return new Set();
+    return null;
+  }
+}
+
+export async function liveSockets(DB, sockets) {
+  const live = await liveCodes(DB, sockets.map(([, seen]) => seen.code));
+  return sockets.filter(([socket, seen]) => {
+    if (seen.code === undefined || seen.code === null) return true;
+    if (live === null) return false;
+    if (live.has(seen.code)) return true;
+    try {
+      socket.close(4001, "this code was revoked");
+    } catch {}
+    return false;
+  });
+}
+
+export async function fanOut(DB, sockets, events) {
+  const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
+  for (const [socket, seen] of await liveSockets(DB, sockets)) {
+    const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
+    for (const [hosts, every, line] of lines) {
+      if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
+      try {
+        socket.send(line);
+      } catch {}
+    }
   }
 }
 
@@ -670,7 +696,7 @@ export async function redeemTicket(storage, url, DB) {
   const origin = url.searchParams.get("origin");
   if (entry.hosts !== null && !entry.hosts.includes(origin)) return null;
   const code = entry.code ?? null;
-  if (code !== null && !(await liveCodes(DB, [code])).has(code)) return null;
+  if (code !== null && !(await liveCodes(DB, [code]))?.has(code)) return null;
   return { hosts: entry.hosts, code };
 }
 

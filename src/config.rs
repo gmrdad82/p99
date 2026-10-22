@@ -605,6 +605,106 @@ mod tests {
     }
 
     #[test]
+    fn a_spanless_error_hides_a_secret_it_quotes_and_keeps_any_other_reason() {
+        use serde::de::Error as _;
+        let text = account_with(&format!("token = \"{SECRET}\""));
+        let quoted = toml::de::Error::custom(format!("invalid value {SECRET}"));
+        assert!(quoted.span().is_none());
+        let message = parse_error(Path::new("config.toml"), &text, &quoted);
+        hides(&message, &[SECRET]);
+        assert_eq!(message, "config.toml: not valid TOML");
+        let plain = toml::de::Error::custom("missing field `account_id`");
+        assert_eq!(
+            parse_error(Path::new("config.toml"), &text, &plain),
+            "config.toml: missing field `account_id`"
+        );
+    }
+
+    fn named_keys(value: &toml::Value, path: &str, into: &mut Vec<String>) {
+        let Some(table) = value.as_table() else {
+            return;
+        };
+        let named = ["accounts", "hosts", "theme", "strings"].contains(&path);
+        for (key, value) in table {
+            if !named {
+                into.push(key.clone());
+            }
+            named_keys(value, if named { "" } else { key }, into);
+        }
+    }
+
+    #[test]
+    fn every_key_a_config_writes_is_known_and_every_credential_is_secret() {
+        let full = |s: &str| Some(s.to_owned());
+        let mut config = Config {
+            default_account: full("main"),
+            license: full("l"),
+            me: Me {
+                name: "Ada Lovelace".into(),
+                email: "ada@example.com".into(),
+                agent: true,
+            },
+            ..Config::default()
+        };
+        config.accounts.insert(
+            "main".into(),
+            Account {
+                account_id: "a".into(),
+                token: "t".into(),
+                worker: "w".into(),
+                database: "d".into(),
+                database_id: "i".into(),
+                bucket: "b".into(),
+                key: "k".into(),
+                url: full("https://example.com"),
+                app: full("app.example.com"),
+                resend_key: full("r"),
+                mail_from: full("P99 <p99@example.com>"),
+                access_client_id: full("c"),
+                access_client_secret: full("s"),
+                code: full("o"),
+                me: AccountMe {
+                    name: full("Grace Hopper"),
+                    email: full("grace@example.com"),
+                    agent: Some(true),
+                },
+            },
+        );
+        config.hosts.insert(
+            "example.com".into(),
+            Host {
+                account: "main".into(),
+                env: "production".into(),
+                theme: [("accent".to_owned(), "#000".to_owned())].into(),
+                strings: [("title".to_owned(), "Hi".to_owned())].into(),
+                corner: full("bottom-left"),
+                offset: Some(Offset { x: 1, y: 2 }),
+                above: full("#footer"),
+                off: vec!["/admin".into()],
+                feed: true,
+                link: Some(true),
+            },
+        );
+        let value: toml::Value = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+        let mut keys = Vec::new();
+        named_keys(&value, "", &mut keys);
+        for key in &keys {
+            assert!(KNOWN_KEYS.contains(&key.as_str()), "{key} is not in KNOWN_KEYS");
+            let credential = ["token", "key", "secret", "code", "license", "password"]
+                .iter()
+                .any(|word| key.contains(word));
+            assert_eq!(
+                credential,
+                SECRET_KEYS.contains(&key.as_str()),
+                "{key}: SECRET_KEYS is out of step"
+            );
+        }
+        for key in SECRET_KEYS.iter().chain(KNOWN_KEYS.iter()) {
+            assert!(keys.iter().any(|k| k == key), "{key} is listed but never written");
+        }
+    }
+
+    #[test]
     fn a_config_that_parses_still_loads() {
         let config: Config =
             toml::from_str(&account_with(&format!("token = \"{SECRET}\""))).unwrap();

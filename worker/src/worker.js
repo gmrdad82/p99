@@ -9,7 +9,8 @@ import {
   START_LABEL,
   closeItem,
   redeemTicket,
-  liveCodes,
+  fanOut,
+  liveSockets,
   reopenItem,
   stageOf,
   statusOf,
@@ -1063,32 +1064,15 @@ export class P99Hub extends DurableObject {
   }
 
   async revoked() {
-    await this.#listening();
+    await liveSockets(this.env.DB, this.#sockets());
   }
 
-  async #listening() {
-    const sockets = this.ctx.getWebSockets().map((socket) => [socket, socket.deserializeAttachment() || {}]);
-    const live = await liveCodes(this.env.DB, sockets.map(([, seen]) => seen.code));
-    return sockets.filter(([socket, seen]) => {
-      if (seen.code === undefined || seen.code === null || live.has(seen.code)) return true;
-      try {
-        socket.close(4001, "this code was revoked");
-      } catch {}
-      return false;
-    });
+  #sockets() {
+    return this.ctx.getWebSockets().map((socket) => [socket, socket.deserializeAttachment() || {}]);
   }
 
   async publish(events) {
-    const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
-    for (const [socket, seen] of await this.#listening()) {
-      const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
-      for (const [hosts, every, line] of lines) {
-        if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
-        try {
-          socket.send(line);
-        } catch {}
-      }
-    }
+    await fanOut(this.env.DB, this.#sockets(), events);
   }
 
   async webSocketMessage() {}
