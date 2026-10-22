@@ -100,7 +100,9 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
 
   await check("a signed body that isn't JSON, or isn't UTF-8, is refused as such and files nothing", async () => {
     const title = `Not JSON ${randomUUID().slice(0, 8)}`;
-    for (const bytes of [Buffer.from(`{"title":"${title}",`), Buffer.from([0x7b, 0x22, 0xff, 0x22, 0x7d])]) {
+    const [before, after] = JSON.stringify(issueBody({ title: `${title} XFFX` })).split("XFFX");
+    const latin = Buffer.concat([Buffer.from(before), Buffer.from([0xff]), Buffer.from(after)]);
+    for (const bytes of [Buffer.from(`{"title":"${title}",`), latin]) {
       await refusal(await signedFetch("POST", `/_p99/v1/issues?host=${here}`, { bytes }), 400, /not valid JSON/);
     }
     const listed = await call("GET", `/_p99/v1/issues?host=${here}&q=${encodeURIComponent(title)}`);

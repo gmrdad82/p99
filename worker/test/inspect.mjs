@@ -65,7 +65,7 @@ export async function coverWorker(port, searchDir, { connect = open, limit = CAL
       const id = next++;
       const timer = setTimeout(() => {
         waiting.delete(id);
-        reject(new Error(`${method}: the Worker's inspector on ${port} gave no answer in ${limit} ms`));
+        reject(Object.assign(new Error(`${method}: the Worker's inspector on ${port} gave no answer in ${limit} ms`), { fatal: true }));
       }, limit);
       const settle = (fn) => (value) => {
         clearTimeout(timer);
@@ -96,7 +96,10 @@ export async function coverWorker(port, searchDir, { connect = open, limit = CAL
       const sources = [];
       for (const [scriptId, info] of parsed) {
         if (!info.url || info.url.startsWith("node:") || info.url.startsWith("cloudflare:")) continue;
-        const { scriptSource } = await send("Debugger.getScriptSource", { scriptId }).catch(() => ({}));
+        const { scriptSource } = await send("Debugger.getScriptSource", { scriptId }).catch((error) => {
+          if (gone || error.fatal) throw error;
+          return {};
+        });
         if (scriptSource) sources.push({ url: info.url, sourceMapURL: info.sourceMapURL || "", source: scriptSource });
       }
       const scripts = matchScripts(taken, sources, startup).map((script) => {

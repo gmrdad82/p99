@@ -113,6 +113,10 @@ export function mergeLines(into, file, lines) {
   return into;
 }
 
+export function keepLines(lines, known) {
+  return new Map([...lines].filter(([line]) => known && known.has(line)));
+}
+
 export function sourceMapOf(script, searchDir) {
   const ref = script.sourceMapURL || /\/[/*][#@]\s*sourceMappingURL=(\S+?)\s*(?:\*\/)?\s*$/.exec(script.source || "")?.[1];
   if (!ref) return null;

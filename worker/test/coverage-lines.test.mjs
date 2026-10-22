@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
@@ -176,13 +176,33 @@ test("a run's workerd and node dumps fold into one row per worker/src file", () 
     const files = collect(dir, { searchDir: dir });
     assert.deepEqual([...files.keys()], [tries]);
     const lines = files.get(tries);
-    assert.equal(lines.get(1), true);
-    assert.equal(lines.get(2), true);
-    assert.equal(lines.get(3), false);
+    assert.deepEqual([...lines], [[1, true], [2, true]]);
     const shown = report(dir);
-    assert.match(shown, /^\| src\/tries\.js \| \d+\.\d\d% \| 8 \|$/m);
+    assert.match(shown, /^\| src\/tries\.js \| 100\.00% \| 2 \|$/m);
     assert.match(shown, /^\| src\/worker\.js \| 0\.00% \| \d+ \|$/m);
     assert.equal(shown.includes("web/"), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("node's hits count only on the lines a bundle mapped, and a file only node loaded keeps every non-blank line", () => {
+  const dir = scratch();
+  try {
+    const tries = join(root, "src", "tries.js");
+    const text = readFileSync(tries, "utf8");
+    mkdirSync(join(dir, "node"));
+    writeFileSync(join(dir, "node", "coverage-1.json"), JSON.stringify({ result: [{ url: pathToFileURL(tries).href, functions: [fn([0, text.length, 1])] }] }));
+    const nodeOnly = collect(dir, { searchDir: dir }).get(tries);
+    assert.deepEqual([...nodeOnly.keys()], [1, 2, 3, 4, 5, 6, 7, 8]);
+    assert.equal([...nodeOnly.values()].every(Boolean), true);
+    const map = { version: 3, sources: ["../../src/tries.js"], mappings: "AAAA;AAEA" };
+    writeFileSync(
+      join(dir, "worker-1.json"),
+      JSON.stringify({ kind: "workerd", loaded: false, scripts: [{ url: "bundle.js", source: text, functions: [fn([0, text.length, 0])], map, mapDir: join(root, ".wrangler", "tmp") }] }),
+    );
+    const both = collect(dir, { searchDir: dir }).get(tries);
+    assert.deepEqual([...both], [[1, true], [3, true]]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -365,6 +385,43 @@ test("an inspector that never answers fails the call at its limit", async () => 
   const socket = workerd(() => {});
   const cover = await coverWorker(9229, "", { connect: async () => socket, limit: 1 });
   await assert.rejects(cover.save("unused.json"), /Runtime\.evaluate: the Worker's inspector on 9229 gave no answer in 1 ms/);
+});
+
+function sourcing(answer) {
+  return workerd((msg, s) => {
+    if (msg.method === "Debugger.enable") {
+      s.reply({ method: "Debugger.scriptParsed", params: { scriptId: "1", url: "file:///bundle.js" } });
+      return s.reply({ id: msg.id, result: {} });
+    }
+    if (msg.method === "Debugger.getScriptSource") return answer(msg, s);
+    s.reply({ id: msg.id, result: { result: { value: "[]" } } });
+  });
+}
+
+test("a script whose source the inspector refuses is left out, and the save still succeeds", async () => {
+  const dir = scratch();
+  try {
+    const socket = sourcing((msg, s) => s.reply({ id: msg.id, error: { message: "No script for id" } }));
+    const cover = await coverWorker(9229, dir, { connect: async () => socket });
+    assert.equal(await cover.save(join(dir, "worker-1.json")), 0);
+    assert.equal(socket.sent.at(-1), "Debugger.getScriptSource");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("an inspector that closes or goes silent while scripts are read fails the save and writes no dump", async () => {
+  const dir = scratch();
+  try {
+    const file = join(dir, "worker-1.json");
+    const closing = await coverWorker(9229, dir, { connect: async () => sourcing((msg, s) => s.close()) });
+    await assert.rejects(closing.save(file), /^Error: Debugger\.getScriptSource: the Worker's inspector on 9229 closed$/);
+    const silent = await coverWorker(9229, dir, { connect: async () => sourcing(() => {}), limit: 1 });
+    await assert.rejects(silent.save(file), /^Error: Debugger\.getScriptSource: the Worker's inspector on 9229 gave no answer in 1 ms$/);
+    assert.equal(existsSync(file), false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("an inspector that closes before coverage starts fails the start", async () => {

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { v8Flags } from "./inspect.mjs";
-import { mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
+import { keepLines, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
@@ -22,6 +22,7 @@ export function ownsFile(file) {
 
 export function collect(dir, { searchDir = join(root, ".wrangler", "tmp") } = {}) {
   const files = new Map();
+  const mapped = new Set();
   const add = (file, lines) => {
     if (ownsFile(file)) mergeLines(files, file, lines);
   };
@@ -33,7 +34,10 @@ export function collect(dir, { searchDir = join(root, ".wrangler", "tmp") } = {}
       if (script.startup) offsetCounts(script.source, script.startup).forEach((n, i) => (counts[i] = Math.max(counts[i], n)));
       const found = script.map ? { map: script.map, dir: script.mapDir } : sourceMapOf(script, searchDir);
       if (found) {
-        for (const [file, lines] of mappedLines(script.source, counts, found.map, found.dir)) add(file, lines);
+        for (const [file, lines] of mappedLines(script.source, counts, found.map, found.dir)) {
+          mapped.add(file);
+          add(file, lines);
+        }
       } else if (script.url.startsWith("file:")) {
         add(fileURLToPath(script.url), plainLines(script.source, counts));
       } else if (script.sourceMapURL || /[#@]\s*sourceMappingURL=/.test(script.source || "")) {
@@ -50,7 +54,8 @@ export function collect(dir, { searchDir = join(root, ".wrangler", "tmp") } = {}
       const file = fileURLToPath(entry.url);
       if (!ownsFile(file) || !existsSync(file)) continue;
       const source = readFileSync(file, "utf8");
-      add(file, plainLines(source, offsetCounts(source, entry.functions)));
+      const lines = plainLines(source, offsetCounts(source, entry.functions));
+      add(file, mapped.has(file) ? keepLines(lines, files.get(file)) : lines);
     }
   }
   return files;
