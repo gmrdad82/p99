@@ -114,3 +114,4 @@ commit/de0451409135:src/config.rs:466 a fake vault reference in the tests that P
 commit/de0451409135:src/config.rs:574 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/de0451409135:src/config.rs:580 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/de0451409135:src/config.rs:581 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
+commit/de0451409135:src/config.rs:611 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
