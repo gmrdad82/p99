@@ -495,7 +495,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
 fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), String> {
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let account = account_of(config, global, host.as_deref())?;
-    if !crate::config::key_overridden()
+    if !crate::config::key_overridden(config, &account)
         && config
             .accounts
             .get(&account)
@@ -706,7 +706,7 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
         );
     }
     let agent = &global.agent;
-    let holder = crate::config::key_holder(config, global.account.as_deref())?;
+    let holder = crate::config::key_holder(config)?;
     for account in config.accounts.keys() {
         if global.account.as_ref().is_some_and(|a| a != account) {
             continue;
@@ -1166,16 +1166,12 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     if let Some(found) = demo_list(global, args) {
         return listed(found, false, global);
     }
-    let (accounts, holder): (Vec<String>, Option<String>) = if args.all && global.account.is_none()
-    {
-        (
-            config.accounts.keys().cloned().collect(),
-            crate::config::key_holder(config, None)?,
-        )
+    let accounts: Vec<String> = if args.all && global.account.is_none() {
+        config.accounts.keys().cloned().collect()
     } else {
-        let account = account_of(config, global, args.host.as_deref())?;
-        (vec![account.clone()], Some(account))
+        vec![account_of(config, global, args.host.as_deref())?]
     };
+    let holder = crate::config::key_holder(config)?;
     if accounts.is_empty() {
         return Err("no account yet; run p99 setup".into());
     }

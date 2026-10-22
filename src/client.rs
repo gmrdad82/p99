@@ -56,7 +56,8 @@ impl Client {
         account: &str,
         agent: &Option<Option<String>>,
     ) -> Result<Client, String> {
-        Client::among(config, account, Some(account), agent)
+        let holder = crate::config::key_holder(config)?;
+        Client::among(config, account, holder.as_deref(), agent)
     }
 
     pub fn among(
