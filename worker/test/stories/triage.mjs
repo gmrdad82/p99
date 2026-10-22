@@ -28,8 +28,8 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     patch: (key, body) => call("PATCH", `/_p99/v1/issues/${key}?host=${HOST}`, { actor, body }),
     move: (body) => call("POST", `/_p99/v1/move?host=${HOST}`, { actor, body }),
     list: (params = "") => call("GET", `/_p99/v1/issues?scope=all&host=${HOST}&limit=100${params ? `&${params}` : ""}`, { actor }),
-    boards: () => call("GET", `/_p99/v1/boards?host=${HOST}`, { actor }),
-    board: (id) => call("GET", `/_p99/v1/boards/${id}?host=${HOST}`, { actor }),
+    board: () => call("GET", `/_p99/v1/board?host=${HOST}`, { actor }),
+    rename: (id, name) => call("PATCH", `/_p99/v1/labels/${id}`, { actor, body: { name } }),
   });
   const ada = session(ADA);
   const grace = session(GRACE);
@@ -42,22 +42,15 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     assert.equal(answer.status, 200, JSON.stringify(answer.json));
     return answer.json.issues.map((i) => i.key);
   };
-  const ownBoard = async (who) => {
-    const listed = await who.boards();
-    assert.equal(listed.status, 200, JSON.stringify(listed.json));
-    const mine = listed.json.boards.find((b) => b.mine);
-    assert.ok(mine, JSON.stringify(listed.json));
-    return mine;
-  };
   const labelEvents = (thread) => thread.events.filter((e) => e.kind === "label");
 
   const put = await call("PUT", `/_p99/v1/hosts/${HOST}`, { body: { env: "production", config: {} } });
   assert.equal(put.status, 200, JSON.stringify(put.json));
-  const board = await ownBoard(ada);
-  await ownBoard(grace);
-  assert.equal(board.columns.length, 4, JSON.stringify(board));
-  const [inbox, doing, review, done] = board.columns.map((c) => c.label);
-  assert.equal(board.columns[3].closes, true, JSON.stringify(board));
+  const lanes = (await ada.board()).json.board.lanes;
+  assert.equal(lanes.length, 7, JSON.stringify(lanes));
+  const [inbox, doing, review, done] = [lanes[0], lanes[2], lanes[5], lanes[6]].map((l) => l.label);
+  assert.equal(lanes[6].closes, true, JSON.stringify(lanes));
+  const laneIds = (await call("GET", "/_p99/v1/labels", { actor: ADA })).json.labels.map((l) => l.id);
 
   await check("triage: the owner finds an item by any word, without accents, Hebrew or Arabic without their marks, by emoji or by key; % _ and \\ match only themselves; no match is an empty list; an over-long query is refused plainly", async () => {
     const titles = {
@@ -226,31 +219,31 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
 
     const ours = new Set(seen);
     const lane = async () => {
-      const page = await ada.board(board.id);
+      const page = await ada.board();
       assert.equal(page.status, 200, JSON.stringify(page.json));
       return page.json.cards.filter((c) => c.label === doing && ours.has(c.key)).map((c) => c.key);
     };
     const parked = [];
     for (const key of seen.slice(0, 12)) {
-      const moved = await ada.move({ key, from: inbox, to: doing, board: board.id, after: parked.at(-1) });
+      const moved = await ada.move({ key, from: inbox, to: doing, after: parked.at(-1) });
       assert.equal(moved.status, 200, JSON.stringify(moved.json));
       parked.push(key);
     }
     assert.deepEqual(await lane(), parked);
-    const all = (await ada.board(board.id)).json.cards;
+    const all = (await ada.board()).json.cards;
     assert.ok(all.length >= MANY, `the board shows ${all.length} cards`);
     assert.equal(new Set(all.map((c) => c.key)).size, all.length);
     const middle = seen[300];
-    const placed = await ada.move({ key: middle, from: inbox, to: doing, board: board.id, after: parked[5] });
+    const placed = await ada.move({ key: middle, from: inbox, to: doing, after: parked[5] });
     assert.equal(placed.status, 200, JSON.stringify(placed.json));
     assert.deepEqual(await lane(), [...parked.slice(0, 6), middle, ...parked.slice(6)]);
-    const inboxLane = (await ada.board(board.id)).json.cards.filter((c) => c.label === inbox).map((c) => c.key);
+    const inboxLane = (await ada.board()).json.cards.filter((c) => c.label === inbox).map((c) => c.key);
     const tail = seen.slice(12).filter((k) => k !== middle);
     const wanted = inboxLane.filter((k) => tail.includes(k));
     assert.deepEqual(wanted, tail, "the cards left in the inbox lost their order");
-    const between = await ada.move({ key: seen[400], from: inbox, to: inbox, board: board.id, before: tail[0] });
+    const between = await ada.move({ key: seen[400], from: inbox, to: inbox, before: tail[0] });
     assert.equal(between.status, 200, JSON.stringify(between.json));
-    const reordered = (await ada.board(board.id)).json.cards.filter((c) => c.label === inbox).map((c) => c.key);
+    const reordered = (await ada.board()).json.cards.filter((c) => c.label === inbox).map((c) => c.key);
     assert.equal(reordered.indexOf(seen[400]) + 1, reordered.indexOf(tail[0]));
   });
 
@@ -269,8 +262,7 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
       assert.equal((await ada.get(key)).json.issue.label, end);
       assert.equal((await grace.get(key)).json.issue.label, end);
       for (const who of [ada, grace]) {
-        const own = await ownBoard(who);
-        const cards = (await who.board(own.id)).json.cards.filter((c) => c.key === key);
+        const cards = (await who.board()).json.cards.filter((c) => c.key === key);
         assert.ok(cards.length <= 1, JSON.stringify(cards));
         if (cards.length === 1) assert.equal(cards[0].label, end);
       }
@@ -301,26 +293,24 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
   });
 
   await check("triage: a label filter finds a label whatever its case, accents included, as a move does", async () => {
-    const accents = await call("POST", `/_p99/v1/boards?host=${HOST}`, {
-      actor: ADA,
-      body: { name: "Accents", columns: [inbox, "Évalué", done] },
-    });
-    assert.equal(accents.status, 201, JSON.stringify(accents.json));
+    const accents = await ada.rename(laneIds[1], "Évalué");
+    assert.equal(accents.status, 200, JSON.stringify(accents.json));
     const key = await filed(ada, { title: "Judged" });
-    assert.equal((await ada.move({ key, from: inbox, to: "évalué", board: accents.json.id })).status, 200);
+    assert.equal((await ada.move({ key, from: inbox, to: "évalué" })).status, 200);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("évalué")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("EVALUE")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("  évalué ")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évaluée")}`)), []);
-    assert.equal((await ada.move({ key, from: "ÉVALUÉ", to: inbox, board: accents.json.id })).status, 200);
+    assert.equal((await ada.move({ key, from: "ÉVALUÉ", to: inbox })).status, 200);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Évalué")}`)), []);
+    assert.equal((await ada.rename(laneIds[1], lanes[1].label)).status, 200);
   });
 
   await check("triage: a filter or a move by a lane's name in another case with a dotted capital or a diaeresis finds that lane", async () => {
-    assert.ok(/i/i.test(doing) && /i/i.test(review), JSON.stringify([doing, review]));
+    assert.ok(/i/i.test(doing) && /e/i.test(review), JSON.stringify([doing, review]));
     const shouted = doing.toUpperCase().replace(/I/g, "İ");
-    const marked = review.toLowerCase().replace(/i/g, "ï");
+    const marked = review.toLowerCase().replace(/e/g, "ë");
     const key = await filed(ada, { title: "Dotted capitals" });
     assert.equal((await ada.move({ key, from: inbox, to: shouted })).status, 200);
     const byShout = keysOf(await ada.list(`label=${encodeURIComponent(shouted)}`));
@@ -451,30 +441,31 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     assert.equal(blank.status, 400, JSON.stringify(blank.json));
   });
 
-  await check("triage: two labels whose names fold alike stay apart: an exact name wins, and a card moved between them answers 409", async () => {
-    const twins = await call("POST", `/_p99/v1/boards?host=${HOST}`, { actor: ADA, body: { name: "Twins", columns: [inbox, "Révisé", "revise", done] } });
-    assert.equal(twins.status, 201, JSON.stringify(twins.json));
-    const id = twins.json.id;
+  await check("triage: two lanes whose names fold alike stay apart: an exact name wins, and a card moved between them answers 409", async () => {
+    assert.equal((await ada.rename(laneIds[1], "Révisé")).status, 200);
+    assert.equal((await ada.rename(laneIds[4], "revise")).status, 200);
     const key = await filed(ada, { title: "Between twins" });
-    assert.equal((await ada.move({ key, from: inbox, to: "revise", board: id })).status, 200);
+    assert.equal((await ada.move({ key, from: inbox, to: "revise" })).status, 200);
     assert.equal((await ada.get(key)).json.issue.label, "revise");
     assert.deepEqual(keysOf(await ada.list("label=revise")), [key]);
     assert.deepEqual(keysOf(await ada.list("label=REVISE")), [key]);
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), []);
-    assert.equal((await ada.move({ key, from: "Revise", to: "Révisé", board: id })).status, 200);
+    assert.equal((await ada.move({ key, from: "Revise", to: "Révisé" })).status, 200);
     assert.equal((await ada.get(key)).json.issue.label, "Révisé");
     assert.deepEqual(keysOf(await ada.list(`label=${encodeURIComponent("Révisé")}`)), [key]);
     assert.deepEqual(keysOf(await ada.list("label=revise")), []);
-    const stale = await ada.move({ key, from: "revise", to: done, board: id });
+    const stale = await ada.move({ key, from: "revise", to: done });
     assert.equal(stale.status, 409, JSON.stringify(stale.json));
     assert.equal((await ada.get(key)).json.issue.label, "Révisé");
-    assert.equal((await ada.move({ key, from: "RÉVISÉ", to: "revise", board: id })).status, 200);
+    assert.equal((await ada.move({ key, from: "RÉVISÉ", to: "revise" })).status, 200);
     assert.equal((await ada.get(key)).json.issue.label, "revise");
-    for (const move of [{ key, from: "revise", to: "RÉVISÉ" }, { key, from: "revise", to: "RÉVISÉ", board: id }]) {
+    for (const move of [{ key, from: "revise", to: "RÉVISÉ" }, { key, from: "revise", to: "RÉVISÉ", board: 1 }]) {
       const both = await ada.move(move);
       assert.equal(both.status, 400, JSON.stringify(both.json));
-      assert.match(both.json.message, /RÉVISÉ names more than one label; give its exact name/);
+      assert.match(both.json.message, /RÉVISÉ names more than one lane; give its exact name/);
       assert.equal((await ada.get(key)).json.issue.label, "revise");
     }
+    assert.equal((await ada.rename(laneIds[1], lanes[1].label)).status, 200);
+    assert.equal((await ada.rename(laneIds[4], lanes[4].label)).status, 200);
   });
 }

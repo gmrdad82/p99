@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS archived (
 );
 
 INSERT INTO boards (name, host, owner, created_at, updated_at, cards)
-SELECT 'Cards', NULL, (SELECT email FROM codes WHERE manager = 1 ORDER BY revoked_at IS NOT NULL, id LIMIT 1),
+SELECT 'Cards', NULL, (SELECT email FROM codes WHERE manager = 1 AND revoked_at IS NULL ORDER BY id LIMIT 1),
   strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), 1
 WHERE NOT EXISTS (SELECT 1 FROM boards WHERE cards = 1);
 
@@ -32,17 +32,21 @@ WHERE (SELECT count(*) FROM board_columns bc JOIN boards b ON b.id = bc.board_id
 ON CONFLICT (name) DO NOTHING;
 
 UPDATE board_columns SET position = position + 1
-WHERE board_id = (SELECT id FROM boards WHERE cards = 1) AND position >= 3
-  AND (SELECT count(*) FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1) = 6;
+WHERE board_id = (SELECT id FROM boards WHERE cards = 1)
+  AND position >= (SELECT bc.position FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1 ORDER BY bc.position LIMIT 1 OFFSET 3)
+  AND (SELECT count(*) FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1) = 6
+  AND NOT EXISTS (SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 AND l.name = 'Needs you');
 
 INSERT INTO board_columns (board_id, label_id, position)
-SELECT b.id, l.id, 3 FROM boards b JOIN labels l ON l.name = 'Needs you'
+SELECT b.id, l.id, (SELECT max(bc.position) FROM board_columns bc WHERE bc.board_id = b.id AND bc.position < (
+    SELECT o.position FROM board_columns o WHERE o.board_id = b.id ORDER BY o.position LIMIT 1 OFFSET 3)) + 1
+FROM boards b JOIN labels l ON l.name = 'Needs you'
 WHERE b.cards = 1 AND (SELECT count(*) FROM board_columns bc WHERE bc.board_id = b.id) = 6
-  AND NOT EXISTS (SELECT 1 FROM board_columns bc WHERE bc.board_id = b.id AND bc.position = 3);
+  AND NOT EXISTS (SELECT 1 FROM board_columns bc JOIN boards b ON b.id = bc.board_id JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 AND l.name = 'Needs you');
 
 DROP TABLE IF EXISTS one_lanes;
 CREATE TABLE one_lanes AS
-SELECT bc.position AS lane, bc.label_id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1;
+SELECT row_number() OVER (ORDER BY bc.position) - 1 AS lane, bc.label_id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1;
 
 UPDATE labels SET closes = CASE WHEN id = (SELECT label_id FROM one_lanes WHERE lane = 6) THEN 1 ELSE 0 END
 WHERE id IN (SELECT label_id FROM one_lanes);
@@ -51,7 +55,7 @@ DROP TABLE IF EXISTS one_rank;
 CREATE TABLE one_rank AS
 SELECT b.id AS board_id,
   row_number() OVER (
-    ORDER BY CASE WHEN b.cards = 0 AND b.owner IS (SELECT email FROM codes WHERE manager = 1 ORDER BY revoked_at IS NOT NULL, id LIMIT 1) THEN 0 ELSE 1 END,
+    ORDER BY CASE WHEN b.cards = 0 AND b.owner IS (SELECT email FROM codes WHERE manager = 1 AND revoked_at IS NULL ORDER BY id LIMIT 1) THEN 0 ELSE 1 END,
       b.created_at, b.id
   ) AS rank
 FROM boards b;
@@ -71,8 +75,9 @@ SELECT i.id AS item_id, i.label_id AS from_id, l.name AS from_name,
     ELSE 2
   END) AS to_id
 FROM items i JOIN labels l ON l.id = i.label_id
-WHERE i.label_id NOT IN (SELECT label_id FROM one_lanes)
-  AND NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold');
+WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold')
+  AND (i.label_id NOT IN (SELECT label_id FROM one_lanes)
+    OR (i.open = 0) <> (i.label_id = (SELECT label_id FROM one_lanes WHERE lane = 6)));
 
 INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at, actor_via)
 SELECT m.item_id, NULL, 0, 'label', json_object('from', m.from_name, 'to', l.name, 'migrated', json('true')), 1,
@@ -82,15 +87,16 @@ ORDER BY m.item_id;
 
 DROP TABLE IF EXISTS one_order;
 CREATE TABLE one_order AS
-SELECT x.item_id, x.label_id, row_number() OVER (PARTITION BY x.label_id ORDER BY x.rank IS NULL, x.rank, x.key, x.item_id DESC) - 1 AS n
-FROM (
-  SELECT i.id AS item_id, COALESCE(m.to_id, i.label_id) AS label_id,
-    (SELECT r.rank FROM board_positions bp JOIN one_rank r ON r.board_id = bp.board_id
-     WHERE bp.item_id = i.id AND bp.label_id = i.label_id ORDER BY r.rank LIMIT 1) AS rank,
-    (SELECT bp.key FROM board_positions bp JOIN one_rank r ON r.board_id = bp.board_id
-     WHERE bp.item_id = i.id AND bp.label_id = i.label_id ORDER BY r.rank LIMIT 1) AS key
-  FROM items i LEFT JOIN one_map m ON m.item_id = i.id
-) x
+WITH placed AS (
+  SELECT bp.item_id, r.rank, bc.position AS col, bp.key,
+    row_number() OVER (PARTITION BY bp.item_id ORDER BY r.rank, bc.position IS NULL) AS nth
+  FROM board_positions bp JOIN items i ON i.id = bp.item_id AND i.label_id = bp.label_id
+  JOIN one_rank r ON r.board_id = bp.board_id
+  LEFT JOIN board_columns bc ON bc.board_id = bp.board_id AND bc.label_id = bp.label_id
+)
+SELECT i.id AS item_id, COALESCE(m.to_id, i.label_id) AS label_id,
+  row_number() OVER (PARTITION BY COALESCE(m.to_id, i.label_id) ORDER BY p.rank IS NULL, p.rank, p.col, p.key, i.id DESC) - 1 AS n
+FROM items i LEFT JOIN one_map m ON m.item_id = i.id LEFT JOIN placed p ON p.item_id = i.id AND p.nth = 1
 WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold');
 
 UPDATE items SET label_id = (SELECT m.to_id FROM one_map m WHERE m.item_id = items.id)
@@ -108,14 +114,15 @@ SELECT (SELECT id FROM boards WHERE cards = 1), o.item_id, o.label_id,
 FROM one_order o WHERE true
 ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key;
 
-UPDATE labels SET role = NULL WHERE role IN ('inbox', 'doing', 'review');
+UPDATE labels SET role = NULL WHERE role IS NOT NULL AND (SELECT count(*) FROM one_lanes) = 7;
 
 UPDATE labels SET role = CASE id
     WHEN (SELECT label_id FROM one_lanes WHERE lane = 0) THEN 'inbox'
     WHEN (SELECT label_id FROM one_lanes WHERE lane = 2) THEN 'doing'
-    ELSE 'review'
+    WHEN (SELECT label_id FROM one_lanes WHERE lane = 5) THEN 'review'
+    ELSE 'done'
   END
-WHERE id IN (SELECT label_id FROM one_lanes WHERE lane IN (0, 2, 5));
+WHERE id IN (SELECT label_id FROM one_lanes WHERE lane IN (0, 2, 5, 6)) AND (SELECT count(*) FROM one_lanes) = 7;
 
 INSERT OR IGNORE INTO archived (kind, id, at)
 SELECT 'board', id, strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM boards WHERE cards = 0;

@@ -267,7 +267,7 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
     const farTitle = `${marker} heard far away`;
     const loud = (await call("POST", `/_p99/v1/issues?host=${there}`, { body: issueBody({ title: farTitle }) })).json.key;
     assert.equal((await call("POST", `/_p99/v1/issues/${loud}/comments?host=${there}`, { body: { client_uid: randomUUID(), body: "Far reply." } })).status, 201);
-    assert.equal((await call("POST", `/_p99/v1/move?host=${there}`, { body: { key: loud, from: "Inbox", to: "Building" } })).status, 200);
+    assert.equal((await call("POST", `/_p99/v1/move?host=${there}`, { body: { key: loud, from: "New", to: "in-progress" } })).status, 200);
     for (const title of ["Beacon one", "Beacon two"]) {
       const beacon = (await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title }) })).json.key;
       await until(`${title} on both streams`, () => [heard, heardSigned].every((list) => list.some((e) => e.key === beacon)));
@@ -757,10 +757,8 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       type: "text/plain",
     });
     assert.equal(trace.status, 201, trace.text);
-    assert.equal((await signed("GET", `/_p99/v1/boards?host=${NEAR}`)).status, 200);
-    const qa = await signed("POST", `/_p99/v1/boards?host=${NEAR}`, { body: { name: "QA", columns: ["Inbox", "QA ready", "Done"] } });
-    assert.equal(qa.status, 201, qa.text);
-    const moved = await signed("POST", `/_p99/v1/move?host=${NEAR}`, { body: { key, from: "Inbox", to: "QA ready", board: qa.json.id } });
+    assert.equal((await signed("GET", `/_p99/v1/board?host=${NEAR}`)).status, 200);
+    const moved = await signed("POST", `/_p99/v1/move?host=${NEAR}`, { body: { key, from: "New", to: "landed" } });
     assert.equal(moved.status, 200, moved.text);
     assert.equal((await signed("POST", `/_p99/v1/issues?host=${FAR}`, { body: issueBody({ title: "Far side" }) })).status, 201);
     const doomed = await signed("POST", `/_p99/v1/issues?host=${NEAR}`, { body: issueBody({ title: "The newest, deleted before the backup" }) });
@@ -770,7 +768,8 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
       const thread = (await signed("GET", `/_p99/v1/issues/${key}?host=${NEAR}`)).json;
       const files = [];
       for (const a of thread.attachments) files.push((await signed("GET", `/_p99/v1/files/${a.id}?host=${NEAR}`)).raw.toString("utf8"));
-      const boards = (await signed("GET", `/_p99/v1/boards?host=${NEAR}`)).json.boards.map((b) => [b.id, b.name, b.columns]);
+      const one = (await signed("GET", `/_p99/v1/board?host=${NEAR}`)).json;
+      const boards = [one.board.lanes, one.cards.filter((cd) => cd.key === key).map((cd) => [cd.status, cd.label, cd.order])];
       const codes = (await signed("GET", "/_p99/v1/codes")).json;
       return {
         issue: [thread.issue.key, thread.issue.title, thread.issue.body, thread.issue.label, thread.issue.stage, thread.issue.host],
