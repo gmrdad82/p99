@@ -3,8 +3,18 @@ use std::process::{Command, Output, Stdio};
 const LANES: [&str; 6] = ["New", "Planned", "In progress", "Stuck", "Landed", "Done"];
 const CARDS: [&str; 6] = ["FEAT-23", "TASK-24", "BUG-25", "BUG-26", "FEAT-27", "TASK-28"];
 
+fn home() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("p99-stories-marks-home")
+}
+
+#[test]
+fn the_stories_home_stays_in_the_build_tree_never_the_host_tmp() {
+    assert!(home().starts_with(env!("CARGO_TARGET_TMPDIR")));
+    assert!(!home().starts_with(std::env::temp_dir()));
+}
+
 fn p99(args: &[&str]) -> Output {
-    let home = std::env::temp_dir().join("p99-stories-marks-home");
+    let home = home();
     Command::new(env!("CARGO_BIN_EXE_p99"))
         .args(args)
         .env("HOME", &home)

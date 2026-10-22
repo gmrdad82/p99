@@ -56,7 +56,7 @@ Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each agai
 
 **The panel loads on the first click.** It files bugs, ideas, improvements, questions and tasks, lists what the person sent with what's new for them, and shows each thread with its replies, files, status changes and where its fix has landed. It follows the page's light or dark scheme and takes the site's colours through CSS variables.
 
-<p align="center"><img src="docs/images/panel-light.png" width="49%" alt="The P99 panel open over a light checkout page on item BUG-2: the report, a manager's reply, the reporter's answer, a status change to in progress and a reply from Ada Lovelace* (an agent acting for her)."> <img src="docs/images/panel-dark.png" width="49%" alt="The same panel and thread in the dark scheme."></p>
+<p align="center"><img src="docs/images/panel-light.png" width="49%" alt="The P99 panel open over a light checkout page on item BUG-2: the report, a manager's reply, the reporter's answer, a status change to in progress and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/panel-dark.png" width="49%" alt="The same panel and thread in the dark scheme."></p>
 
 **A board for the people who run the site.** A manager opens "Board" in the panel and gets the site's board over the page: four columns (Inbox, Doing, Review, Done, each one renameable), cards to drag with the mouse, a finger or the keyboard, and boards nested as cards inside other boards, each showing how much of it is done. A move made anywhere, in the browser, the terminal or by an agent, slides into place on every open board within about a second. The board's code loads only when a manager opens it.
 
@@ -72,7 +72,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 <p align="center"><img src="docs/images/pitomd-corner.png" width="40%" alt="The corner of the Splicer page at the top: the P99 buttons at their usual offset."> <img src="docs/images/pitomd-corner-scrolled.png" width="40%" alt="The same corner after scrolling: the site's back-to-top button has appeared and the P99 buttons sit just above it."></p>
 
-<p align="center"><img src="docs/images/pitomd-panel-light.png" width="49%" alt="The P99 panel over a light cream section of the Splicer page on item BUG-2: the report, a reply from Ada Lovelace, the reporter's answer, a status change and a reply from Ada Lovelace* (an agent acting for her)."> <img src="docs/images/pitomd-panel-dark.png" width="49%" alt="The same thread in the dark scheme over the page's dark oxblood pricing section."></p>
+<p align="center"><img src="docs/images/pitomd-panel-light.png" width="49%" alt="The P99 panel over a light cream section of the Splicer page on item BUG-2: the report, a reply from Ada Lovelace, the reporter's answer, a status change and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/pitomd-panel-dark.png" width="49%" alt="The same thread in the dark scheme over the page's dark oxblood pricing section."></p>
 
 ## In your terminal
 
@@ -80,11 +80,11 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists items from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the status set to resolved, and the view switches to one host."></p>
 
-<p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace* (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role, the code's last four characters, when it was last used, and whether it is active."></p>
+<p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace 🤖 (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role, the code's last four characters, when it was last used, and whether it is active."></p>
 
 **Boards.** Every item carries one label, its state, and a board is one manager's columns of labels, in that person's order: the top matters most, and there is no priority field to fill. Moving a card gives the item that column's label, so it shows on every board with that column; a shared label is a handoff between people. Others watch a board read-only. `p99 move BUG-12 --to Doing` does it from a script or an agent; `p99 boards`, `p99 board` and `p99 labels` list them, with `--json`.
 
-**A CLI for people and agents.** Every command answers `--json`. An agent acting for you runs with `--agent` (or `P99_AGENT=1`), and its items, comments and changes show as your name with an asterisk, `Ada Lovelace*`, so your words and your agent's never look alike.
+**A CLI for people and agents.** Every command answers `--json`. An agent acting for you runs with `--agent` (or `P99_AGENT=1`), and its items, comments and changes show as your name with a robot, `Ada Lovelace 🤖`, so your words and your agent's never look alike.
 
 ```
 p99 list --all --status open
@@ -100,7 +100,7 @@ p99 move BUG-12 --to Done
 ```
 $ p99 watch --host shop.example.com
 BUG-12  item  shop.example.com  Grace Hopper: The total does not update
-BUG-12  comment  shop.example.com  Ada Lovelace*: The total does not update
+BUG-12  comment  shop.example.com  Ada Lovelace 🤖: The total does not update
 BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 ```
 

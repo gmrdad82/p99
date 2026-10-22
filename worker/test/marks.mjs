@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { ROBOT, MAX_VIA_CHARS } from "../src/cards.js";
 import { actorName } from "../src/hooks.js";
 import { actorWord } from "../src/deletes.js";
-import { composeMail } from "../src/mail.js";
 
 const LABEL = "pci·splicer·writer";
 const GRACE = { email: "grace@example.com", name: "Grace Hopper" };
@@ -18,7 +17,7 @@ async function until(what, ok) {
   assert.fail(`waited for ${what}`);
 }
 
-export async function markChecks({ call, browse, mint, check, issueBody, here, sent = [] }) {
+export async function markChecks({ call, browse, mint, check, issueBody, here, sent = [], listen = null, hookHits = null }) {
   const file = async (actor, title) => {
     const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { actor, body: issueBody({ title }) });
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
@@ -147,10 +146,113 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
     assert.equal(actorWord({ actor: null }), "P99");
   });
 
-  await check(`a mail's subject and lead carry the actor's name as given, ${ROBOT} included, in text and HTML`, async () => {
-    const m = composeMail({ template: "comment_to_managers", key: "BUG-7", title: "Totals", body: "Fixed.", actorName: `Grace Hopper ${ROBOT}`, link: null, optOut: null, theme: null });
-    assert.equal(m.subject, `[BUG-7] New comment from Grace Hopper ${ROBOT}`);
-    assert.ok(m.text.startsWith(`Grace Hopper ${ROBOT} wrote on BUG-7`));
-    assert.ok(m.html.includes(`Grace Hopper ${ROBOT} wrote on BUG-7`));
+  await check("an agent's merge keeps its label on the merge events of both items", async () => {
+    const into = await file(person(), "Marks: merge target");
+    const from = await file(person(), "Marks: merge source");
+    const merged = await call("POST", `/_p99/v1/merge?host=${here}`, { actor: agent(LABEL), body: { items: [from.key], into: into.key } });
+    assert.equal(merged.status, 200, JSON.stringify(merged.json));
+    for (const key of [into.key, from.key]) {
+      const merges = (await thread(key)).events.filter((e) => e.kind === "merge");
+      assert.equal(merges.length, 1, key);
+      assert.deepEqual([merges[0].agent, merges[0].via], [true, LABEL], key);
+    }
   });
+
+  await check("an agent's delete keeps its label on the status event of each duplicate it reopens", async () => {
+    const into = await file(person(), "Marks: deleted target");
+    const from = await file(person(), "Marks: duplicate to reopen");
+    assert.equal((await call("POST", `/_p99/v1/merge?host=${here}`, { body: { items: [from.key], into: into.key } })).status, 200);
+    const gone = await call("DELETE", `/_p99/v1/issues/${into.key}?host=${here}`, { actor: agent(LABEL) });
+    assert.ok(gone.status === 200 || gone.status === 204, JSON.stringify(gone.json));
+    const reopened = (await thread(from.key)).events.filter((e) => e.kind === "status" && e.detail && e.detail.deleted === into.key);
+    assert.equal(reopened.length, 1, JSON.stringify((await thread(from.key)).events));
+    assert.deepEqual([reopened[0].agent, reopened[0].via], [true, LABEL]);
+  });
+
+  await check("an agent's file keeps its label on the attachment event", async () => {
+    const filed = await file(person(), "Marks: an agent attaches a file");
+    const put = await call("PUT", `/_p99/v1/issues/${filed.key}/attachments/${randomUUID()}?host=${here}&name=trace.txt`, {
+      actor: agent(LABEL),
+      raw: Buffer.from("trace\n"),
+      type: "text/plain",
+    });
+    assert.equal(put.status, 201, JSON.stringify(put.json));
+    const attached = (await thread(filed.key)).events.filter((e) => e.kind === "attachment");
+    assert.equal(attached.length, 1);
+    assert.deepEqual([attached[0].agent, attached[0].via], [true, LABEL]);
+  });
+
+  await check("the mail event of an agent's reply carries the agent's label", async () => {
+    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    const filed = await browse("POST", "/issues", ada.secret, issueBody({ title: "Marks: the mail event is labelled" }));
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    await comment(filed.json.key, agent(LABEL), "The agent answers, and mail goes out.");
+    let mails = [];
+    await until("the mail event", async () => (mails = (await thread(filed.json.key)).events.filter((e) => e.kind === "mail")).length > 0);
+    for (const e of mails) assert.deepEqual([e.agent, e.via], [true, LABEL]);
+  });
+
+  await check("an imported agent keeps its label on the item, the comment and the event; a person's stray label is dropped; a non-string is refused", async () => {
+    const stamp = "2025-04-01T10:00:00Z";
+    const records = [
+      {
+        type: "item", key: "BUG-9701", kind: "bug", title: "Marks: imported by an agent", body: "", status: "inbox", duplicate_of: null,
+        reporter: { email: GRACE.email, name: GRACE.name, agent: true, via: LABEL }, assignee: null, env: null, page: null,
+        context: {}, marks: [], created_at: stamp, updated_at: stamp, closed_at: null,
+      },
+      { type: "comment", item: "BUG-9701", uid: "marks-import-agent", author: { ...GRACE, agent: true, via: LABEL, manager: true }, body: "An agent's note.", internal: false, created_at: stamp },
+      { type: "comment", item: "BUG-9701", uid: "marks-import-person", author: { ...GRACE, agent: false, via: "pci", manager: true }, body: "A person's note.", internal: false, created_at: "2025-04-01T11:00:00Z" },
+      { type: "event", item: "BUG-9701", actor: { email: GRACE.email, agent: true, via: LABEL }, kind: "label", detail: {}, internal: false, at: "2025-04-01T12:00:00Z" },
+    ];
+    const done = await call("POST", `/_p99/v1/import?host=${here}&dry_run=0`, { body: records });
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    assert.equal((await call("POST", `/_p99/v1/import/finish?host=${here}`, { body: { items: ["BUG-9701"], duplicates: [] } })).status, 200);
+    const t = await thread("BUG-9701");
+    assert.deepEqual([t.issue.reporter.agent, t.issue.reporter.via], [true, LABEL]);
+    const by = Object.fromEntries(t.comments.map((c) => [c.body, c.author]));
+    assert.deepEqual([by["An agent's note."].agent, by["An agent's note."].via], [true, LABEL]);
+    assert.deepEqual([by["A person's note."].agent, by["A person's note."].via], [false, null]);
+    const imported = t.events.find((e) => e.at === "2025-04-01T12:00:00Z" || e.at === "2025-04-01T12:00:00.000Z");
+    assert.ok(imported, JSON.stringify(t.events));
+    assert.deepEqual([imported.agent, imported.via], [true, LABEL]);
+    for (const via of [42, ["pci"]]) {
+      const bad = [{ ...records[0], key: "BUG-9702", reporter: { ...records[0].reporter, via } }];
+      assert.equal((await call("POST", `/_p99/v1/import?host=${here}&dry_run=1`, { body: bad })).status, 400, JSON.stringify(via));
+    }
+  });
+
+  if (listen) {
+    await check("the live stream names an agent's change with its label in by.via, a person's with none", async () => {
+      const heard = [];
+      const stream = await listen(`/_p99/v1/stream?host=${here}`, heard);
+      try {
+        const byAgent = await file(agent(LABEL), "Marks: heard live from an agent");
+        const byPerson = await file(person("pci"), "Marks: heard live from a person");
+        await until("both live events", () => heard.some((e) => e.key === byAgent.key) && heard.some((e) => e.key === byPerson.key));
+        const a = heard.find((e) => e.key === byAgent.key);
+        const p = heard.find((e) => e.key === byPerson.key);
+        assert.deepEqual([a.by.agent, a.by.via], [true, LABEL]);
+        assert.deepEqual([p.by.agent, p.by.via], [false, null]);
+      } finally {
+        stream.close();
+      }
+    });
+  }
+
+  if (hookHits) {
+    await check(`a posted Slack hook names an agent with ${ROBOT} and never an asterisk`, async () => {
+      const slack = `https://hooks.slack.com/services/T0001/B0002/${randomUUID().replaceAll("-", "")}`;
+      assert.equal((await call("PUT", `/_p99/v1/hooks/${here}`, { body: { service: "slack", url: slack, events: ["new"] } })).status, 200);
+      try {
+        hookHits.length = 0;
+        const filed = await file(agent(LABEL), "Marks: the hook sees the robot");
+        await until("the hook post", () => hookHits.some((h) => JSON.stringify(h.body).includes(filed.key)));
+        const said = JSON.stringify(hookHits.find((h) => JSON.stringify(h.body).includes(filed.key)).body);
+        assert.ok(said.includes(`Grace Hopper ${ROBOT}`), said);
+        assert.equal(said.includes("Hopper*"), false);
+      } finally {
+        await call("DELETE", `/_p99/v1/hooks/${here}?service=slack`);
+      }
+    });
+  }
 }

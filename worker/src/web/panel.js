@@ -471,7 +471,7 @@ function boardModule() {
 function openBoard() {
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
-  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, only: shownKeys, picked: picked(), pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, only: shownKeys, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function pickWord() {
   const p = picked();
@@ -800,9 +800,10 @@ function keepPick(p) {
   try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (x) {}
   return S.pick;
 }
+function siteHost() { return o.space || location.hostname; }
 function cardQuery(p, cursor) {
   const q = new URLSearchParams();
-  if (p.view === "site") q.set("host", o.host);
+  if (p.view === "site" && !o.space) q.set("host", siteHost());
   if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
   if (p.view === "landed") q.set("status", "landed");
   if (p.source) q.set("source", p.source);
@@ -817,9 +818,8 @@ function shownKeys() {
     ((res && res[field]) || []).forEach((r) => keys.add(r.key));
     return res && res.next_cursor && left > 1 ? read(path, field, res.next_cursor, left - 1) : keys;
   });
-  if (p.view === "all") return read((c) => listQuery({ scope: "all", status: "any" }, c), "issues", null, 5);
-  const every = Object.assign({}, p);
-  return read((c) => cardQuery(every, c) + (p.view === "landed" ? "" : "&status=new&status=planned&status=in-progress&status=stuck&status=landed&status=done"), "cards", null, 5);
+  if (p.view === "all") return read((c) => listQuery({ scope: "all", status: "any" }, c) + "&limit=100", "issues", null, 5);
+  return read((c) => cardQuery(p, c) + "&limit=500" + (p.view === "landed" ? "" : "&status=new&status=planned&status=in-progress&status=stuck&status=landed&status=done"), "cards", null, 5);
 }
 function pickBar() {
   if (!me || !me.manager) return null;
@@ -979,11 +979,11 @@ function cardRow(c) {
   if (c.changed_by) meta.push(" · ", h("span", { class: "p99-reporter" }, person(c.changed_by, false, "")));
   meta.push(" · ", h("time", { text: when(c.changed_at || c.created_at) }));
   if (c.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: c.comments }, c.comments) }));
-  const here = !c.host || c.host === o.host;
+  const here = !c.host || c.host === siteHost();
   const go = here
     ? { href: "#p99=" + c.key, onclick: (e) => { e.preventDefault(); item(c.key); } }
     : { href: "https://" + c.host + "/#p99=" + c.key, target: "_blank", rel: "noopener noreferrer" };
-  return h("li", { class: "p99-item p99-card-row", "data-status": c.status === "done" ? "done:fixed" : "doing", "data-lane": c.status, "data-kind": c.kind },
+  return h("li", { class: "p99-item p99-card-row", "data-lane": c.status, "data-kind": c.kind },
     h("a", go,
       h("span", { class: "p99-key", text: c.key }),
       h("b", { class: "p99-item-title", text: c.title }),

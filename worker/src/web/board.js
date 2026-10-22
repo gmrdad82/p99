@@ -105,7 +105,7 @@ const CSS = `
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, filter: null, keep: null, keeping: null, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, filter: null, keep: null, keeping: null, keepSeq: 0, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   if (B.el && B.root !== ctx.root) {
@@ -118,7 +118,7 @@ export function open(ctx) {
   }
   B.ctx = ctx;
   B.keep = null;
-  B.keeping = (typeof ctx.only === "function" ? Promise.resolve().then(ctx.only) : Promise.resolve(null)).then((k) => (B.keep = k instanceof Set ? k : null), () => (B.keep = null));
+  keeping();
   if (!B.el) build(ctx.root);
   if (!B.open) show();
   return load(ctx.board || B.id || remembered());
@@ -891,8 +891,16 @@ function hang() {
   state("off");
 }
 
+function keeping() {
+  const n = ++B.keepSeq;
+  const only = B.ctx && B.ctx.only;
+  const take = (k) => { if (n === B.keepSeq) B.keep = k instanceof Set ? k : null; };
+  B.keeping = (typeof only === "function" ? Promise.resolve().then(only) : Promise.resolve(null)).then(take, () => take(null));
+}
+
 function refresh() {
   B.stale = false;
+  if (B.ctx && typeof B.ctx.only === "function") keeping();
   clearTimeout(B.reload);
   B.boards = null;
   return load(B.want || B.id);

@@ -2652,15 +2652,22 @@ function importFlag(value, what) {
   return value;
 }
 
+function importVia(value, agent, what) {
+  if (value !== undefined && value !== null && typeof value !== "string") fail(400, `${what} must be a string`);
+  return agent ? actorVia(value) : null;
+}
+
 function importPerson(value, what) {
   if (!isObject(value)) fail(400, `${what} must be an object with an email`);
   const email = importEmail(value.email, `${what}.email`);
   const name = value.name ?? "";
   if (!isText(name, 0, 200)) fail(400, `${what}.name must be at most 200 characters`);
+  const agent = importFlag(value.agent, `${what}.agent`);
   return {
     email,
     name: name.trim() || email,
-    agent: importFlag(value.agent, `${what}.agent`),
+    agent,
+    via: importVia(value.via, agent, `${what}.via`),
     manager: importFlag(value.manager, `${what}.manager`),
   };
 }
@@ -2777,6 +2784,7 @@ function importRecord(r, host) {
       item,
       email,
       agent: actor ? importFlag(actor.agent, "actor.agent") : false,
+      via: actor ? importVia(actor.via, importFlag(actor.agent, "actor.agent"), "actor.via") : null,
       kind: r.kind,
       detailJson,
       internal: importFlag(r.internal, "internal"),
@@ -2844,9 +2852,9 @@ function importItemStatement(DB, r, host) {
   return DB.prepare(
     `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
        reporter_email, reporter_name, reporter_json, reporter_agent, assignee, duplicate_of, context_json, marks_json,
-       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at, resolution)
+       search_text, activity_at, public_activity_at, created_at, updated_at, closed_at, resolution, reporter_via)
      VALUES (?1, ?2, ?3, (SELECT id FROM labels WHERE role = ?4), ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17,
-       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24, ?25)`,
+       (SELECT id FROM items WHERE id = ?18), ?19, ?20, ?21, ?22, ?22, ?23, ?22, ?24, ?25, ?26)`,
   ).bind(
     r.id,
     `import-${r.id}`,
@@ -2873,6 +2881,7 @@ function importItemStatement(DB, r, host) {
     r.createdAt,
     r.closedAt,
     r.resolution,
+    r.reporter.via,
   );
 }
 
@@ -2880,16 +2889,16 @@ function importItemStatement(DB, r, host) {
 function importCommentStatement(DB, r) {
   return DB.prepare(
     `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env,
-       created_at, author_agent)
-     SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, origin_env, ?8, ?9 FROM items WHERE id = ?1`,
-  ).bind(r.item, r.uid, r.author.email, r.author.name, r.author.manager ? 1 : 0, r.body, r.internal ? 1 : 0, r.createdAt, r.author.agent ? 1 : 0);
+       created_at, author_agent, author_via)
+     SELECT id, ?2, ?3, ?4, ?5, ?6, ?7, origin_env, ?8, ?9, ?10 FROM items WHERE id = ?1`,
+  ).bind(r.item, r.uid, r.author.email, r.author.name, r.author.manager ? 1 : 0, r.body, r.internal ? 1 : 0, r.createdAt, r.author.agent ? 1 : 0, r.author.via);
 }
 
 function importRowStatement(DB, r) {
   if (r.type === "event") {
     return DB.prepare(
-      "INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-    ).bind(r.item, r.email, r.agent ? 1 : 0, r.kind, r.detailJson, r.internal ? 1 : 0, r.at);
+      "INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at, actor_via) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+    ).bind(r.item, r.email, r.agent ? 1 : 0, r.kind, r.detailJson, r.internal ? 1 : 0, r.at, r.via);
   }
   if (r.type === "landing") {
     return DB.prepare("INSERT INTO landings (item_id, env, sha, at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT DO NOTHING").bind(
