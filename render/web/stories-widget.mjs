@@ -140,6 +140,26 @@ function refuseWrites() {
   }
 }
 
+function watchFetch() {
+  const real = window.fetch;
+  window.__p99Fetched = [];
+  window.fetch = function (u, ...rest) {
+    window.__p99Fetched.push(new URL(String(u instanceof Request ? u.url : u), location.href).pathname);
+    return real.call(this, u, ...rest);
+  };
+}
+
+function hideable() {
+  let hidden = false;
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+  Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+  window.__p99Hide = (h) => {
+    hidden = h;
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+}
+
+const CLOCK = Date.UTC(2026, 0, 5, 9);
 const S = (sel) => `p99-root >> .p99-panel.is-open ${sel}`;
 const TITLE = S(".p99-new input[name=title]");
 const SEND = S(".p99-new .p99-actions button[type=submit]");
@@ -390,32 +410,378 @@ try {
     await ctx.close();
   });
 
-  await story("a visitor slowed by the per-minute limit on arrival isn't dropped into a report form they didn't ask for", async () => {
+  const busyCode = await mint("Grace Hopper", "grace.busy@example.com");
+  const busyVisit = async (statuses) => {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
     await ctx.addInitScript(openShadow);
-    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) =>
-      route.fulfill({ status: 429, contentType: "application/json", body: JSON.stringify({ error: "rate_limited", message: "too many requests with this code; try again in a minute" }) }),
-    );
-    const p = await ctx.newPage();
-    const panels = [];
-    p.on("request", (r) => {
-      if (new URL(r.url()).pathname === "/_p99/panel.js") panels.push(r.url());
+    await ctx.addInitScript(hideable);
+    await ctx.addInitScript(watchFetch);
+    const seen = [];
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => {
+      const status = statuses[seen.length];
+      seen.push(typeof status === "object" ? 200 : status || 200);
+      if (!status) return route.fallback();
+      if (status === "hang") return;
+      if (typeof status === "object") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(status) });
+      return route.fulfill({ status, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
     });
-    const me = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/me", { timeout: 20000 });
-    await p.goto(`${PAGE}#p99=${code}`);
-    await me;
-    await frames(p);
-    let form = false;
-    if (panels.length) {
-      form = await p
-        .locator(S(".p99-new"))
-        .waitFor({ timeout: 15000 })
-        .then(() => true, () => false);
-    }
-    red(`no report form opens by itself (${panels.length ? "the panel loaded" : "the panel stayed shut"}${form ? " and showed the report form" : ""})`, "a 429 from /me right after a code link opens an empty report form unasked", !form);
-    check("the + is still there to report when they choose", await p.locator("p99-root >> .w .f").isVisible());
+    const p = await ctx.newPage();
+    const errors = [];
+    const panels = [];
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    p.on("requestfinished", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
+    await p.clock.install({ time: CLOCK });
+    await p.clock.pauseAt(CLOCK + 1000);
+    await p.goto(`${PAGE}#p99=${busyCode}`);
+    return { ctx, p, seen, errors, panels };
+  };
+  const busyLine = (p, s) => p.locator(S(`[data-view=busy] .p99-busy-line`), { hasText: `P99 is busy, trying again in ${s}s` }).waitFor({ timeout: 20000 }).then(() => true, () => false);
+  const signedIn = (p) =>
+    until("the panel to close signed in", () => p.evaluate(() => !document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open")), 20000).then(() => true, () => false);
+  const kept = (p) => p.evaluate(() => localStorage["p99:code"] || "");
+  const heard = (p) => p.evaluate(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-busy-heard")?.textContent || "");
+  const busyShown = (p) => p.locator(S("[data-view=busy]")).count();
+  const cached = (p) => p.evaluate(() => { try { return Boolean(JSON.parse(sessionStorage["p99:code"])[1].counts); } catch { return false; } });
+  const fetched = (p) => p.evaluate(() => window.__p99Fetched.slice());
+  const settle = (p, url) =>
+    p.evaluate(async (u) => {
+      await import(u);
+      for (let i = 0; i < 3; i++) await new Promise((r) => { const c = new MessageChannel(); c.port1.onmessage = r; c.port2.postMessage(0); });
+    }, url);
+  const styled = (list) => list.some((u) => u === "/_p99/p99.css");
+
+  for (const status of [429, 503]) {
+    await story(`a visitor whose code link meets a ${status} from a busy P99 is told so, waits, and is signed in without asking again`, async () => {
+      const { ctx, p, seen, errors } = await busyVisit([status]);
+      check(`a ${status} opens the panel signing them in, saying P99 is busy`, await busyLine(p, 1));
+      check("the panel shows no report form", (await p.locator(S(".p99-new")).count()) === 0);
+      check("its title says it is signing them in", (await p.locator(S("[data-view=busy] h2")).textContent()) === "Signing you in");
+      await p.clock.runFor(1000);
+      check(`the retry after 1 s signs them in and the panel closes (${seen.join(",")})`, await signedIn(p));
+      check(`/me was asked twice, the loader's and one retry (${seen.join(",")})`, seen.length === 2 && seen[1] === 200);
+      check("the code is kept, never asked for again", (await kept(p)) === busyCode);
+      check("the bar has their counts from the retry", await cached(p));
+      check("the + is there to report", await p.locator("p99-root >> .w .f").isVisible());
+      check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+      await ctx.close();
+    });
+  }
+
+  await story("a run of failures backs off 1, 2, 4, 8 then every 30 seconds, counting down, and signs in the moment /me answers", async () => {
+    const { ctx, p, seen, errors } = await busyVisit([503, 429, 500, 502, 503, 429]);
+    check("the first wait is 1 s", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    check("after one failed retry the wait is 2 s", await busyLine(p, 2));
+    await p.clock.runFor(1000);
+    check("and it counts down to 1 s", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    check("then 4 s", await busyLine(p, 4));
+    check(`a screen reader hears the new wait once (${await heard(p)})`, (await heard(p)) === "P99 is busy, trying again in 4s");
+    await p.clock.runFor(1000);
+    check(`and not every tick of the countdown (${await heard(p)})`, (await busyLine(p, 3)) && (await heard(p)) === "P99 is busy, trying again in 4s");
+    await p.clock.runFor(3000);
+    check("then 8 s", await busyLine(p, 8));
+    await p.clock.runFor(8000);
+    check("then 30 s", await busyLine(p, 30));
+    check(`five asks so far (${seen.length})`, seen.length === 5);
+    await p.clock.runFor(29000);
+    check(`nothing is asked before the 30 s are up (${seen.length})`, seen.length === 5 && (await busyLine(p, 1)));
+    await p.clock.runFor(1000);
+    check("after another failure it waits 30 s again", await busyLine(p, 30));
+    check("the panel never shows a report form", (await p.locator(S(".p99-new")).count()) === 0);
+    await p.clock.runFor(30000);
+    check(`the seventh ask answers and they are signed in (${seen.join(",")})`, (await signedIn(p)) && seen.length === 7);
+    check("the code is kept", (await kept(p)) === busyCode);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
     await ctx.close();
   });
+
+  await story("a visitor who switches away while P99 is busy is not retried until they come back", async () => {
+    const { ctx, p, seen } = await busyVisit([429]);
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await p.evaluate(() => window.__p99Hide(true));
+    await p.clock.runFor(120000);
+    check(`a hidden tab asks nothing more (${seen.length})`, seen.length === 1);
+    check("the line still waits", await busyLine(p, 1));
+    await p.evaluate(() => window.__p99Hide(false));
+    check(`back on the tab, the retry runs and signs them in (${seen.join(",")})`, (await signedIn(p)) && seen.length === 2);
+    check("the code is kept", (await kept(p)) === busyCode);
+    await ctx.close();
+  });
+
+  await story("a visitor who switches away mid-countdown finds it paused at the same second and counting on when they come back", async () => {
+    const { ctx, p, seen } = await busyVisit([503, 503, 503, 503]);
+    check("the first wait is 1 s", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    check("then 2 s", await busyLine(p, 2));
+    await p.clock.runFor(2000);
+    check("then 4 s", await busyLine(p, 4));
+    await p.clock.runFor(4000);
+    check(`after three failures the wait is 8 s (${seen.length})`, (await busyLine(p, 8)) && seen.length === 4);
+    await p.evaluate(() => window.__p99Hide(true));
+    await p.clock.runFor(60000);
+    check(`a hidden tab asks nothing in a minute (${seen.length})`, seen.length === 4);
+    check("the line still says 8 s", await busyLine(p, 8));
+    await p.evaluate(() => window.__p99Hide(false));
+    check("back on the tab it counts on from 7 s", await busyLine(p, 7));
+    await p.clock.runFor(6000);
+    check(`nothing is asked before the rest of the wait (${seen.length})`, seen.length === 4);
+    await p.clock.runFor(1000);
+    check(`then the retry signs them in (${seen.join(",")})`, (await signedIn(p)) && seen.length === 5);
+    await ctx.close();
+  });
+
+  await story("a visitor who shuts the panel while P99 is busy stops the retries, sees no form, and the + still reports", async () => {
+    const { ctx, p, seen, errors } = await busyVisit([503, 503]);
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    check(`one retry failed and the wait is 2 s (${seen.length})`, (await busyLine(p, 2)) && seen.length === 2);
+    await p.keyboard.press("Escape");
+    await until("the panel to shut", async () => !(await panelOpen(p)));
+    await p.clock.runFor(120000);
+    check(`no more asks once it is shut (${seen.length})`, seen.length === 2);
+    check("no report form opened on its own", !(await panelOpen(p)) && (await p.locator(S(".p99-new")).count()) === 0);
+    await openForm(p);
+    check("the + opens an ordinary report form", (await busyShown(p)) === 0 && (await p.locator(TITLE).isVisible()));
+    check(`the + asks /me once more and signs them in (${seen.join(",")})`, seen.length === 3 && seen[2] === 200);
+    check("the bar has their counts from that ask", await cached(p));
+    check("the code is kept", (await kept(p)) === busyCode);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a visitor who already opened + when the code link's /me comes back 503 keeps the form they are writing", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    let release;
+    const held = new Promise((r) => (release = r));
+    let first = true;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", async (route) => {
+      if (!first) return route.fallback();
+      first = false;
+      await held;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
+    });
+    const p = await ctx.newPage();
+    await p.goto(`${PAGE}#p99=${busyCode}`);
+    await openForm(p);
+    await p.locator(TITLE).fill("Half a sentence");
+    release();
+    await until("the held /me to answer", () => p.evaluate(() => performance.getEntriesByType("resource").filter((e) => e.name.includes("/_p99/api/me")).length >= 2));
+    await frames(p);
+    check("no busy view replaces the form", (await busyShown(p)) === 0);
+    check("the title they typed is still there", (await p.locator(TITLE).inputValue()) === "Half a sentence");
+    await ctx.close();
+  });
+
+  await story("a retry that never answers is given up after 10 seconds and tried again, so the countdown never sticks", async () => {
+    const { ctx, p, seen, errors } = await busyVisit([503, "hang"]);
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    await until("the retry that hangs", () => seen.length >= 2);
+    await p.clock.runFor(9999);
+    check(`the hung retry is still waited for just short of 10 s (${seen.length})`, seen.length === 2 && (await panelOpen(p)) && (await busyShown(p)) === 1);
+    await p.clock.runFor(1);
+    check("at 10 s it is given up and the next wait is 2 s", await busyLine(p, 2));
+    await p.clock.runFor(2000);
+    check(`the next retry signs them in (${seen.join(",")})`, (await signedIn(p)) && seen.length === 3);
+    check("the code is kept", (await kept(p)) === busyCode);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a retry that asks for the authenticator code confirms it and signs them in, never opening a report form", async () => {
+    const counts = { mine_unread: 0, mine_open: 0, page_open: 0 };
+    const { ctx, p, seen, errors } = await busyVisit([503, 428, { counts }]);
+    let device = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/verify", (route) => {
+      device++;
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ device: "d1" }) });
+    });
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    const asked = await p.locator(S("[data-view=verify] input[name=totp]")).waitFor({ timeout: 20000 }).then(() => true, () => false);
+    check("the 428 asks for the authenticator code", asked);
+    check("no report form is behind it", (await p.locator(S(".p99-new")).count()) === 0);
+    await p.locator(S("[data-view=verify] input[name=totp]")).fill("123456");
+    await p.locator(S("[data-view=verify] button[type=submit]")).click();
+    const closed = await signedIn(p);
+    check(`a good code signs them in and the panel closes (${seen.join(",")})`, closed && device === 1 && seen.length >= 3 && seen[2] === 200);
+    check("no report form opened on the way", (await p.locator(S(".p99-new")).count()) === 0);
+    check("the code is kept, now with this browser remembered", (await kept(p)) === `${busyCode.split(".")[0]}.d1`);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a visitor who clicks + just before the code link's 503 arrives gets the report form, not the busy view", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    const first = gate();
+    const second = gate();
+    let asks = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", async (route) => {
+      const n = ++asks;
+      if (n === 1) {
+        await first.opened;
+        return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
+      }
+      if (n === 2) await second.opened;
+      return route.fallback();
+    });
+    const p = await ctx.newPage();
+    await p.goto(`${PAGE}#p99=${busyCode}`);
+    await p.locator("p99-root >> .w .f").click();
+    await until("the + to ask /me", () => asks >= 2);
+    const busyAnswer = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/me" && r.status() === 503);
+    first.open();
+    await busyAnswer;
+    await frames(p);
+    second.open();
+    await p.locator(TITLE).waitFor({ timeout: 20000 });
+    await frames(p);
+    check("the report form they asked for is open", await p.locator(TITLE).isVisible());
+    check("no busy view replaced it", (await busyShown(p)) === 0);
+    await ctx.close();
+  });
+
+  await story("a returning visitor with no code link meets a 503 in silence: no panel, no form, and the + still reports", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    await ctx.addInitScript((c) => { try { localStorage["p99:code"] = c; } catch {} }, busyCode);
+    let asks = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => {
+      asks++;
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
+    });
+    const p = await ctx.newPage();
+    const panels = [];
+    p.on("request", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
+    await p.goto(PAGE);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the loader's /me", () => asks >= 1);
+    await until("the loader to read the 503", () => p.evaluate(() => performance.getEntriesByType("resource").some((e) => e.name.includes("/_p99/api/me"))));
+    await frames(p);
+    await frames(p);
+    check("no panel opens", !(await panelOpen(p)));
+    check(`the panel isn't even loaded for it (${panels.length})`, panels.length === 0);
+    check(`it asks once and does not retry on its own (${asks})`, asks === 1);
+    await openForm(p);
+    check("the + opens an ordinary report form", (await busyShown(p)) === 0);
+    await ctx.close();
+  });
+
+  await story("a code link whose /me answers an unexpected 404 opens no empty report form", async () => {
+    const { ctx, p, seen, panels } = await busyVisit([404]);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the loader's /me", () => seen.length >= 1);
+    await until("the panel module the 404 loads", () => panels.length >= 1);
+    await settle(p, panels[0]);
+    const asked = await fetched(p);
+    check("the panel stays shut", !(await panelOpen(p)));
+    check("no report form opened on its own", (await p.locator(S(".p99-new")).count()) === 0);
+    check(`the panel asks /me nothing more and loads no styles (${asked.join(",")})`, seen.length === 1 && asked.filter((u) => u === "/_p99/api/me").length === 1 && !styled(asked));
+    await p.evaluate(() => window.P99.open());
+    check("the + still opens an ordinary report form after it", await p.locator(TITLE).waitFor({ timeout: 20000 }).then(() => true, () => false));
+    await ctx.close();
+  });
+
+  await story("a visitor signed in from a code link who moves to another page while P99 is busy sees no panel and no form", async () => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce" });
+    await ctx.addInitScript(openShadow);
+    await ctx.addInitScript(watchFetch);
+    let asks = 0;
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => {
+      if (++asks === 1) return route.fallback();
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "busy", message: "busy" }) });
+    });
+    const p = await ctx.newPage();
+    const errors = [];
+    const panels = [];
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    p.on("requestfinished", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
+    await p.goto(`${PAGE}#p99=${busyCode}`);
+    await until("the code link's /me to sign them in", () => cached(p));
+    const busyAnswer = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/me" && r.status() === 503);
+    await p.evaluate(() => {
+      history.pushState(history.state, "", "/checkout/paid");
+      document.body.append(document.createElement("div"));
+    });
+    await busyAnswer;
+    await until("the panel module the 503 is handed to", () => panels.length >= 1);
+    await settle(p, panels[0]);
+    const asked = await fetched(p);
+    check(`the new page asked /me and met the 503 (${asks})`, asks === 2);
+    check("no panel opens", !(await panelOpen(p)));
+    check("no busy view and no report form", (await busyShown(p)) === 0 && (await p.locator(S(".p99-new")).count()) === 0);
+    check(`the panel asks nothing and loads no styles for it (${asked.join(",")})`, asked.filter((u) => u === "/_p99/api/me").length === 2 && !styled(asked));
+    check("the code is kept", (await kept(p)) === busyCode);
+    check("the + is there to report", await p.locator("p99-root >> .w .f").isVisible());
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a retry that meets an unexpected 404 says what went wrong and opens no report form", async () => {
+    const { ctx, p, seen, errors } = await busyVisit([503, 404]);
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await p.clock.runFor(1000);
+    const failed = await p.locator(S(".p99-failed .p99-error")).waitFor({ timeout: 20000 }).then(() => true, () => false);
+    check(`the panel says the retry failed (${seen.join(",")})`, failed && seen.length === 2);
+    check("the busy line is gone", (await busyShown(p)) === 0);
+    check("no report form opened", (await p.locator(S(".p99-new")).count()) === 0);
+    await p.clock.runFor(120000);
+    check(`nothing more is asked (${seen.length})`, seen.length === 2);
+    check("the code is kept", (await kept(p)) === busyCode);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a visitor who goes offline while P99 is busy is told they are offline, and signed in when back", async () => {
+    const { ctx, p } = await busyVisit([503]);
+    check("the panel says P99 is busy", await busyLine(p, 1));
+    await ctx.setOffline(true);
+    await p.clock.runFor(1000);
+    const offline = await p.locator(S(".p99-busy-line"), { hasText: "You're offline" }).waitFor({ timeout: 20000 }).then(() => true, () => false);
+    check("the line says they are offline, not that P99 is busy", offline);
+    check("the panel shows no report form", (await p.locator(S(".p99-new")).count()) === 0);
+    await ctx.setOffline(false);
+    await p.clock.runFor(2000);
+    check("back online, the retry signs them in", await signedIn(p));
+    check("the code is kept", (await kept(p)) === busyCode);
+    await ctx.close();
+  });
+
+  for (const [why, statuses] of [["a 401 straight away", [401]], ["a 403 straight away", [403]], ["a 401 on the retry", [429, 401]], ["a 403 on the retry", [429, 403]]]) {
+    await story(`a code refused with ${why} still says the link is no longer valid, and no form opens`, async () => {
+      const { ctx, p } = await busyVisit(statuses);
+      if (statuses.length > 1) {
+        check("the panel first says P99 is busy", await busyLine(p, 1));
+        await p.clock.runFor(1000);
+      }
+      const gone = await p.locator("p99-root >> .p99-gone").waitFor({ timeout: 20000 }).then(() => true, () => false);
+      check("the line by the button says the link isn't valid", gone && /isn't valid here/.test(await p.locator("p99-root >> .p99-gone").textContent()));
+      check("the panel is shut with no report form", !(await panelOpen(p)) && (await p.locator(S(".p99-new")).count()) === 0);
+      check("the site forgets the code", (await kept(p)) === "");
+      await ctx.close();
+    });
+  }
+
+  for (const status of [401, 403]) {
+    await story(`a visitor who shuts the busy panel and presses + when P99 comes back with a ${status} is told the link isn't valid, with no form`, async () => {
+      const { ctx, p, seen, errors, panels } = await busyVisit([503, status]);
+      check("the panel says P99 is busy", await busyLine(p, 1));
+      await p.keyboard.press("Escape");
+      await until("the panel to shut", async () => !(await panelOpen(p)));
+      await p.locator("p99-root >> .w .f").click();
+      const gone = await p.locator("p99-root >> .p99-gone").waitFor({ timeout: 20000 }).then(() => true, () => false);
+      await settle(p, panels[0]);
+      check(`the + asked /me once more and met the ${status} (${seen.join(",")})`, seen.length === 2 && seen[1] === status);
+      check("the line by the button says the link isn't valid", gone && /isn't valid here/.test(await p.locator("p99-root >> .p99-gone").textContent()));
+      check("the panel is shut with no report form", !(await panelOpen(p)) && (await p.locator(S(".p99-new")).count()) === 0);
+      check("the site forgets the code", (await kept(p)) === "");
+      check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+      await ctx.close();
+    });
+  }
 
   await story("a file over 20 MB is refused in the form by name, and the report still sends with the rest", async () => {
     const { ctx, p } = await visit();

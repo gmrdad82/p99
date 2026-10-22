@@ -4,6 +4,9 @@ const MAX_FILES = 30;
 const MAX_MARKS = 10;
 const SLOW_MS = 4000;
 const GIVE_UP_MS = 20000;
+const BUSY_S = [1, 2, 4, 8];
+const BUSY_EVERY_S = 30;
+const BUSY_GIVE_UP_MS = 10000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const PITOMD = "https://pitomd.com";
 const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
@@ -26,6 +29,8 @@ const WORDS = {
   close: "Close",
   loading: "Loading…",
   gone: "This P99 link isn't valid here. Ask for a new one.",
+  signing_in: "Signing you in",
+  busy: "P99 is busy, trying again in {n}s",
   verify_title: "Confirm it's you",
   verify_help: "Enter the 6-digit code your authenticator app shows for P99. This browser is remembered after that.",
   verify_label: "Code",
@@ -167,6 +172,8 @@ const still = matchMedia("(prefers-reduced-motion: reduce)");
 const dark = matchMedia("(prefers-color-scheme: dark)");
 
 export function open(opts) {
+  const v = opts.view;
+  if (typeof v === "number" && v && v !== 401 && v !== 403 && v !== 428 && (!busyView(v) || S.open || opts.me || me)) return Promise.resolve();
   if (opts.space && opts.root !== root) {
     S.assets = null;
     S.list = null;
@@ -178,13 +185,14 @@ export function open(opts) {
   o.host = o.root.host;
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
-  if (opts.view === 401) return Promise.resolve(gone());
+  if (v === 401 || v === 403) return Promise.resolve(gone());
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list" && !opts.space) return close();
   return ready.then(() => {
     show();
     const go = () => {
-      if (opts.key) item(opts.key);
+      if (busyView(v)) { if (!S.view) busy(); }
+      else if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
       else fileFlow();
     };
@@ -351,10 +359,10 @@ function download(a) {
 }
 
 function ensure() {
-  if (S.assets) return S.assets;
+  if (S.assets) return me || o.space || busyView(o.view) ? S.assets : S.assets.then(reask);
   root = o.root;
   const css = fetch("/_p99/p99.css?v=" + V).then((r) => (r.ok ? r.text() : "")).catch(() => "");
-  const self = me ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
+  const self = me || busyView(o.view) ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
   S.assets = Promise.all([css, self]).then(([text, m]) => {
     if (m) me = m;
     const base = new CSSStyleSheet();
@@ -368,6 +376,17 @@ function ensure() {
   });
   S.assets.catch(() => { S.assets = null; });
   return S.assets;
+}
+function reask() {
+  if (me) return me;
+  return call("GET", "/me?path=" + enc(location.pathname), null, null, AbortSignal.timeout(BUSY_GIVE_UP_MS)).then(adopt, (e) => {
+    if (!e || (e.status !== 401 && e.status !== 403)) return;
+    if (e.status === 403) {
+      close(true);
+      gone();
+    }
+    throw e;
+  });
 }
 function theme(t) {
   if (!t || typeof t !== "object") return "";
@@ -583,6 +602,75 @@ function verify(next) {
       });
   });
   mount(form, input);
+}
+function busyView(v) { return v === 429 || (typeof v === "number" && v >= 500); }
+function busyDelay(n) { return n < BUSY_S.length ? BUSY_S[n] : BUSY_EVERY_S; }
+function busy() {
+  let n = 0;
+  let left = busyDelay(0);
+  const line = h("p", { class: "p99-status-line p99-busy-line", "aria-hidden": "true" });
+  const heard = h("p", { class: "p99-sr p99-busy-heard", role: "status", "aria-live": "polite" });
+  const title = h("h2", { id: "p99-title", text: say("signing_in") });
+  const view = h("section", { class: "p99-view p99-busy", "data-view": "busy", "aria-busy": "true" }, title, line, heard);
+  const live = () => view.isConnected && S.open;
+  const word = () => (navigator.onLine ? say("busy", { n: left }) : say("offline"));
+  const draw = () => { line.textContent = word(); };
+  const tell = () => { heard.textContent = word(); };
+  const wake = () => {
+    if (document.visibilityState === "hidden") return;
+    document.removeEventListener("visibilitychange", wake);
+    if (live()) step();
+  };
+  const step = () => {
+    if (!live()) return;
+    if (document.visibilityState === "hidden") {
+      document.addEventListener("visibilitychange", wake);
+      return;
+    }
+    if (left > 0) {
+      draw();
+      left--;
+      setTimeout(step, 1000);
+      return;
+    }
+    attempt();
+  };
+  const attempt = () =>
+    call("GET", "/me?path=" + enc(location.pathname), null, null, AbortSignal.timeout(BUSY_GIVE_UP_MS)).then((m) => live() && signedIn(m), (e) => {
+      if (e && e.status === 428) {
+        if (S.open && S.verify) verify(() => (me ? signedIn(me) : busy()));
+        return;
+      }
+      if (!live()) return;
+      if (e && e.status === 403) {
+        close(true);
+        gone();
+        return;
+      }
+      if (e && e.status && !busyView(e.status)) {
+        failure(e);
+        return;
+      }
+      n++;
+      left = busyDelay(n);
+      tell();
+      step();
+    });
+  mount(view, title);
+  tell();
+  step();
+}
+function signedIn(m) {
+  adopt(m);
+  close(true);
+}
+function adopt(m) {
+  me = m;
+  try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
+  rehead();
+  if (o.space) return;
+  try { sessionStorage.setItem("p99:code", JSON.stringify([o.code + location.pathname + ((Date.now() / 6e4) | 0), m])); } catch (x) {}
+  if (o.refresh) o.refresh(1);
 }
 function mount(view, focus) {
   if (S.verify && !view.classList.contains("p99-verify")) return;
