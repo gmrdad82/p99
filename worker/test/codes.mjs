@@ -83,7 +83,8 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     const owner = await mint("Ada Lovelace", "ada.owner@example.com", [here], true);
     const target = await mint("Grace Hopper", "grace.target@example.com", [here]);
     await revoke(target.code.id);
-    assert.equal((await remove(target.code.id, { body: { force: true } })).status, 400);
+    const bodied = await remove(target.code.id, { body: { force: true } });
+    assert.deepEqual([bodied.status, bodied.json.message], [401, "the body does not match X-Content-SHA256"]);
     const fromBrowser = await browse("DELETE", `/codes/${target.code.id}`, owner.secret);
     assert.equal(fromBrowser.status, 404);
     assert.equal(rows("codes", target.code.id), 1);

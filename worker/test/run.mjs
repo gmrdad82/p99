@@ -688,7 +688,7 @@ async function run() {
     assert.equal(thread.status, 200, JSON.stringify(thread.json));
     assert.equal(thread.json.issue.key, "BUG-7");
     assert.equal(thread.json.issue.title, "The café menu shows the wrong price");
-    assert.deepEqual([thread.json.issue.label, thread.json.issue.stage], ["Building", "in_progress"]);
+    assert.deepEqual([thread.json.issue.label, thread.json.issue.stage], ["In progress", "in_progress"]);
     assert.equal(thread.json.issue.comments, 1);
     assert.equal(thread.json.issue.attachments, 1);
     assert.equal(thread.json.comments.length, 1);

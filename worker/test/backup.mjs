@@ -512,7 +512,7 @@ export async function backupChecks({ check, root }) {
     const spare = board(db, "Spare");
     const flaky = label(db, "Flaky");
     const ids = [];
-    for (let i = 0; i < 300; i++) ids.push(fileItem(db, `bulk-${i}`));
+    for (let i = 0; i < 1000; i++) ids.push(fileItem(db, `bulk-${i}`));
     const merged = ids[0];
     const target = ids[ids.length - 1];
     db.prepare("UPDATE items SET open = 0, resolution = 'duplicate', duplicate_of = ? WHERE id = ?").run(target, merged);

@@ -357,7 +357,10 @@ fn w_lists_what_needs_you_newest_first_and_enter_opens_the_card() {
     assert!(thread.contains("r reply"), "{thread}");
     let back = app.press("esc");
     assert!(back.contains("21 of 28 items"), "{back}");
-    assert!(!back.contains("Waveform drifts after a cut  "), "{back}");
+    assert!(
+        !back.contains("BUG-25  Waveform drifts after a cut"),
+        "{back}"
+    );
 }
 
 #[test]

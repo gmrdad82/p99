@@ -102,6 +102,9 @@ WHERE NOT EXISTS (SELECT 1 FROM archived WHERE kind = 'fold') AND (SELECT count(
 UPDATE items SET label_id = (SELECT m.to_id FROM one_map m WHERE m.item_id = items.id)
 WHERE id IN (SELECT item_id FROM one_map);
 
+UPDATE OR IGNORE item_labels SET label_id = (SELECT m.to_id FROM one_map m WHERE m.item_id = item_labels.item_id)
+WHERE EXISTS (SELECT 1 FROM one_map m WHERE m.item_id = item_labels.item_id AND m.from_id = item_labels.label_id);
+
 INSERT INTO board_positions (board_id, item_id, label_id, key)
 SELECT (SELECT id FROM boards WHERE cards = 1), o.item_id, o.label_id,
   CASE WHEN o.n < 62 THEN 'a' || substr('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz', o.n + 1, 1)

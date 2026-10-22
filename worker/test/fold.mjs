@@ -144,7 +144,8 @@ function counts(db) {
 }
 
 function dump(db) {
-  return Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all()]));
+  const has = (t) => db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t).n > 0;
+  return Object.fromEntries(TABLES.map((t) => [t, has(t) ? db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() : []]));
 }
 
 function seeded(root, extra = "") {
@@ -308,6 +309,20 @@ export async function foldChecks({ check, root }) {
     assert.deepEqual(roles, { inbox: "New", doing: "In progress", review: "Landed", done: "Done" });
     assert.equal(db.prepare("SELECT cards FROM boards WHERE id = 14").get().cards, 1);
     assert.equal(db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 1").get().n, 1);
+  });
+
+  await check("[fold] an item's row for its own old label follows it to its lane, so the fold makes no old tag; real tags stay as they were", async () => {
+    const db = seeded(root, "INSERT INTO item_labels (item_id, label_id) SELECT id, label_id FROM items WHERE id IN (2, 3);");
+    const tags = () => db.prepare("SELECT il.item_id, l.name FROM item_labels il JOIN labels l ON l.id = il.label_id JOIN items i ON i.id = il.item_id WHERE il.label_id <> i.label_id ORDER BY 1, 2").all().map((r) => [r.item_id, r.name]);
+    const before = tags();
+    fold(root, db);
+    assert.deepEqual(tags(), before);
+    assert.deepEqual(tags(), [[1, "legacy tag"]]);
+    const own = db.prepare("SELECT il.item_id, l.name FROM item_labels il JOIN labels l ON l.id = il.label_id WHERE il.item_id IN (2, 3) ORDER BY 1").all().map((r) => [r.item_id, r.name]);
+    assert.deepEqual(own, [[2, "In progress"], [3, "Landed"]]);
+    const once = dump(db).item_labels;
+    fold(root, db);
+    assert.deepEqual(dump(db).item_labels, once);
   });
 
   await check("[fold] each moved item gets one migrated label event with its old column's name and no actor, and nothing else does", async () => {

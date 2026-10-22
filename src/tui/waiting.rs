@@ -198,9 +198,7 @@ impl Source {
                     let client = match self.client(account, None) {
                         Ok(client) => client,
                         Err(error) => {
-                            if behind.is_none() {
-                                failed.get_or_insert(format!("{name}: {error}"));
-                            }
+                            failed.get_or_insert(format!("{name}: {error}"));
                             continue;
                         }
                     };
@@ -211,14 +209,10 @@ impl Source {
                             cards.extend(list.cards.into_iter().map(|card| (account, card)));
                         }
                         Err(error) if unrouted(&error) || older(&error) => {
-                            if failed.is_none() {
-                                behind.get_or_insert(account);
-                            }
+                            behind.get_or_insert(account);
                         }
                         Err(error) => {
-                            if behind.is_none() {
-                                failed.get_or_insert(format!("{name}: {error}"));
-                            }
+                            failed.get_or_insert(format!("{name}: {error}"));
                         }
                     }
                 }

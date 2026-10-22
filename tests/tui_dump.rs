@@ -54,7 +54,7 @@ fn keys_drive_the_dump_to_the_board_and_into_a_thread() {
         "tui", "--demo", "--dump", "120x34", "--keys", "tab",
     ]));
     assert!(
-        board.contains("New 8") && board.contains("In progress 6"),
+        board.contains("New 8") && board.contains("Needs you 1"),
         "{board}"
     );
     let thread = out(&p99(&[

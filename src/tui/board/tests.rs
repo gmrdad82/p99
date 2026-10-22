@@ -208,7 +208,9 @@ fn a_card_shows_its_project_on_its_bottom_edge_and_a_plain_item_none() {
         .map(|x| buffer[(x, y + 3)].symbol())
         .collect();
     assert!(bottom.starts_with("╰─ Storefront "), "{bottom}");
-    let at = spot(&buffer, " BUG-25 ", "Storefront");
+    let column = bottom.chars().take_while(|&c| c != 'S').count();
+    let at = (needs.x + column as u16, y + 3);
+    assert_eq!(buffer[at].symbol(), "S");
     assert_eq!(Some(buffer[at].fg), palette().accent.fg);
     let (_, y) = spot(&buffer, " FEAT-9 ", " FEAT-9 ");
     let new = board(&app).lanes[0];

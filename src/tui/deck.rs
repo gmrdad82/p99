@@ -174,7 +174,7 @@ pub fn patch(view: &mut BoardView, account: usize, event: &Value) -> Patch {
 }
 
 pub fn request(view: &BoardView, lane: &[&Card], card: &Card, column: usize, row: usize) -> Move {
-    let same = |c: &&&Card| c.account == card.account;
+    let same = |c: &&&Card| c.account == card.account && c.key != card.key;
     let before = lane.get(row..).and_then(|rest| rest.iter().find(same));
     let after = lane
         .get(..row.min(lane.len()))

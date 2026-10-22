@@ -258,7 +258,7 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
     assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"));
     for said in [
         "BUG-11  The total does not update after removing a line",
-        "Bug · Inbox · host shop.example.com · production",
+        "Bug · New · host shop.example.com · production",
         "/cart · unassigned",
         "Grace Hopper reported it 50m ago · updated 12m ago",
         "I removed the second lamp from my cart and the total still shows both.",

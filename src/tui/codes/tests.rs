@@ -311,8 +311,11 @@ fn d_on_an_active_code_says_revoke_it_first_and_asks_nothing() {
         refused.contains("…q81v") && refused.contains("4 codes"),
         "{refused}"
     );
-    let typed = app.press("q81v enter");
-    assert!(typed.contains("…q81v"), "{typed}");
+    let later = app.press("esc");
+    assert!(
+        later.contains("…q81v") && later.contains("4 codes"),
+        "{later}"
+    );
 }
 
 #[test]

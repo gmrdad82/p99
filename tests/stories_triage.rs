@@ -16,11 +16,14 @@ use unicode_normalization::char::is_combining_mark;
 
 const KEY: &str = "test-secret";
 const HOST: &str = "shop.example.com";
-const LANES: [(&str, bool); 4] = [
-    ("Inbox", false),
-    ("Doing", false),
-    ("Review", false),
-    ("Done", true),
+const LANES: [(&str, &str, bool); 7] = [
+    ("new", "New", false),
+    ("planned", "Planned", false),
+    ("in-progress", "In progress", false),
+    ("needs-you", "Needs you", false),
+    ("stuck", "Stuck", false),
+    ("landed", "Landed", false),
+    ("done", "Done", true),
 ];
 const DEADLINE: Duration = Duration::from_secs(40);
 const UNSAFE: &[char] = &[
@@ -244,7 +247,7 @@ impl Item {
             kind: "bug".to_owned(),
             title: title.to_owned(),
             body: String::new(),
-            label: "Inbox".to_owned(),
+            label: "New".to_owned(),
             host: HOST.to_owned(),
             assignee: None,
             resolution: None,
@@ -283,7 +286,7 @@ impl Item {
             Some("abandoned") => "dropped",
             Some("duplicate") => "duplicate",
             Some(_) => "fixed",
-            None if self.label == "Inbox" => "received",
+            None if self.label == "New" => "received",
             None => "in_progress",
         }
     }
@@ -335,6 +338,23 @@ impl Item {
         issue
     }
 
+    fn board_card(&self, at: usize) -> Value {
+        json!({
+            "key": self.key(),
+            "kind": self.kind,
+            "project": null,
+            "status": LANES[at].0,
+            "label": self.label,
+            "lane": if LANES[at].2 { Value::Null } else { json!(1) },
+            "title": self.title,
+            "host": self.host,
+            "assignee": self.assignee.clone().filter(|_| !self.nameless),
+            "order": null,
+            "changed_at": iso(self.updated),
+            "changed_by": null,
+        })
+    }
+
     fn card(&self) -> Value {
         json!({
             "key": self.key(),
@@ -347,45 +367,25 @@ impl Item {
     }
 }
 
-#[derive(Debug, Clone)]
-struct Board {
-    account: String,
-    id: i64,
-    name: String,
-    owner: String,
-    mine: bool,
-    columns: Vec<(String, bool)>,
+fn lane_of(raw: &str) -> Option<(usize, &'static str, &'static str, bool)> {
+    LANES
+        .iter()
+        .enumerate()
+        .find(|(_, (word, label, _))| *word == raw || label.eq_ignore_ascii_case(raw.trim()))
+        .map(|(at, (word, label, closes))| (at, *word, *label, *closes))
 }
 
-impl Board {
-    fn new(id: i64, name: &str, owner: &str, mine: bool, columns: &[(&str, bool)]) -> Board {
-        Board {
-            account: "main".to_owned(),
-            id,
-            name: name.to_owned(),
-            owner: owner.to_owned(),
-            mine,
-            columns: columns
-                .iter()
-                .map(|(label, closes)| ((*label).to_owned(), *closes))
-                .collect(),
-        }
-    }
-
-    fn json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "name": self.name,
-            "owner": {"username": self.owner},
-            "mine": self.mine,
-            "columns": self.columns.iter().map(|(label, closes)| json!({"label": label, "closes": closes})).collect::<Vec<_>>(),
-        })
-    }
+fn lanes_json() -> Value {
+    json!(
+        LANES
+            .iter()
+            .map(|(word, label, closes)| json!({"word": word, "label": label, "closes": closes}))
+            .collect::<Vec<_>>()
+    )
 }
 
 struct World {
     items: Vec<Item>,
-    boards: Vec<Board>,
     people: Vec<String>,
     me: String,
 }
@@ -394,7 +394,6 @@ impl World {
     fn new(items: Vec<Item>) -> World {
         World {
             items,
-            boards: vec![Board::new(7, "Shop", "ada.lovelace", true, &LANES)],
             people: vec!["ada.lovelace".to_owned(), "grace.hopper".to_owned()],
             me: "ada.lovelace".to_owned(),
         }
@@ -433,36 +432,39 @@ impl World {
             },
             ("PATCH", ["v1", "issues", key]) => self.patch(req, key),
             ("POST", ["v1", "move"]) => self.shift(req),
-            ("GET", ["v1", "boards"]) => {
-                let boards: Vec<Value> = self
-                    .boards
+            ("GET", ["v1", "board"]) => {
+                let statuses: Vec<&str> = req
+                    .query
                     .iter()
-                    .filter(|b| b.account == req.account)
-                    .map(Board::json)
+                    .filter(|(k, _)| k == "status")
+                    .map(|(_, v)| v.as_str())
                     .collect();
-                Reply::json(200, json!({ "boards": boards }))
-            }
-            ("GET", ["v1", "boards", id]) => {
-                let Some(board) = self
-                    .boards
-                    .iter()
-                    .find(|b| b.account == req.account && b.id.to_string() == *id)
-                else {
-                    return Reply::problem(404, "not_found", "no such board");
-                };
-                let mut cards: Vec<&Item> = self
+                let mut cards: Vec<(usize, &Item)> = self
                     .items
                     .iter()
-                    .filter(|i| {
-                        i.account == req.account && board.columns.iter().any(|(l, _)| *l == i.label)
-                    })
+                    .filter(|i| i.account == req.account)
+                    .filter_map(|i| lane_of(&i.label).map(|(at, ..)| (at, i)))
+                    .filter(|(at, _)| statuses.is_empty() || statuses.contains(&LANES[*at].0))
                     .collect();
-                cards.sort_by_key(|i| std::cmp::Reverse(i.id));
+                cards.sort_by_key(|(at, i)| (*at, std::cmp::Reverse(i.id)));
+                let cards: Vec<Value> = cards.iter().map(|(at, i)| i.board_card(*at)).collect();
                 Reply::json(
                     200,
-                    json!({"board": board.json(), "cards": cards.iter().map(|i| i.card()).collect::<Vec<_>>()}),
+                    json!({"board": {"lanes": lanes_json()}, "cards": cards}),
                 )
             }
+            ("GET", ["v1", "labels"]) => {
+                let labels: Vec<Value> = LANES
+                    .iter()
+                    .enumerate()
+                    .map(|(at, (word, label, closes))| json!({"id": 10 + at, "name": label, "word": word, "closes": closes, "boards": []}))
+                    .collect();
+                Reply::json(200, json!({ "labels": labels }))
+            }
+            ("GET", ["v1", "cards", "waiting"]) => {
+                Reply::json(200, json!({"count": 0, "cards": []}))
+            }
+            ("GET", ["v1", "projects"]) => Reply::json(200, json!({"projects": []})),
             ("GET", ["v1", "people"]) => {
                 let people: Vec<Value> = self
                     .people
@@ -553,7 +555,7 @@ impl World {
             match resolution.as_str() {
                 None => {
                     item.resolution = None;
-                    item.label = "Inbox".to_owned();
+                    item.label = "New".to_owned();
                 }
                 Some("duplicate") if of.is_none() => {
                     return Reply::problem(400, "bad_request", "a duplicate needs duplicate_of");
@@ -584,41 +586,19 @@ impl World {
                 .to_owned()
         };
         let (key, from, to) = (text("key"), text("from"), text("to"));
-        let columns: Vec<(String, bool)> = match body.get("board").and_then(Value::as_i64) {
-            Some(id) => match self
-                .boards
-                .iter()
-                .find(|b| b.account == req.account && b.id == id)
-            {
-                None => return Reply::problem(404, "not_found", "no such board"),
-                Some(b) if !b.mine => {
-                    return Reply::problem(
-                        403,
-                        "forbidden",
-                        "only its owner moves cards on a board; others watch it",
-                    );
-                }
-                Some(b) => b.columns.clone(),
-            },
-            None => self
-                .boards
-                .iter()
-                .filter(|b| b.account == req.account && b.mine)
-                .flat_map(|b| b.columns.clone())
-                .collect(),
-        };
-        let Some((label, closes)) = columns
-            .iter()
-            .find(|(l, _)| l.eq_ignore_ascii_case(&to))
-            .cloned()
-        else {
-            let said = format!("{to} is not a label on your boards");
+        let Some((_, _, label, closes)) = lane_of(&to) else {
+            let words: Vec<&str> = LANES.iter().map(|l| l.0).collect();
+            let said = format!(
+                "{to} is not a lane; give {} or a lane's name",
+                words.join(", ")
+            );
             return Reply::problem(400, "bad_request", &said);
         };
+        let label = label.to_owned();
         let Some(item) = self.item(&req.account, &key) else {
             return Reply::problem(404, "not_found", &format!("no item {key}"));
         };
-        if !item.label.eq_ignore_ascii_case(&from) {
+        if lane_of(&from).map(|l| l.2) != lane_of(&item.label).map(|l| l.2) {
             return Reply::problem(409, "moved", "this card moved; refreshed");
         }
         item.label = label;
@@ -1062,7 +1042,7 @@ fn an_owner_who_filters_the_list_sees_exactly_what_the_worker_was_asked_for() {
     let mut question = Item::new(3, "Is shipping free over 50?");
     question.kind = "question".to_owned();
     let mut doing = Item::new(2, "Crème brûlée photo is blurry");
-    doing.label = "Doing".to_owned();
+    doing.label = "In progress".to_owned();
     let stub = Stub::start(World::new(vec![
         Item::new(1, "Checkout total is wrong"),
         doing,
@@ -1090,12 +1070,19 @@ fn an_owner_who_filters_the_list_sees_exactly_what_the_worker_was_asked_for() {
     assert_eq!(first.param("host"), Some("*"));
 
     let picked = home.ok(&[
-        "list", HOST, "--label", "Doing", "--kind", "bug", "-q", "creme",
+        "list",
+        HOST,
+        "--label",
+        "In progress",
+        "--kind",
+        "bug",
+        "-q",
+        "creme",
     ]);
     assert!(has_key(&picked, "BUG-2"), "{picked}");
     assert_eq!(picked.lines().count(), 1, "{picked}");
     let last = stub.sent("GET", "/v1/issues").pop().unwrap();
-    assert_eq!(last.param("label"), Some("Doing"));
+    assert_eq!(last.param("label"), Some("In progress"));
     assert_eq!(last.param("kind"), Some("bug"));
     assert_eq!(last.param("q"), Some("creme"));
     assert_eq!(last.param("host"), Some(HOST));
@@ -1343,17 +1330,17 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
     let stub = Stub::start(World::new(vec![Item::new(12, "Checkout total is wrong")]));
     let home = Home::of("move", &stub);
 
-    let moved = home.ok(&["move", "BUG-12", "--to", "doing", "--host", HOST]);
-    assert_eq!(moved, "BUG-12 is in Doing\n");
+    let moved = home.ok(&["move", "BUG-12", "--to", "in-progress", "--host", HOST]);
+    assert_eq!(moved, "BUG-12 is in In progress\n");
     assert_eq!(
         moves(&stub),
-        [json!({"key": "12", "from": "Inbox", "to": "doing"})]
+        [json!({"key": "12", "from": "New", "to": "in-progress"})]
     );
     let shown = home.ok(&["show", "12", "--host", HOST]);
-    assert!(shown.starts_with("BUG-12  Bug  Doing\n"), "{shown}");
+    assert!(shown.starts_with("BUG-12  Bug  In progress\n"), "{shown}");
 
     let before = stub.seen().len();
-    let bad = home.run(&["move", "BUG-", "--to", "Doing"]);
+    let bad = home.run(&["move", "BUG-", "--to", "in-progress"]);
     lone_error(&bad, "BUG- is not an item key; try BUG-12 or 12");
     assert_eq!(
         stub.seen().len(),
@@ -1362,59 +1349,57 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
     );
 
     let stray = home.run(&["move", "12", "--to", "Shipped", "--host", HOST]);
-    lone_error(&stray, "Shipped is not a label on your boards (400)");
-    assert_eq!(stub.world(|w| w.get(12).label), "Doing");
+    lone_error(
+        &stray,
+        "Shipped is not a lane; give new, planned, in-progress, needs-you, stuck, landed, done or a lane's name",
+    );
+    assert!(!stray.err.contains("(400)"), "{}", stray.err);
+    assert_eq!(stub.world(|w| w.get(12).label), "In progress");
     stub.all_signed();
 }
 
 #[test]
-fn a_move_beside_a_card_lands_on_your_own_board_never_on_one_you_only_watch() {
-    let mut world = World::new(vec![
+fn a_move_beside_a_card_lands_in_that_lane_on_the_one_board_and_names_no_board() {
+    let stub = Stub::start(World::new(vec![
         Item::new(7, "Neighbour card"),
         Item::new(12, "Checkout total is wrong"),
-    ]);
-    world.boards.push(Board::new(
-        8,
-        "QA",
-        "grace.hopper",
-        false,
-        &[("Inbox", false), ("QA", false), ("Done", true)],
-    ));
-    let stub = Stub::start(world);
+    ]));
     let home = Home::of("beside", &stub);
 
     let placed = home.ok(&[
-        "move", "12", "--to", "Inbox", "--after", "BUG-7", "--host", HOST,
+        "move", "12", "--to", "new", "--after", "BUG-7", "--host", HOST,
     ]);
-    assert_eq!(placed, "BUG-12 is in Inbox on Shop\n");
+    assert_eq!(placed, "BUG-12 is in New\n");
     assert_eq!(
         moves(&stub),
-        [json!({"key": "12", "from": "Inbox", "to": "Inbox", "board": 7, "after": "7"})]
+        [json!({"key": "12", "from": "New", "to": "new", "after": "7"})]
     );
 
-    let watched = home.run(&[
-        "move", "12", "--to", "QA", "--after", "BUG-7", "--host", HOST,
+    let named = home.ok(&[
+        "move",
+        "12",
+        "--to",
+        "needs you",
+        "--before",
+        "BUG-7",
+        "--host",
+        HOST,
     ]);
-    lone_error(&watched, "none of your boards has a QA column");
+    assert_eq!(named, "BUG-12 is in Needs you\n");
     assert_eq!(
-        moves(&stub).len(),
-        1,
-        "a move went to a board you only watch"
+        moves(&stub)[1],
+        json!({"key": "12", "from": "New", "to": "needs you", "before": "7"})
     );
 
-    let board = home.ok(&["board", "@grace.hopper", "--host", HOST]);
+    let board = home.ok(&["board", "--host", HOST]);
     assert!(
-        board.starts_with("QA (@grace.hopper), watching\n"),
+        board.contains("New (1)") && board.contains("BUG-7"),
         "{board}"
     );
     assert!(
-        board.contains("Inbox (2)") && board.contains("BUG-12"),
+        board.contains("Needs you (1)") && board.contains("BUG-12"),
         "{board}"
     );
-    let mine = home.ok(&["board", "--host", HOST]);
-    assert!(mine.starts_with("Shop (yours)\n"), "{mine}");
-    let unknown = home.run(&["board", "Nope", "--host", HOST]);
-    lone_error(&unknown, "no board is called Nope; p99 boards lists them");
     stub.all_signed();
 }
 
@@ -1431,15 +1416,15 @@ fn two_sessions_moving_one_card_at_once_make_one_move_and_both_end_on_the_same_l
     );
     let ada = Home::of("race-ada", &stub);
     let grace = Home::of("race-grace", &stub);
-    let one = ada.command(&["move", "12", "--to", "Doing", "--host", HOST]);
-    let two = grace.command(&["move", "12", "--to", "Review", "--host", HOST]);
+    let one = ada.command(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    let two = grace.command(&["move", "12", "--to", "landed", "--host", HOST]);
     let one = thread::spawn(move || run(one));
     let two = thread::spawn(move || run(two));
     let (one, two) = (one.join().unwrap(), two.join().unwrap());
 
     let sent = moves(&stub);
     assert_eq!(sent.len(), 2);
-    assert!(sent.iter().all(|m| m["from"] == "Inbox"), "{sent:?}");
+    assert!(sent.iter().all(|m| m["from"] == "New"), "{sent:?}");
     let (won, lost) = match (one.code, two.code) {
         (Some(0), Some(1)) => (&one, &two),
         (Some(1), Some(0)) => (&two, &one),
@@ -1487,12 +1472,12 @@ fn raced_to(label: &'static str, reread: bool) -> Stub {
 
 #[test]
 fn a_move_that_loses_the_race_names_the_label_the_card_moved_to() {
-    let stub = raced_to("Review", true);
+    let stub = raced_to("Landed", true);
     let home = Home::of("raced-review", &stub);
-    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
+    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(
         &lost,
-        "BUG-12 moved to Review meanwhile; run it again to move it from there",
+        "BUG-12 moved to Landed meanwhile; run it again to move it from there",
     );
     assert!(!lost.err.contains("refreshed"), "{}", lost.err);
     assert_eq!(
@@ -1504,21 +1489,22 @@ fn a_move_that_loses_the_race_names_the_label_the_card_moved_to() {
 
 #[test]
 fn a_move_that_loses_the_race_to_the_same_label_says_nothing_is_left_to_move() {
-    let stub = raced_to("Doing", true);
+    let stub = raced_to("In progress", true);
     let home = Home::of("raced-same", &stub);
-    let lost = home.run(&["move", "12", "--to", "doing", "--host", HOST]);
+    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(
         &lost,
-        "BUG-12 moved to Doing meanwhile; nothing left to move",
+        "BUG-12 moved to In progress meanwhile; nothing left to move",
     );
 }
 
 #[test]
 fn a_move_that_loses_the_race_and_cannot_read_the_card_again_keeps_the_worker_words() {
-    let stub = raced_to("Review", false);
+    let stub = raced_to("Landed", false);
     let home = Home::of("raced-dark", &stub);
-    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
-    lone_error(&lost, "this card moved; refreshed (409)");
+    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    lone_error(&lost, "this card moved; refreshed");
+    assert!(!lost.err.contains("(409)"), "{}", lost.err);
 }
 
 #[test]
@@ -1526,13 +1512,18 @@ fn a_move_refused_for_another_reason_is_never_called_a_race() {
     let stub = Stub::hooked(
         World::new(vec![Item::new(12, "Checkout total is wrong")]),
         |req, _| {
-            req.is("POST", "/v1/move")
-                .then(|| Reply::problem(400, "bad_request", "Doing is not a label on your boards"))
+            req.is("POST", "/v1/move").then(|| {
+                Reply::problem(
+                    400,
+                    "bad_request",
+                    "a resolution goes with a label that closes",
+                )
+            })
         },
     );
     let home = Home::of("raced-not", &stub);
-    let lost = home.run(&["move", "12", "--to", "Doing", "--host", HOST]);
-    lone_error(&lost, "Doing is not a label on your boards (400)");
+    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    lone_error(&lost, "a resolution goes with a label that closes");
     assert!(!lost.err.contains("meanwhile"), "{}", lost.err);
     assert_eq!(
         stub.seen().iter().filter(|r| r.on_item("GET", 12)).count(),
@@ -1633,7 +1624,7 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
         "a duplicate needs --duplicate-of KEY",
     );
     lone_error(
-        &home.run(&["status", "12", "Doing", "--duplicate-of", "BUG-3"]),
+        &home.run(&["status", "12", "In progress", "--duplicate-of", "BUG-3"]),
         "--duplicate-of goes with duplicate",
     );
     assert_eq!(
@@ -1663,12 +1654,12 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
     );
 
     assert_eq!(
-        home.ok(&["status", "12", "Inbox", "--host", HOST]),
-        "BUG-12 is in Inbox\n"
+        home.ok(&["status", "12", "New", "--host", HOST]),
+        "BUG-12 is in New\n"
     );
     assert_eq!(
         moves(&stub),
-        [json!({"key": "12", "from": "Done", "to": "Inbox"})]
+        [json!({"key": "12", "from": "Done", "to": "New"})]
     );
     assert!(has_key(&home.ok(&["list"]), "BUG-12"));
     stub.all_signed();
@@ -1925,13 +1916,13 @@ fn a_move_from_the_item_sends_the_label_it_shows_and_says_where_the_item_went() 
     let moved = home.screen("120x30", "enter m down down enter");
     assert_eq!(
         moves(&stub),
-        [json!({"key": "BUG-12", "from": "Inbox", "to": "Review"})]
+        [json!({"key": "BUG-12", "from": "New", "to": "In progress"})]
     );
-    assert!(moved.contains("BUG-12 moved to Review"), "{moved}");
+    assert!(moved.contains("BUG-12 moved to In progress"), "{moved}");
     assert!(
         rows_with(&moved, "Bug ·")
             .iter()
-            .any(|l| l.contains("Review")),
+            .any(|l| l.contains("In progress")),
         "{moved}"
     );
     stub.all_signed();
@@ -1947,7 +1938,7 @@ fn a_move_after_another_session_moved_the_item_shows_where_it_is_now() {
                 return None;
             }
             let reply = world.answer(req);
-            world.items[0].label = "Doing".to_owned();
+            world.items[0].label = "Stuck".to_owned();
             Some(reply)
         },
     );
@@ -1955,11 +1946,11 @@ fn a_move_after_another_session_moved_the_item_shows_where_it_is_now() {
     let after = home.screen("120x30", "enter m down down enter");
     assert_eq!(
         moves(&stub),
-        [json!({"key": "BUG-12", "from": "Inbox", "to": "Review"})]
+        [json!({"key": "BUG-12", "from": "New", "to": "In progress"})]
     );
-    assert_eq!(stub.world(|w| w.get(12).label), "Doing");
+    assert_eq!(stub.world(|w| w.get(12).label), "Stuck");
     assert!(
-        after.contains("BUG-12 moved to Doing meanwhile; run it again to move it from there"),
+        after.contains("BUG-12 moved to Stuck meanwhile; run it again to move it from there"),
         "{after}"
     );
     assert!(!after.contains("refreshed"), "{after}");
@@ -1970,7 +1961,7 @@ fn a_move_after_another_session_moved_the_item_shows_where_it_is_now() {
     assert!(
         rows_with(&after, "Bug ·")
             .iter()
-            .any(|l| l.contains("Doing")),
+            .any(|l| l.contains("Stuck")),
         "the item still shows the label it no longer has:\n{after}"
     );
 }
@@ -2006,74 +1997,46 @@ fn a_card_dragged_on_your_board_moves_and_a_stale_drag_settles_where_the_other_s
     let sent = moves(&stub);
     assert_eq!(sent.len(), 1, "{dragged}");
     let key = sent[0]["key"].as_str().unwrap().to_owned();
-    assert_eq!(
-        sent[0],
-        json!({"key": key, "from": "Inbox", "to": "Doing", "board": 7})
-    );
+    assert_eq!(sent[0], json!({"key": key, "from": "New", "to": "planned"}));
     assert!(
-        dragged.contains("Doing 1") && dragged.contains("Inbox 1"),
+        dragged.contains("Planned 1") && dragged.contains("New 1"),
         "{dragged}"
     );
     assert!(
-        card_at(&dragged, &key) >= column_at(&dragged, "Doing 1"),
+        card_at(&dragged, &key) >= column_at(&dragged, "Planned 1"),
         "{dragged}"
     );
 
     let flipped = AtomicBool::new(false);
     let stale = Stub::hooked(world(), move |req, world| {
-        if !req.is("GET", "/v1/boards/7") || flipped.swap(true, Ordering::Relaxed) {
+        if !req.is("GET", "/v1/board") || flipped.swap(true, Ordering::Relaxed) {
             return None;
         }
         let reply = world.answer(req);
         for item in &mut world.items {
-            item.label = "Review".to_owned();
+            item.label = "Landed".to_owned();
         }
         Some(reply)
     });
     let home = Home::of("tui-stale-drag", &stale);
     let settled = home.screen("140x34", "tab space right enter");
     assert_eq!(moves(&stale).len(), 1);
-    assert_eq!(moves(&stale)[0]["from"], "Inbox");
+    assert_eq!(moves(&stale)[0]["from"], "New");
     let raced = moves(&stale)[0]["key"].as_str().unwrap().to_owned();
     assert!(
-        settled.contains(&format!("{raced} moved to Review meanwhile")),
+        settled.contains(&format!("{raced} moved to Landed meanwhile")),
         "{settled}"
     );
-    assert!(stale.sent("GET", "/v1/boards/7").len() >= 2);
-    assert!(settled.contains("Review 2"), "{settled}");
-    assert!(!settled.contains("Doing 1"), "{settled}");
+    assert!(stale.sent("GET", "/v1/board").len() >= 2);
+    assert!(settled.contains("Landed 2"), "{settled}");
+    assert!(!settled.contains("Planned 1"), "{settled}");
     for key in ["BUG-1", "BUG-2"] {
         assert!(
-            card_at(&settled, key) >= column_at(&settled, "Review 2"),
+            card_at(&settled, key) >= column_at(&settled, "Landed 2"),
             "{settled}"
         );
     }
     stale.all_signed();
-}
-
-#[test]
-fn a_board_you_only_watch_never_sends_a_move() {
-    let mut world = World::new(vec![
-        Item::new(1, "First card"),
-        Item::new(2, "Second card"),
-    ]);
-    world.boards = vec![Board::new(
-        8,
-        "QA",
-        "grace.hopper",
-        false,
-        &[("Inbox", false), ("QA", false), ("Done", true)],
-    )];
-    let stub = Stub::start(world);
-    let home = Home::of("tui-watch", &stub);
-    home.screen("160x34", "tab space right right enter");
-    assert!(moves(&stub).is_empty(), "a watched board sent a move");
-    assert_eq!(
-        stub.world(|w| (w.get(1).label, w.get(2).label)),
-        ("Inbox".to_owned(), "Inbox".to_owned())
-    );
-    let shown = home.screen("160x34", "tab");
-    assert!(shown.contains("watching @grace.hopper"), "{shown}");
 }
 
 #[test]
@@ -2113,7 +2076,7 @@ fn an_assignment_from_the_item_picks_a_member_and_a_refusal_changes_nothing() {
 fn a_drop_from_the_item_closes_it_and_a_label_reopens_it() {
     let stub = Stub::start(World::new(vec![Item::new(12, "Checkout total is wrong")]));
     let home = Home::of("tui-drop", &stub);
-    let dropped = home.screen("120x30", "enter m down down down down enter");
+    let dropped = home.screen("120x30", "enter m down down down down down down down enter");
     assert_eq!(
         patches(&stub, 12),
         [json!({"resolution": "abandoned"})],
@@ -2121,12 +2084,12 @@ fn a_drop_from_the_item_closes_it_and_a_label_reopens_it() {
     );
     assert!(dropped.contains("BUG-12 is Done (dropped)"), "{dropped}");
 
-    let reopened = home.screen("120x30", "s enter m up up up enter");
+    let reopened = home.screen("120x30", "s enter m up up up up up up enter");
     assert_eq!(
         moves(&stub),
-        [json!({"key": "BUG-12", "from": "Done", "to": "Inbox"})]
+        [json!({"key": "BUG-12", "from": "Done", "to": "New"})]
     );
-    assert!(reopened.contains("BUG-12 moved to Inbox"), "{reopened}");
+    assert!(reopened.contains("BUG-12 moved to New"), "{reopened}");
     assert_eq!(stub.world(|w| w.get(12).resolution), None);
 }
 

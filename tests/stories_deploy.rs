@@ -1009,7 +1009,9 @@ fn the_plan_of_an_older_schema_says_the_fold_runs_after_its_earlier_steps() {
         h.calls()
             .iter()
             .filter_map(Call::sql)
-            .all(|sql| !sql.contains("AS placed") && !sql.contains("AS first")),
+            .all(|sql| !sql.contains("AS placed")
+                && !sql.contains("LIMIT 1) AS first")
+                && !sql.contains("bp.label_id = i.label_id)")),
         "the fold read a schema it does not know yet"
     );
 }
@@ -1053,7 +1055,7 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
         ),
         "{text}"
     );
-    assert!(text.contains("  with them, 0005_labels.sql, 0006_hooks.sql, 0007_github.sql, 0008_mail.sql, 0009_merge.sql, 0010_deletions.sql add tables, columns and indexes only\n"), "{text}");
+    assert!(text.contains("  with them, 0005_labels.sql, 0006_hooks.sql, 0007_github.sql, 0008_mail.sql, 0009_merge.sql, 0010_deletions.sql, 0014_backup_cut.sql, 0015_cards.sql add tables, columns and indexes only\n"), "{text}");
     assert!(
         text.contains(&format!(
             "  {:<12} -> {:<7} {:<12} 2 open, 3 in all\n",

@@ -609,7 +609,7 @@ fn move_takes_a_lane_word_or_name_and_never_names_a_board() {
         json!({"key": "41", "from": "In progress", "to": "needs-you"})
     );
     assert_eq!(seen.actor["email"], "ada@example.com");
-    assert_eq!(seen.actor["agent"], false);
+    assert!(seen.actor.get("agent").is_none(), "{}", seen.actor);
 
     let named = json_of(&run(
         &worker,

@@ -175,6 +175,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     return got.json;
   };
   const counted = (key, kinds) => d1count(`SELECT count(*) AS n FROM events WHERE item_id = ${idOf(key)} AND kind IN (${kinds.map((k) => `'${k}'`).join(", ")})`);
+  const mailedSince = (key, at) => d1count(`SELECT count(*) AS n FROM events WHERE item_id = ${idOf(key)} AND kind = 'mail' AND at >= '${at}'`);
 
   await check("an agent sets needs-you with a note: the card sits at the top of Needs you with the agent's comment", async () => {
     const key = await file("Needs Note", "Export clip to look at");
@@ -196,6 +197,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     await status(key, "in-progress");
     await status(key, "needs-you", graceBot);
     assert.deepEqual(await lane("Needs Back", "in-progress"), [older]);
+    const stages = (await events(key, "status")).length;
     const said = await comment(key, ada, { body: "Clip looks right." });
     assert.equal(said.status, 201);
     assert.equal(said.json.key, key);
@@ -207,8 +209,9 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.deepEqual(await lane("Needs Back", "in-progress"), [key, older]);
     const moves = await events(key, "label");
     assert.deepEqual(moves.at(-1).detail, { from: "Needs you", to: "In progress" });
-    assert.equal(moves.at(-1).by.agent, false);
-    assert.equal((await events(key, "status")).length, 0, "needs-you and in progress are one stage to a visitor");
+    assert.equal(moves.at(-1).agent, false);
+    assert.equal(moves.at(-1).actor, "ada@example.com");
+    assert.equal((await events(key, "status")).length, stages, "needs-you and in progress are one stage to a visitor");
     assert.equal((await events(key, "comment")).length, 1);
   });
 
@@ -366,8 +369,9 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;
     assert.equal((await call("PATCH", `/_p99/v1/issues/${key}`, { actor: ada, body: { status: "done" } })).status, 200);
-    const loud = ["mail", "status", "label"];
+    const loud = ["status", "label"];
     const before = counted(key, loud);
+    const since = new Date().toISOString();
     const made = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: ada, body: { project: "Splicer" } });
     assert.equal(made.status, 200, JSON.stringify(made.json));
     assert.equal(made.json.card.status, "done");
@@ -376,6 +380,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal(stored.issue.stage, "fixed");
     assert.ok(stored.issue.closed_at);
     assert.equal(counted(key, loud), before);
+    assert.equal(mailedSince(key, since), 0);
     const project = stored.events.filter((ev) => ev.kind === "project");
     assert.equal(project.length, 1);
     assert.deepEqual(project[0].detail, { from: null, to: "Splicer" });
@@ -387,6 +392,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     const open = (await browse("POST", "/issues", visitor.secret, issueBody({ title: "An open report" }))).json.key;
     assert.equal((await call("PATCH", `/_p99/v1/issues/${open}`, { actor: ada, body: { status: "doing" } })).status, 200);
     const openBefore = counted(open, loud);
+    const openSince = new Date().toISOString();
     const carded = await call("PATCH", `/_p99/v1/issues/${open}`, { actor: graceBot, body: { project: "Splicer" } });
     assert.equal(carded.status, 200, JSON.stringify(carded.json));
     assert.equal(carded.json.card.status, "in-progress");
@@ -395,6 +401,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal(dropped.status, 200);
     assert.equal(dropped.json.label, "In progress");
     assert.equal(counted(open, loud), openBefore);
+    assert.equal(mailedSince(open, openSince), 0);
   });
 
   await check("a User's comment on their own card in needs-you leaves it there, with no move", async () => {
@@ -427,7 +434,7 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
   });
 
   await check("count is the whole number of waiting cards when more than 500 wait, and the list stops at 500", async () => {
-    const source = await file("Waiting Many", "The card copied", ada, there);
+    const source = await file("Waiting Many", "The card copied", ada);
     await status(source, "stuck", graceBot);
     const before = await waiting();
     const columns = d1count("SELECT group_concat(name, ', ') AS n FROM pragma_table_info('items') WHERE name NOT IN ('id', 'client_uid')");
@@ -445,8 +452,11 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
       assert.equal(many.count, before.count + 501);
       assert.equal(many.cards.length, 500);
       assert.ok(many.count > many.cards.length);
-      const boss = await mint("Emmy Noether", "emmy@example.com", [there], true);
-      assert.equal((await browse("GET", "/me", boss.secret)).json.counts.waiting, (await waiting(there)).count);
+      const boss = await mint("Sophie Germain", "sophie@example.com", [here], true);
+      const me = await browse("GET", "/me", boss.secret);
+      assert.equal(me.status, 200, JSON.stringify(me.json));
+      assert.ok(me.json.counts.waiting > 500, JSON.stringify(me.json.counts));
+      assert.equal(me.json.counts.waiting, (await waiting(here)).count);
     } finally {
       if (seeded) d1count("DELETE FROM items WHERE client_uid LIKE 'seed-waiting-%' RETURNING 0 AS n");
     }

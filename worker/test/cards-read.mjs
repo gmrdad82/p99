@@ -582,8 +582,11 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     const owner = ada;
     const mixed = [];
     for (let n = 0; n < 3; n++) mixed.push((await file("Read Mixed", `Mixed card ${n}`, owner)).key);
-    const placed = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "New", to: "new" } });
+    const away = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "New", to: "planned" } });
+    assert.equal(away.status, 200, JSON.stringify(away.json));
+    const placed = await call("POST", "/_p99/v1/move", { actor: owner, body: { key: mixed[0], from: "planned", to: "new" } });
     assert.equal(placed.status, 200, JSON.stringify(placed.json));
+    assert.ok(placed.json.card.order, JSON.stringify(placed.json));
     mixed.push((await file("Read Mixed", "Mixed card 3", owner)).key);
     const loose = await call("PATCH", `/_p99/v1/issues/${mixed[3]}`, { actor: ada, body: { status: "doing" } });
     assert.equal(loose.status, 200, JSON.stringify(loose.json));

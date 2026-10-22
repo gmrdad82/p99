@@ -700,7 +700,7 @@ impl Board {
             + if more.is_empty() {
                 0
             } else {
-                2 + text::cells(&more)
+                1 + text::cells(&more)
             };
         let name = text::clip(&name, room.saturating_sub(1 + tail));
         let (x, _) = buf.set_stringn(
@@ -713,8 +713,8 @@ impl Board {
         let room = usize::from(lane.right().saturating_sub(x + 1));
         let (x, _) = buf.set_stringn(x + 1, lane.y, &count, room, palette.muted);
         if !more.is_empty() {
-            let room = usize::from(lane.right().saturating_sub(x + 2));
-            buf.set_stringn(x + 2, lane.y, &more, room, palette.muted);
+            let room = usize::from(lane.right().saturating_sub(x + 1));
+            buf.set_stringn(x + 1, lane.y, &more, room, palette.muted);
         }
         let room = usize::from(lane.width);
         let rule = if target {
@@ -857,10 +857,12 @@ fn draw_card(
         );
         put(buf, clip, x + w as i32 - 1, y + row, edges.side, 1, frame);
     }
-    let head = vec![(
-        format!(" {} ", card.key),
-        key_style(palette, selected || held),
-    )];
+    let key = if text::cells(&card.key) + 5 <= w {
+        format!(" {} ", card.key)
+    } else {
+        card.key.clone()
+    };
+    let head = vec![(key, key_style(palette, selected || held))];
     let mut top = Vec::new();
     if let Some(account) = account {
         let room = inner.saturating_sub(text::cells(&card.key) + 4);

@@ -213,6 +213,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         let mut buffer = app.shot(width, height, &keys, !options.loading);
         if !options.loading {
             app.advance(SETTLE);
+            app.settle();
             buffer = app.frame(width, height);
         }
         if options.ansi {

@@ -241,7 +241,7 @@ mod tests {
             (user["manager"].clone(), user["role"].clone()),
             (json!(false), json!("user"))
         );
-        let keys: Vec<&str> = user
+        let keys: std::collections::BTreeSet<&str> = user
             .as_object()
             .unwrap()
             .keys()
@@ -263,6 +263,7 @@ mod tests {
                 "last_used_at",
                 "totp"
             ]
+            .into()
         );
         let author = serde_json::to_value(Author {
             name: "Ada Lovelace".into(),

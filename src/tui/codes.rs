@@ -240,7 +240,7 @@ impl Screen<Msg> for Codes {
         Some(Box::new(move || Msg::Codes(source.codes())))
     }
 
-    fn loaded(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
+    fn loaded(&mut self, event: Msg, _cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Codes(Ok(codes)) => {
                 self.codes = Some(
@@ -256,8 +256,13 @@ impl Screen<Msg> for Codes {
                 self.sift();
             }
             Msg::Codes(Err(error)) => self.error = Some(error),
-            Msg::CodeDeleted(code, result) => self.erased(&code, result, cx),
             _ => {}
+        }
+    }
+
+    fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
+        if let Msg::CodeDeleted(code, result) = event {
+            self.erased(&code, result, cx);
         }
     }
 
