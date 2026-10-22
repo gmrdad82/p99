@@ -4,6 +4,8 @@ const MAX_FILES = 30;
 const MAX_MARKS = 10;
 const SLOW_MS = 4000;
 const GIVE_UP_MS = 20000;
+const BUSY_S = [1, 2, 4, 8];
+const BUSY_EVERY_S = 30;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const PITOMD = "https://pitomd.com";
 const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
@@ -26,6 +28,8 @@ const WORDS = {
   close: "Close",
   loading: "Loading…",
   gone: "This P99 link isn't valid here. Ask for a new one.",
+  signing_in: "Signing you in",
+  busy: "P99 is busy, trying again in {n}s",
   verify_title: "Confirm it's you",
   verify_help: "Enter the 6-digit code your authenticator app shows for P99. This browser is remembered after that.",
   verify_label: "Code",
@@ -178,13 +182,14 @@ export function open(opts) {
   o.host = o.root.host;
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
-  if (opts.view === 401) return Promise.resolve(gone());
+  if (opts.view === 401 || opts.view === 403) return Promise.resolve(gone());
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list" && !opts.space) return close();
   return ready.then(() => {
     show();
     const go = () => {
-      if (opts.key) item(opts.key);
+      if (busyView(opts.view)) busy();
+      else if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
       else fileFlow();
     };
@@ -354,7 +359,7 @@ function ensure() {
   if (S.assets) return S.assets;
   root = o.root;
   const css = fetch("/_p99/p99.css?v=" + V).then((r) => (r.ok ? r.text() : "")).catch(() => "");
-  const self = me ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
+  const self = me || busyView(o.view) ? Promise.resolve(me) : call("GET", "/me?path=" + enc(location.pathname)).catch(() => null);
   S.assets = Promise.all([css, self]).then(([text, m]) => {
     if (m) me = m;
     const base = new CSSStyleSheet();
@@ -583,6 +588,63 @@ function verify(next) {
       });
   });
   mount(form, input);
+}
+function busyView(v) { return v === 429 || (typeof v === "number" && v >= 500); }
+function busyDelay(n) { return n < BUSY_S.length ? BUSY_S[n] : BUSY_EVERY_S; }
+function busy() {
+  let n = 0;
+  let left = busyDelay(0);
+  const line = h("p", { class: "p99-status-line p99-busy-line", role: "status", "aria-live": "polite" });
+  const title = h("h2", { id: "p99-title", text: say("signing_in") });
+  const view = h("section", { class: "p99-view p99-busy", "data-view": "busy", "aria-busy": "true" }, title, line);
+  const live = () => view.isConnected && S.open;
+  const draw = () => { line.textContent = say("busy", { n: left }); };
+  const wake = () => {
+    if (document.visibilityState === "hidden") return;
+    document.removeEventListener("visibilitychange", wake);
+    if (live()) step();
+  };
+  const step = () => {
+    if (!live()) return;
+    if (document.visibilityState === "hidden") {
+      document.addEventListener("visibilitychange", wake);
+      return;
+    }
+    if (left > 0) {
+      draw();
+      left--;
+      setTimeout(step, 1000);
+      return;
+    }
+    attempt();
+  };
+  const attempt = () =>
+    call("GET", "/me?path=" + enc(location.pathname)).then(signedIn, (e) => {
+      if (!live()) return;
+      if (e && (e.status === 401 || e.status === 403)) {
+        close(true);
+        gone();
+        return;
+      }
+      if (e && e.status && !busyView(e.status)) {
+        if (e.status !== 428) failure(e);
+        return;
+      }
+      n++;
+      left = busyDelay(n);
+      step();
+    });
+  const signedIn = (m) => {
+    if (!live()) return;
+    me = m;
+    try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
+    rehead();
+    try { sessionStorage.setItem("p99:code", JSON.stringify([o.code + location.pathname + ((Date.now() / 6e4) | 0), m])); } catch (x) {}
+    if (o.refresh) o.refresh(1);
+    close(true);
+  };
+  mount(view, title);
+  step();
 }
 function mount(view, focus) {
   if (S.verify && !view.classList.contains("p99-verify")) return;
