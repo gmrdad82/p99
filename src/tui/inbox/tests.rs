@@ -49,7 +49,7 @@ fn thread(app: &Run, key: &str) -> Thread {
 fn the_inbox_lists_open_items_newest_first_and_counts_the_unread() {
     let mut app = run(sample());
     let text = app.text();
-    assert!(text.contains("16 of 22 items"), "{text}");
+    assert!(text.contains("21 of 28 items"), "{text}");
     assert!(text.contains("3 unread"), "{text}");
     assert!(text.contains("sample data"), "{text}");
     let rows: Vec<usize> = OPEN.iter().map(|key| row(&text, key)).collect();
@@ -71,7 +71,7 @@ fn the_inbox_lists_open_items_newest_first_and_counts_the_unread() {
     ] {
         assert!(item.contains(cell), "{cell} in {item}");
     }
-    assert!(line(&text, "BUG-8 ").contains("Ada Lovelace*"), "{text}");
+    assert!(line(&text, "BUG-8 ").contains("Ada Lovelace 🤖"), "{text}");
 }
 
 #[test]
@@ -111,16 +111,16 @@ fn the_list_colours_unread_marks_labels_and_hosts_by_what_they_mean() {
 fn s_cycles_open_closed_and_both() {
     let mut app = run(sample());
     let closed = app.press("s");
-    assert!(closed.contains("6 of 22 items"), "{closed}");
+    assert!(closed.contains("7 of 28 items"), "{closed}");
     for key in CLOSED {
         assert!(closed.contains(key), "{key}:\n{closed}");
     }
     assert!(!closed.contains("BUG-11 "), "{closed}");
     let both = app.press("s");
-    assert!(both.contains("22 of 22 items"), "{both}");
+    assert!(both.contains("28 of 28 items"), "{both}");
     assert!(both.contains("open or closed"), "{both}");
     let open = app.press("s");
-    assert!(open.contains("16 of 22 items"), "{open}");
+    assert!(open.contains("21 of 28 items"), "{open}");
 }
 
 #[test]
@@ -128,18 +128,18 @@ fn a_filter_narrows_as_it_is_typed_keeps_on_enter_and_esc_clears_it() {
     let mut app = run(sample());
     let typing = app.press("/ cart");
     assert!(typing.contains("Filter"), "{typing}");
-    assert!(typing.contains("1 of 22 items"), "{typing}");
+    assert!(typing.contains("1 of 28 items"), "{typing}");
     assert!(inbox(&app).typing());
     let kept = app.press("enter");
     assert!(!inbox(&app).typing());
-    assert!(kept.contains("1 of 22 items"), "{kept}");
+    assert!(kept.contains("1 of 28 items"), "{kept}");
     assert!(kept.contains("BUG-11 "), "{kept}");
     assert!(kept.contains("esc clear filter"), "{kept}");
-    assert!(app.press("s").contains("2 of 22 items"));
-    assert!(app.press("s").contains("3 of 22 items"));
+    assert!(app.press("s").contains("2 of 28 items"));
+    assert!(app.press("s").contains("3 of 28 items"));
     app.press("s");
     let cleared = app.press("esc");
-    assert!(cleared.contains("16 of 22 items"), "{cleared}");
+    assert!(cleared.contains("21 of 28 items"), "{cleared}");
     assert!(!cleared.contains("esc clear filter"), "{cleared}");
 }
 
@@ -147,10 +147,10 @@ fn a_filter_narrows_as_it_is_typed_keeps_on_enter_and_esc_clears_it() {
 fn a_filter_matches_people_and_ignores_case_and_accents() {
     let mut app = run(sample());
     let plain = app.press("/ hopper");
-    assert!(plain.contains("9 of 22 items"), "{plain}");
+    assert!(plain.contains("9 of 28 items"), "{plain}");
     app.press("esc");
     let accented = app.press("/ Hóppér");
-    assert!(accented.contains("9 of 22 items"), "{accented}");
+    assert!(accented.contains("9 of 28 items"), "{accented}");
     assert!(!accented.contains("TASK-6 "), "{accented}");
 }
 
@@ -158,17 +158,17 @@ fn a_filter_matches_people_and_ignores_case_and_accents() {
 fn a_paste_lands_in_the_filter_only_while_typing() {
     let mut app = run(sample());
     let ignored = app.paste("cart");
-    assert!(ignored.contains("16 of 22 items"), "{ignored}");
+    assert!(ignored.contains("21 of 28 items"), "{ignored}");
     app.press("/");
     let pasted = app.paste("cart");
-    assert!(pasted.contains("1 of 22 items"), "{pasted}");
+    assert!(pasted.contains("1 of 28 items"), "{pasted}");
 }
 
 #[test]
 fn a_filter_with_no_match_says_how_to_clear_it() {
     let mut app = run(sample());
     let text = app.press("/ zzqx enter");
-    assert!(text.contains("0 of 22 items"), "{text}");
+    assert!(text.contains("0 of 28 items"), "{text}");
     assert!(
         text.contains("Nothing matches the filter. esc clears it."),
         "{text}"
@@ -207,7 +207,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     );
     app.press("s s h");
     let all = app.press("up enter");
-    assert!(all.contains("16 of 22 items"), "{all}");
+    assert!(all.contains("21 of 28 items"), "{all}");
     assert!(all.contains("All hosts"), "{all}");
 }
 
@@ -215,7 +215,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
 fn a_cancelled_host_pick_keeps_every_host() {
     let mut app = run(sample());
     let text = app.press("h down esc");
-    assert!(text.contains("16 of 22 items"), "{text}");
+    assert!(text.contains("21 of 28 items"), "{text}");
     assert!(text.contains("All hosts"), "{text}");
 }
 
@@ -241,9 +241,9 @@ fn nothing_open_here_points_to_the_closed_items() {
         "{text}"
     );
     assert!(!text.contains("h picks another host"), "{text}");
-    assert!(text.contains("0 of 6 items"), "{text}");
+    assert!(text.contains("0 of 7 items"), "{text}");
     let shown = app.press("s");
-    assert!(shown.contains("6 of 6 items"), "{shown}");
+    assert!(shown.contains("7 of 7 items"), "{shown}");
     assert!(!shown.contains("Nothing"), "{shown}");
 }
 
@@ -263,7 +263,7 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
         "BUG-12  Cart total stays the same after removing an item · Grace Hopper",
         "Comments (4)",
         "It happens with any item, not just the lamp.",
-        "Ada Lovelace* · internal · 20m ago",
+        "Ada Lovelace 🤖 · via pci · internal · 20m ago",
         "50m  created by Grace Hopper",
     ] {
         assert!(text.contains(said), "{said}:\n{text}");
@@ -271,11 +271,11 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
     let buffer = app.frame();
     let fg = |at: (u16, u16)| Some(buffer[at].fg);
     assert_eq!(
-        fg(spot(&buffer, "Ada Lovelace*", "internal")),
+        fg(spot(&buffer, "Ada Lovelace 🤖", "internal")),
         app.palette.warn.fg
     );
     assert_eq!(
-        fg(spot(&buffer, "Ada Lovelace*", "Ada")),
+        fg(spot(&buffer, "Ada Lovelace 🤖", "Ada")),
         app.palette.accent.fg
     );
     assert!(app.demo(|demo| {
@@ -403,7 +403,7 @@ fn d_deletes_only_when_the_key_is_typed_back() {
     );
     assert_eq!(inbox(&app).crumb(), None);
     assert!(app.demo(|demo| demo.thread("BUG-11").is_err()));
-    assert!(gone.contains("16 of 21 items"), "{gone}");
+    assert!(gone.contains("21 of 27 items"), "{gone}");
     assert!(gone.contains("BUG-12 "), "{gone}");
     assert!(!gone.contains("BUG-11 "), "{gone}");
 }
@@ -421,7 +421,7 @@ fn a_deleted_item_with_files_says_how_many_went_with_it() {
     };
     let text = app.event(INBOX, Msg::Deleted("BUG-11".into(), Ok(done)));
     assert!(text.contains("Deleted BUG-11 and its 3 files"), "{text}");
-    assert!(text.contains("15 of 21 items"), "{text}");
+    assert!(text.contains("20 of 27 items"), "{text}");
 }
 
 #[test]
@@ -461,7 +461,7 @@ fn move_to_drop_closes_the_item_without_fixing_it() {
     assert_eq!(issue.status, "done");
     assert_eq!(issue.resolution.as_deref(), Some("abandoned"));
     let list = app.press("esc");
-    assert!(list.contains("15 of 22 items"), "{list}");
+    assert!(list.contains("20 of 28 items"), "{list}");
 }
 
 #[test]
@@ -621,7 +621,7 @@ fn a_thread_that_cannot_be_read_says_why_and_how_to_retry() {
     app.key(ctrl('r'));
     assert!(app.text().contains("Couldn't read BUG-11."));
     let back = app.press("esc");
-    assert!(back.contains("16 of 22 items"), "{back}");
+    assert!(back.contains("21 of 28 items"), "{back}");
 }
 
 #[test]
@@ -647,7 +647,7 @@ fn a_stale_result_for_another_item_or_a_closed_thread_is_ignored() {
         Msg::Thread("BUG-11".into(), Ok(thread(&app, "BUG-11"))),
     );
     assert_eq!(inbox(&app).crumb(), None);
-    assert!(list.contains("16 of 22 items"), "{list}");
+    assert!(list.contains("21 of 28 items"), "{list}");
 }
 
 #[test]
@@ -655,7 +655,7 @@ fn r_rereads_the_list_and_a_failed_reread_keeps_it_and_says_why() {
     let mut app = run(sample());
     app.demo(|demo| demo.delete("TASK-6").expect("the sample has it"));
     let reread = app.press("r");
-    assert!(reread.contains("15 of 21 items"), "{reread}");
+    assert!(reread.contains("20 of 27 items"), "{reread}");
     assert!(!reread.contains("reading…"), "{reread}");
     tap(&mut app, "r");
     let reading = dump::text(&app.tui.frame(WIDE, HIGH));
@@ -663,7 +663,7 @@ fn r_rereads_the_list_and_a_failed_reread_keeps_it_and_says_why() {
     app.tui.event(INBOX, Msg::Inbox(Err("offline".into())));
     let failed = dump::text(&app.tui.frame(WIDE, HIGH));
     assert!(failed.contains("offline"), "{failed}");
-    assert!(failed.contains("15 of 21 items"), "{failed}");
+    assert!(failed.contains("20 of 27 items"), "{failed}");
     assert!(!failed.contains("reading…"), "{failed}");
 }
 
@@ -680,18 +680,18 @@ fn a_reread_asked_while_one_runs_runs_once_more_after_it() {
     let text = app.text();
     assert!(!text.contains("first read"), "{text}");
     assert!(!text.contains("reading…"), "{text}");
-    assert!(text.contains("of 21 items"), "{text}");
+    assert!(text.contains("of 27 items"), "{text}");
     app.demo(|demo| demo.delete("FEAT-9").expect("the sample has it"));
     app.tui.settle();
     let after = app.text();
-    assert!(after.contains("of 21 items"), "{after}");
+    assert!(after.contains("of 27 items"), "{after}");
 }
 
 #[test]
 fn an_unasked_failed_read_keeps_the_list() {
     let mut app = run(sample());
     let text = app.event(INBOX, Msg::Inbox(Err("offline".into())));
-    assert!(text.contains("16 of 22 items"), "{text}");
+    assert!(text.contains("21 of 28 items"), "{text}");
     assert!(!text.contains("offline"), "{text}");
 }
 
@@ -728,8 +728,8 @@ fn a_delete_heard_from_elsewhere_closes_the_thread_and_says_who() {
         json!({"type": "delete", "key": "BUG-11", "by": {"name": "Grace Hopper", "agent": true}});
     let text = app.event(INBOX, Msg::Heard(0, heard.to_string()));
     assert_eq!(inbox(&app).crumb(), None);
-    assert!(text.contains("Grace Hopper* deleted BUG-11"), "{text}");
-    assert!(text.contains("15 of 21 items"), "{text}");
+    assert!(text.contains("Grace Hopper 🤖 deleted BUG-11"), "{text}");
+    assert!(text.contains("20 of 27 items"), "{text}");
     let nameless = json!({"type": "delete", "key": "TASK-6"});
     app.press("enter");
     assert_eq!(inbox(&app).crumb().as_deref(), Some("TASK-6"));
@@ -752,7 +752,7 @@ fn heard_events_that_are_not_a_delete_here_change_nothing() {
         assert!(!shown.contains("deleted"), "{shown}");
     }
     let list = app.press("esc");
-    assert!(list.contains("16 of 22 items"), "{list}");
+    assert!(list.contains("21 of 28 items"), "{list}");
 }
 
 #[test]
@@ -796,7 +796,7 @@ fn esc_while_loading_stops_waiting_and_r_reads_again() {
         "{stopped}"
     );
     let read = app.press("r");
-    assert!(read.contains("16 of 22 items"), "{read}");
+    assert!(read.contains("21 of 28 items"), "{read}");
 }
 
 #[test]
@@ -890,7 +890,7 @@ fn a_thread_shows_where_its_fix_landed_its_links_and_its_history() {
         "BUG-2  Broken link on the about page",
         "Bug · Done · host example.com · production",
         "/about · assigned to @ada.lovelace",
-        "Ada Lovelace* reported it 12d ago · updated 6d ago",
+        "Ada Lovelace 🤖 reported it 12d ago · via pci · updated 6d ago",
         "Landed  dev 9d ago 3a9f2c1 · production 6d ago 1.4.0 3abc678",
         "GitHub  https://github.com/example/site/pull/7 fixes",
         "Comments (0)",
@@ -1060,7 +1060,8 @@ mod marks {
         thread.issue.title = "Waveform drifts".into();
         thread.issue.created_at = "2026-10-22T08:00:00.000Z".into();
         thread.issue.updated_at = "2026-10-22T08:00:00.000Z".into();
-        thread.issue.reporter = json!({"name": "Ada Lovelace", "email": "ada@example.com", "agent": agent, "via": via});
+        thread.issue.reporter =
+            json!({"name": "Ada Lovelace", "email": "ada@example.com", "agent": agent, "via": via});
         thread.comments.push(Comment {
             id: 1,
             author: Author {
@@ -1096,19 +1097,31 @@ mod marks {
     fn an_agent_thread_shows_the_robot_and_its_label_on_the_reporter_comment_and_event() {
         let text = drawn(&thread(true, Some("pci·splicer")));
         let reporter = text.iter().find(|l| l.contains("reported it")).unwrap();
-        assert!(reporter.starts_with("Ada Lovelace 🤖 reported it"), "{reporter}");
+        assert!(
+            reporter.starts_with("Ada Lovelace 🤖 reported it"),
+            "{reporter}"
+        );
         assert!(reporter.contains(" · via pci·splicer"), "{reporter}");
-        let comment = text.iter().find(|l| l.starts_with("Ada Lovelace 🤖 · via")).unwrap();
+        let comment = text
+            .iter()
+            .find(|l| l.starts_with("Ada Lovelace 🤖 · via"))
+            .unwrap();
         assert!(comment.contains("via pci·splicer"), "{comment}");
         let event = text.iter().find(|l| l.contains("created")).unwrap();
-        assert!(event.ends_with("by Ada Lovelace 🤖 (pci·splicer)"), "{event}");
+        assert!(
+            event.ends_with("by Ada Lovelace 🤖 (pci·splicer)"),
+            "{event}"
+        );
         assert!(text.iter().all(|l| !l.contains("Lovelace*")));
     }
 
     #[test]
     fn an_agent_without_a_label_shows_the_robot_and_no_via() {
         let text = drawn(&thread(true, None));
-        assert!(text.iter().any(|l| l.starts_with("Ada Lovelace 🤖 reported it")));
+        assert!(
+            text.iter()
+                .any(|l| l.starts_with("Ada Lovelace 🤖 reported it"))
+        );
         assert!(text.iter().all(|l| !l.contains("via ")));
         let event = text.iter().find(|l| l.contains("created")).unwrap();
         assert!(event.ends_with("by Ada Lovelace 🤖"), "{event}");
@@ -1118,8 +1131,14 @@ mod marks {
     fn a_person_shows_no_robot_and_ignores_a_stray_label() {
         let text = drawn(&thread(false, Some("pci")));
         assert!(text.iter().all(|l| !l.contains('🤖')));
-        assert!(text.iter().all(|l| !l.contains("via ") && !l.contains("(pci)")));
-        assert!(text.iter().any(|l| l.starts_with("Ada Lovelace reported it")));
+        assert!(
+            text.iter()
+                .all(|l| !l.contains("via ") && !l.contains("(pci)"))
+        );
+        assert!(
+            text.iter()
+                .any(|l| l.starts_with("Ada Lovelace reported it"))
+        );
     }
 
     #[test]

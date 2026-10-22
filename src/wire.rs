@@ -852,6 +852,8 @@ pub struct LaneBoard {
     #[serde(default, deserialize_with = "lenient")]
     pub mine: bool,
     #[serde(default, deserialize_with = "lenient")]
+    pub cards: bool,
+    #[serde(default, deserialize_with = "lenient")]
     pub columns: Vec<Lane>,
 }
 
@@ -1036,15 +1038,19 @@ mod tests {
         .unwrap();
         assert!(summary.reporter.agent);
         assert_eq!(summary.reporter.via.as_deref(), Some("pci"));
-        let author: Author = serde_json::from_str(r#"{"name":"Ada Lovelace","agent":true,"via":"pci·splicer"}"#).unwrap();
+        let author: Author =
+            serde_json::from_str(r#"{"name":"Ada Lovelace","agent":true,"via":"pci·splicer"}"#)
+                .unwrap();
         assert_eq!(author.via.as_deref(), Some("pci·splicer"));
-        let event: Event = serde_json::from_str(r#"{"kind":"label","agent":true,"via":"pci","at":"x"}"#).unwrap();
+        let event: Event =
+            serde_json::from_str(r#"{"kind":"label","agent":true,"via":"pci","at":"x"}"#).unwrap();
         assert!(event.agent);
         assert_eq!(event.via.as_deref(), Some("pci"));
         let old: Event = serde_json::from_str(r#"{"kind":"label","at":"x"}"#).unwrap();
         assert!(!old.agent);
         assert_eq!(old.via, None);
-        let person: Person = serde_json::from_str(r#"{"name":"Grace Hopper","agent":false,"via":null}"#).unwrap();
+        let person: Person =
+            serde_json::from_str(r#"{"name":"Grace Hopper","agent":false,"via":null}"#).unwrap();
         assert_eq!(person.via, None);
     }
 

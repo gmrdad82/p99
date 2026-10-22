@@ -190,7 +190,9 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
         }
         ("GET", "/v1/cards") => json!({"cards":[card],"next_cursor":"c2"}),
         ("GET", "/v1/cards/FEAT-99") => return (404, r#"{"message":"no item FEAT-99"}"#.into()),
-        ("GET", "/v1/cards/BUG-12") | ("POST", "/v1/cards/BUG-12/status") => {
+        ("GET", "/v1/cards/BUG-12")
+        | ("POST", "/v1/cards/BUG-12/status")
+        | ("POST", "/v1/cards/BUG-12/comments") => {
             return (
                 409,
                 r#"{"message":"BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>"}"#.into(),
@@ -267,7 +269,7 @@ fn refused(run: &Run, line: &str) {
     assert!(run.stdout.is_empty(), "{}", run.stdout);
 }
 
-fn unparsed(args: &[&str], first: &str, usage: &str) {
+fn unparsed(args: &[&str], first: &str, usage: Option<&str>) {
     for json in [false, true] {
         let mut all: Vec<&str> = args.to_vec();
         if json {
@@ -285,13 +287,15 @@ fn unparsed(args: &[&str], first: &str, usage: &str) {
         let line = run
             .stderr
             .split("\n\n")
-            .find(|part| part.starts_with("Usage: "))
-            .unwrap_or_default();
-        assert!(
-            line.starts_with(usage) && !line.contains('\n'),
-            "{all:?}: {}",
-            run.stderr
-        );
+            .find(|part| part.starts_with("Usage: "));
+        match usage {
+            Some(usage) => assert!(
+                line.is_some_and(|line| line.starts_with(usage) && !line.contains('\n')),
+                "{all:?}: {}",
+                run.stderr
+            ),
+            None => assert!(line.is_none(), "{all:?}: {}", run.stderr),
+        }
         assert!(
             run.stderr
                 .ends_with("\n\nFor more information, try '--help'.\n")
@@ -304,42 +308,42 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
     unparsed(
         &["card"],
         "error: 'p99 card' requires a subcommand but one was not provided\n",
-        "Usage: p99 card ",
+        Some("Usage: p99 card "),
     );
     unparsed(
         &["card", "status", "FEAT-41", "blocked"],
         "error: invalid value 'blocked' for '<STATUS>'\n  [possible values: new, planned, in-progress, stuck, landed, done]\n",
-        "Usage: p99 card status [OPTIONS] <KEY> <STATUS>",
+        None,
     );
     unparsed(
         &["--agent", "pci", "cards"],
         "error: unrecognized subcommand 'pci'",
-        "Usage: p99 ",
+        Some("Usage: p99 "),
     );
     unparsed(
         &["edit", "BUG-12", "--project", "Splicer", "--title", "x"],
         "error: the argument '--project <name>' cannot be used with '--title <TITLE>'",
-        "Usage: p99 edit ",
+        Some("Usage: p99 edit "),
     );
     unparsed(
         &["edit", "BUG-12", "--project", "Splicer", "--no-project"],
         "error: the argument '--project <name>' cannot be used with '--no-project'",
-        "Usage: p99 edit ",
+        Some("Usage: p99 edit "),
     );
     unparsed(
         &["cards", "--limit", "501"],
         "error: invalid value '501' for '--limit <n>'",
-        "Usage: p99 cards ",
+        None,
     );
     unparsed(
         &["cards", "--source", "robot"],
         "error: invalid value 'robot' for '--source <SOURCE>'",
-        "Usage: p99 cards ",
+        None,
     );
     unparsed(
         &["card", "new", "--title", "x"],
         "error: the following required arguments were not provided:\n  --project <name>\n",
-        "Usage: p99 card new ",
+        Some("Usage: p99 card new "),
     );
     unparsed(
         &[
@@ -353,17 +357,17 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
             "epic",
         ],
         "error: invalid value 'epic' for '--kind <KIND>'",
-        "Usage: p99 card new ",
+        None,
     );
     unparsed(
         &["card", "link", "FEAT-41"],
         "error: the following required arguments were not provided:\n  <REF>\n",
-        "Usage: p99 card link ",
+        Some("Usage: p99 card link "),
     );
     unparsed(
         &["projects", "extra"],
         "error: unexpected argument 'extra' found",
-        "Usage: p99 projects",
+        Some("Usage: p99 projects"),
     );
 }
 

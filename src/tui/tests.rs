@@ -189,7 +189,7 @@ fn the_app_opens_on_the_inbox_with_its_three_screens_and_the_help_line() {
     for word in ["P99", "Inbox", "Board", "Codes"] {
         assert!(head.contains(word), "{word} in the header:\n{text}");
     }
-    assert!(text.contains("16 of 22 items"), "{text}");
+    assert!(text.contains("21 of 28 items"), "{text}");
     assert!(text.contains("? help"), "{text}");
     assert!(text.contains("ctrl+c twice quit"), "{text}");
 }

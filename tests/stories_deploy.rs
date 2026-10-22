@@ -15,7 +15,7 @@ const ACCESS: &str = "access-secret-Ub4Ne8Rk2Xo6";
 const LICENSE: &str = "p99-licence-Vz5Mi3Qa7Ld9";
 const HOOK: &str = "https://hooks.slack.com/services/T0EXAMPLE/B0EXAMPLE/Xy7Kp3Wm9QrTe2";
 
-const SHIPPED: [&str; 14] = [
+const SHIPPED: [&str; 15] = [
     "0001_p99.sql",
     "0002_code_uid.sql",
     "0003_code_totp.sql",
@@ -30,6 +30,7 @@ const SHIPPED: [&str; 14] = [
     "0012_people.sql",
     "0013_app.sql",
     "0014_backup_cut.sql",
+    "0015_cards.sql",
 ];
 
 #[derive(Debug, Clone)]
@@ -775,8 +776,8 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
 }
 
 #[test]
-fn an_account_already_at_0014_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
-    let h = home("at-0014", &plain_config(), live(&SHIPPED, v19_rows()));
+fn an_account_already_at_0015_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
+    let h = home("at-0015", &plain_config(), live(&SHIPPED, v19_rows()));
 
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
@@ -1097,7 +1098,7 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
 }
 
 #[test]
-fn a_1_7_account_with_its_hash_gets_0004_to_0014_in_order() {
+fn a_1_7_account_with_its_hash_gets_0004_to_0015_in_order() {
     let mut cf = live(&SHIPPED[..3], v17_rows());
     cf.tag = None;
     let h = home("accept-17", &plain_config(), cf);

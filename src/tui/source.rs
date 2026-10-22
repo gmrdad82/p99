@@ -425,6 +425,8 @@ pub fn person(name: &str, email: &str, agent: bool) -> String {
     let who = if name.is_empty() { email } else { name };
     if agent {
         format!("{who} {}", crate::card::ROBOT)
+            .trim_start()
+            .to_owned()
     } else {
         who.to_owned()
     }

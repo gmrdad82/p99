@@ -710,8 +710,16 @@ mod tests {
         let errors = validate(lines, Path::new(".")).unwrap_err();
         assert_eq!(errors.len(), 2, "{errors:#?}");
         assert!(errors[0].starts_with("line 3:"), "{}", errors[0]);
-        assert!(errors[0].contains("author.via must be a string"), "{}", errors[0]);
+        assert!(
+            errors[0].contains("author.via must be a string"),
+            "{}",
+            errors[0]
+        );
         assert!(errors[1].starts_with("line 4:"), "{}", errors[1]);
-        assert!(errors[1].contains("actor.via must be a string"), "{}", errors[1]);
+        assert!(
+            errors[1].contains("actor.via must be a string"),
+            "{}",
+            errors[1]
+        );
     }
 }

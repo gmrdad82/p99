@@ -118,7 +118,7 @@ function sawLabel(row, from, columns) {
 }
 
 function boardsSql(where) {
-  return `SELECT b.id, b.name, b.host, b.owner, ${nameSql("b.owner")} AS owner_username,
+  return `SELECT b.id, b.name, b.host, b.owner, b.cards AS is_cards, ${nameSql("b.owner")} AS owner_username,
     (SELECT json_group_array(json_object('id', l.id, 'label', l.name, 'closes', l.closes)) FROM
       (SELECT l.id, l.name, l.closes FROM board_columns bc JOIN labels l ON l.id = bc.label_id WHERE bc.board_id = b.id ORDER BY bc.position) l
     ) AS columns
@@ -132,6 +132,7 @@ function boardOf(c, row) {
     name: row.name,
     owner: person(row.owner, row.owner_username),
     mine: row.owner !== null && row.owner === c.actor.email,
+    cards: Boolean(row.is_cards),
     columns: columns.map((col) => ({ label: col.label, closes: Boolean(col.closes) })),
   };
 }

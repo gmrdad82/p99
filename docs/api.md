@@ -32,7 +32,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | --- | --- | --- |
 | `GET /_p99/api/me?path=` | any code | `{"name","email","username","manager","host","env","version","counts":{"page_open","mine_open","mine_unread","all_open"},"theme":{},"strings":{},"link","license"}`; `all_open` is null for non-managers; `theme` and `strings` are the host's config; `link` is false only when the licence lets the "by PITO.MD" link hide and the host turned it off; `license` is the deploy's `LICENSE_STATE` word (`free`, `studio`, `agency`, `owner` or `ff`, and `free` when it is missing or unknown), which the panel's head draws as its badge |
 | `POST /_p99/api/verify` | a code with an authenticator | `{"totp":"<6 digits>"}`; 201 `{"device":"<32 hex>"}`; the panel stores `<code>.<device>` where the loader keeps the code |
-| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any&kind=&q=&cursor=&limit=&label=` | any code; `all` and `label` managers only | `{"issues":[summary],"next_cursor","total"}`, newest first (`total`, on the first page only, counts every match), this host's items only, `limit` at most 100 (default 50); `label` keeps the items whose label it names, case and accents ignored as search ignores them (an exact match, up to ASCII case, wins when there is one), and a 1.8 status key (`inbox`, `doing`, `review`, `done`) the items of that default label; `priority` and `board` answer 400 |
+| `GET /_p99/api/issues?scope=mine\|all\|page&path=&status=open\|closed\|any&kind=&q=&cursor=&limit=&label=&source=` | any code; `all`, `label` and `source` managers only | `{"issues":[summary],"next_cursor","total"}`, newest first (`total`, on the first page only, counts every match), this host's items only, `limit` at most 100 (default 50); `label` keeps the items whose label it names, case and accents ignored as search ignores them (an exact match, up to ASCII case, wins when there is one), and a 1.8 status key (`inbox`, `doing`, `review`, `done`) the items of that default label; `source=human` or `agent` keeps the items whose last change was a person's or an agent's; `priority` and `board` answer 400 |
 | `POST /_p99/api/issues` | any code (`task` managers only) | `{"client_uid","kind","title","body","page","context","marks"}`; 201 issue |
 | `GET /_p99/api/issues/{key}` | its reporter or a manager | a thread, `{"issue","comments","attachments","events"}`; marks it read |
 | `PATCH /_p99/api/issues/{key}` | as the signed API | 200 issue |
@@ -44,6 +44,7 @@ The actor of a browser request is the code's person: `{email, name, manager}`. A
 | `POST /_p99/api/stream-ticket` | managers | 201 `{"ticket":"<48 hex>","expires_in":60}`: a ticket for one WebSocket, used once, within 60 seconds |
 | `GET /_p99/api/stream?t=<ticket>` | the ticket | a WebSocket that carries the [live events](#live-events) of the code's hosts; no `X-P99-Code`, since a browser can't set headers on a WebSocket; a used, expired or unknown ticket, or one whose code was revoked or relinked since, answers 401; an open stream closes with 4001 the moment its code is revoked or relinked |
 | `POST /_p99/api/merge` | managers | as the signed API |
+| `GET /_p99/api/cards`, `GET …/cards/{key}`, `GET /_p99/api/projects`, `POST /_p99/api/cards`, `POST …/cards/{key}/status`, `…/links`, `…/comments` | managers | as the signed API, over the cards the code reaches; a new card is filed on this host. On `GET /cards`, `host=` only names the host the request is for, and `site=1` keeps this host's cards |
 | `GET /_p99/api/people` | managers | `{"people":[{"username","manager"}]}`: the people with a live code for this host and the e-mails in `MANAGERS`, by username; never an e-mail, a code, a hint or a host list |
 | `PATCH /_p99/api/me` | any code | `{"username"}`, nothing else; 200 `{"username"}`, 409 when it is taken or too close to someone's: changes the code's own person only ([usernames](#usernames)) |
 
@@ -73,7 +74,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/builds` | the key | `{"sha","branch","version","dirty","env","items":[{"id","rel","sha","subject"}]}` replaces that environment's row for that branch; an `env` that is not an environment answers 400; 204 |
 | `GET /_p99/v1/counts?path=` | actor | `{"page_open","mine_open","mine_unread","all_open"}` |
 | `GET /_p99/v1/stream` | actor | a WebSocket (`Upgrade: websocket`) that carries one event per change, as [Live events](#live-events) describes; with `host=<host>`, only that host's |
-| `GET /_p99/v1/issues?scope=&path=&status=&kind=&q=&cursor=&limit=` | actor; `all` managers only | as the browser API; with `host=*`, every host's items |
+| `GET /_p99/v1/issues?scope=&path=&status=&kind=&q=&cursor=&limit=&source=` | actor; `all` and `source` managers only | as the browser API; with `host=*`, every host's items |
 | `POST /_p99/v1/issues` | actor | as the browser API, plus `"host"`; 201 issue |
 | `GET /_p99/v1/issues/{key}`, `PATCH`, `POST …/comments`, `PUT …/attachments/{uid}`, `GET /_p99/v1/files/{id}` | as the browser API | |
 | `GET /_p99/v1/labels` | managers | `{"labels":[{"id","name","closes","boards":[{"id","name","owner_username"}]}]}`: the four defaults first, then the labels used by an item or a board column in scope (a manager scoped to one host sees only that host's); `boards` are the boards in scope that use it as a column |
@@ -98,11 +99,19 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `POST /_p99/v1/hooks/{host}/test` | the key | posts one test message to each of the host's hooks; 200 `{"results":[{"service","hint","ok","status"}]}` |
 | `GET /_p99/v1/admin/backup-status` | managers | the last and the running backup |
 | `GET /_p99/v1/boards` | managers | `{"boards":[board]}`: the caller's boards first, then the boards of others in scope; the first call in a scope makes the caller's board (Inbox, Doing, Review, Done), and takes over any board left without an owner |
-| `POST /_p99/v1/boards` | managers | `{"name","columns":[{"label","closes"?}]}` (a column may be a plain label name); 201 board; 3 to 5 columns, 3 boards per person in a scope (409 past that) |
+| `POST /_p99/v1/boards` | managers | `{"name","columns":[{"label","closes"?}]}` (a column may be a plain label name); 201 board; 3 to 6 columns, 3 boards per person in a scope (409 past that) |
 | `GET /_p99/v1/boards/{id}` | managers | `{"board","cards":[card]}`, the cards in column order, then by `order`; another host's board is 404 |
 | `PUT /_p99/v1/boards/{id}` | its owner | `{"name"?,"columns"?}`; 200 board; anyone else 403 |
 | `DELETE /_p99/v1/boards/{id}` | its owner | 204; never the owner's last board in that scope (409) |
 | `POST /_p99/v1/move` | managers | `{"key","from","to","board"?,"before"?,"after"?,"resolution"?}`; 200 `{"card"}`, as [Boards](#boards) describes |
+| `GET /_p99/v1/cards?project=&status=&since=&source=&host=&limit=&cursor=` | managers | `{"cards":[card],"next_cursor"}` in lane order, as [Cards](#cards) describes |
+| `GET /_p99/v1/cards/{key}` | managers | `{"card","comments","events"}`: the card with its `body`, comments and events oldest first; a plain item answers 409 |
+| `POST /_p99/v1/cards` | managers | `{"client_uid","project","title","body"?,"kind"?,"host"}`; 201 `{"card"}` in lane `new`, at its top; the same `client_uid` again answers 200 with the same card |
+| `POST /_p99/v1/cards/{key}/status` | managers | `{"status","note"?,"client_uid"?}` (`client_uid` required with a note); 200 `{"card"}`, plus `"comment"` with a note |
+| `POST /_p99/v1/cards/{key}/links` | managers | `{"ref","note"?}`; 201 `{"key","link":{"ref","note","by","at"}}` |
+| `POST /_p99/v1/cards/{key}/comments` | managers | `{"client_uid","body","internal"?}`; 201 `{"key","comment":{"id","author","body","internal","created_at"}}` |
+| `GET /_p99/v1/projects` | managers | `{"projects":[{"name","open","done"}]}`, by name |
+| `PATCH /_p99/v1/issues/{key}` with `{"project"}` alone | managers | a name makes the item a card of that project (200 `{"card"}`); null makes it a plain item again, in Inbox (200 issue) |
 | `POST /_p99/v1/import`, `PUT /_p99/v1/import/attachments/{uid}`, `POST /_p99/v1/import/finish` | the key | an import that keeps keys and numbers, as [import.md](import.md) describes |
 | `GET /_p99/v1/github` | managers | `{"hosts":[{"host","repo","hook_id","webhook","token","secret","created_at","updated_at"}]}`, `token` and `secret` true when the Worker holds them |
 | `PUT /_p99/v1/github/{host}` | the key | `{"repo":"owner/name","hook_id"}`; links the host to the repository; 200 as one entry of the list |
@@ -154,7 +163,7 @@ A summary is `{"id","key","kind","stage","label","resolution","title","host","en
 
 ## Boards
 
-A board belongs to one manager: a name, 3 to 5 columns, each a label, and its own order of the cards in each column, which is that owner's priority. It shows the items whose label is one of its columns, so each item shows at most once; the item moves to a column by taking that column's label. A dev's "QA ready" column can be the first column of a QA person's board: the shared label is the handoff, with no workflow to set up. A board belongs to a host, or to none (`host` null) when it was made with every host in scope; it shows that host's items, or every host's, and only someone who reaches that host sees it: another host's board is 404. Every manager who reaches it can watch any board read-only, seeing exactly the owner's cards in the owner's order; only the owner moves its cards or changes it (403). Reporters and codes without the manager role get no boards.
+A board belongs to one manager: a name, 3 to 6 columns, each a label, and its own order of the cards in each column, which is that owner's priority. It shows the items whose label is one of its columns, so each item shows at most once; the item moves to a column by taking that column's label. A dev's "QA ready" column can be the first column of a QA person's board: the shared label is the handoff, with no workflow to set up. A board belongs to a host, or to none (`host` null) when it was made with every host in scope; it shows that host's items, or every host's, and only someone who reaches that host sees it: another host's board is 404. Every manager who reaches it can watch any board read-only, seeing exactly the owner's cards in the owner's order; only the owner moves its cards or changes it (403). Reporters and codes without the manager role get no boards.
 
 A board is `{"id","name","owner":{"username"},"mine","columns":[{"label","closes"}]}`. A card is `{"key","kind","title","label","assignee":{"username"}|null,"order"}`: `order` is the card's fractional key on that board, a short base-62 string that sorts as text, or null for a card the owner hasn't placed yet, which sits at the top of its column, newest first. `GET /boards/{id}` is one D1 query.
 
@@ -163,6 +172,21 @@ A board is `{"id","name","owner":{"username"},"mine","columns":[{"label","closes
 A label's `closes` flag is set with a board's columns (`{"label","closes":true}`); the items that carry it close or reopen at once, as `fixed` or open, without mail. A manager scoped to one host changes the flag, or renames, only a label no other host's board uses.
 
 `0011_lanes.sql` brought this in, once: each status became a label (its renamed name kept, an existing label of that name reused), each item's label its status's, every board, nested ones flattened, a board with the four default columns owned by the account's oldest live manager code (or, without one, the first manager to open the boards), and each column's order the old priority (urgent, high, normal, low, then none), then the old place. Statuses, nesting, `priority` and the priority events are gone; the old labels' rows on items stay, unused.
+
+## Cards
+
+A card is an item with a `project`, a name of 1 to 40 characters matched without regard to case (the first spelling used is kept); there is no project table. Only managers see and change cards, on the signed API and the browser API alike; a reporter's code answers 403 on every card route.
+
+The Cards board is one board of the account, `host` null, made the first time a card is filed and owned by that filer. Its six columns are the labels New, Planned, In progress, Stuck, Landed and the default closing label (Done), and its status words name them by position: `new`, `planned`, `in-progress`, `stuck`, `landed`, `done`. It shows cards only, and every other board shows only items without a project. Its columns can't be changed and it can't be deleted (409); its lanes are renamed as labels are. A Cards lane keeps its `closes` flag: a board column that would flip it away from the lane's value answers 409. It counts against no one's boards.
+
+- `GET /cards` lists in lane order, then each card's place in its lane; with no `status` it lists every lane but `done`. `project` and `status` repeat; `since` is an RFC 3339 time and keeps the cards changed at or after it; `source=human` or `agent` keeps the cards whose last change was a person's or an agent's; `host` keeps one host's; `limit` is 200 by default and at most 500, and `next_cursor` reads on.
+- `POST /cards/{key}/status` moves the card to that lane, at its top; a card already in it keeps its place. `done` closes it (`fixed`) and any other word reopens it. A note is a comment in the same write and mails no one.
+- A card's close by any other route (`PATCH` `status` or `resolution`, a merge, GitHub) takes it to the Done lane, and a `PATCH` `status` of `inbox`, `doing` or `review` to New, In progress or Landed, so a card never leaves its lanes.
+- An agent (`agent` true in the actor) that closes a card, by `status: done`, a move into the closing lane, `PATCH` or a merge, is refused: 403 `only a person closes a card`, and nothing is written.
+- A plain item on a card route answers 409 `<KEY> is not a card; give it a project with p99 edit <KEY> --project <name>`; an unknown key 404 `no item <KEY>`; a bad name 400 `a project name has 1 to 40 characters`.
+- A link is a `link` event, `{"ref","note"}`: `ref` 1 to 200 characters, `note` up to 200 (a blank one is null). A project change is a `project` event `{"from","to"}`; a lane change stays a `label` event.
+
+A card is `{"key","kind","project","status","label","lane","title","host","reporter","created_at","changed_at","changed_by","comments","links":[{"ref","note","by","at"}]}`: `status` the lane's word, `label` the lane's current name, `lane` the card's place in its lane among the cards the reader sees (1 is the top, null when done), `changed_at` and `changed_by` the card's latest event. Every person in it is `{"name","username","agent","via"}`; e-mails never appear.
 
 **Changed in 1.9.0:** a summary, an issue and a card no longer carry `status`, `board`, `position`, `priority` or `labels`; they carry `stage` and `label`. `/statuses`, `POST /labels`, `DELETE /labels/{name}` and board slugs are gone; boards are named by id.
 

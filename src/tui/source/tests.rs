@@ -29,7 +29,7 @@ fn ghost(accounts: &[&str]) -> Source {
         config,
         accounts: accounts.iter().map(|name| (*name).to_owned()).collect(),
         holder: None,
-        agent: false,
+        agent: None,
         clients: OnceLock::new(),
         listeners: Mutex::new(Vec::new()),
     }))
@@ -67,6 +67,7 @@ fn summary(key: &str) -> Summary {
             email: "grace@example.com".into(),
             name: "Grace Hopper".into(),
             agent: false,
+            via: None,
         },
         label: Some("QA ready".into()),
         ..Summary::default()
@@ -115,7 +116,7 @@ fn an_entry_is_found_by_every_word_a_person_sees_for_it() {
 }
 
 #[test]
-fn a_person_is_their_name_or_else_their_email_and_an_agent_gets_a_star() {
+fn a_person_is_their_name_or_else_their_email_and_an_agent_gets_a_robot() {
     assert_eq!(
         person("Ada Lovelace", "ada@example.com", false),
         "Ada Lovelace"
@@ -123,9 +124,9 @@ fn a_person_is_their_name_or_else_their_email_and_an_agent_gets_a_star() {
     assert_eq!(person("", "ada@example.com", false), "ada@example.com");
     assert_eq!(
         person("Ada Lovelace", "ada@example.com", true),
-        "Ada Lovelace*"
+        "Ada Lovelace 🤖"
     );
-    assert_eq!(person("", "", true), "*");
+    assert_eq!(person("", "", true), "🤖");
 }
 
 #[test]
@@ -208,7 +209,7 @@ fn the_sample_source_is_one_account_at_a_fixed_now() {
 fn the_sample_inbox_comes_newest_first_and_codes_newest_first() {
     let source = Source::demo(Duration::ZERO);
     let entries = source.inbox().expect("the sample reads").entries;
-    assert_eq!(entries.len(), 22);
+    assert_eq!(entries.len(), 28);
     assert!(entries.windows(2).all(|pair| {
         let (a, b) = (&pair[0].summary, &pair[1].summary);
         a.updated_at > b.updated_at || (a.updated_at == b.updated_at && a.id > b.id)
@@ -305,7 +306,7 @@ fn a_broken_source_answers_every_read_and_write_with_why() {
     assert_eq!(source.client(0, None).err().as_deref(), why);
     assert_eq!(source.boards().err().as_deref(), why);
     assert_eq!(source.board(None).err().as_deref(), why);
-    assert_eq!(source.labels(0).err().as_deref(), why);
+    assert_eq!(source.labels(0, "Inbox").err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(
         source.sample(|_| Ok(())).err().as_deref(),
@@ -339,7 +340,7 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
         why
     );
     assert_eq!(source.delete(0, None, "BUG-1").err().as_deref(), why);
-    assert_eq!(source.labels(0).err().as_deref(), why);
+    assert_eq!(source.labels(0, "Inbox").err().as_deref(), why);
     assert_eq!(source.shift(0, &Move::default()).err().as_deref(), why);
     assert_eq!(source.board(Some((0, 1))).err().as_deref(), why);
     assert_eq!(source.boards().err().as_deref(), why);
@@ -365,7 +366,7 @@ fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
         Some("that account is gone")
     );
     assert_eq!(
-        source.labels(0).err().as_deref(),
+        source.labels(0, "Inbox").err().as_deref(),
         Some("that account is gone")
     );
     let (sender, _inbox) = channel();

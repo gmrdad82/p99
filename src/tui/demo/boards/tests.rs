@@ -63,7 +63,7 @@ fn keys_appended_or_squeezed_in_again_and_again_never_collide() {
 fn the_sample_has_my_board_and_a_watched_one_with_their_own_lanes() {
     let demo = Demo::new();
     let shelf = demo.boards().boards;
-    assert_eq!(shelf.len(), 2);
+    assert_eq!(shelf.len(), 3);
     assert!(shelf[0].mine && !shelf[1].mine);
     assert_eq!(shelf[1].whose(), "@grace.hopper");
     let shop = demo.board(None).expect("the sample has it");
@@ -78,7 +78,14 @@ fn the_sample_has_my_board_and_a_watched_one_with_their_own_lanes() {
         demo.board(Some(9)).err().as_deref(),
         Some("no board is called 9 (404)")
     );
-    assert_eq!(demo.labels(), ["Inbox", "Doing", "QA ready", "Done"]);
+    let plain = ["Inbox", "Doing", "QA ready", "Done"];
+    assert_eq!(crate::tui::deck::offered(&shelf, "Inbox"), plain);
+    assert_eq!(crate::tui::deck::offered(&shelf, "Done"), plain);
+    assert_eq!(
+        crate::tui::deck::offered(&shelf, "Stuck"),
+        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+    );
+    assert!(shelf.iter().filter(|b| b.cards).all(|b| b.name == "Cards"));
 }
 
 #[test]

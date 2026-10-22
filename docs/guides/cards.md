@@ -20,7 +20,9 @@ The Cards board is made the first time someone files a card. Its lanes have fixe
 | `landed` | 5 |
 | `done` | 6, which closes the card |
 
-The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). An agent can't close a card: `done` from an agent answers `p99: only a person closes a card`.
+The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). An agent can't close a card: `done` from an agent, or its move into the last lane, answers `p99: only a person closes a card`.
+
+The Cards board shows cards only, and every other board only plain items, so a site's reports and your cards never mix. A card stays on its lanes: a close from anywhere else, such as a merge or a GitHub pull request, puts it in the last lane, and a reopen puts it back on one of the others.
 
 ## Commands
 
@@ -47,7 +49,7 @@ In text, an agent's action reads as the person's name with 🤖 (`Ada Lovelace �
 
 ## JSON
 
-With `--json`, standard output carries one JSON document: `{"cards":[…],"next_cursor":…}` for `p99 cards`, `{"card":…,"comments":[…],"events":[…]}` for `p99 card show`, `{"card":…}` for `card new`, `card status` (with `"comment"` after `--note`) and `edit --project`, `{"key","comment"}` for `card comment`, `{"key","link"}` for `card link` and `{"projects":[{"name","open","done"}]}` for `p99 projects`. A card carries `key`, `kind`, `project`, `status` (the word), `label` (the lane's name), `lane` (its place, `null` when done), `title`, `host`, `reporter`, `created_at`, `changed_at`, `changed_by`, `comments` and `links`. People are `{"name","username","agent","via"}`; e-mails never appear.
+With `--json`, standard output carries one JSON document: `{"cards":[…],"next_cursor":…}` for `p99 cards`, `{"card":…,"comments":[…],"events":[…]}` for `p99 card show`, `{"card":…}` for `card new`, `card status` (with `"comment"` after `--note`) and `edit --project`, `{"key","comment"}` for `card comment`, `{"key","link"}` for `card link` and `{"projects":[{"name","open","done"}]}` for `p99 projects`. A card carries `key`, `kind`, `project`, `status` (the word), `label` (the lane's name), `lane` (its place among the cards you can see, `null` when done), `title`, `host`, `reporter`, `created_at`, `changed_at`, `changed_by`, `comments` and `links`. People are `{"name","username","agent","via"}`; e-mails never appear.
 
 ## Errors
 

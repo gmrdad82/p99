@@ -386,7 +386,7 @@ pub struct AssignArgs {
 }
 
 #[derive(Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file"])))]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file", "project", "no_project"])))]
 pub struct EditArgs {
     #[arg(help = "the item's key, such as BUG-12, or its number")]
     pub key: String,
@@ -640,7 +640,10 @@ fn who(email: &str, name: &str, agent: bool) -> String {
 
 fn who_via(email: &str, name: &str, agent: bool, via: Option<&str>) -> String {
     let base = who(email, name, agent);
-    match via.map(str::trim).filter(|label| agent && !label.is_empty()) {
+    match via
+        .map(str::trim)
+        .filter(|label| agent && !label.is_empty())
+    {
         Some(label) => format!("{base} ({label})"),
         None => base,
     }
@@ -1260,7 +1263,12 @@ fn print_thread(thread: &Thread) {
         .unwrap_or(false);
     out!(
         "reported by {} on {}  {}{}",
-        who_via(text("email"), text("name"), agent, reporter.get("via").and_then(Value::as_str)),
+        who_via(
+            text("email"),
+            text("name"),
+            agent,
+            reporter.get("via").and_then(Value::as_str)
+        ),
         issue.host.as_deref().unwrap_or("-"),
         when(&issue.created_at),
         if issue.env.is_empty() {
@@ -1345,7 +1353,12 @@ fn print_thread(thread: &Thread) {
         out!(
             "\n{} {}{}",
             when(&comment.created_at),
-            who_via(&author.email, &author.name, author.agent, author.via.as_deref()),
+            who_via(
+                &author.email,
+                &author.name,
+                author.agent,
+                author.via.as_deref()
+            ),
             if comment.internal { "  [internal]" } else { "" }
         );
         out!("{}", comment.body);

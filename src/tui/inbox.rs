@@ -561,8 +561,9 @@ impl Inbox {
         let Some(account) = self.open.as_ref().map(|o| o.account) else {
             return;
         };
+        let current = self.issue().map(issue_label).unwrap_or_default();
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account)));
+        cx.detach(move || Msg::Labels(source.labels(account, &current)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {
@@ -802,7 +803,10 @@ fn lines(
         reporter["email"].as_str().unwrap_or_default(),
         reporter["agent"].as_bool().unwrap_or(false),
     );
-    let reporter_via = via_of(reporter["agent"].as_bool().unwrap_or(false), reporter["via"].as_str());
+    let reporter_via = via_of(
+        reporter["agent"].as_bool().unwrap_or(false),
+        reporter["via"].as_str(),
+    );
     let dot = || Span::styled(" · ", palette.muted);
     let mut out: Vec<Line<'static>> = Vec::new();
     for (at, part) in text::wrap(&issue.title, width.saturating_sub(issue.key.len() + 2))

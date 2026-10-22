@@ -111,12 +111,48 @@ pub(super) const ITEMS: [super::Item; 10] = [
 ];
 
 pub(super) const CARDS: [super::Item; 6] = [
-    card("feature", "new", "Export keeps every audio track", false, 20 * MINUTE),
-    card("task", "planned", "Thumbnails for the clip rail", false, 3 * HOUR),
-    card("bug", "in-progress", "Waveform drifts after a cut", true, 50 * MINUTE),
-    card("bug", "stuck", "Spanish cues lose their accents", true, 2 * HOUR),
-    card("feature", "landed", "Roll-up player plays the cut", true, 30 * MINUTE),
-    card("task", "done", "Silence removed by default", false, DAY),
+    card(
+        "feature",
+        "new",
+        "Export keeps every audio track",
+        false,
+        27 * HOUR,
+    ),
+    card(
+        "task",
+        "planned",
+        "Thumbnails for the clip rail",
+        false,
+        28 * HOUR,
+    ),
+    card(
+        "bug",
+        "in-progress",
+        "Waveform drifts after a cut",
+        true,
+        29 * HOUR,
+    ),
+    card(
+        "bug",
+        "stuck",
+        "Spanish cues lose their accents",
+        true,
+        30 * HOUR,
+    ),
+    card(
+        "feature",
+        "landed",
+        "Roll-up player plays the cut",
+        true,
+        31 * HOUR,
+    ),
+    card(
+        "task",
+        "done",
+        "Silence removed by default",
+        false,
+        16 * DAY,
+    ),
 ];
 
 const fn card(
@@ -222,6 +258,7 @@ fn board(id: i64, name: &str, owner: &str, mine: bool, columns: &[(&str, bool)])
             username: Some(owner.into()),
         }),
         mine,
+        cards: id == CARDS_BOARD,
         columns: columns
             .iter()
             .map(|&(label, closes)| Column {
@@ -433,22 +470,6 @@ impl Demo {
             .find(|c| c.key == key)
             .ok_or_else(|| format!("no card is called {key}"))?;
         Ok(Moved { card })
-    }
-
-    pub fn labels(&self) -> Vec<String> {
-        let mut out: Vec<String> = Vec::new();
-        for column in self
-            .shelf
-            .boards
-            .iter()
-            .filter(|b| b.mine)
-            .flat_map(|b| &b.columns)
-        {
-            if !out.contains(&column.label) {
-                out.push(column.label.clone());
-            }
-        }
-        out
     }
 }
 
