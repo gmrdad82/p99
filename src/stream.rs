@@ -330,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::result_large_err)]
     fn open_sends_the_headers_it_was_given() {
         let (tx, rx) = std::sync::mpsc::channel();
         let url = serve(move |tcp| {
