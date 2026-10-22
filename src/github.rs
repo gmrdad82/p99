@@ -146,10 +146,14 @@ impl Github {
                     .send_json(body.cloned().unwrap_or(Value::Null))
             }
         };
-        let mut response = response.map_err(|e| format!("GitHub {path}: {e}"))?;
+        let bare = path.split('?').next().unwrap_or(path);
+        let mut response = response.map_err(|e| format!("GitHub {bare}: {e}"))?;
         let status = response.status().as_u16();
-        let value = response.body_mut().read_json().unwrap_or(Value::Null);
-        Ok((status, value))
+        let read = response.body_mut().read_json().ok();
+        if (200..300).contains(&status) && read.is_none() {
+            return Err(format!("GitHub {bare}: the answer could not be read"));
+        }
+        Ok((status, read.unwrap_or(Value::Null)))
     }
 
     fn hook(&self, repo: &str, url: &str, secret: &str) -> Result<Option<i64>, String> {

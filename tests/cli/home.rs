@@ -53,6 +53,17 @@ impl Out {
         self
     }
 
+    pub fn dropped(&self, said: &str) -> &Out {
+        assert_eq!(self.code, Some(1), "{}", self.stderr);
+        assert!(
+            self.stderr.starts_with(&format!("p99: {said}: ")),
+            "stderr should start with p99: {said}: \n got: {}",
+            self.stderr
+        );
+        assert_eq!(self.stderr.lines().count(), 1, "{}", self.stderr);
+        self
+    }
+
     pub fn clap(&self, said: &str) -> &Out {
         assert_eq!(self.code, Some(2), "{}", self.stderr);
         assert!(self.stdout.is_empty(), "{}", self.stdout);
@@ -61,9 +72,23 @@ impl Out {
             "{}",
             self.stderr
         );
-        assert!(
+        assert!(self.stderr.ends_with('\n'), "{}", self.stderr);
+        let lines: Vec<&str> = self.stderr.lines().collect();
+        let n = lines.len();
+        assert!(n >= 3, "{}", self.stderr);
+        assert_eq!(
+            lines[n - 2..],
+            ["", "For more information, try '--help'."],
+            "{}",
             self.stderr
-                .ends_with("For more information, try '--help'.\n"),
+        );
+        if lines[n - 3].starts_with("Usage:") {
+            assert!(lines[n - 3].starts_with("Usage: p99 "), "{}", self.stderr);
+            assert!(n >= 5 && lines[n - 4].is_empty(), "{}", self.stderr);
+        }
+        assert_eq!(
+            lines.iter().filter(|l| l.starts_with("Usage:")).count(),
+            usize::from(lines[n - 3].starts_with("Usage:")),
             "{}",
             self.stderr
         );

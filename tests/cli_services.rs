@@ -1253,3 +1253,252 @@ fn app_prints_the_page_address_from_the_config_or_the_workers_dev_subdomain() {
         "the account has no workers.dev subdomain, so the P99 page has no address; pick one in the Cloudflare dashboard (Workers & Pages) or set app = \"<host>\" for the account in the config, then run p99 deploy",
     );
 }
+
+const QUERY: &str = "/cf/accounts/acc1/d1/database/db1/query";
+
+#[test]
+fn cloudflare_drops_and_garbled_answers_end_in_one_plain_line() {
+    let dropped = Home::new("cf-drop", |req: &Req| {
+        if req.is("POST", QUERY) {
+            Reply::Drop
+        } else {
+            fake::any(req)
+        }
+    });
+    let out = dropped.p99(&["email", "show"]);
+    out.dropped("Cloudflare /accounts/acc1/d1/database/db1/query");
+    assert!(out.stdout.is_empty());
+    let garbled = Home::new("cf-garbled", |req: &Req| {
+        if req.is("POST", QUERY) {
+            Reply::raw(200, "application/json", b"{\"result\": [")
+        } else {
+            fake::any(req)
+        }
+    });
+    garbled
+        .p99(&["email", "show"])
+        .refused("Cloudflare /accounts/acc1/d1/database/db1/query: the answer could not be read");
+    let bare = Home::new("cf-bare-502", |req: &Req| {
+        if req.is("POST", QUERY) {
+            Reply::raw(502, "text/html", b"<html>bad gateway</html>")
+        } else {
+            fake::any(req)
+        }
+    });
+    bare.p99(&["email", "show"])
+        .refused("Cloudflare /accounts/acc1/d1/database/db1/query: HTTP 502");
+    let secret = Home::new("cf-secret-drop", |req: &Req| {
+        if req.is("PUT", SECRETS)
+            && req.json()["name"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("GITHUB_HOOK_")
+        {
+            Reply::Drop
+        } else {
+            first_link(req)
+        }
+    });
+    secret
+        .p99_env(&SET, &TOKEN)
+        .dropped("Cloudflare /accounts/acc1/workers/scripts/p99/secrets");
+    removed_both_secrets(&secret);
+}
+
+#[test]
+fn github_drops_and_garbled_answers_end_in_one_plain_line() {
+    let answering = |name: &str, method: &'static str, path: &'static str, reply: fn() -> Reply| {
+        Home::new(name, move |req: &Req| {
+            if req.is(method, path) {
+                reply()
+            } else {
+                first_link(req)
+            }
+        })
+    };
+    let h = answering("gh-repo-drop", "GET", "/gh/repos/acme/shop", || Reply::Drop);
+    h.p99_env(&SET, &TOKEN).dropped("GitHub /repos/acme/shop");
+    nothing_stored(&h);
+    let h = answering("gh-repo-garbled", "GET", "/gh/repos/acme/shop", || {
+        Reply::raw(200, "application/json", b"{\"full_name\": ")
+    });
+    h.p99_env(&SET, &TOKEN)
+        .refused("GitHub /repos/acme/shop: the answer could not be read");
+    nothing_stored(&h);
+    assert!(h.stub.calls("GET", "/_p99/v1/github").is_empty());
+    let h = answering("gh-repo-502-html", "GET", "/gh/repos/acme/shop", || {
+        Reply::page(502)
+    });
+    h.p99_env(&SET, &TOKEN).refused("GitHub answered 502");
+    nothing_stored(&h);
+    let h = answering("gh-hooks-drop", "GET", "/gh/repos/acme/shop/hooks", || {
+        Reply::Drop
+    });
+    h.p99_env(&SET, &TOKEN)
+        .dropped("GitHub /repos/acme/shop/hooks");
+    removed_both_secrets(&h);
+    assert!(h.stub.calls("POST", "/gh/repos/acme/shop/hooks").is_empty());
+    let h = answering(
+        "gh-hook-garbled",
+        "POST",
+        "/gh/repos/acme/shop/hooks",
+        || Reply::raw(201, "application/json", b"not json"),
+    );
+    h.p99_env(&SET, &TOKEN)
+        .refused("GitHub /repos/acme/shop/hooks: the answer could not be read");
+    removed_both_secrets(&h);
+    assert!(
+        h.stub
+            .calls("PUT", "/_p99/v1/github/shop.example.com")
+            .is_empty()
+    );
+}
+
+#[test]
+fn github_set_stops_at_the_token_secret_without_taking_anything_back() {
+    let token_fails = |req: &Req| {
+        req.is("PUT", SECRETS)
+            && req.json()["name"]
+                .as_str()
+                .unwrap_or("")
+                .starts_with("GITHUB_TOKEN_")
+    };
+    let said = "Cloudflare /accounts/acc1/workers/scripts/p99/secrets: secret store down (10013)";
+    let first = Home::new("gh-token-put-first", move |req: &Req| {
+        if token_fails(req) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            first_link(req)
+        }
+    });
+    first.p99_env(&SET, &TOKEN).refused(said);
+    let again = Home::new("gh-token-put-again", move |req: &Req| {
+        if token_fails(req) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            fake::any(req)
+        }
+    });
+    again.p99_env(&SET, &TOKEN).refused(said);
+    for h in [&first, &again] {
+        assert_eq!(h.stub.calls("PUT", SECRETS).len(), 1);
+        assert!(h.stub.under("DELETE", SECRETS).is_empty());
+        assert!(h.stub.under("GET", "/gh/repos/acme/shop/").is_empty());
+        assert!(
+            h.stub
+                .calls("PUT", "/_p99/v1/github/shop.example.com")
+                .is_empty()
+        );
+    }
+}
+
+const EMAIL_SET: [&str; 8] = [
+    "email",
+    "set",
+    "--provider",
+    "resend",
+    "--key-ref",
+    "env:P99_TEST_RESEND",
+    "--from",
+    FROM,
+];
+const RESEND_KEY: [(&str, &str); 1] = [("P99_TEST_RESEND", "re_example")];
+
+#[test]
+fn resend_drops_and_garbled_answers_store_nothing() {
+    let dropped = Home::new("resend-drop", |req: &Req| {
+        if req.is("GET", "/resend/domains") {
+            Reply::Drop
+        } else {
+            fake::any(req)
+        }
+    });
+    dropped.p99_env(&EMAIL_SET, &RESEND_KEY).dropped("Resend");
+    let gone = home("resend-gone");
+    gone.p99_env(
+        &EMAIL_SET,
+        &[
+            ("P99_TEST_RESEND", "re_example"),
+            ("P99_RESEND_API", &stub::Stub::closed()),
+        ],
+    )
+    .dropped("Resend");
+    let garbled = Home::new("resend-garbled", |req: &Req| {
+        if req.is("GET", "/resend/domains") {
+            Reply::raw(200, "text/html", b"<html>maintenance</html>")
+        } else {
+            fake::any(req)
+        }
+    });
+    garbled
+        .p99_env(&EMAIL_SET, &RESEND_KEY)
+        .refused("Resend's answer for its domains could not be read");
+    let shapeless = resend_answers("resend-shapeless", 200, json!({"data": "none"}));
+    shapeless
+        .p99_env(&EMAIL_SET, &RESEND_KEY)
+        .refused("Resend's answer for its domains could not be read");
+    let empty = resend_answers("resend-empty", 200, json!({"data": []}));
+    empty.p99_env(&EMAIL_SET, &RESEND_KEY).refused(
+        "example.com is not a domain of this Resend account; add and verify it at https://resend.com/domains",
+    );
+    for h in [&dropped, &gone, &garbled, &shapeless, &empty] {
+        assert!(d1(h).is_empty());
+        assert!(h.stub.calls("PUT", SECRETS).is_empty());
+    }
+}
+
+#[test]
+fn email_set_and_off_say_the_secret_step_failed_after_the_database_changed() {
+    let put_fails = Home::new("email-secret-500", |req: &Req| {
+        if req.is("PUT", SECRETS) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            fake::any(req)
+        }
+    });
+    put_fails.p99_env(&EMAIL_SET, &RESEND_KEY).refused(
+        "Cloudflare /accounts/acc1/workers/scripts/p99/secrets: secret store down (10013)",
+    );
+    assert_eq!(
+        put_fails.stub.call("POST", QUERY).json()["params"],
+        json!(["resend", FROM, null])
+    );
+    let put_drops = Home::new("email-secret-drop", |req: &Req| {
+        if req.is("PUT", SECRETS) {
+            Reply::Drop
+        } else {
+            fake::any(req)
+        }
+    });
+    put_drops
+        .p99_env(&EMAIL_SET, &RESEND_KEY)
+        .dropped("Cloudflare /accounts/acc1/workers/scripts/p99/secrets");
+    assert_eq!(
+        put_drops.stub.call("POST", QUERY).json()["params"],
+        json!(["resend", FROM, null])
+    );
+    let drop_fails = Home::new("email-off-secret-500", |req: &Req| {
+        if req.under("DELETE", &format!("{SECRETS}/")) {
+            Reply::cf_error(500, 10013, "secret store down")
+        } else {
+            fake::any(req)
+        }
+    });
+    let out = drop_fails.p99(&["email", "off"]);
+    out.refused(
+        "Cloudflare /accounts/acc1/workers/scripts/p99/secrets/RESEND_API_KEY: secret store down (10013)",
+    );
+    assert!(out.stdout.is_empty());
+    assert_eq!(
+        drop_fails.stub.call("POST", QUERY).json()["params"],
+        json!(["off", null, null])
+    );
+    let already_gone = Home::new("email-off-secret-404", |req: &Req| {
+        if req.under("DELETE", &format!("{SECRETS}/")) {
+            Reply::cf_error(404, 10007, "not found")
+        } else {
+            fake::any(req)
+        }
+    });
+    already_gone.p99(&["email", "off"]).ok();
+}
