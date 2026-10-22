@@ -1247,7 +1247,6 @@ fn an_owner_with_520_items_pages_through_each_once_and_is_told_when_more_follow(
 }
 
 #[test]
-#[ignore = "red until fixed: p99 list --limit 0 says no items while items wait"]
 fn a_list_limit_of_zero_never_tells_the_owner_their_inbox_is_empty() {
     let stub = Stub::start(World::many(3));
     let home = Home::of("zero", &stub);
@@ -1270,7 +1269,6 @@ fn a_list_limit_of_zero_never_tells_the_owner_their_inbox_is_empty() {
 }
 
 #[test]
-#[ignore = "red until fixed: p99 list --all --limit 3 over two accounts prints 5 items"]
 fn a_list_across_two_accounts_keeps_to_the_limit_and_says_more_follow() {
     let mut world = World::many(5);
     for id in 101..=102 {
@@ -1561,7 +1559,6 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
 }
 
 #[test]
-#[ignore = "red until fixed: an assignee with a null username makes p99 list fail with unexpected answer"]
 fn an_assignee_the_worker_sends_without_a_username_never_breaks_the_list_or_the_item() {
     let mut item = Item::new(12, "Assigned before usernames existed");
     item.assignee = Some("old.hand".to_owned());
