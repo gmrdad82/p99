@@ -183,12 +183,14 @@ export function open(opts) {
   o.bar = o.root.firstChild;
   if (opts.me) me = opts.me;
   if (opts.view === 401 || opts.view === 403) return Promise.resolve(gone());
+  if (typeof opts.view === "number" && opts.view && opts.view !== 428 && !busyView(opts.view)) return Promise.resolve();
+  const was = S.open;
   const ready = ensure();
   if (opts.view === "list" && S.open && S.view === "list" && !opts.space) return close();
   return ready.then(() => {
     show();
     const go = () => {
-      if (busyView(opts.view)) busy();
+      if (busyView(opts.view)) { if (!was) busy(); }
       else if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
       else fileFlow();
@@ -594,11 +596,14 @@ function busyDelay(n) { return n < BUSY_S.length ? BUSY_S[n] : BUSY_EVERY_S; }
 function busy() {
   let n = 0;
   let left = busyDelay(0);
-  const line = h("p", { class: "p99-status-line p99-busy-line", role: "status", "aria-live": "polite" });
+  const line = h("p", { class: "p99-status-line p99-busy-line", "aria-hidden": "true" });
+  const heard = h("p", { class: "p99-sr p99-busy-heard", role: "status", "aria-live": "polite" });
   const title = h("h2", { id: "p99-title", text: say("signing_in") });
-  const view = h("section", { class: "p99-view p99-busy", "data-view": "busy", "aria-busy": "true" }, title, line);
+  const view = h("section", { class: "p99-view p99-busy", "data-view": "busy", "aria-busy": "true" }, title, line, heard);
   const live = () => view.isConnected && S.open;
-  const draw = () => { line.textContent = say("busy", { n: left }); };
+  const word = () => (navigator.onLine ? say("busy", { n: left }) : say("offline"));
+  const draw = () => { line.textContent = word(); };
+  const tell = () => { heard.textContent = word(); };
   const wake = () => {
     if (document.visibilityState === "hidden") return;
     document.removeEventListener("visibilitychange", wake);
@@ -621,7 +626,7 @@ function busy() {
   const attempt = () =>
     call("GET", "/me?path=" + enc(location.pathname)).then(signedIn, (e) => {
       if (!live()) return;
-      if (e && (e.status === 401 || e.status === 403)) {
+      if (e && e.status === 403) {
         close(true);
         gone();
         return;
@@ -632,6 +637,7 @@ function busy() {
       }
       n++;
       left = busyDelay(n);
+      tell();
       step();
     });
   const signedIn = (m) => {
@@ -644,6 +650,7 @@ function busy() {
     close(true);
   };
   mount(view, title);
+  tell();
   step();
 }
 function mount(view, focus) {
