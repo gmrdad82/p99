@@ -433,7 +433,8 @@ fn at_line(why: String, chunk: &[&Record]) -> String {
 fn upload(client: &Client, host: &str, dir: &Path, record: &Record) -> Result<(), String> {
     let v = &record.value;
     let path = bundle_file(dir, v)?;
-    let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let bytes = std::fs::read(&path)
+        .map_err(|e| format!("line {}: {}: {e}", record.line, path.display()))?;
     let name = text(v, "name").map(str::to_owned).unwrap_or_else(|| {
         path.file_name()
             .and_then(|n| n.to_str())
@@ -720,6 +721,611 @@ mod tests {
             errors[1].contains("actor.via must be a string"),
             "{}",
             errors[1]
+        );
+    }
+
+    fn one(line: &Value) -> String {
+        let errors = validate(&line.to_string(), Path::new("bundle")).unwrap_err();
+        assert_eq!(errors.len(), 1, "{errors:#?}");
+        errors[0].clone()
+    }
+
+    fn with(base: &Value, field: &str, value: Option<Value>) -> Value {
+        let mut out = base.clone();
+        match value {
+            Some(v) => out[field] = v,
+            None => {
+                out.as_object_mut().unwrap().remove(field);
+            }
+        }
+        out
+    }
+
+    fn table(base: &Value, kind: &str, cases: &[(&str, Option<Value>, &str)]) {
+        assert!(
+            validate(&base.to_string(), Path::new("bundle")).is_ok(),
+            "{base}"
+        );
+        for (field, value, why) in cases {
+            let line = with(base, field, value.clone());
+            assert_eq!(one(&line), format!("line 1: {kind}: {why}"), "{line}");
+        }
+    }
+
+    const CREATED: &str = "created_at must be a date and time such as 2025-03-01T10:00:00Z";
+    const UPDATED: &str = "updated_at must be a date and time such as 2025-03-01T10:00:00Z";
+    const CLOSED: &str = "closed_at must be a date and time such as 2025-03-01T10:00:00Z";
+    const AT: &str = "at must be a date and time such as 2025-03-01T10:00:00Z";
+
+    #[test]
+    fn every_bad_item_field_is_named() {
+        let base = json!({"type":"item","key":"BUG-7","kind":"bug","title":"x","reporter":{"email":"ada@example.com"},"created_at":"2025-03-01T10:00:00Z"});
+        let long = "é".repeat(201);
+        table(
+            &base,
+            "item",
+            &[
+                ("key", None, "key is required and must be text"),
+                ("key", Some(json!(7)), "key is required and must be text"),
+                (
+                    "kind",
+                    Some(json!("epic")),
+                    "kind must be one of bug, feature, improvement, question, task",
+                ),
+                (
+                    "key",
+                    Some(json!("BUG7")),
+                    "key must be a key such as BUG-3",
+                ),
+                (
+                    "key",
+                    Some(json!("B4G-7")),
+                    "key must be a key such as BUG-3",
+                ),
+                ("key", Some(json!("FEAT-7")), "a bug is keyed BUG-<number>"),
+                (
+                    "title",
+                    Some(json!("   ")),
+                    "title must be 1 to 200 characters",
+                ),
+                (
+                    "title",
+                    Some(json!(long)),
+                    "title must be 1 to 200 characters",
+                ),
+                (
+                    "body",
+                    Some(json!(7)),
+                    "body must be text of at most 20000 characters",
+                ),
+                (
+                    "body",
+                    Some(json!("b".repeat(20001))),
+                    "body must be text of at most 20000 characters",
+                ),
+                (
+                    "status",
+                    Some(json!("triaged")),
+                    "status must be one of inbox, doing, review, done, or a P99 1.x status",
+                ),
+                (
+                    "status",
+                    Some(json!(3)),
+                    "status is required and must be text",
+                ),
+                (
+                    "resolution",
+                    Some(json!("wontfix")),
+                    "resolution must be one of fixed, abandoned, duplicate",
+                ),
+                ("reporter", None, "reporter must be an object with an email"),
+                (
+                    "reporter",
+                    Some(json!("ada@example.com")),
+                    "reporter must be an object with an email",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada"})),
+                    "reporter.email must be an e-mail address",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"a@b@c"})),
+                    "reporter.email must be an e-mail address",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada @example.com"})),
+                    "reporter.email must be an e-mail address",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"name":"Ada"})),
+                    "reporter.email is required and must be text",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada@example.com","name":long})),
+                    "reporter.name must be text of at most 200 characters",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada@example.com","name":7})),
+                    "reporter.name must be text of at most 200 characters",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada@example.com","agent":"yes"})),
+                    "reporter.agent must be true or false",
+                ),
+                (
+                    "reporter",
+                    Some(json!({"email":"ada@example.com","manager":1})),
+                    "reporter.manager must be true or false",
+                ),
+                (
+                    "assignee",
+                    Some(json!("grace")),
+                    "assignee must be an e-mail address",
+                ),
+                (
+                    "duplicate_of",
+                    Some(json!("x")),
+                    "duplicate_of must be a key such as BUG-3",
+                ),
+                (
+                    "duplicate_of",
+                    Some(json!(3)),
+                    "duplicate_of must be a key such as BUG-3",
+                ),
+                ("env", Some(json!("Prod")), "env must name an environment"),
+                (
+                    "env",
+                    Some(json!("e".repeat(33))),
+                    "env must name an environment",
+                ),
+                ("env", Some(json!("-prod")), "env must name an environment"),
+                (
+                    "page",
+                    Some(json!("https://example.com/")),
+                    "page must be an object",
+                ),
+                (
+                    "page",
+                    Some(json!({"url":"ftp://example.com/"})),
+                    "page.url must start with http:// or https://",
+                ),
+                ("context", Some(json!([])), "context must be an object"),
+                ("marks", Some(json!({})), "marks must be a list"),
+                ("created_at", None, CREATED),
+                ("created_at", Some(json!("2025/03/01")), CREATED),
+                ("created_at", Some(json!("2025-3-01T10:00")), CREATED),
+                ("created_at", Some(json!("2025-03-0")), CREATED),
+                ("updated_at", Some(json!("soon")), UPDATED),
+                ("closed_at", Some(json!(5)), CLOSED),
+            ],
+        );
+        let fine = [
+            ("status", json!("resolved")),
+            ("status", json!("done")),
+            ("resolution", json!("duplicate")),
+            ("env", json!("staging-2")),
+            ("page", json!({"url":"http://example.com/a","title":"A"})),
+            ("page", json!({"path":"/a"})),
+            ("assignee", Value::Null),
+            ("updated_at", Value::Null),
+            ("key", json!(" bug-7 ")),
+        ];
+        for (field, value) in fine {
+            let line = with(&base, field, Some(value));
+            assert!(
+                validate(&line.to_string(), Path::new("bundle")).is_ok(),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_bad_comment_field_is_named() {
+        let base = json!({"type":"comment","item":"BUG-7","uid":"c-1","author":{"email":"grace@example.com"},"body":"Seen.","created_at":"2025-03-02T09:00:00Z"});
+        table(
+            &base,
+            "comment",
+            &[
+                ("item", None, "item must be a key such as BUG-3"),
+                ("item", Some(json!("x")), "item must be a key such as BUG-3"),
+                ("author", None, "author must be an object with an email"),
+                (
+                    "author",
+                    Some(json!({"email":"g"})),
+                    "author.email must be an e-mail address",
+                ),
+                (
+                    "author",
+                    Some(json!({"email":"grace@example.com","via":7})),
+                    "author.via must be a string",
+                ),
+                ("body", None, "body is required and must be text"),
+                (
+                    "body",
+                    Some(json!("  ")),
+                    "body must be 1 to 20000 characters",
+                ),
+                (
+                    "body",
+                    Some(json!("b".repeat(20001))),
+                    "body must be 1 to 20000 characters",
+                ),
+                (
+                    "internal",
+                    Some(json!("no")),
+                    "internal must be true or false",
+                ),
+                ("created_at", None, CREATED),
+                ("uid", None, "uid is required and must be text"),
+                (
+                    "uid",
+                    Some(json!("c 1")),
+                    "uid must be 1 to 64 letters, digits, dots, dashes or underscores",
+                ),
+                (
+                    "uid",
+                    Some(json!("u".repeat(65))),
+                    "uid must be 1 to 64 letters, digits, dots, dashes or underscores",
+                ),
+                (
+                    "uid",
+                    Some(json!("")),
+                    "uid must be 1 to 64 letters, digits, dots, dashes or underscores",
+                ),
+            ],
+        );
+    }
+
+    #[test]
+    fn every_bad_attachment_field_is_named_before_the_file_is_read() {
+        let base = json!({"type":"attachment","item":"BUG-7","uid":"a-1","content_type":"image/png","file":"files/a.png"});
+        let cases = [
+            ("item", Some(json!("x")), "item must be a key such as BUG-3"),
+            (
+                "comment",
+                Some(json!("c 1")),
+                "comment must be the uid of a comment",
+            ),
+            (
+                "comment",
+                Some(json!(7)),
+                "comment is required and must be text",
+            ),
+            (
+                "role",
+                Some(json!("photo")),
+                "role must be one of screenshot, page, region, file",
+            ),
+            (
+                "role",
+                Some(json!("region")),
+                "a region carries a mark, and nothing else does",
+            ),
+            (
+                "mark",
+                Some(json!(0)),
+                "a region carries a mark, and nothing else does",
+            ),
+            (
+                "name",
+                Some(json!("a/b.png")),
+                "name must be 1 to 200 characters, no slashes",
+            ),
+            (
+                "name",
+                Some(json!("a\\b.png")),
+                "name must be 1 to 200 characters, no slashes",
+            ),
+            (
+                "name",
+                Some(json!(" ")),
+                "name must be 1 to 200 characters, no slashes",
+            ),
+            (
+                "name",
+                Some(json!("n".repeat(201))),
+                "name must be 1 to 200 characters, no slashes",
+            ),
+            (
+                "content_type",
+                None,
+                "content_type is required and must be text",
+            ),
+            (
+                "content_type",
+                Some(json!(" ")),
+                "content_type must be the file's media type, such as image/png",
+            ),
+            ("internal", Some(json!(1)), "internal must be true or false"),
+            ("created_at", Some(json!("x")), CREATED),
+            ("file", None, "file is required and must be text"),
+            (
+                "file",
+                Some(json!("")),
+                "file must be a path inside the bundle directory: ",
+            ),
+            (
+                "file",
+                Some(json!("../a.png")),
+                "file must be a path inside the bundle directory: ../a.png",
+            ),
+            (
+                "file",
+                Some(json!("files/../../a.png")),
+                "file must be a path inside the bundle directory: files/../../a.png",
+            ),
+            (
+                "file",
+                Some(json!("/etc/passwd")),
+                "file must be a path inside the bundle directory: /etc/passwd",
+            ),
+        ];
+        for (field, value, why) in cases {
+            let line = with(&base, field, value);
+            assert_eq!(one(&line), format!("line 1: attachment: {why}"), "{line}");
+        }
+        let region = with(&base, "role", Some(json!("region")));
+        for mark in [json!(100), json!("0"), json!(-1)] {
+            let line = with(&region, "mark", Some(mark));
+            assert_eq!(
+                one(&line),
+                "line 1: attachment: mark must be the index of one of the item's marks",
+                "{line}"
+            );
+        }
+        let missing = one(&base);
+        assert!(
+            missing.starts_with(&format!(
+                "line 1: attachment: {}: ",
+                Path::new("bundle").join("files/a.png").display()
+            )),
+            "{missing}"
+        );
+    }
+
+    #[test]
+    fn every_bad_event_landing_read_and_manager_field_is_named() {
+        let event =
+            json!({"type":"event","item":"BUG-7","kind":"status","at":"2025-03-02T09:00:00Z"});
+        table(
+            &event,
+            "event",
+            &[
+                ("item", Some(json!(7)), "item must be a key such as BUG-3"),
+                ("kind", None, "kind is required and must be text"),
+                (
+                    "kind",
+                    Some(json!("Status")),
+                    "kind must be 1 to 40 lowercase letters or underscores",
+                ),
+                (
+                    "kind",
+                    Some(json!("_status")),
+                    "kind must be 1 to 40 lowercase letters or underscores",
+                ),
+                (
+                    "kind",
+                    Some(json!("status-1")),
+                    "kind must be 1 to 40 lowercase letters or underscores",
+                ),
+                (
+                    "kind",
+                    Some(json!("")),
+                    "kind must be 1 to 40 lowercase letters or underscores",
+                ),
+                (
+                    "kind",
+                    Some(json!("s".repeat(41))),
+                    "kind must be 1 to 40 lowercase letters or underscores",
+                ),
+                ("actor", Some(json!("grace")), "actor must be an object"),
+                (
+                    "actor",
+                    Some(json!({"email":"g"})),
+                    "actor.email must be an e-mail address",
+                ),
+                (
+                    "actor",
+                    Some(json!({"agent":1})),
+                    "actor.agent must be true or false",
+                ),
+                ("detail", Some(json!([])), "detail must be an object"),
+                (
+                    "internal",
+                    Some(json!("no")),
+                    "internal must be true or false",
+                ),
+                ("at", None, AT),
+            ],
+        );
+        let fine = [
+            with(&event, "actor", Some(Value::Null)),
+            with(&event, "actor", Some(json!({"agent":true,"via":"pci"}))),
+            with(&event, "kind", Some(json!("s".repeat(40)))),
+            with(&event, "detail", Some(json!({"from":"inbox"}))),
+        ];
+        for line in fine {
+            assert!(
+                validate(&line.to_string(), Path::new("bundle")).is_ok(),
+                "{line}"
+            );
+        }
+        let landing = json!({"type":"landing","item":"BUG-7","env":"production","sha":"0123abc","at":"2025-03-03T10:00:00Z"});
+        table(
+            &landing,
+            "landing",
+            &[
+                ("env", None, "env is required and must be text"),
+                ("env", Some(json!("Prod")), "env must name an environment"),
+                ("sha", Some(json!("0123ab")), "sha must be a commit id"),
+                ("sha", Some(json!("0123abz")), "sha must be a commit id"),
+                (
+                    "sha",
+                    Some(json!("a".repeat(65))),
+                    "sha must be a commit id",
+                ),
+                ("at", Some(json!("x")), AT),
+            ],
+        );
+        let read = json!({"type":"read","item":"BUG-7","email":"ada@example.com","at":"2025-03-04T09:00:00Z"});
+        table(
+            &read,
+            "read",
+            &[
+                (
+                    "email",
+                    Some(json!("ada")),
+                    "email must be an e-mail address",
+                ),
+                ("email", None, "email is required and must be text"),
+                ("at", None, AT),
+            ],
+        );
+        table(
+            &json!({"type":"manager","email":"grace@example.com"}),
+            "manager",
+            &[(
+                "email",
+                Some(json!("x@")),
+                "email must be an e-mail address",
+            )],
+        );
+        for line in [
+            json!({"kind":"bug"}),
+            json!({"type":7}),
+            json!([1]),
+            json!("item"),
+        ] {
+            assert_eq!(
+                one(&line),
+                "line 1: type must be one of item, comment, attachment, event, landing, read, manager"
+            );
+        }
+    }
+
+    #[test]
+    fn windows_line_ends_and_blank_lines_keep_the_line_numbers() {
+        let item = r#"{"type":"item","key":"BUG-7","kind":"bug","title":"x","reporter":{"email":"ada@example.com"},"created_at":"2025-03-01"}"#;
+        let text = format!("{item}\r\n\r\n  \r\n{{\"type\":\"read\"}}\r\n");
+        let errors = validate(&text, Path::new("bundle")).unwrap_err();
+        assert_eq!(errors, ["line 4: read: item must be a key such as BUG-3"]);
+        let records = validate(&format!("\r\n{item}\r\n"), Path::new("bundle")).unwrap();
+        assert_eq!(records[0].line, 2);
+        assert!(validate("", Path::new("bundle")).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_comment_and_an_attachment_may_share_a_uid_but_two_comments_may_not() {
+        let comment = |uid: &str| {
+            format!(
+                r#"{{"type":"comment","item":"BUG-7","uid":"{uid}","author":{{"email":"g@example.com"}},"body":"x","created_at":"2025-03-02"}}"#
+            )
+        };
+        let attachment = |uid: &str| {
+            format!(
+                r#"{{"type":"attachment","item":"BUG-7","uid":"{uid}","content_type":"text/plain","file":"Cargo.toml"}}"#
+            )
+        };
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let shared = [comment("c-1"), attachment("c-1")].join("\n");
+        let records = validate(&shared, dir).unwrap();
+        assert_eq!(
+            records.iter().map(|r| r.kind).collect::<Vec<_>>(),
+            ["comment", "attachment"]
+        );
+        let twice = [comment("c-1"), attachment("c-1"), attachment("c-1")].join("\n");
+        assert_eq!(
+            validate(&twice, dir).unwrap_err(),
+            ["line 3: attachment: uid c-1 is already used on line 2"]
+        );
+        let text = [comment("c-1"), comment("c-2"), comment("c-1")].join("\n");
+        assert_eq!(
+            validate(&text, Path::new("bundle")).unwrap_err(),
+            ["line 3: comment: uid c-1 is already used on line 1"]
+        );
+    }
+
+    fn record(line: usize, value: Value) -> Record {
+        Record {
+            line,
+            kind: "comment",
+            value,
+        }
+    }
+
+    #[test]
+    fn batches_close_at_200_records_or_2_mb() {
+        let small: Vec<Record> = (1..=450).map(|n| record(n, json!({"n": n}))).collect();
+        let refs: Vec<&Record> = small.iter().collect();
+        let sizes: Vec<usize> = batches(&refs).iter().map(Vec::len).collect();
+        assert_eq!(sizes, [200, 200, 50]);
+        assert_eq!(batches(&refs)[1][0].line, 201);
+
+        let big: Vec<Record> = (1..=4)
+            .map(|n| record(n, json!({"body": "x".repeat(1_000_000)})))
+            .collect();
+        let refs: Vec<&Record> = big.iter().collect();
+        let sizes: Vec<usize> = batches(&refs).iter().map(Vec::len).collect();
+        assert_eq!(sizes, [2, 2]);
+
+        let huge = [
+            record(1, json!({"body": "x".repeat(3 << 20)})),
+            record(2, json!({})),
+        ];
+        let refs: Vec<&Record> = huge.iter().collect();
+        let sizes: Vec<usize> = batches(&refs).iter().map(Vec::len).collect();
+        assert_eq!(sizes, [1, 1]);
+        assert!(batches(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_worker_refusal_names_the_bundle_line_of_its_record() {
+        let chunk = [record(4, json!({})), record(9, json!({}))];
+        let refs: Vec<&Record> = chunk.iter().collect();
+        assert_eq!(
+            at_line(
+                "record 2 (comment): body is too long (400)".to_owned(),
+                &refs
+            ),
+            "line 9: record 2 (comment): body is too long (400)"
+        );
+        assert_eq!(
+            at_line("record 1: type must be one of item (400)".to_owned(), &refs),
+            "line 4: record 1: type must be one of item (400)"
+        );
+        for kept in [
+            "record 3 (comment): out of range (400)",
+            "record 0: none (400)",
+            "record x: none (400)",
+            "the Worker answered 500",
+        ] {
+            assert_eq!(at_line(kept.to_owned(), &refs), kept);
+        }
+    }
+
+    #[test]
+    fn a_bundle_file_stays_inside_the_bundle() {
+        let dir = Path::new("bundle");
+        assert_eq!(
+            bundle_file(dir, &json!({"file": "./files/a.png"})).unwrap(),
+            dir.join("./files/a.png")
+        );
+        for file in ["", "..", "../a", "files/../../a", "/a"] {
+            assert_eq!(
+                bundle_file(dir, &json!({ "file": file })).unwrap_err(),
+                format!("file must be a path inside the bundle directory: {file}")
+            );
+        }
+        assert_eq!(
+            bundle_file(dir, &json!({})).unwrap_err(),
+            "file is required and must be text"
         );
     }
 }

@@ -38,7 +38,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, avatar: null, seq: 0, badged: false };
+const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, seq: 0, badged: false };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -218,7 +218,7 @@ function spaces() {
       h("li", null, h("a", { class: "app-space", href: "#space=" + encodeURIComponent(s.host) },
         h("b", { class: "app-host", text: s.host }),
         s.manager ? h("small", { class: "app-role", text: say("manager") }) : null,
-        h("span", { class: "app-count", "data-open": s.open > 0, text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
+        h("span", { class: "app-count", "data-open": String(s.open > 0), text: s.open === 1 ? say("open_one") : say("open_many", { n: s.open }) })))));
     const title = h("h1", { tabindex: "-1", text: say("spaces") });
     const view = h("div", { class: "app-screen" }, bar(""),
       h("section", { class: "app-card app-list" }, h("div", { class: "app-head" }, title, h("p", { class: "app-note", text: say("spaces_help") })),
@@ -315,7 +315,7 @@ function signOut() {
 }
 
 function panelModule() {
-  if (!S.panel) S.panel = import("/_p99/panel.js?v=" + V).catch((e) => { S.panel = null; throw e; });
+  if (!S.panel) S.panel = import("/_p99/panel.js?v=" + V + (S.panelTries ? "&try=" + S.panelTries : "")).catch((e) => { S.panel = null; S.panelTries++; throw e; });
   return S.panel;
 }
 

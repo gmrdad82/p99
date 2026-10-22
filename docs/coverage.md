@@ -199,11 +199,73 @@ JavaScript, the browser (`cd render/web && npm run coverage`, then the panel's f
 
 Every card route runs in the worker suite against wrangler dev. Among the checks are the cards-write checks (the Cards board's lanes, every status word, the agent's refused close on each route, links, comments, project changes, merges, lanes that keep their `closes`, a done card moved back by its lane's label by a manager who doesn't own the board), the cards-read checks (lane order, every filter, paging, one card's place, visibility by code and host, the sides of each board) and the marks checks (`via` on items, comments, events, mail, import, Slack). In headless Chromium the panel's filter story (render/web/filter-check.mjs) passes its 23 checks and the board story against the Worker (render/web/board.mjs check --worker) its 28. The contract end to end, the release binary against wrangler dev, passes 30 of 30.
 
+## w208 coverage gaps, 2026-10-22 (agent/cov-gaps)
+
+Tests only. The "after" column is the train's measured run (agent/cov-i2, below).
+
+| File | Before | After | What now runs it |
+|---|---|---|---|
+| src/vault.rs | 54.39% of 114 | 90.35% of 114 | tests/stories_setup.rs: `p99 setup --yes --vault` stores the token and the key through a fake `op` on PATH and writes only `op://` references, a second run reads both back and stores nothing, a vault answer without its vault id, `--no-vault`, and `op` refusing, answering nothing, answering no item id or missing; tests/cli_vault.rs: a GitHub token as an `op://` reference, read, trimmed, empty, not UTF-8, refused and with `op` missing |
+| src/cli/delete.rs | 56.92% of 65 | 100.00% of 65 | tests/cli_delete_tty.rs: the typed-back key at a real terminal (a pty), in lower case and padded, with `--host`, a wrong key, a bare number, a blank line, a line that isn't UTF-8, Ctrl-D, a negative comment count, `--yes` at a terminal, and an item the Worker can't find |
+| src/client.rs | 88.18% of 702 | 95.22% of 857 (the new in-file tests count) | unit tests: a host asked first at its own address (`with_host`, `aimed`), the host that answered last asked first, and over loopback a host behind Access falling through to the next, a web page, a redirect, every host behind Access, a P99 error that isn't passed over, and an unreachable host |
+| worker/src/github.js | 65.03% of 346 | 97.69% of 346 | worker/test/github.mjs against a stubbed GitHub API: linking and its refusals, the list, opening an issue once and again, GitHub refusing, answering badly or dropping the connection, a second open while the first is in flight, a host without its token or link, a merged pull request's commits read page by page and commits GitHub won't give, unlinking with the hook removed, gone, failing, or never asked, and a call scoped to one host |
+| worker/src/worker.js (validConfig) | 32 of 48 lines | 46 of 48 lines | worker/test/placement.mjs: a host's `above`, `off` and `strings`, in the loader and `/me`, escaped off pages, dropped null fields, and fifteen refusals |
+| worker/src/web/app.js | 0.00% of 350 | 79.14% of 350 | render/web/app-check.mjs, headless against `wrangler dev`: sign-in with nothing, a wrong code and a right code, the spaces list and its counts (her own items, every item for a manager), a space's panel and a panel that fails to load, the profile's username and a save that fails or is signed out, a list that fails and offline, sign-out, a revoked code, a taken username, no spaces, and a sign-in held back for too many tries |
+
+## w208 import, 2026-10-22 (agent/cov-import)
+
+`p99 import` and the Worker's import routes, before and after. The before column is the last measured run; the after column is the train's measured run (agent/cov-i2, below).
+
+| Code | Before | After |
+|---|---|---|
+| src/import.rs | 47.22% of 612 lines | 99.65% of 1,146 lines (the new in-file tests count) |
+| worker.js importRecord | 39 of 62 lines | 63 of 63 lines |
+| worker.js postImport, finishImport, putImportAttachment | bad paths not run | 102 of 102, 33 of 33 and 86 of 86 lines |
+
+What runs them now:
+
+- tests/stories_import.rs: the p99 binary against a stub Worker that keeps what it was sent. A full bundle (every record type, a P99 1.x status, keys and text with diacritics sent as written, two files with their item, comment, role, mark, name and internal flag), a dry run that writes and uploads nothing, `--json` with the progress on standard error, Windows line ends and blank lines, an import resumed after a failed upload (only the missing file goes up the second time, nothing the third), a Worker 400 on the second batch of a type (named by its bundle line), a 403 and a 500 part way, a dropped connection mid-import and at the finish, a refused file, conflicts listed with exit 1, a malformed bundle refused whole with every problem line and nothing sent, a missing bundle.jsonl, an empty bundle and a missing `--host`.
+- src/import.rs unit tests: every refused field of every record type, line numbers across blank and CRLF lines, uids per type, batches at 200 records and at 2 MB, a Worker refusal mapped back to its bundle line, and a file path that leaves the bundle.
+- worker/test/imports.mjs, in the worker suite: every rejected event shape (with its record number), every other record type's bad shapes, every rejected item field, the route's host, key and body refusals, conflicts across hosts and taken uids with nothing written, managers with and without a code, finish's bad lists, its conflicts and its links, every refused attachment parameter, a stored file sent twice and a uid taken by another item.
+
+## w208 train, 2026-10-23 (agent/cov-i2, main 25908ba plus cov-gaps and cov-import)
+
+The before column is the last measured run, the w199 cards section above, or the JavaScript numbers below for a file that section doesn't list.
+
+Rust: **93.14% of lines** (92.21% of regions, 91.81% of functions), up from 89.87%; 692 tests pass under `cargo llvm-cov nextest`, main's no-ffmpeg test included. The Worker: **97.11% of lines**, up from 94.60%, from 279 checks and the 32 unit tests. The browser, measured as w199 measured it (`npm run coverage`, then the panel's filter story under the same coverage hook): **87.03% of lines**, up from 81.05%, with the app page's own check in the pass. The loader by bytes is at 95.29%, up from 94.93%, and it stays 12 bytes under its 2,048-byte gzip budget.
+
+The train's `npm run coverage` pass left the filter story out (it isn't in coverage.mjs's list), and read 85.10% of lines, with panel.js at 86.03%. The filter story then ran on the same tree under the same hook (agent/cov-i3), passed its 23 checks, and was folded into that pass's dumps: panel.js is at 89.68%, so its drop was the missing filter story. The pass ran at a load average near 20, and two checks of code this wave didn't touch failed there. The board's autoscroll under a held drag ran out of time (board.mjs:709, 30 s); the board check passed on an earlier pass of this train, with its 28 checks green and board.js at 91.32%, and ran out of time on the last two. The widget story of a panel that fails to load on hover failed at 20 s, as in the w199 pass, where it was traced to the per-minute budget of the code it shares with the other widget stories. Neither was re-run, so board.js reads 84.44% in this table: only the pages the board check closed before failing count. manage-check's duplicate picker, which timed out in the pass before, now waits for its options and passed.
+
+| File | Before | After |
+|---|---|---|
+| src/vault.rs | 54.39% of 114 | 90.35% of 114 |
+| src/cli/delete.rs | 56.92% of 65 | 100.00% of 65 |
+| src/client.rs | 88.18% of 702 | 95.22% of 857 |
+| src/import.rs | 47.22% of 612 | 99.65% of 1,146 |
+| worker/src/github.js | 65.03% of 346 | 97.69% of 346 |
+| worker/src/worker.js | 95.50% of 3,159 | 97.40% of 3,159 |
+| worker/src/web/app.js | 0.00% of 350 | 79.14% of 350 |
+| worker/src/web/panel.js | 89.32% of 1,976 | 89.68% of 1,976 |
+| worker/src/web/board.js | 91.32% of 887 | 84.44% of 887 |
+
+The client and import rows count their new `#[cfg(test)]` modules, so their line counts grew. panel.js and board.js are files of the w203 train that this wave doesn't change. Both browser rows include the filter story, as their before column does; board.js reads lower because the board check ran out of time. github.js's last gain is the closed-issue story the train added: closing the GitHub issue P99 opened marks its item fixed (closed, with the resolution `fixed`) once, and a close as not planned, a pull request's close, another action, an unknown number, a number that isn't one, another repository or another event leave it open.
+
+Bugs the new tests found:
+- **The P99 page never marked a space's open count.** app.js wrote `data-open` as a bare attribute or left it out, and app.css styles only `[data-open="true"]`, so a space with open items looked like an empty one. app.js now writes `true` or `false`.
+- **Try again after a failed panel load could never load the panel.** A browser keeps a failed module import for its URL, so importing `panel.js?v=…` again fails without a new fetch. Each retry now asks with its try number (`&try=N`), which the Worker ignores. panel.js loads board.js the same way (panel.js:468), so a manager's board that once fails to load stays failed until a reload; panel.js belongs to the w203 train, so it's left for the repo session.
+- **A vanished file during `p99 import` was the only upload failure without its bundle line.** It now says `line N: <path>: …` like the rest.
+- Three checks were wrong, not the code: the vault story asserted one secret PUT where `github set` stores two (the token and the hook secret), the commit-page cap expected 200 where a delivery that names no item answers the quiet 204, and the import manager check used an address an earlier check had already minted as a manager.
+- Three checks were timing-bound and are now deterministic: the TOTP replay check recomputed its digits, so a 30-second step boundary between checks made them new, and the manage check waited a fixed 700 ms for the duplicate search and a fixed 500 ms for the duplicate picker's first list.
+- The worker suite hangs instead of failing when a check group throws outside a check: with no built `p99` binary, migrateChecks' `binary()` throws, `main` prints `not ok` and the process never exits. The full gate builds the binary first, so only a hand-run `npm run coverage` meets it.
+
+From the reviews, for the repo session (each needs a product change outside a tests-only brief): `vault::store` reports "Broken pipe" instead of what `op` said when `op` exits before reading the template; and `p99 import`'s own checks are looser than the Worker's (marks' shape, context over 64 KB, page titles over 300, `created_at` such as `2025-13-45`, a bad `resolution` with `status: done`), so a bundle that passes the dry run can still stop part way. Two browser checks failed on code this wave doesn't touch. board.mjs:709 waits 30 s for the held drag's autoscroll and ran out on this train's last two passes, at a load average near 20. The widget's hover story failed at 20 s here and in the w199 pass. The w199 integrator traced it to the per-minute budget of the code it shares with the other widget stories: a run that packs their requests into one minute gets 12 429s. A longer wait won't fix it; giving the story its own code will, as main did for the per-minute comment story.
+
 ## Uncovered critical paths, first in line
 
-- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and import (42%).
-- Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
-- delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
+- Boards from the CLI (boards.rs, 63%): `p99 boards`' list and run, its confirm prompt, and `p99 labels`. Its files belong to the w203 train.
+- The live stream (stream.rs, 78%): the TLS handshake for a `wss://` Worker and `follow`'s reconnect after a drop.
+- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and secrets: setup's interactive vault question (`vault::available`, vault.rs:30–37, asked only without `--yes` or `--vault`).
+- `p99 link`'s host choice and the browser it opens (links.rs, 85%).
 - The Worker, the loader, the panel and the board (JavaScript): see [JavaScript](#javascript).
 
 ## JavaScript
@@ -215,7 +277,7 @@ The two kinds of row count lines differently. A file the Worker bundle loaded co
 ### How it's measured
 
 - **The Worker:** `cd worker && npm run coverage` runs the worker suite (`npm test`, its stories included) with coverage on. The Worker runs inside workerd under `wrangler dev`, so node's own coverage can't see it, and workerd keeps the inspector's `Profiler.enable` for its own CPU profiler, so V8's precise coverage can't be started through the inspector either. Instead the run starts workerd with V8's `--allow-natives-syntax` (through miniflare's `MINIFLARE_WORKERD_V8_FLAGS`), and the suite connects to wrangler's inspector port as each `wrangler dev` starts, before the first request: `%DebugCollectCoverage()` takes a function-level snapshot of what the module's load ran, `%DebugToggleBlockCoverage(true)` turns on V8's block counts, and `%DebugCollectCoverage()` takes those just before that `wrangler dev` stops, the safety stories' backup Worker included. The counts are on wrangler's bundle and are mapped back to each file of worker/src through the bundle's source map. The modules the suite also imports straight into node (backup.js, boards.js, license.js, order.js, text.js, tries.js) are read from node's own `NODE_V8_COVERAGE` too, on the lines the bundle mapped. The table prints at the end and is kept in worker/.wrangler/coverage/table.md. The run fails with one line when a Worker dump couldn't be saved, when a workerd script's source map isn't found, or when worker.js maps no covered line, so a broken run never passes with a plausible table. The source map is read from beside the bundle, or else the newest one of that name under worker/.wrangler/tmp, where wrangler writes its bundles. The browser files under worker/src/web are served as text by the Worker, so they're counted by the browser pass, not here.
-- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap), the widget stories (stories-widget) and the board's checks against the real Worker (`board.mjs check --worker`) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md. The pass fails when a check took no coverage of a P99 script or when no line of worker/src/web ran. A check that fails keeps the coverage of the pages it closed before failing; the pages still open when it exits don't count.
+- **The browser:** `cd render/web && npm run coverage` (or `node coverage.mjs [check…]`) runs the browser checks (capture, manage, mobile, search, swap), the widget stories (stories-widget), the board's checks against the real Worker (`board.mjs check --worker`) and the standalone app page's check against the real Worker (app-check) with a small preload that turns on Playwright's `page.coverage` (Chromium's own) for every page they open. Each served `/_p99/*.js` counts against its file in worker/src/web; for capture.js, only the shot.js tail after the vendored library counts. The table is kept in tmp/browser-coverage/table.md. The pass fails when a check took no coverage of a P99 script or when no line of worker/src/web ran. A check that fails keeps the coverage of the pages it closed before failing; the pages still open when it exits don't count.
 - The unit tests run in the full gate: every worker/test/*.test.mjs inside `npm test`, and render/web/coverage.test.mjs right after it. `npm run coverage` runs the same worker/test/*.test.mjs under node's coverage first, then the suite.
 - A Worker whose inspector closes, fails or gives no answer within 60 s while its coverage is taken, the reading of its scripts included, fails the run with one line, rather than leaving it waiting or saving a short dump. A script whose source the inspector refuses is left out.
 - The loader (p99.js) is hand-minified into 30 dense lines, so nearly every line holds some code that ran and its line figure reads 100% whatever goes untested. The browser pass also reports it by bytes: each non-space byte of the file counts once when any page ran it, the bytes the Worker substitutes when it serves the loader (the host's config and the version) lined up around, and the bytes that never ran are listed in tmp/browser-coverage/table.md.
@@ -266,13 +328,12 @@ The loader by bytes: **94.23%** (3,101 of 3,291 non-space bytes run).
 Read from the measured run, by function.
 
 - Codes: a code minted before codes were sealed is sealed on its first use (authoriseCode); no check runs it. The races where two identical code mints or item filings land at once (postCode, createIssue) are reachable only by concurrent requests.
-- Import: the event records' validation (importRecord, 23 of 62 lines not run), postImport's and finishImport's bad paths, and import's attachment bad paths.
-- A host's placement config: the above, off and strings fields of validConfig (16 of 48 lines not run).
-- GitHub: opening a GitHub issue from an item, and listing and deleting a repo's link (github.js at 65%).
+- The P99 page (app.js, 79.14%): a server 500 or offline at sign-in, the server's 400 or 409 on a username, a `#space=` link to a host the person doesn't have, and the panel's signed-out and close callbacks.
+- Placement: an `off` pattern whose expression won't compile (validConfig, worker.js:1272–1273).
+- GitHub: a stale claim on opening an issue (openGithubIssue past CLAIM_MS, github.js:172–173) needs the Worker's clock moved; two opens racing for one claim (github.js:186–188); and a delivery whose handler throws, which forgets the delivery so GitHub's retry runs (deliver, github.js:274–276).
 - Deletes: the scheduled sweep that purges the R2 files a delete couldn't drop (sweepDeletions past its empty check, deletes.js:93–95), the only cleanup for those files, and deleteIssue's branch for an R2 failure (deletes.js:69–70). Both need R2 to fail, which the local Worker never does.
 - Uploads: an R2 write that fails for a reason other than a hash mismatch (streamToBucket, worker.js:2137).
 - The loader (190 bytes never ran): a page with no code, where it stops once set up (`if(!c)return`); a stored code replaced by a different one; a hash change to a new code, which reloads the page; `P99.open(key)` from a page script; an unhandled rejection's reason and the ring of page errors past 20; storage that throws when the code is forgotten; a badge over 99 and its unread mark; a `/me` answer of 428 or over on a plain load; and the placement options no check sets (an offset, the left side, an anchor below the button, the link colour, an anchor selector that throws).
-- The standalone app page (worker/src/web/app.js, 0%): no browser check opens it.
 - Covered on this branch, by worker/test/critical.mjs: uploads' bad paths, signing's header checks, minting, revoking and verifying codes, a JSON body streamed past its limit without a length, a signed body that isn't JSON or isn't UTF-8, and renaming a person. Card order (worker/src/order.js) is checked against its upstream project's test vectors by worker/test/order.test.mjs.
 
 ### Busy sign-in, 2026-10-22 (main c095778 plus agent/signin-retry)
