@@ -20,7 +20,7 @@ The Cards board is made the first time someone files a card. Its lanes have fixe
 | `landed` | 5 |
 | `done` | 6, which closes the card |
 
-The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). Any manager moves a card from lane to lane with `p99 card status`, or in the TUI thread's move picker, which offers a card the Cards lanes and a plain item the labels of your other boards. An agent can't close a card: `done` from an agent, or its move into the last lane, answers `p99: only a person closes a card`.
+The board's owner may rename the lanes; the words keep naming them by position. A card's priority is its place in its lane, which only the board's owner changes (`p99 move`). Any manager moves a card from lane to lane with `p99 card status`, or in the TUI thread's move picker, which offers a card the Cards lanes and a plain item the labels of your other boards. An agent can't close a card: `p99 card status <KEY> done` from an agent answers `p99: only a person closes a card`, and its `p99 move` into the last lane answers `p99: only a person closes a card (403)`.
 
 The Cards board shows cards only, and every other board only plain items, so a site's reports and your cards never mix. A card stays on its lanes: a close from anywhere else, such as a merge or a GitHub pull request, puts it in the last lane, and a reopen puts it back on one of the others.
 
@@ -43,7 +43,7 @@ p99 edit BUG-12 --no-project
 - `p99 card status` moves the card to the top of that lane; a card already there keeps its place. `--note` adds a comment in the same write.
 - `card new --body`, `card comment`'s text and `card status --note` take `-` to read standard input.
 - A project name has 1 to 40 characters and is matched without regard to case; the first spelling used is kept.
-- `p99 edit --project` turns any item into a card in lane `new`, and `--no-project` turns it back into a plain item, in Inbox.
+- `p99 edit --project` turns any item into a card in lane `new`, and `--no-project` turns it back into a plain item, in Inbox; on an item that is no card it says `<KEY> is not a card` and changes nothing.
 
 In text, an agent's action reads as the person's name with 🤖 (`Ada Lovelace 🤖`), with its label after `via` in `p99 card show`. Mark an agent as [the agents guide](agents.md) says.
 

@@ -542,6 +542,20 @@ pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result
         );
         return Ok(());
     }
+    if !global.json {
+        let before: Value = ask(&client, "GET", &pq, None)?;
+        match before["issue"].get("project") {
+            None => return Err(crate::card::NOT_YET.to_owned()),
+            Some(Value::Null) => {
+                out!(
+                    "{} is not a card",
+                    before["issue"]["key"].as_str().unwrap_or(&args.key)
+                );
+                return Ok(());
+            }
+            Some(_) => {}
+        }
+    }
     let answer: Value = ask(&client, "PATCH", &pq, Some(body))?;
     if answer.get("project").is_none() {
         return Err(crate::card::NOT_YET.to_owned());

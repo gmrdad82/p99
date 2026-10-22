@@ -450,6 +450,56 @@ fn move_to_lists_the_labels_and_moves_the_item() {
     assert!(line(&list, "BUG-11 ").contains("Doing"), "{list}");
 }
 
+fn offered(app: &Run) -> Vec<String> {
+    match &inbox(app).picking {
+        Some(Picking::Move(labels)) => labels.clone(),
+        _ => panic!("the move picker is open"),
+    }
+}
+
+#[test]
+fn move_to_on_a_done_card_offers_its_lanes_and_reopens_it_into_landed() {
+    let mut app = run(sample());
+    let key = app.demo(|demo| {
+        demo.list()
+            .into_iter()
+            .find(|entry| entry.summary.title == "Silence removed by default")
+            .map(|entry| entry.summary.key)
+            .expect("the sample has a done card")
+    });
+    app.press("/ silence enter s enter");
+    assert_eq!(inbox(&app).crumb().as_deref(), Some(key.as_str()));
+    assert_eq!(
+        inbox(&app).issue().and_then(|i| i.project.as_deref()),
+        Some("Storefront")
+    );
+    let pick = app.press("m");
+    assert_eq!(
+        offered(&app),
+        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+    );
+    assert!(pick.contains("Landed"), "{pick}");
+    assert!(!pick.contains("Doing"), "{pick}");
+    assert!(!pick.contains("QA ready"), "{pick}");
+    let moved = app.press("up enter");
+    assert!(moved.contains(&format!("{key} moved to Landed")), "{moved}");
+    let issue = thread(&app, &key).issue;
+    assert_eq!(issue.label.as_deref(), Some("Landed"));
+    assert_eq!(issue.closed_at, None);
+    assert_eq!(issue.resolution, None);
+}
+
+#[test]
+fn move_to_on_a_plain_item_offers_no_cards_lane() {
+    let mut app = run(sample());
+    let pick = app.press("enter m");
+    assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"));
+    assert_eq!(offered(&app), ["Inbox", "Doing", "QA ready", "Done"]);
+    for lane in ["Planned", "In progress", "Stuck", "Landed"] {
+        assert!(!pick.contains(lane), "{lane}:\n{pick}");
+    }
+}
+
 #[test]
 fn move_to_drop_closes_the_item_without_fixing_it() {
     let mut app = run(sample());

@@ -237,6 +237,12 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             made["lane"] = json!(1);
             json!({"card":made})
         }
+        ("GET", "/v1/issues/12") => {
+            json!({"issue":{"id":12,"key":"BUG-12","kind":"bug","title":"Broken","project":"Splicer"},"comments":[],"events":[]})
+        }
+        ("GET", "/v1/issues/13") => {
+            json!({"issue":{"id":13,"key":"BUG-13","kind":"bug","title":"Plain","project":null},"comments":[],"events":[]})
+        }
         ("PATCH", "/v1/issues/12") => {
             json!({"id":12,"key":"BUG-12","kind":"bug","title":"Broken","status":"open","stage":"inbox","project":null,"comments":0})
         }
@@ -1042,4 +1048,23 @@ fn edit_no_project_prints_the_items_summary_typed() {
     let text = run(&worker, "no_project", &["edit", "12", "--no-project"]);
     assert_eq!(text.stdout, "BUG-12 is a plain item again, back in Inbox\n");
     assert_eq!(worker.last().body, json!({"project":null}));
+}
+
+#[test]
+fn edit_no_project_on_an_item_that_is_no_card_says_so_and_changes_nothing() {
+    let worker = Worker::start(answers);
+    let text = run(&worker, "no_card", &["edit", "BUG-13", "--no-project"]);
+    assert_eq!(text.code, Some(0), "{}", text.stderr);
+    assert_eq!(text.stdout, "BUG-13 is not a card\n");
+    assert!(text.stderr.is_empty(), "{}", text.stderr);
+    let seen = worker.seen();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(
+        (seen[0].method.as_str(), seen[0].path.as_str()),
+        ("GET", "/v1/issues/13")
+    );
+    let missing = run(&worker, "no_card", &["edit", "BUG-14", "--no-project"]);
+    assert_eq!(missing.code, Some(1));
+    assert!(missing.stdout.is_empty(), "{}", missing.stdout);
+    assert!(worker.seen().iter().all(|s| s.method != "PATCH"));
 }
