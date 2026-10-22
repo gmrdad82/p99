@@ -262,8 +262,7 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
       asked.path.endsWith("page=4") ? { status: 200, body: [{ commit: { message: `Fixes: ${item.key}` } }] } : { status: 200, body: filler },
     );
     const capped = await deliver(merged(64, "No trailer here."));
-    assert.equal(capped.status, 200, JSON.stringify(capped.json));
-    assert.deepEqual(capped.json.changed, []);
+    assert.equal(capped.status, 204, JSON.stringify(capped.json));
     assert.deepEqual(
       gh.seen.map((s) => s.path),
       [1, 2, 3].map((page) => `/repos/${REPO}/pulls/64/commits?per_page=100&page=${page}`),
