@@ -429,6 +429,8 @@ function lift(x, y) {
   const d = B.drag;
   if (!d || d.up) return;
   d.up = true;
+  d.focus = B.root.activeElement === d.card;
+  if (d.focus) B.el.focus({ preventScroll: true });
   const r = d.card.getBoundingClientRect();
   d.dx = x - r.left;
   d.dy = y - r.top;
@@ -561,7 +563,7 @@ function cross(d, m, j) {
     r.t = 0;
   });
   m.rows.forEach((r, i) => { if (i >= j) nudge(r.e, -s, 0); });
-  put(m.list, d.card, j < m.rows.length ? m.rows[j].e : null);
+  m.list.insertBefore(d.card, j < m.rows.length ? m.rows[j].e : null);
   nudge(d.card, dy, 0, o.left - m.left);
   o.count.textContent = o.rows.length;
   m.count.textContent = m.rows.length + 1;
@@ -570,16 +572,10 @@ function cross(d, m, j) {
   d.ct = 0;
 }
 
-function put(list, e, next) {
-  const had = B.root.activeElement === e;
-  list.insertBefore(e, next);
-  if (had && B.root.activeElement !== e) e.focus({ preventScroll: true });
-}
-
 function settle(d) {
   if (!d.m) return;
   const m = d.m.get(d.list);
-  if (d.j !== d.k) put(d.list, d.card, d.j < m.rows.length ? m.rows[d.j].e : null);
+  if (d.j !== d.k) d.list.insertBefore(d.card, d.j < m.rows.length ? m.rows[d.j].e : null);
   for (const r of m.rows) if (r.t) { r.e.style.translate = ""; r.t = 0; }
   d.card.style.translate = "";
   d.k = d.j;
@@ -660,6 +656,7 @@ function land(d, then) {
     if (g) g.remove();
     d.card.classList.remove("is-placeholder", "is-lifted");
     if (B.drag === d) B.drag = null;
+    if (d.focus && d.card.isConnected) d.card.focus({ preventScroll: true });
     replay(d);
     then();
   };
@@ -683,7 +680,7 @@ function cancel() {
   if (!d) return;
   settle(d);
   const [list, next] = d.home;
-  flip(() => put(list, d.card, next && next.parentNode === list ? next : null), TRAVEL, 220, kin(list, d.card.parentNode));
+  flip(() => list.insertBefore(d.card, next && next.parentNode === list ? next : null), TRAVEL, 220, kin(list, d.card.parentNode));
   counts();
   land(d, () => { announce("cancelled", d.card); later(); });
 }

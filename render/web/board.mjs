@@ -757,13 +757,15 @@ async function check(back) {
     await glide(a3.x + a3.width / 2, a3.y + 20, r3.x, r3.y + 2 * r3.h);
     await glide(r3.x, r3.y + 2 * r3.h, r3.x, r3.y + 4 * r3.h, 6);
     await p.waitForTimeout(260);
-    const crossed = await R(p, (id) => { const r = document.querySelector("p99-root").shadowRoot; return { col: r.querySelector(`.p99-card[data-id="${id}"]`).closest(".p99-col").dataset.label, focus: r.activeElement && r.activeElement.dataset.id }; }, back2[1]);
+    const crossed = await R(p, (id) => { const r = document.querySelector("p99-root").shadowRoot; return { col: r.querySelector(`.p99-card[data-id="${id}"]`).closest(".p99-col").dataset.label, focus: !!r.activeElement }; }, back2[1]);
     await p.keyboard.press("Escape");
     await settle(p);
+    const home = await R(p, () => document.querySelector("p99-root").shadowRoot.activeElement?.dataset.id);
     await p.mouse.up();
     await settle(p);
     await shutPanel(p);
-    assert.deepEqual(crossed, { col: "Review", focus: back2[1] });
+    assert.deepEqual(crossed, { col: "Review", focus: true });
+    assert.equal(home, back2[1]);
     assert.equal(await hidden(p), false);
     assert.equal(moves().length, sentL + 2);
     assert.deepEqual(await column(p, "Backlog"), back2);
