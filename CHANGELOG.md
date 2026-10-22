@@ -2,6 +2,34 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.10.0 — 2026-10-22
+
+### Added
+
+- Cards: an item with a project is a card, on one Cards board per account whose lanes are its statuses (new, planned, in progress, stuck, landed, done), the place in a lane its priority. Only Owners (managers) see them; a site's visitors never do.
+- `p99 cards`, `p99 card show|new|comment|status|link`, `p99 projects` and `p99 edit --project|--no-project`, each with `--json`; `docs/guides/cards.md` has the whole contract.
+- An agent's action is shown as the person's name with 🤖, and `--agent=<label>` or `P99_AGENT=<label>` names which agent in the details; an agent can't close a card.
+- The panel's "…" menu filters the list and the board: All, Only this website, Projects, Landed waiting for your check, and Everyone, People or Agents.
+- `P99_KEY_ACCOUNT` names the account `P99_KEY` belongs to (the default account when unset); every other account keeps its own key.
+- When P99 is busy right after a code link, the panel opens signing you in, says when it tries again, and signs in by itself.
+
+### Changed
+
+- The agent mark is 🤖 everywhere it was an asterisk.
+- Boards may have up to 6 columns.
+
+### Fixed
+
+- A broken config line never shows a secret in its error.
+- A revoked code's open board and stream stop at once.
+- A search of any length up to 200 characters works (it failed past about 48).
+- Label filters match accents and case; length limits count characters, emoji included.
+- Licence keys pasted from Windows files or mail are read as they were meant.
+- `p99 list --limit` keeps to the limit across accounts, refuses 0, and a missing username no longer breaks the list.
+- The TUI counts every item, names people in an item's history, re-reads an item after a refused move, and says where the card went.
+- Backups restore exactly one moment, a run on the same date replaces the earlier one, and a restore never reuses a deleted item's key.
+- The panel says "Couldn't send; try again." on a lost connection, shows a daily limit at once, keeps a new draft when an earlier upload finishes, and never records its own errors as the site's.
+
 ## v1.9.4 — 2026-10-22
 
 ### Added
