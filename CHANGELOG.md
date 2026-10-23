@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.11.2 — 2026-10-23
+
+### Fixed
+
+- A refused `p99 deploy` changes nothing on the account: every reason to refuse (an unaccepted or wrong plan, a migration that needs a decision, a token Cloudflare refuses, a route it could not add) is checked before the first write, so no migration, table, Worker, secret or route moves.
+
 ## v1.11.1 — 2026-10-23
 
 ### Changed
