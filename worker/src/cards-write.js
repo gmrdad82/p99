@@ -1,6 +1,6 @@
 import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
 import { loadCard } from "./cards-read.js";
-import { labelChangeStatements, placeIn } from "./boards.js";
+import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
 
 export const CARDS_BOARD = "Cards";
 const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e0823d", "#e5534b", "#39a5a0"];
@@ -66,13 +66,13 @@ export async function topOf(c, board, labelId, selfId) {
   return placeIn(results, selfId, null, null);
 }
 
-export function placeStatement(c, board, labelId, place, uid) {
+export function placeStatement(c, board, labelId, place, uid, won = false) {
   return c.env.DB.prepare(
     `INSERT INTO board_positions (board_id, item_id, label_id, key)
      SELECT ?1, COALESCE(NULLIF(json_extract(j.value, '$.id'), 0), (SELECT id FROM items WHERE client_uid = ?4)), ?2, json_extract(j.value, '$.key')
-     FROM json_each(?3) j WHERE (SELECT label_id FROM items WHERE client_uid = ?4) = ?2
+     FROM json_each(?3) j WHERE CASE WHEN ?5 THEN changes() > 0 ELSE (SELECT label_id FROM items WHERE client_uid = ?4) = ?2 END
      ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key`,
-  ).bind(board, labelId, JSON.stringify(place.rows), uid);
+  ).bind(board, labelId, JSON.stringify(place.rows), uid, won ? 1 : 0);
 }
 
 function viaOf(c) {
@@ -91,11 +91,14 @@ function eventStatement(c, itemId, kind, detail, internal) {
 }
 
 function projectEvent(c, itemId, detail) {
-  return eventStatement(c, itemId, "project", detail, true);
+  return c.env.DB.prepare(
+    `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
+     SELECT ?1, ?2, 'project', ?3, 1, ?4, ?5, ?6 WHERE changes() > 0`,
+  ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c));
 }
 
-function projectStatement(c, itemId, name) {
-  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1").bind(itemId, name, c.now);
+function projectStatement(c, itemId, from, name) {
+  return c.env.DB.prepare("UPDATE items SET project = ?3, updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2").bind(itemId, from, name, c.now);
 }
 
 function usernameStatement(c) {
@@ -266,15 +269,15 @@ export async function postCardStatus(c, rawKey) {
   let place = null;
   if (row.label_id !== to.id && !closing) {
     place = await topOf(c, lanes.board, to.id, row.id);
-    statements.push(placeStatement(c, lanes.board, to.id, place, row.client_uid));
+    statements.push(placeStatement(c, lanes.board, to.id, place, row.client_uid, true));
   }
   if (note !== null) {
     statements.push(
       DB.prepare(
         `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal,
            origin_env, created_at, author_agent, author_via)
-         SELECT ?1, ?2, ?3, ?4, 1, ?5, 0, ?6, ?7, ?8, ?9 WHERE (SELECT label_id FROM items WHERE id = ?1) = ?10`,
-      ).bind(row.id, body.client_uid, c.actor.email, c.actor.name, note, c.actionEnv ?? row.origin_env, c.now, agentOf(c), viaOf(c), to.id),
+         SELECT ?1, ?2, ?3, ?4, 1, ?5, 0, ?6, ?7, ?8, ?9 WHERE CASE WHEN ?11 THEN changes() > 0 ELSE (SELECT label_id FROM items WHERE id = ?1) = ?10 END`,
+      ).bind(row.id, body.client_uid, c.actor.email, c.actor.name, note, c.actionEnv ?? row.origin_env, c.now, agentOf(c), viaOf(c), to.id, plan ? 1 : 0),
       DB.prepare(
         `UPDATE items SET comment_count = comment_count + 1, public_comment_count = public_comment_count + 1,
            activity_at = ?2, updated_at = ?2, public_activity_at = ?2
@@ -347,7 +350,8 @@ export async function patchProject(c, row, body) {
   const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
   if (from === name) return answer();
   const { DB } = c.env;
-  await DB.batch([projectStatement(c, row.id, name), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
+  const results = await DB.batch([projectStatement(c, row.id, from, name), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
+  if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
   K.push(c, "change", row, { what: ["project"] });
   return answer();
 }

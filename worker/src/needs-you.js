@@ -54,7 +54,7 @@ export async function leaveNeedsYou(c, row) {
   const plan = labelChangeStatements(c, row, to, {});
   const place = await topOf(c, lanes.board, to.id, row.id);
   return {
-    statements: [...plan.statements, placeStatement(c, lanes.board, to.id, place, row.client_uid)],
+    statements: [...plan.statements, placeStatement(c, lanes.board, to.id, place, row.client_uid, true)],
     after(update) {
       if (!update?.meta?.changes) return;
       plan.after();

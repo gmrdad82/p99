@@ -1568,6 +1568,63 @@ fn two_sessions_assigning_at_once_both_read_back_the_last_write() {
 }
 
 #[test]
+fn an_edit_of_the_title_and_an_assign_at_once_both_stick_because_each_sends_only_its_field() {
+    let gate = Gate::new(2);
+    let writes = Arc::clone(&gate);
+    let stub = Stub::hooked(
+        World::new(vec![Item::new(12, "Checkout total is wrong")]),
+        move |req, world| {
+            req.is("PATCH", "/v1/issues/12")
+                .then(|| world.answer(req).gated(&writes))
+        },
+    );
+    let ada = Home::of("both-ada", &stub);
+    let grace = Home::of("both-grace", &stub);
+    let one = ada.command(&[
+        "edit",
+        "12",
+        "--title",
+        "Checkout total ignores the coupon",
+        "--host",
+        HOST,
+    ]);
+    let two = grace.command(&["assign", "12", "@grace.hopper", "--host", HOST]);
+    let one = thread::spawn(move || run(one));
+    let two = thread::spawn(move || run(two));
+    let (one, two) = (one.join().unwrap(), two.join().unwrap());
+    assert_eq!(
+        (one.code, two.code),
+        (Some(0), Some(0)),
+        "{}{}",
+        one.err,
+        two.err
+    );
+    assert_eq!(one.out, "BUG-12 edited: title\n");
+    assert_eq!(two.out, "BUG-12 is assigned to @grace.hopper\n");
+    let sent = patches(&stub, 12);
+    assert_eq!(sent.len(), 2);
+    assert!(
+        sent.contains(&json!({"title": "Checkout total ignores the coupon"})),
+        "{sent:?}"
+    );
+    assert!(
+        sent.contains(&json!({"assignee": "grace.hopper"})),
+        "{sent:?}"
+    );
+    let (title, assignee) = stub.world(|w| (w.get(12).title, w.get(12).assignee));
+    assert_eq!(title, "Checkout total ignores the coupon");
+    assert_eq!(assignee.as_deref(), Some("grace.hopper"));
+    for home in [&ada, &grace] {
+        let shown = home.ok(&["show", "12", "--host", HOST]);
+        assert!(
+            shown.contains("Checkout total ignores the coupon"),
+            "{shown}"
+        );
+        assert!(shown.contains("assigned to @grace.hopper\n"), "{shown}");
+    }
+}
+
+#[test]
 fn an_owner_assigns_by_username_to_me_or_to_no_one_and_a_stranger_is_refused_plainly() {
     let stub = Stub::start(World::new(vec![Item::new(12, "Checkout total is wrong")]));
     let home = Home::of("assign", &stub);

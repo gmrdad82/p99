@@ -150,8 +150,9 @@ function labelStatements(c, row, to, opts = {}) {
          closed_at = CASE WHEN ?4 THEN NULL WHEN open = 1 THEN ?6 ELSE closed_at END,
          updated_at = ?6, activity_at = ?6,
          public_activity_at = CASE WHEN ?7 THEN ?6 ELSE public_activity_at END
-       WHERE id = ?1 AND label_id = ?2`,
-    ).bind(row.id, row.label_id, to.id, closes ? 0 : 1, resolution, c.now, statusChanged ? 1 : 0, opts.duplicateOf ?? null),
+       WHERE id = ?1 AND label_id = ?2
+         AND (?9 IS NULL OR (SELECT key FROM board_positions WHERE board_id = ?9 AND item_id = ?1 AND label_id = ?2) IS ?10)`,
+    ).bind(row.id, row.label_id, to.id, closes ? 0 : 1, resolution, c.now, statusChanged ? 1 : 0, opts.duplicateOf ?? null, opts.seen ? opts.seen.board : null, opts.seen ? opts.seen.key : null),
   ];
   const events = [];
   const actor = c.actor ? c.actor.email ?? null : null;
@@ -167,9 +168,9 @@ function labelStatements(c, row, to, opts = {}) {
     statements.push(
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
-         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?7
-         FROM json_each(?5) WHERE (SELECT label_id FROM items WHERE id = ?1) = ?6`,
-      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id, via),
+         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?6
+         FROM json_each(?5) WHERE changes() > 0`,
+      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), via),
     );
   }
   const after = () => {
@@ -231,8 +232,10 @@ export function placeIn(column, selfId, anchor, anchorId) {
   if (unkeyed === 0 || slot > unkeyed) {
     const prev = slot > 0 ? list[slot - 1].key : null;
     const next = slot < list.length ? list[slot].key : null;
-    const key = generateKeyBetween(prev, next);
-    if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    if (prev === null || next === null || prev < next) {
+      const key = generateKeyBetween(prev, next);
+      if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    }
   }
   const ordered = [...list.slice(0, slot), { id: selfId }, ...list.slice(slot)];
   const keys = generateNKeysBetween(null, null, ordered.length);

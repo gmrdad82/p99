@@ -228,10 +228,11 @@ export async function moveByLane(c, body) {
   if (!target && namedBy(one.lanes, body.to, (l) => l.name).length > 1) K.fail(400, `${body.to} names more than one lane; give its exact name`);
   if (!target) K.fail(400, `${body.to} is not a lane; give ${LANES.join(", ")} or a lane's name`);
   const row = await DB.prepare(
-    `SELECT i.*, ${LABEL_COLUMNS}, (SELECT username FROM people WHERE email = i.assignee) AS assignee_username
+    `SELECT i.*, ${LABEL_COLUMNS}, (SELECT username FROM people WHERE email = i.assignee) AS assignee_username,
+       (SELECT key FROM board_positions WHERE board_id = ?4 AND item_id = i.id AND label_id = i.label_id) AS seen_key
      FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`,
   )
-    .bind(id, v.all ? 1 : 0, v.host)
+    .bind(id, v.all ? 1 : 0, v.host, one.board)
     .first();
   if (!row) K.fail(404, `no item ${body.key}`);
   if (!sawLane(one.lanes, row, body.from)) K.fail(409, MOVED, "moved");
@@ -239,7 +240,7 @@ export async function moveByLane(c, body) {
   const resolution = body.resolution ?? null;
   if (resolution !== null && (!RESOLUTIONS.includes(resolution) || !to.closes)) K.fail(400, "a resolution goes with a label that closes");
   if (resolution === "duplicate" && row.duplicate_of === null) K.fail(400, "a duplicate needs duplicate_of; set it with p99 merge");
-  const plan = labelChangeStatements(c, row, to, { resolution: resolution ?? undefined });
+  const plan = labelChangeStatements(c, row, to, { resolution: resolution ?? undefined, seen: { board: one.board, key: row.seen_key ?? null } });
   let place = null;
   if (anchor !== null || (row.label_id !== to.id && !to.closes)) {
     const { results } = await DB.prepare(LANE_ROWS).bind(one.board, to.id).all();
@@ -254,9 +255,9 @@ export async function moveByLane(c, body) {
       DB.prepare(
         `INSERT INTO board_positions (board_id, item_id, label_id, key)
          SELECT ?1, json_extract(j.value, '$.id'), ?2, json_extract(j.value, '$.key') FROM json_each(?3) j
-         WHERE (SELECT label_id FROM items WHERE id = ?4) = ?2
+         WHERE changes() > 0
          ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key`,
-      ).bind(one.board, to.id, JSON.stringify(place.rows), row.id),
+      ).bind(one.board, to.id, JSON.stringify(place.rows)),
     );
   }
   const results = await DB.batch(statements);
