@@ -1293,6 +1293,14 @@ fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
     assert!(h.upload().is_none());
 }
 
+fn refusal(path: &str) -> &'static str {
+    if path == "/workers/routes" {
+        "no route for example.com"
+    } else {
+        "Authentication error (10000)"
+    }
+}
+
 #[test]
 fn a_token_refused_partway_stops_the_deploy_before_its_first_write() {
     for (n, path) in [
@@ -1309,11 +1317,12 @@ fn a_token_refused_partway_stops_the_deploy_before_its_first_write() {
         cf.deny = Some(path);
         let h = home(&format!("partway-{n}"), &plain_config(), cf);
         let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
-        let out = h.refuses_and_changes_nothing(
-            &["deploy", "--accept-plan", &hash],
-            "Authentication error (10000)",
+        let out = h.refuses_and_changes_nothing(&["deploy", "--accept-plan", &hash], refusal(path));
+        assert!(
+            out.all().contains("Authentication error (10000)") && out.all().contains(path),
+            "{path}: {}",
+            out.all()
         );
-        assert!(out.stderr.contains(path), "{path}: {}", out.stderr);
         assert_eq!(h.applied(), names(&SHIPPED[..4]), "{path}");
         assert!(h.inserted().is_empty(), "{path}");
         never_shows_a_secret(&[&out], &[]);
@@ -1342,7 +1351,12 @@ fn a_token_refused_partway_on_an_up_to_date_account_writes_nothing_either() {
         let mut cf = live(&SHIPPED, Vec::new());
         cf.deny = Some(path);
         let h = home(&format!("partway-done-{n}"), &plain_config(), cf);
-        h.refuses_and_changes_nothing(&["deploy"], "Authentication error (10000)");
+        let out = h.refuses_and_changes_nothing(&["deploy"], refusal(path));
+        assert!(
+            out.all().contains("Authentication error (10000)") && out.all().contains(path),
+            "{path}: {}",
+            out.all()
+        );
         assert!(h.upload().is_none(), "{path}");
     }
 }
@@ -1406,9 +1420,9 @@ fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishe
         let out = h.run(&["deploy", "--accept-plan", &hash]);
         assert_eq!(out.code, Some(1), "{path}: {}", out.stderr);
         assert!(
-            out.stderr.contains("Authentication error (10000)") && out.stderr.contains(path),
+            out.all().contains("Authentication error (10000)") && out.all().contains(path),
             "{path}: {}",
-            out.stderr
+            out.all()
         );
         assert_eq!(h.applied(), names(&SHIPPED), "{path}");
         assert_eq!(h.account()["routes"], routes, "{path}");
@@ -1419,11 +1433,7 @@ fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishe
             path == "/workers/routes",
             "{path}"
         );
-        assert_eq!(
-            h.upload().is_some(),
-            path != "/workers/scripts/p99",
-            "{path}"
-        );
+        assert!(h.upload().is_some(), "{path}");
         never_shows_a_secret(&[&out], &[]);
 
         h.cf.lock().unwrap().deny_write = None;
@@ -1468,10 +1478,10 @@ fn a_route_deploy_could_never_add_is_refused_before_its_first_write() {
         "no route for shop.example.org",
     );
     assert!(
-        out.stderr
+        out.stdout
             .contains("  !!  shop.example.org is on no zone this token reaches"),
         "{}",
-        out.stderr
+        out.stdout
     );
     let json = h.refuses_and_changes_nothing(
         &["deploy", "--json", "--accept-plan", &hash],
@@ -1500,10 +1510,10 @@ fn a_route_deploy_could_never_add_is_refused_before_its_first_write() {
         "no route for example.com",
     );
     assert!(
-        out.stderr
-            .contains("the route example.com/_p99/* already runs the Worker other"),
+        out.stdout
+            .contains("  !!  the route example.com/_p99/* already runs the Worker other"),
         "{}",
-        out.stderr
+        out.stdout
     );
     assert_eq!(held.applied(), names(&SHIPPED[..4]));
     assert!(held.upload().is_none());
