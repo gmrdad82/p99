@@ -19,7 +19,7 @@ An item carries one **label**, its state: the lanes of the account's one board, 
 
 Each account has one board. Its seven lanes are the labels above, and it shows every item an Owner may see, plain items and cards alike; an Owner scoped to some hosts sees only theirs. The order within a lane is the account's one priority, the top mattering most, and every Owner moves cards between lanes and within one. Users don't see the board.
 
-In the panel, an Owner's list starts with two choices. **Show** is All (the items, as before), Only this website (the cards filed on this site), Projects (the cards of the projects ticked below it) or Landed, waiting for your check (cards whose fix landed, across projects). **Last change by** is Everyone, People or Agents, by who made the latest change. A card from another site opens on that site in a new tab. The board overlay keeps to the same choice and says "showing …" while it does. The choice stays in that browser; visitors see neither.
+In the panel, an Owner's list starts with two choices. **Show** is Only this website (its items and cards, the first choice), Projects (the cards of the projects ticked below it, from every site), Needs you (the cards waiting on an Owner) or Landed, waiting for your check (cards whose fix landed, across projects). **Last change by** is Everyone, People or Agents, by who made the latest change. A card from another site opens on that site in a new tab. The board overlay keeps to the same choice and, for any but Only this website, says "showing …" while it does. The choice stays in that browser; visitors see neither.
 
 ```sh
 p99 board

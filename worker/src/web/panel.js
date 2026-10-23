@@ -15,7 +15,7 @@ const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const ROBOT = "🤖";
 const PICK_KEY = "p99:pick";
-const VIEWS = ["all", "site", "projects", "needs", "landed"];
+const VIEWS = ["site", "projects", "needs", "landed"];
 const CARD_VIEWS = ["projects", "needs", "landed"];
 const WAITING = ["needs-you", "stuck", "landed"];
 const LANE_NAMES = ["new", "planned", "in progress", "needs you", "stuck", "landed", "done"];
@@ -64,7 +64,6 @@ const WORDS = {
   only_branch: "The fix is written but isn't in a build yet.",
   list_title: "Items",
   view_label: "Show",
-  view_all: "This website and its cards",
   view_site: "Only this website",
   view_projects: "Projects",
   view_needs: "Needs you",
@@ -482,7 +481,7 @@ function openBoard() {
 function pickWord() {
   const p = picked();
   const words = [];
-  if (p.view !== "all") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
+  if (p.view !== "site") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
   if (p.source) words.push(say("source_" + p.source));
   return words.join(" · ");
 }
@@ -787,7 +786,7 @@ function pickOf(raw) {
   const p = raw && typeof raw === "object" ? raw : {};
   const names = Array.isArray(p.projects) ? p.projects.filter((n) => typeof n === "string" && n.length > 0 && n.length <= 40) : [];
   return {
-    view: VIEWS.includes(p.view) ? p.view : "all",
+    view: VIEWS.includes(p.view) ? p.view : "site",
     projects: names.slice(0, MAX_PICKED),
     source: SOURCES.includes(p.source) ? p.source : ""
   };

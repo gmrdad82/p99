@@ -527,6 +527,27 @@ export async function foldChecks({ check, root }) {
     assert.equal(db.prepare("SELECT count(*) AS n FROM items WHERE label_id IN (SELECT id FROM archived WHERE kind = 'label')").get().n, 0);
   });
 
+  await check("[fold] after a reset the renamed lane's cards read on the one board in In progress, their history names the lane, and the label stays, archived", async () => {
+    const db = seeded(root, `UPDATE labels SET name = 'Next up' WHERE name = 'Planned'; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")}; ${item(15, "Next up", { project: "Splicer", kind: "feature", host: "shop.example.com", day: 4 })} ${place(14, 15, "Next up", "a0")}`);
+    const nextUp = db.prepare("SELECT id FROM labels WHERE name = 'Next up'").get().id;
+    const archivedBefore = db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 0").get().n;
+    fold(root, db);
+    unitKit();
+    const card = boardRows(db, ALL, { projects: ["Splicer"] }).map(boardCardOf).find((c) => c.key === "FEAT-15");
+    assert.deepEqual([card.status, card.label, card.project, card.title], ["in-progress", "In progress", "Splicer", "Item 15"]);
+    assert.deepEqual(boardRows(db, ALL, { statuses: [2] }).map((r) => r.id).filter((id) => id === 15), [15]);
+    const history = db.prepare("SELECT detail_json FROM events WHERE item_id = 15 AND kind = 'label'").all().map((e) => JSON.parse(e.detail_json));
+    assert.deepEqual(history, [{ from: "Next up", to: "In progress", migrated: true }]);
+    assert.deepEqual({ ...db.prepare("SELECT id, name FROM labels WHERE id = ?").get(nextUp) }, { id: nextUp, name: "Next up" });
+    assert.ok(db.prepare("SELECT 1 FROM archived WHERE kind = 'label' AND id = ?").get(nextUp));
+    assert.equal(laneNames(db).includes("Next up"), false);
+    const boards = db.prepare(ARCHIVED_BOARDS).all(1, null, null);
+    assert.deepEqual(boards.map((b) => b.id), [11, 12, 13]);
+    assert.equal(boards.length, archivedBefore);
+    assert.equal(boards.some((b) => JSON.parse(b.columns).some((c) => c.label === "Next up")), false);
+    assert.equal(db.prepare(ARCHIVED_CARDS).all(1, null, null).some((r) => r.id === 15), false);
+  });
+
   await check("[fold] a six-lane Cards board with a renamed lane gets Needs you fourth, the renamed lane kept in its place", async () => {
     const db = seeded(root, "UPDATE labels SET name = 'Next up' WHERE name = 'Planned';");
     fold(root, db);

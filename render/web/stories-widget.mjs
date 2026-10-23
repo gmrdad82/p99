@@ -1312,9 +1312,16 @@ try {
     await ctx.close();
   });
 
-  await story("under reduced motion the dot stops fading once the panel has loaded, and keeps its ease otherwise", async () => {
+  await story("under reduced motion the dot never fades, from the first paint and with the panel loaded, and keeps its ease otherwise", async () => {
     for (const [motion, want] of [["reduce", "0s"], ["no-preference", "0.3s"]]) {
       const { ctx, p } = await dotPage([owner(2, 0, 0)], motion);
+      const first = await dot(p);
+      const loaded = await p.evaluate(() => performance.getEntriesByType("resource").some((r) => new URL(r.name).pathname === "/_p99/panel.js"));
+      check(`${motion}: before any click the panel isn't loaded and the dot's transition lasts ${want} (${first.duration}, ${loaded})`, first.text === "2" && first.duration === want && !loaded);
+      if (motion === "reduce") {
+        const moving = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().length);
+        check(`reduce: the dot's first count shows without a running transition (${moving})`, moving === 0);
+      }
       await p.locator("p99-root >> .w .b:not(.f)").click();
       await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]"), null, { timeout: 20000 });
       const d = await dot(p);

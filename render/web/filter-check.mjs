@@ -192,13 +192,13 @@ try {
     await ctx.addInitScript(openShadow);
     let p = await open(ctx, boss);
     let s = await settled(p);
-    check(`a manager's list shows the filter, All and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "all" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
-    check(`All lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
+    check(`a manager's list shows the filter, Only this website and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "site" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
+    check(`Only this website lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
 
     asked.length = 0;
     await source(p, "agent");
     s = await settled(p, (s) => s.source === "agent");
-    check(`Agents on All asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
+    check(`Agents on Only this website asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
 
     asked.length = 0;
     await source(p, "");
@@ -239,8 +239,8 @@ try {
     check(`People on Needs you keeps the cards a person changed last (${s.keys})`, s.keys.join() === "FEAT-902");
     await source(p, "");
     WAITING.fail = true;
-    await choose(p, "all");
-    await settled(p, (s) => s.view === "all");
+    await choose(p, "site");
+    await settled(p, (s) => s.view === "site");
     await choose(p, "needs");
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results .p99-failed"), null, { timeout: 8000 }).catch(() => {});
     const broke = await p.evaluate(() => {
@@ -253,8 +253,8 @@ try {
     s = await settled(p, (s) => s.view === "needs" && s.keys.length === 2);
     check(`Retry reads /cards/waiting again and lists it (${s.keys})`, s.keys.join() === "FEAT-901,FEAT-902");
     WAITING.cards = [];
-    await choose(p, "all");
-    await settled(p, (s) => s.view === "all");
+    await choose(p, "site");
+    await settled(p, (s) => s.view === "site");
     await choose(p, "needs");
     s = await settled(p, (s) => s.view === "needs" && s.empty);
     check(`with nothing waiting, Needs you says so (${s.empty})`, s.empty === "Nothing needs you.");
@@ -291,9 +291,9 @@ try {
     check(`a reload comes back to the same view, projects and source (${JSON.stringify(s)})`, s.view === "projects" && s.source === "agent" && s.projects.every(([, on]) => on) && s.keys.join() === "FEAT-901");
     await p.screenshot({ path: join(stills, "filter-projects-1440-light.png") });
 
-    await choose(p, "all");
+    await choose(p, "site");
     await source(p, "agent");
-    await settled(p, (s) => s.view === "all" && s.source === "agent");
+    await settled(p, (s) => s.view === "site" && s.source === "agent");
     const boardAsked = [];
     await p.route((url) => url.pathname === "/_p99/api/board", (r) => {
       boardAsked.push(new URL(r.request().url()).search);
@@ -310,7 +310,7 @@ try {
       };
     });
     check(`the board overlay shows only what the filter keeps, and says so (${JSON.stringify(board)})`, board.cards.join() === byAgent && board.note === "showing Agents");
-    check(`the board overlay asks the one board with the filter's source, nothing else (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((q) => q === "?source=agent"));
+    check(`the board overlay asks the one board for this website with the filter's source, nothing else (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((q) => q === `?host=${HOST}&source=agent`));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", JSON.stringify({ view: "landed", projects: [], source: "" })));
     await p.close();
@@ -333,7 +333,7 @@ try {
     await p.close();
     p = await open(ctx, boss);
     s = await settled(p);
-    check(`a broken stored choice falls back to All and Everyone (${s.view}, ${s.source})`, s.view === "all" && s.source === "");
+    check(`a broken stored choice falls back to Only this website and Everyone (${s.view}, ${s.source})`, s.view === "site" && s.source === "");
     await ctx.close();
   }
 
@@ -345,7 +345,7 @@ try {
     });
     const p = await open(ctx, boss);
     const s = await settled(p);
-    check(`with storage blocked the filter still draws at All (${s && s.view})`, s && s.pick && s.view === "all");
+    check(`with storage blocked the filter still draws at Only this website (${s && s.view})`, s && s.pick && s.view === "site");
     await ctx.close();
   }
 

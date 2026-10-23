@@ -854,16 +854,16 @@ async function check(back) {
 
     const cardsOf = (b) => R(b.p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card"), (e) => e.dataset.id));
     const boardRead = (b) => b.seen.filter((c) => c.method === "GET" && c.path === "/board").at(-1)?.query ?? null;
-    const every = await board(browser, back);
-    assert.ok((await cardsOf(every)).includes(K("BUG-31")), `All shows ${ELSEWHERE}'s BUG-31`);
-    assert.equal(boardRead(every), "");
-    await every.ctx.close();
-    const site = await board(browser, back, { pick: { view: "site", projects: [], source: "" } });
+    const site = await board(browser, back);
     const here = await cardsOf(site);
-    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
+    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website, the default, keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
     assert.equal(boardRead(site), `?host=${HOST}`);
     await site.ctx.close();
-    ok(`All shows every host's cards; Only this website asks /board?host=${HOST} and the answer keeps that host alone`);
+    const every = await board(browser, back, { pick: { view: "projects", projects: [], source: "" } });
+    assert.ok((await cardsOf(every)).includes(K("BUG-31")), `Projects shows ${ELSEWHERE}'s BUG-31`);
+    assert.equal(boardRead(every), "");
+    await every.ctx.close();
+    ok(`Only this website, the default, asks /board?host=${HOST} and keeps that host alone; Projects shows every host's cards`);
 
     for (const [size, view] of SIZES) {
       for (const scheme of ["light", "dark"]) {
