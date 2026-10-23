@@ -446,8 +446,9 @@ function labelStatements(c, row, to, opts = {}) {
          closed_at = CASE WHEN ?4 THEN NULL WHEN open = 1 THEN ?6 ELSE closed_at END,
          updated_at = ?6, activity_at = ?6,
          public_activity_at = CASE WHEN ?7 THEN ?6 ELSE public_activity_at END
-       WHERE id = ?1 AND label_id = ?2`,
-    ).bind(row.id, row.label_id, to.id, closes ? 0 : 1, resolution, c.now, statusChanged ? 1 : 0, opts.duplicateOf ?? null),
+       WHERE id = ?1 AND label_id = ?2
+         AND (?9 IS NULL OR (SELECT key FROM board_positions WHERE board_id = ?9 AND item_id = ?1 AND label_id = ?2) IS ?10)`,
+    ).bind(row.id, row.label_id, to.id, closes ? 0 : 1, resolution, c.now, statusChanged ? 1 : 0, opts.duplicateOf ?? null, opts.seen ? opts.seen.board : null, opts.seen ? opts.seen.key : null),
   ];
   const events = [];
   const actor = c.actor ? c.actor.email ?? null : null;
@@ -463,9 +464,9 @@ function labelStatements(c, row, to, opts = {}) {
     statements.push(
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
-         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?7
-         FROM json_each(?5) WHERE (SELECT label_id FROM items WHERE id = ?1) = ?6`,
-      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), to.id, via),
+         SELECT ?1, ?2, json_extract(value, '$.kind'), json_extract(value, '$.detail'), json_extract(value, '$.internal'), ?3, ?4, ?6
+         FROM json_each(?5) WHERE changes() > 0`,
+      ).bind(row.id, actor, c.now, agent, JSON.stringify(events.map((e) => ({ ...e, detail: JSON.stringify(e.detail) }))), via),
     );
   }
   const after = () => {
@@ -564,8 +565,10 @@ export function placeIn(column, selfId, anchor, anchorId) {
   if (unkeyed === 0 || slot > unkeyed) {
     const prev = slot > 0 ? list[slot - 1].key : null;
     const next = slot < list.length ? list[slot].key : null;
-    const key = generateKeyBetween(prev, next);
-    if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    if (prev === null || next === null || prev < next) {
+      const key = generateKeyBetween(prev, next);
+      if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    }
   }
   const ordered = [...list.slice(0, slot), { id: selfId }, ...list.slice(slot)];
   const keys = generateNKeysBetween(null, null, ordered.length);
@@ -628,7 +631,9 @@ export async function postMove(c) {
   const resolution = body.resolution ?? null;
   if (resolution !== null && (!RESOLUTIONS.includes(resolution) || !to.closes)) K.fail(400, "a resolution goes with a label that closes");
   if (resolution === "duplicate" && row.duplicate_of === null) K.fail(400, "a duplicate needs duplicate_of; set it with p99 merge");
-  const plan = labelStatements(c, row, to, { resolution: resolution ?? undefined });
+  const held = hasBoard ? reads[2].results.find((r) => r.id === row.id) : undefined;
+  const seen = held ? { board, key: held.key ?? null } : undefined;
+  const plan = labelStatements(c, row, to, { resolution: resolution ?? undefined, seen });
   const place = hasBoard ? placeIn(reads[2].results.filter((r) => r.label_id === to.id), row.id, anchor, anchorId) : null;
   const statements = [...plan.statements];
   if (place) {
@@ -636,9 +641,9 @@ export async function postMove(c) {
       DB.prepare(
         `INSERT INTO board_positions (board_id, item_id, label_id, key)
          SELECT ?1, json_extract(j.value, '$.id'), ?2, json_extract(j.value, '$.key') FROM json_each(?3) j
-         WHERE (SELECT label_id FROM items WHERE id = ?4) = ?2
+         WHERE changes() > 0
          ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key`,
-      ).bind(board, to.id, JSON.stringify(place.rows), row.id),
+      ).bind(board, to.id, JSON.stringify(place.rows)),
     );
   }
   const results = await DB.batch(statements);
