@@ -356,9 +356,31 @@ The browser (`npm run coverage`, then the filter story under the same hook): **8
 
 The bugs this round's runs found: none in shipped code. The board check's helper waited for more than five cards, which the Projects board it now opens doesn't hold. Two lines in src/tui/waiting.rs that the tool scored 0 turned out to be the false branch of the events a thread opened from `w` settles: no test sent it a refused reply or label list, and one now does.
 
+## w203 one board, round 4, 2026-10-23 (agent/board-i4, the w203 train merged with main 01ff70f)
+
+The before column is round 3 above. This round merged w211's move and patch race guards into the one board's move.
+
+Rust: **95.09% of lines** (94.17% of regions, 93.60% of functions), unchanged; 849 tests pass under `cargo llvm-cov nextest` (main's new triage story is the 849th).
+
+The Worker: **97.01% of lines** of worker/src, from 337 checks with none known red and 86 unit tests (round 3: 96.92%, 336 checks, 40 unit tests). main's race tests run on the seven lanes:
+
+| File | Before | After |
+|---|---|---|
+| src/boards.js | 99.02% of 307 | 99.03% of 309 |
+| src/cards-write.js | 92.08% of 303 | 92.16% of 306 |
+| src/one-board.js | 100% of 225 | 100% of 225 |
+| src/needs-you.js | 100% of 51 | 100% of 51 |
+| src/patch.js | (main) | 100% of 99 |
+
+The browser: **88.61% of lines** of worker/src/web, unchanged, and every check passed: capture, manage, mobile, search and swap, the widget stories 263 of 263, the board stories 69 of 69, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
+
+`pci loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2270/2270)".
+
+The bugs this round found: the one board's move still used the guard w211 replaced, so a losing move into the same lane could write its order key over the winner's, and the second of two same-lane reorders landed too; a reply leaving Needs you had the same key flaw; two project sets at once both landed, each with its own event. Each now has a race test that fails without its guard.
+
 ## Uncovered critical paths, first in line
 
-- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
+- The one board: src/cards-write.js (92.16%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
 - The live stream (stream.rs, 78%): the TLS handshake for a `wss://` Worker and `follow`'s reconnect after a drop.
 - Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and secrets: setup's interactive vault question (`vault::available`, vault.rs:30–37, asked only without `--yes` or `--vault`).
 - `p99 link`'s host choice and the browser it opens (links.rs, 85%).
