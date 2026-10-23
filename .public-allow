@@ -71,6 +71,7 @@ commit/f9af827e3e3b:tests/stories_deploy.rs:1555 a fake op reference in the depl
 commit/f193b38bcc0a:tests/stories_deploy.rs:1511 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1511
 commit/ffc905d123f1:tests/stories_deploy.rs:2094 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:2094
 commit/e6f38129657d:README.md:131 the README names password managers that take the authenticator setup, as waived at its current line
+commit/ffc905d123f1:README.md:131 the README names password managers that take the authenticator setup, as waived at its current line
 commit/a4d5ac6035ec:tests/stories_deploy.rs:1456 the deploy story's fake op reference that proves P99_TOKEN wins over it, after the odd-columns story shrank
 commit/d21bc08e6f76:tests/stories_deploy.rs:1469 the deploy story's fake op reference that proves P99_TOKEN wins over it, as the w203 train left it before round 2
 commit/1a3a547e00d0:tests/stories_deploy.rs:1291 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1291
