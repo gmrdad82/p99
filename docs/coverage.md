@@ -332,9 +332,33 @@ Both JavaScript passes now write lcov.info beside their table (worker/.wrangler/
 
 The bugs this round's runs found: the fold plan's label query dropped every custom column when the Cards board was reset or filled (a label with no role made `l.role = 'done'` NULL), so its preview left out what 0016 then moved; a fold check now compares the plan's queries with what 0016 moved. The import manager check counted Sophie as existing because the needs-you checks mint her as an Owner, and main's import story still read the manager wording.
 
+## w203 one board, round 3, 2026-10-23 (agent/board-i3, the w203 train on main 2ff3c72)
+
+The before column is round 2 above.
+
+Rust: **95.09% of lines** (94.17% of regions, 93.60% of functions), up from 94.52%; 848 tests pass under `cargo llvm-cov nextest`.
+
+| File | Before | After |
+|---|---|---|
+| src/fold.rs | 99.49% of 393 | 99.76% of 412 |
+| src/cli/codes.rs | 99.15% of 234 | 99.57% of 234 |
+| src/migrate.rs | 94.74% of 1065 | 95.77% of 1065 |
+| src/tui/board.rs | 98.08% of 1095 | 98.26% of 1092 |
+| src/tui/codes.rs | 97.85% of 279 | 98.52% of 270 |
+| src/tui/waiting.rs | 92.87% of 421 | 98.01% of 402 |
+| src/setup.rs | 83% | 87.07% of 1639 |
+
+The Worker: **96.92% of lines** of worker/src, from 336 checks with none known red and 40 unit tests (round 2: 96.87%); boards.js is at 99.02% of 307, its fallback to a non-lane closing label gone.
+
+The browser (`npm run coverage`, then the filter story under the same hook): **88.61% of lines** of worker/src/web (round 2: 88.98%; panel.js lost the lines of the dropped filter choice). board.js is at 93.17% of 791, panel.js at 89.12% of 1,985, app.js at 79.14% of 350, and the loader by bytes at 98.51%. Every check passed: capture, manage, mobile, search and swap, the widget stories 263 of 263, the board stories 69 of 69, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
+
+`pci loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2269/2269)". The tool leaves out the browser checks in render/web by the repo's `[loop.untestable]` entry and the tests themselves, and names each file it left out.
+
+The bugs this round's runs found: none in shipped code. The board check's helper waited for more than five cards, which the Projects board it now opens doesn't hold. Two lines in src/tui/waiting.rs that the tool scored 0 turned out to be the false branch of the events a thread opened from `w` settles: no test sent it a refused reply or label list, and one now does.
+
 ## Uncovered critical paths, first in line
 
-- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the TUI's wrapper around the inbox and board (src/tui/waiting.rs, 93%) passes answers, claims, commands and pastes through to screens that never ask for them in a test; the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
+- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
 - The live stream (stream.rs, 78%): the TLS handshake for a `wss://` Worker and `follow`'s reconnect after a drop.
 - Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and secrets: setup's interactive vault question (`vault::available`, vault.rs:30–37, asked only without `--yes` or `--vault`).
 - `p99 link`'s host choice and the browser it opens (links.rs, 85%).
