@@ -148,6 +148,7 @@ commit/c6b43b0f738c:tests/cli_key.rs:16 a fake vault reference in the tests that
 commit/c6b43b0f738c:tests/cli_key.rs:231 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to, as waived at tests/cli_key.rs:268
 commit/3af18dff792e:tests/stories_deploy.rs:1429 the deploy story's fake op reference that proves P99_TOKEN wins over it, as the w203 train rebased it
 commit/781cb5f4d7e7:README.md:131 the documented secret-reference feature (vault references and password managers named for users), as the w203 train rebased it
+commit/64e12f23e377:README.md:131 the documented secret-reference feature (vault references and password managers named for users), as round 2's README rewrite left it
 commit/781cb5f4d7e7:docs/config.md:65 the documented secret-reference feature (vault references and password managers named for users), as the w203 train rebased it
 commit/781cb5f4d7e7:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as the w203 train rebased it
 commit/781cb5f4d7e7:docs/guides/invite.md:62 the invite guide names password managers and the code's secret-reference form, as the w203 train rebased it
