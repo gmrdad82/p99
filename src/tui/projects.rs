@@ -17,11 +17,9 @@ pub const NONE_YET: &str =
     "No projects yet: p99 card new --project <name> --title <text> files a card.";
 
 pub trait Narrow {
-    fn narrows(&self) -> bool {
-        false
-    }
+    fn narrows(&self) -> bool;
 
-    fn narrow(&mut self, _projects: &[String], _cx: &mut Cx<'_, Msg>) {}
+    fn narrow(&mut self, projects: &[String], cx: &mut Cx<'_, Msg>);
 
     fn filtered(&self) -> bool {
         false
@@ -31,7 +29,7 @@ pub trait Narrow {
         false
     }
 
-    fn touched(&mut self, _cx: &mut Cx<'_, Msg>) {}
+    fn touched(&mut self, cx: &mut Cx<'_, Msg>);
 }
 
 impl Narrow for Inbox {

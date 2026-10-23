@@ -30,3 +30,15 @@ pub fn waiting(config: &Config, global: &Global) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_heading_counts_none_one_and_many() {
+        assert_eq!(heading(0), "nothing waits on you");
+        assert_eq!(heading(1), "1 card waits on you");
+        assert_eq!(heading(12), "12 cards wait on you");
+    }
+}

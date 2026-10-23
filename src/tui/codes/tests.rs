@@ -636,3 +636,32 @@ fn a_broken_source_deletes_nothing_and_says_why() {
     );
     assert_eq!(erase(&sample(), &code), Ok(()));
 }
+
+#[test]
+fn d_with_no_code_shown_asks_nothing() {
+    let mut app = run(without_codes());
+    app.go(CODES);
+    let text = app.press("d");
+    assert!(!codes(&app).typing());
+    assert!(!text.contains("Delete for good"), "{text}");
+}
+
+#[test]
+fn a_delete_the_worker_refuses_says_why_and_keeps_the_code() {
+    let mut app = shown();
+    let code = codes(&app)
+        .codes
+        .as_ref()
+        .expect("the codes are read")
+        .iter()
+        .map(|(c, _)| c.clone())
+        .find(|c| c.id == 2)
+        .expect("the sample has code 2");
+    let text = app.event(
+        CODES,
+        Msg::CodeDeleted(Box::new(code), Err("offline now".into())),
+    );
+    assert!(text.contains("offline now"), "{text}");
+    assert!(text.contains("…3fpd"), "{text}");
+    assert!(text.contains("4 codes"), "{text}");
+}

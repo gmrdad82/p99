@@ -5,8 +5,8 @@ use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
-    BoardQuery, DEPRECATED, LaneInfo, OLD_WORKER, OldBoards, OneBoard, archived_lines, board_lines,
-    lane_lines, lane_named, lanes_from, refusal,
+    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, archived_lines, board_lines, lane_lines,
+    lane_named, lanes_from, refusal,
 };
 use crate::wire::{Issue, MoveTo, out};
 
@@ -145,7 +145,7 @@ pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
             label: Some(now),
             ..
         }) => {
-            let lanes = lanes_of(client).unwrap_or_default();
+            let lanes = lanes_of(client);
             meanwhile(&key, &now, &lane_name(to, &lanes))
         }
         _ => crate::card::refusal(error),
@@ -256,16 +256,15 @@ pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(
     Ok(())
 }
 
-fn lanes_of(client: &Client) -> Result<Vec<LaneInfo>, String> {
+fn lanes_of(client: &Client) -> Vec<LaneInfo> {
     let query = BoardQuery {
         statuses: vec![Lane::NeedsYou],
         ..BoardQuery::default()
     };
-    match client.one_board::<OneBoard>(&query).map_err(refusal) {
-        Ok(board) => Ok(board.board.lanes),
-        Err(why) if why == OLD_WORKER => Ok(Vec::new()),
-        Err(why) => Err(why),
-    }
+    client
+        .one_board::<OneBoard>(&query)
+        .map(|board| board.board.lanes)
+        .unwrap_or_default()
 }
 
 pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result<(), String> {

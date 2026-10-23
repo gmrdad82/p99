@@ -454,6 +454,22 @@ mod tests {
     }
 
     #[test]
+    fn a_board_with_no_owner_is_named_alone_in_the_archived_line() {
+        let orphan = json!({"id": 4, "name": "Old flow", "owner": null, "cards": 0, "columns": 3, "placed": 1});
+        let (fold, _) = shape(&[orphan], &[], 0);
+        let mut out = String::new();
+        render(&mut out, &json!({"one_board": fold}));
+        assert!(
+            out.contains("  archived, read-only: 1 board (Old flow)\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  the order in each lane: Old flow 1 card\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
     fn the_render_of_an_empty_account_and_of_a_later_fold() {
         let (fold, _) = shape(&[], &[], 0);
         let mut out = String::new();

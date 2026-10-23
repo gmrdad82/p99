@@ -7,7 +7,9 @@ use serde_json::json;
 use crate::wire::{Change, LaneCard, Owner};
 
 use super::super::deck::{self, BoardCard, Lane, Moved, default_lanes};
-use super::super::tests::{BOARD, HIGH, Run, WIDE, line, palette, row, run, sample, spot, waiting};
+use super::super::tests::{
+    BOARD, HIGH, INBOX, Run, WIDE, line, palette, row, run, sample, spot, waiting,
+};
 use super::super::waiting::Around;
 use super::*;
 
@@ -1267,4 +1269,35 @@ fn a_narrow_card_keeps_one_space_round_its_key_before_it_drops_the_rule() {
         let top: String = (0..width).map(|x| buf[(x, 0)].symbol()).collect();
         assert_eq!(top, want, "{width}");
     }
+}
+
+#[test]
+fn choosing_the_same_projects_again_keeps_the_board_without_reading_it_anew() {
+    let mut app = run(sample());
+    app.text();
+    app.advance(Duration::from_secs(1));
+    app.press("p down enter");
+    app.go(BOARD);
+    app.advance(Duration::from_secs(1));
+    let narrowed = lane(&app, "Planned");
+    app.go(INBOX);
+    app.press("p down enter p down enter");
+    let back = app.go(BOARD);
+    assert!(!board(&app).reading, "{back}");
+    assert_eq!(board(&app).projects, ["Mobile app"]);
+    assert_eq!(lane(&app, "Planned"), narrowed);
+}
+
+#[test]
+fn a_card_deleted_on_a_board_of_several_accounts_marks_it_stale_instead_of_guessing() {
+    let mut app = shown();
+    board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
+    let before = lane(&app, "New");
+    let deleted = crate::wire::Deleted {
+        key: "FEAT-9".into(),
+        ..Default::default()
+    };
+    app.event(BOARD, Msg::Deleted("FEAT-9".into(), Ok(deleted)));
+    assert!(board(&app).stale.is_some());
+    assert_eq!(lane(&app, "New"), before);
 }
