@@ -217,3 +217,18 @@ commit/267ca50895b5:tests/stories_setup.rs:1428 a fake vault reference or the va
 commit/267ca50895b5:tests/stories_setup.rs:1433 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
 commit/267ca50895b5:tests/stories_setup.rs:1438 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
 commit/267ca50895b5:tests/stories_setup.rs:1476 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
+commit/781cb5f4d7e7:tests/cli_vault.rs:119 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/781cb5f4d7e7:tests/cli_vault.rs:136 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/781cb5f4d7e7:tests/cli_vault.rs:141 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/781cb5f4d7e7:tests/cli_vault.rs:18 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b4171981d49b:README.md:131 the README names the password managers that take the authenticator setup, as waived at its current line
+commit/b848a190f4a1:tests/stories_setup.rs:1315 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1316 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1342 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1405 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1439 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1443 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1468 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1470 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1474 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/b848a190f4a1:tests/stories_setup.rs:1512 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
