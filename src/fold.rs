@@ -259,6 +259,31 @@ pub fn render(out: &mut String, plan: &Value) {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_plan_refuses_anything_but_one_select_before_it_reaches_cloudflare() {
+        let cf = Cloudflare::at("t", "http://127.0.0.1:9");
+        let account = Account::default();
+        for sql in [
+            "DELETE FROM items",
+            "UPDATE labels SET role = NULL",
+            "select id FROM items",
+            " SELECT id FROM items",
+            "SELECT id FROM items; DELETE FROM items",
+            "SELECT id FROM items;",
+            "",
+        ] {
+            assert_eq!(
+                select(&cf, &account, sql),
+                Err("the plan only reads, one SELECT at a time".to_owned()),
+                "{sql:?}"
+            );
+        }
+        for sql in [Q_BOARDS, Q_LABELS, Q_UNPLACED] {
+            let asked = select(&cf, &account, sql).expect_err("nothing answers on port 9");
+            assert_ne!(asked, "the plan only reads, one SELECT at a time", "{sql}");
+        }
+    }
+
     fn board(id: i64, name: &str, owner: &str, cards: i64, columns: i64, placed: i64) -> Value {
         json!({"id": id, "name": name, "owner": owner, "cards": cards, "columns": columns, "placed": placed})
     }

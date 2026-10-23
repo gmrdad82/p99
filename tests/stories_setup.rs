@@ -1517,3 +1517,43 @@ esac
         assert!(!cf.lock().unwrap().worker);
     }
 }
+
+#[test]
+fn a_new_account_set_up_as_someone_else_asks_their_name_and_the_email_that_becomes_its_first_owner()
+{
+    let (h, _) = configured("setup-someone-else", fresh());
+    let out = h.run(
+        &["setup", "--account", "work", "--no-mail"],
+        &[],
+        Some("n\nGrace Hopper\ngrace@example.com\n"),
+    );
+    out.refused("Paste the token: an answer is needed");
+    for asked in [
+        "Act as Ada Lovelace <ada@example.com> on this account? [Y/n]: ",
+        "Your name on this account, as P99 shows it [Ada Lovelace]: ",
+        "Your e-mail on this account (it becomes its first Owner): ",
+        "Paste the token (hidden): ",
+    ] {
+        assert!(out.stdout.contains(asked), "{asked}:\n{}", out.stdout);
+    }
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn a_new_account_whose_email_has_no_at_sign_refuses_with_yes_and_names_the_first_owner() {
+    let stub = Stub::new(|req: &Req| fake_none(req));
+    let text = home::config(&stub.base).replace("email = \"ada@example.com\"", "email = \"ada\"");
+    let h = Home::with_config("setup-email-no-at", stub, &text);
+    let out = h.p99_env(
+        &["setup", "--yes", "--account", "work", "--no-mail"],
+        &[("P99_TOKEN", TOKEN)],
+    );
+    out.refused("Your e-mail on this account (it becomes its first Owner): give it with --email");
+    assert!(!out.stdout.contains("Act as"), "{}", out.stdout);
+    assert!(h.stub.seen().is_empty());
+    assert!(h.config().contains("email = \"ada\""), "{}", h.config());
+}
+
+fn fake_none(_: &Req) -> Reply {
+    Reply::problem(500, "nothing is asked for before the e-mail")
+}

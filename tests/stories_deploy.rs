@@ -1138,6 +1138,61 @@ fn migrate_plan_on_a_1_8_schema_names_every_decision_a_manager_must_answer() {
 }
 
 #[test]
+fn migrate_plan_names_a_member_who_changed_owner_states_and_offers_owner_codes() {
+    let mut rows = vec![(
+        "e.kind = 'status' AND e.actor_email IS NOT NULL",
+        json!([{ "email": "grace@example.com", "name": "Grace Hopper", "changes": 2 }]),
+    )];
+    rows.extend(v18_rows());
+    let h = home(
+        "plan-18-member",
+        &plain_config(),
+        live(&SHIPPED[..10], rows),
+    );
+    let out = h.run(&["migrate", "--plan"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let text = &out.stdout;
+    assert!(
+        text.contains("  - 1 member changed states that only Owners set from 1.9 on: give them Owner codes, or leave them Users\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\nMembers who changed states that only Owners set from 1.9 on\n  Grace Hopper <grace@example.com>: 2 changes\n"),
+        "{text}"
+    );
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(
+        json["plan"]["members"],
+        json!([{ "email": "grace@example.com", "name": "Grace Hopper", "changes": 2 }])
+    );
+    assert_eq!(json["plan"]["decisions"].as_array().unwrap().len(), 4);
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+}
+
+#[test]
+fn migrate_plan_on_an_account_already_on_one_board_never_previews_the_fold_again() {
+    let applied: Vec<&str> = SHIPPED
+        .iter()
+        .copied()
+        .filter(|name| *name != "0013_app.sql")
+        .collect();
+    let h = home(
+        "plan-folded-gap",
+        &plain_config(),
+        live(&applied, v19_rows()),
+    );
+    let out = h.run(&["migrate", "--plan"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let text = &out.stdout;
+    assert!(text.contains("  pending: 0013_app.sql\n"), "{text}");
+    assert!(!text.contains("One board per account (0016)"), "{text}");
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(json["plan"]["pending"], json!(["0013_app.sql"]));
+    assert!(json["plan"]["one_board"].is_null(), "{}", json["plan"]);
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+}
+
+#[test]
 fn deploy_on_1_8_without_the_hash_refuses_cleanly_and_changes_nothing() {
     let h = home(
         "refuse-18",

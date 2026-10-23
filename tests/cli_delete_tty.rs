@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use home::{Home, Out};
-use stub::{Reply, Req, thread};
+use stub::{Reply, Req, code, thread};
 
 unsafe extern "C" {
     fn posix_openpt(flags: c_int) -> c_int;
@@ -43,6 +43,7 @@ const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
 const CTRL_D: &[u8] = &[4];
 const ESC_TITLE: &str = "The total \u{1b}[31mdoes not\u{1b}[0m update";
+const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.\nType k3x9 to delete it: ";
 const PROMPT: &str = "BUG-12  The total [31mdoes not[0m update\nDeleting it removes its 1 comment, 2 files and history for good; GitHub keeps its own issue.\nType BUG-12 to delete it: ";
 
 static NAMING: Mutex<()> = Mutex::new(());
@@ -262,4 +263,74 @@ fn a_negative_comment_count_from_the_worker_reads_as_none() {
         out.stderr
     );
     assert_eq!(deleted(&h), 1);
+}
+
+fn code_home(name: &str) -> Home {
+    Home::new(name, |req: &Req| {
+        if req.is("GET", "/_p99/v1/codes") {
+            let mut revoked = code(
+                4,
+                "Grace Hopper",
+                "grace@example.com",
+                &["shop.example.com"],
+            );
+            revoked["role"] = json!("user");
+            revoked["revoked_at"] = json!("2026-10-03T00:00:00Z");
+            Reply::ok(json!({"codes": [revoked]}))
+        } else if req.is("DELETE", "/_p99/v1/codes/4") {
+            Reply::ok(json!({"id": 4, "deleted": true}))
+        } else {
+            fake::any(req)
+        }
+    })
+}
+
+#[test]
+fn a_revoked_codes_four_characters_typed_back_at_a_terminal_delete_it() {
+    for (name, verb) in [
+        ("codes-tty-typed", "codes"),
+        ("invites-tty-typed", "invites"),
+    ] {
+        let h = code_home(name);
+        let out = at_terminal(&h, &[verb, "delete", "4"], b"K3X9\n");
+        out.ok();
+        assert_eq!(out.stderr, CODE_PROMPT, "{verb}");
+        assert_eq!(
+            out.stdout, "deleted code 4 of Grace Hopper <grace@example.com>\n",
+            "{verb}"
+        );
+        assert_eq!(
+            h.stub.calls("DELETE", "/_p99/v1/codes/4").len(),
+            1,
+            "{verb}"
+        );
+    }
+}
+
+#[test]
+fn a_wrong_answer_typed_back_at_a_terminal_keeps_the_code() {
+    for (name, verb, typed) in [
+        ("codes-tty-wrong", "codes", &b"k3x8\n"[..]),
+        ("invites-tty-wrong", "invites", b"3fpd\n"),
+        ("codes-tty-blank", "codes", b"\n"),
+        ("invites-tty-id", "invites", b"4\n"),
+        ("codes-tty-eof", "codes", CTRL_D),
+    ] {
+        let h = code_home(name);
+        let out = at_terminal(&h, &[verb, "delete", "4"], typed);
+        out.refused("code 4 is kept: the four characters typed back didn't match");
+        assert_eq!(
+            out.stderr,
+            format!(
+                "{CODE_PROMPT}p99: code 4 is kept: the four characters typed back didn't match\n"
+            ),
+            "{name}"
+        );
+        assert!(out.stdout.is_empty(), "{name}: {}", out.stdout);
+        assert!(
+            h.stub.under("DELETE", "/_p99/v1/codes").is_empty(),
+            "{name}"
+        );
+        assert_eq!(h.stub.calls("GET", "/_p99/v1/codes").len(), 1, "{name}");
+    }
 }

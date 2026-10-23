@@ -122,25 +122,14 @@ impl Codes {
         self.asking = Some((Input::new(), code, prompt));
     }
 
-    fn answer(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
-        let Some((input, code, _)) = &mut self.asking else {
-            return;
-        };
+    fn answer(&mut self, asking: (Input, Code, String), key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        let (mut input, code, prompt) = asking;
         match input.key(key.into()) {
-            Edit::Submit(value) => {
-                let code = code.clone();
-                self.asking = None;
-                if value.trim().is_empty() {
-                    return;
-                }
-                if matches(&code, &value) {
-                    self.erase(code, cx);
-                } else {
-                    cx.say(kept(code.id), Tone::Muted);
-                }
-            }
-            Edit::Cancel => self.asking = None,
-            _ => {}
+            Edit::Submit(value) if value.trim().is_empty() => {}
+            Edit::Submit(value) if matches(&code, &value) => self.erase(code, cx),
+            Edit::Submit(_) => cx.say(kept(code.id), Tone::Muted),
+            Edit::Cancel => {}
+            _ => self.asking = Some((input, code, prompt)),
         }
     }
 
@@ -161,8 +150,8 @@ impl Codes {
         }
         if let Some(codes) = &mut self.codes {
             codes.retain(|(c, _)| !same(c, code));
+            self.sift();
         }
-        self.sift();
         cx.say(
             format!("Deleted code {} of {}", code.id, code.name),
             Tone::Good,
@@ -277,8 +266,8 @@ impl Screen<Msg> for Codes {
             }
             return;
         }
-        if self.asking.is_some() {
-            self.answer(key, cx);
+        if let Some(asking) = self.asking.take() {
+            self.answer(asking, key, cx);
             return;
         }
         match self.filter.key(key) {

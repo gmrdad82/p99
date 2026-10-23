@@ -34,6 +34,12 @@ fn board(app: &Run) -> &Board {
         .inner
 }
 
+fn wrapped(app: &Run) -> &Around<Board> {
+    app.tui
+        .find::<Around<Board>>()
+        .expect("the board is a screen")
+}
+
 fn board_mut(app: &mut Run) -> &mut Board {
     &mut app
         .tui
@@ -888,8 +894,10 @@ fn a_dropped_card_slides_into_place_easing_out_never_linearly() {
     let mut app = shown();
     app.frame();
     let start = hit(&app, "FEAT-9");
+    assert!(!wrapped(&app).animating());
     app.press("space right enter");
     assert!(board(&app).animating());
+    assert!(wrapped(&app).animating());
     app.advance(SLIDE / 2);
     let x = board(&app)
         .spots
@@ -903,6 +911,7 @@ fn a_dropped_card_slides_into_place_easing_out_never_linearly() {
     assert!(x > linear + 1.0, "{x} vs {linear}");
     app.advance(SLIDE);
     assert!(!board(&app).animating());
+    assert!(!wrapped(&app).animating());
     assert_eq!(hit(&app, "FEAT-9").x, board(&app).lanes[1].x);
 }
 
@@ -1177,11 +1186,46 @@ fn a_move_made_in_a_thread_opened_from_w_reaches_the_board_underneath() {
     app.event(BOARD, Msg::Changed("BUG-25".into(), Ok(issue)));
     app.advance(Duration::from_millis(1));
     let back = app.press("esc");
-    assert!(back.contains("New 8"), "{back}");
+    assert!(back.contains("Needs you 0"), "{back}");
     assert!(
         !lane(&app, "Needs you").contains(&"BUG-25".to_owned()),
         "{back}"
     );
+    assert!(lane(&app, "Done").contains(&"BUG-25".to_owned()), "{back}");
+}
+
+#[test]
+fn a_thread_opened_from_w_takes_keys_pastes_and_live_events_and_the_board_underneath_hears_them() {
+    let mut app = shown();
+    let open = app.press("w enter");
+    assert!(wrapped(&app).crumb().is_some(), "{open}");
+    app.demo(|demo| {
+        demo.comment("BUG-25", "From the site", false)
+            .expect("a comment")
+    });
+    let pushed = app.event(BOARD, Msg::Pushed(0, Some("BUG-25".into())));
+    assert!(pushed.contains("From the site"), "{pushed}");
+    let heard_below = heard(&mut app, 0, json!({"type": "delete", "key": "Q-10"}));
+    assert!(!lane(&app, "New").contains(&"Q-10".to_owned()));
+    assert!(heard_below.contains("From the site"), "{heard_below}");
+    assert!(!wrapped(&app).typing());
+    app.press("r");
+    assert!(wrapped(&app).typing());
+    assert!(!board(&app).typing());
+    assert!(wrapped(&app).input().is_some());
+    assert!(board(&app).input().is_none());
+    let typed = app.paste("Thanks");
+    assert!(typed.contains("Thanks"), "{typed}");
+    app.press("esc");
+    assert!(!wrapped(&app).typing());
+    let gone = heard(
+        &mut app,
+        0,
+        json!({"type": "delete", "key": "BUG-25", "by": {"name": "Grace Hopper", "agent": true}}),
+    );
+    assert!(gone.contains("deleted BUG-25"), "{gone}");
+    assert!(wrapped(&app).crumb().is_none(), "{gone}");
+    assert!(!lane(&app, "Needs you").contains(&"BUG-25".to_owned()));
 }
 
 #[test]

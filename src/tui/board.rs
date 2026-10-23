@@ -1290,10 +1290,6 @@ impl Screen<Msg> for Board {
 }
 
 impl Narrow for Board {
-    fn narrows(&self) -> bool {
-        true
-    }
-
     fn narrow(&mut self, projects: &[String], cx: &mut Cx<'_, Msg>) {
         if self.projects == projects {
             return;

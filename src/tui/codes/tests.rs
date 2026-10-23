@@ -354,6 +354,45 @@ fn a_delete_the_worker_refuses_keeps_the_row_and_says_why() {
     assert!(said.contains("…3fpd") && said.contains("4 codes"), "{said}");
 }
 
+#[test]
+fn a_delete_that_lands_while_the_codes_are_read_again_says_so_and_leaves_the_list_to_the_read() {
+    let mut app = shown();
+    app.tui
+        .find_mut::<Codes>()
+        .expect("the codes are a screen")
+        .codes = None;
+    let said = app.event(
+        CODES,
+        Msg::CodeDeleted(Box::new(revoked(2, "grace@example.com", "3fpd")), Ok(())),
+    );
+    assert!(said.contains("Deleted code 2 of Grace Hopper"), "{said}");
+    assert!(!codes(&app).sending);
+    assert!(codes(&app).codes.is_none(), "{said}");
+    assert!(!said.contains("No codes yet"), "{said}");
+    app.press("r");
+    let read: Vec<i64> = codes(&app)
+        .codes
+        .as_ref()
+        .expect("the read fills the list")
+        .iter()
+        .map(|(c, _)| c.id)
+        .collect();
+    assert_eq!(read, [4, 3, 2, 1]);
+}
+
+#[test]
+fn keys_and_pastes_with_no_question_open_never_open_one() {
+    let mut app = shown();
+    let before = app.text();
+    app.press("down down");
+    app.paste("3fpd");
+    assert!(codes(&app).asking.is_none());
+    let after = app.press("enter");
+    assert!(codes(&app).asking.is_none());
+    assert!(after.contains("4 codes"), "{after}\n{before}");
+    assert!(!after.contains("Deleted code"), "{after}");
+}
+
 fn revoked(id: i64, email: &str, hint: &str) -> Code {
     Code {
         id,

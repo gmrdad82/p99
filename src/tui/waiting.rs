@@ -59,7 +59,7 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
     }
 
     fn clears_projects(&self) -> bool {
-        self.inner.narrows() && !self.inner.filtered() && !self.shared.chosen().is_empty()
+        !self.inner.filtered() && !self.shared.chosen().is_empty()
     }
 
     fn ask(&mut self, open: bool, cx: &mut Cx<'_, Msg>) {
@@ -267,10 +267,6 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         self.inner.loaded(event, cx);
     }
 
-    fn sources(&self) -> &[&str] {
-        self.inner.sources()
-    }
-
     fn cancel(&mut self) {
         self.inner.cancel();
     }
@@ -284,7 +280,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
-        if self.turn != self.shared.turn() && self.inner.narrows() {
+        if self.turn != self.shared.turn() {
             self.apply(cx);
         }
         self.inner.entered(cx);
@@ -302,7 +298,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                     self.ask(true, cx);
                     return;
                 }
-                KeyCode::Char('p') if self.inner.narrows() => {
+                KeyCode::Char('p') => {
                     let source = self.source.clone();
                     cx.detach(move || Msg::Projects(source.projects()));
                     return;
@@ -373,14 +369,6 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
     }
 
-    fn answer(&mut self, yes: bool, cx: &mut Cx<'_, Msg>) {
-        if self.reading() {
-            self.reader.answer(yes, cx);
-        } else {
-            self.inner.answer(yes, cx);
-        }
-    }
-
     fn picked(&mut self, choice: Option<usize>, cx: &mut Cx<'_, Msg>) {
         match (self.picking.take(), choice) {
             (Some(Picking::Projects), Some(0)) => {
@@ -405,14 +393,6 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
     }
 
-    fn heard(&mut self, id: u64, heard: pito_tui::command::Heard, cx: &mut Cx<'_, Msg>) {
-        self.inner.heard(id, heard, cx);
-    }
-
-    fn claim(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) -> bool {
-        !self.reading() && self.inner.claim(key, cx)
-    }
-
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {
         if self.reading() {
             self.reader.back(cx);
@@ -427,9 +407,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
         let mut hints = self.inner.hints();
         if self.free() && self.inner.phase() == Phase::Ready && !self.inner.typing() {
-            if self.inner.narrows() {
-                hints.push(Hint::new("p", "projects").rank(2));
-            }
+            hints.push(Hint::new("p", "projects").rank(2));
             if self.clears_projects() {
                 hints.push(Hint::new("esc", "all projects"));
             }
@@ -444,12 +422,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
 
     fn status(&self) -> Option<(String, Style)> {
         let (mut text, style) = self.inner.status()?;
-        if self.inner.narrows() {
-            let state = self.shared.0.borrow();
-            if !state.label.is_empty() {
-                text.push_str(" · ");
-                text.push_str(&state.label);
-            }
+        let state = self.shared.0.borrow();
+        if !state.label.is_empty() {
+            text.push_str(" · ");
+            text.push_str(&state.label);
         }
         Some((text, style))
     }
