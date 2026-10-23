@@ -753,45 +753,49 @@ pub fn applied(cf: &Cloudflare, account: &str, db: &str) -> Result<Vec<String>, 
     }
 }
 
-fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
-    let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
-    let before = applied(cf, account, db)?;
-    let mut early = Vec::new();
-    for (name, sql) in crate::migrate::early(&before) {
-        cf.query(account, db, &migration_sql(name, sql), &[])?;
-        done(&format!("applied {name}"));
-        early.push(name.to_owned());
-    }
-    let before = if early.is_empty() {
-        before
-    } else {
-        applied(cf, account, db)?
-    };
+struct Steps {
+    todo: Vec<(&'static str, &'static str)>,
+    already: Vec<String>,
+    accepted: Option<String>,
+}
+
+fn steps(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Steps, String> {
+    let before = applied(cf, &entry.account_id, &entry.database_id)?;
     let accepted = crate::migrate::gate(cf, entry, &before, accept)?;
-    cf.query(account, db, MIGRATIONS_TABLE, &[])?;
-    let applied = applied(cf, account, db)?;
-    let todo = pending(bundle::MIGRATIONS, &applied);
-    let mut out = Migrated {
-        already: bundle::MIGRATIONS
-            .iter()
-            .filter(|(name, _)| {
-                applied.iter().any(|a| a == name) && !early.iter().any(|e| e == name)
-            })
-            .map(|(name, _)| (*name).to_owned())
-            .collect(),
-        applied: early,
+    let mut already: Vec<String> = bundle::MIGRATIONS
+        .iter()
+        .filter(|(name, _)| before.iter().any(|a| a == name))
+        .map(|(name, _)| (*name).to_owned())
+        .collect();
+    already.sort();
+    Ok(Steps {
+        todo: pending(bundle::MIGRATIONS, &before),
+        already,
         accepted,
+    })
+}
+
+fn apply(cf: &Cloudflare, entry: &Account, steps: Steps) -> Result<Migrated, String> {
+    let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
+    cf.query(account, db, MIGRATIONS_TABLE, &[])?;
+    let mut out = Migrated {
+        applied: Vec::new(),
+        already: steps.already,
+        accepted: steps.accepted,
     };
-    out.already.sort();
-    if todo.is_empty() && out.applied.is_empty() {
+    if steps.todo.is_empty() {
         done("every migration is applied");
     }
-    for (name, sql) in todo {
+    for (name, sql) in steps.todo {
         cf.query(account, db, &migration_sql(name, sql), &[])?;
         done(&format!("applied {name}"));
         out.applied.push(name.to_owned());
     }
     Ok(out)
+}
+
+fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
+    apply(cf, entry, steps(cf, entry, accept)?)
 }
 
 fn ensure_bucket(cf: &Cloudflare, account: &str, name: &str) -> Result<(), String> {
@@ -949,10 +953,10 @@ fn upload(
     rate: Option<u64>,
     app: Option<&str>,
     state: State,
+    tag: Option<&str>,
 ) -> Result<Uploaded, String> {
     let bindings = merge_bindings(existing, our_bindings(account, rate, app, state));
-    let tag = cf.migration_tag(&account.account_id, &account.worker)?;
-    let migrations = hub_migration(tag.as_deref());
+    let migrations = hub_migration(tag);
     cf.upload(
         &account.account_id,
         &account.worker,
@@ -1480,6 +1484,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             args.rate_namespace,
         )?),
     };
+    let tag = cf.migration_tag(&id, &account.worker)?;
     upload(
         &cf,
         &account,
@@ -1487,6 +1492,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         rate,
         None,
         State::of(config.license.as_deref()),
+        tag.as_deref(),
     )?;
     let secrets = cf.secrets(&id, &account.worker)?;
     cf.put_secret(&id, &account.worker, "KEY_P99", &vault::read(&account.key)?)?;
@@ -1725,7 +1731,7 @@ fn deploy_into(
             account.worker
         )
     })?;
-    report.migrations = migrate(&cf, account, args.accept_plan.as_deref())?;
+    let steps = steps(&cf, account, args.accept_plan.as_deref())?;
     let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
         Some(_) => None,
         None => Some(
@@ -1737,6 +1743,10 @@ fn deploy_into(
         ),
     };
     let app = crate::app::address(&cf, account)?;
+    let tag = cf.migration_tag(id, &account.worker)?;
+    let secrets = cf.secrets(id, &account.worker)?;
+    let zones = cf.zones(id)?;
+    report.migrations = apply(&cf, account, steps)?;
     upload(
         &cf,
         account,
@@ -1744,14 +1754,14 @@ fn deploy_into(
         rate,
         app.as_ref().map(|a| a.host()),
         State::of(config.license.as_deref()),
+        tag.as_deref(),
     )?;
     done("secrets kept");
-    pepper(&cf, id, &account.worker, &cf.secrets(id, &account.worker)?)?;
+    pepper(&cf, id, &account.worker, &secrets)?;
     if crate::email::adopt_legacy(&cf, account)? {
         done("the mail sender moved from the config to the database");
     }
     let hosts = config.hosts_of(name);
-    let zones = cf.zones(id)?;
     let mut failed = Vec::new();
     for host in &hosts {
         let pattern = route_pattern(host);

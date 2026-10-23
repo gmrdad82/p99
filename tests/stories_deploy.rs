@@ -78,6 +78,7 @@ struct Cf {
     rows: Vec<(&'static str, Value)>,
     fail: Option<String>,
     denied: bool,
+    deny: Option<&'static str>,
     calls: Vec<Call>,
 }
 
@@ -132,6 +133,15 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
         return rows(json!([]));
     }
     if sql.starts_with("SELECT ") {
+        let labelled = cf.applied.iter().any(|a| a == "0005_labels.sql");
+        if cf.table
+            && !labelled
+            && ["item_labels", "labels l", "priority"]
+                .iter()
+                .any(|t| sql.contains(t))
+        {
+            return refused(400, 7500, "no such table: item_labels: SQLITE_ERROR");
+        }
         let found = cf
             .rows
             .iter()
@@ -149,7 +159,7 @@ fn answer(cf: &mut Cf, method: &str, path: &str, body: &str) -> (u16, Value) {
     if method == "GET" && parts == ["_p99", "health"] {
         return (200, json!({ "ok": true, "version": VERSION }));
     }
-    if cf.denied {
+    if cf.denied || cf.deny.is_some_and(|p| bare.ends_with(p)) {
         return refused(403, 10000, "Authentication error");
     }
     match (method, parts.as_slice()) {
@@ -441,6 +451,40 @@ impl Home {
 
     fn upload(&self) -> Option<Call> {
         self.calls().into_iter().find(Call::upload)
+    }
+
+    fn account(&self) -> Value {
+        let cf = self.cf.lock().unwrap();
+        json!({
+            "worker": cf.worker,
+            "bindings": cf.bindings,
+            "tag": cf.tag,
+            "secrets": cf.secrets,
+            "routes": cf.routes,
+            "table": cf.table,
+            "applied": cf.applied,
+        })
+    }
+
+    fn refuses_and_changes_nothing(&self, args: &[&str], why: &str) -> Out {
+        let before = self.account();
+        self.forget();
+        let out = self.run(args);
+        assert_eq!(out.code, Some(1), "{args:?}: {}", out.stderr);
+        assert!(out.stderr.contains(why), "{args:?}: {}", out.stderr);
+        assert!(
+            self.writes().is_empty(),
+            "{args:?} was refused yet wrote: {:?}",
+            self.writes()
+        );
+        assert!(
+            self.calls()
+                .iter()
+                .all(|c| c.method == "GET" || c.sql().is_some_and(|s| s.starts_with("SELECT "))),
+            "{args:?}"
+        );
+        assert_eq!(self.account(), before, "{args:?}");
+        out
     }
 }
 
@@ -1145,45 +1189,146 @@ fn a_hash_taken_on_one_account_never_unlocks_another() {
     assert!(h.writes().is_empty(), "{:?}", h.writes());
 }
 
+fn half_rows() -> Vec<(&'static str, Value)> {
+    v18_rows()
+        .into_iter()
+        .filter(|(p, _)| {
+            ![
+                "row_number()",
+                "AS tag",
+                "FROM item_labels",
+                "JOIN labels l",
+            ]
+            .iter()
+            .any(|t| p.contains(t))
+        })
+        .collect()
+}
+
 #[test]
-fn an_account_stopped_between_0004_and_0005_adds_only_the_ungated_0005_to_0010_then_waits_for_the_plan()
- {
+fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_0005_to_0015_in_one_deploy() {
     let h = home(
         "half-0004",
         &plain_config(),
-        live(&SHIPPED[..4], v18_rows()),
+        live(&SHIPPED[..4], half_rows()),
     );
     let plan = h.run(&["migrate", "--plan"]);
-    assert_eq!(plan.code, Some(1));
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(
-        plan.stderr.ends_with("p99: this account's schema stops between 0004 and 0005: run `p99 deploy` with this CLI, which adds 0005 to 0010 first and then asks for the plan\n"),
+        plan.stdout
+            .contains("  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql\n"),
         "{}",
-        plan.stderr
+        plan.stdout
     );
-    assert!(h.writes().is_empty());
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    let hash = plan_hash(&plan.stdout);
 
-    let out = h.run(&["deploy"]);
-    assert_eq!(out.code, Some(1));
-    assert!(
-        out.stderr
-            .contains("0011_lanes.sql, 0012_people.sql, 0013_app.sql change this account's data"),
-        "{}",
-        out.stderr
+    let after = home(
+        "half-0004-twin",
+        &plain_config(),
+        live(&SHIPPED[..10], half_rows()),
     );
-    assert_eq!(h.inserted(), names(&SHIPPED[4..10]));
-    assert!(h.upload().is_none());
-    assert!(
-        !h.calls().iter().any(|c| c.method == "PUT"),
-        "{:?}",
-        h.writes()
+    let twin = plan_hash(&after.run(&["migrate", "--plan"]).stdout);
+    assert_eq!(
+        hash, twin,
+        "the plan read before 0005 must equal the plan 0005 to 0010 would leave"
     );
 
-    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.refuses_and_changes_nothing(
+        &["deploy"],
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql change this account's data",
+    );
+    assert!(!out.stderr.contains("applied 0005"), "{}", out.stderr);
+    assert_eq!(h.applied(), names(&SHIPPED[..4]));
+
     h.forget();
     let done = h.run(&["deploy", "--accept-plan", &hash]);
     assert_eq!(done.code, Some(0), "{}", done.stderr);
-    assert_eq!(h.inserted(), names(&SHIPPED[10..]));
+    assert_eq!(h.inserted(), names(&SHIPPED[4..]));
     assert_eq!(h.applied(), names(&SHIPPED));
+    let calls = h.calls();
+    let last = calls
+        .iter()
+        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .unwrap();
+    assert!(calls.iter().position(Call::upload).unwrap() > last);
+}
+
+#[test]
+fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
+    let h = home(
+        "refusals-0004",
+        &plain_config(),
+        live(&SHIPPED[..4], half_rows()),
+    );
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql change this account's data";
+    let changed = "the plan changed since that hash was taken";
+    h.refuses_and_changes_nothing(&["deploy"], gated);
+    h.refuses_and_changes_nothing(&["deploy", "--json"], gated);
+    h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", "not-a-hash"],
+        "--accept-plan takes the 64-character hash",
+    );
+    h.refuses_and_changes_nothing(&["deploy", "--accept-plan", &"0".repeat(64)], changed);
+    let mut other = hash.clone();
+    other.replace_range(..1, if hash.starts_with('a') { "b" } else { "a" });
+    h.refuses_and_changes_nothing(&["deploy", "--accept-plan", &other], changed);
+
+    {
+        let mut cf = h.cf.lock().unwrap();
+        let kinds = cf
+            .rows
+            .iter_mut()
+            .find(|(p, _)| *p == "GROUP BY kind")
+            .unwrap();
+        kinds.1 = json!([{ "kind": "bug", "items": 9, "open": 5 }]);
+    }
+    h.refuses_and_changes_nothing(&["deploy", "--accept-plan", &hash], changed);
+    assert_eq!(h.applied(), names(&SHIPPED[..4]));
+    assert!(h.upload().is_none());
+}
+
+#[test]
+fn a_token_refused_partway_stops_the_deploy_before_its_first_write() {
+    for (n, path) in ["/workers/scripts", "/secrets", "/zones", "/subdomain"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut cf = live(&SHIPPED[..4], half_rows());
+        cf.deny = Some(path);
+        let h = home(&format!("partway-{n}"), &plain_config(), cf);
+        let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+        let out = h.refuses_and_changes_nothing(
+            &["deploy", "--accept-plan", &hash],
+            "Authentication error (10000)",
+        );
+        assert!(out.stderr.contains(path), "{path}: {}", out.stderr);
+        assert_eq!(h.applied(), names(&SHIPPED[..4]), "{path}");
+        assert!(h.inserted().is_empty(), "{path}");
+        never_shows_a_secret(&[&out], &[]);
+
+        h.cf.lock().unwrap().deny = None;
+        h.forget();
+        let done = h.run(&["deploy", "--accept-plan", &hash]);
+        assert_eq!(done.code, Some(0), "{path}: {}", done.stderr);
+        assert_eq!(h.inserted(), names(&SHIPPED[4..]), "{path}");
+        assert!(h.upload().is_some(), "{path}");
+    }
+}
+
+#[test]
+fn a_token_refused_partway_on_an_up_to_date_account_writes_nothing_either() {
+    for (n, path) in ["/workers/scripts", "/secrets", "/zones", "/subdomain"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut cf = live(&SHIPPED, Vec::new());
+        cf.deny = Some(path);
+        let h = home(&format!("partway-done-{n}"), &plain_config(), cf);
+        h.refuses_and_changes_nothing(&["deploy"], "Authentication error (10000)");
+        assert!(h.upload().is_none(), "{path}");
+    }
 }
 
 #[test]
@@ -1234,32 +1379,26 @@ fn a_migration_that_fails_midway_stops_before_the_upload_and_the_account_resumes
     assert_eq!(h.applied(), names(&SHIPPED[..6]));
     assert!(h.upload().is_none());
     let calls = h.calls();
-    assert!(!calls.iter().any(|c| c.path.ends_with("/secrets")
-        || c.path.ends_with("/schedules")
-        || c.path.ends_with("/workers/routes")));
+    assert!(!calls.iter().any(|c| c.method != "GET"
+        && (c.path.ends_with("/secrets")
+            || c.path.ends_with("/schedules")
+            || c.path.ends_with("/workers/routes"))));
 
     h.cf.lock().unwrap().fail = None;
-    h.forget();
-    let again = h.run(&["deploy"]);
-    assert_eq!(again.code, Some(1));
-    assert!(
-        again
-            .stderr
-            .contains("0011_lanes.sql, 0012_people.sql, 0013_app.sql change this account's data"),
-        "{}",
-        again.stderr
+    h.refuses_and_changes_nothing(
+        &["deploy"],
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql change this account's data",
     );
-    assert_eq!(h.inserted(), names(&SHIPPED[6..10]));
-    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..6]));
 
     let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
     h.forget();
     let done = h.run(&["deploy", "--accept-plan", &hash]);
     assert_eq!(done.code, Some(0), "{}", done.stderr);
-    let rest: Vec<String> = latest().into_iter().skip(10).collect();
+    let rest: Vec<String> = latest().into_iter().skip(6).collect();
     assert_eq!(h.inserted(), rest);
     assert!(h.upload().is_some());
-    never_shows_a_secret(&[&out, &again, &done], &[]);
+    never_shows_a_secret(&[&out, &done], &[]);
 }
 
 #[test]
