@@ -963,9 +963,14 @@ mod tests {
             for statement in body.split(';').map(str::trim).filter(|s| !s.is_empty()) {
                 let upper = statement.to_ascii_uppercase();
                 assert!(
-                    ["CREATE TABLE ", "CREATE INDEX ", "CREATE UNIQUE INDEX ", "ALTER TABLE "]
-                        .iter()
-                        .any(|start| upper.starts_with(start)),
+                    [
+                        "CREATE TABLE ",
+                        "CREATE INDEX ",
+                        "CREATE UNIQUE INDEX ",
+                        "ALTER TABLE "
+                    ]
+                    .iter()
+                    .any(|start| upper.starts_with(start)),
                     "{name} does more than add schema: {statement}"
                 );
                 for word in [" AS SELECT", "INSERT ", "UPDATE ", "DELETE ", "TRIGGER "] {

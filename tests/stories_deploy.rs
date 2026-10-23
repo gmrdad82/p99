@@ -1295,9 +1295,15 @@ fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
 
 #[test]
 fn a_token_refused_partway_stops_the_deploy_before_its_first_write() {
-    for (n, path) in ["/workers/scripts", "/secrets", "/zones", "/subdomain"]
-        .into_iter()
-        .enumerate()
+    for (n, path) in [
+        "/workers/scripts",
+        "/secrets",
+        "/zones",
+        "/subdomain",
+        "/workers/routes",
+    ]
+    .into_iter()
+    .enumerate()
     {
         let mut cf = live(&SHIPPED[..4], half_rows());
         cf.deny = Some(path);
@@ -1323,9 +1329,15 @@ fn a_token_refused_partway_stops_the_deploy_before_its_first_write() {
 
 #[test]
 fn a_token_refused_partway_on_an_up_to_date_account_writes_nothing_either() {
-    for (n, path) in ["/workers/scripts", "/secrets", "/zones", "/subdomain"]
-        .into_iter()
-        .enumerate()
+    for (n, path) in [
+        "/workers/scripts",
+        "/secrets",
+        "/zones",
+        "/subdomain",
+        "/workers/routes",
+    ]
+    .into_iter()
+    .enumerate()
     {
         let mut cf = live(&SHIPPED, Vec::new());
         cf.deny = Some(path);
@@ -1377,11 +1389,15 @@ fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishe
     for (n, path, pepper) in [
         (0, "/workers/scripts/p99", true),
         (1, "/secrets", false),
+        (2, "/workers/routes", true),
     ] {
         let mut cf = live(&SHIPPED[..4], half_rows());
         cf.deny_write = Some(path);
         if !pepper {
             cf.secrets.retain(|s| s != "CODE_PEPPER");
+        }
+        if path == "/workers/routes" {
+            cf.routes.clear();
         }
         let h = home(&format!("write-denied-{n}"), &plain_config(), cf);
         let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
@@ -1396,10 +1412,16 @@ fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishe
         );
         assert_eq!(h.applied(), names(&SHIPPED), "{path}");
         assert_eq!(h.account()["routes"], routes, "{path}");
-        assert!(
-            !h.calls()
+        assert_eq!(
+            h.calls()
                 .iter()
                 .any(|c| c.method == "POST" && c.path.ends_with("/workers/routes")),
+            path == "/workers/routes",
+            "{path}"
+        );
+        assert_eq!(
+            h.upload().is_some(),
+            path != "/workers/scripts/p99",
             "{path}"
         );
         never_shows_a_secret(&[&out], &[]);
@@ -1411,10 +1433,127 @@ fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishe
         assert!(h.inserted().is_empty(), "{path}: {:?}", h.inserted());
         assert!(h.upload().is_some(), "{path}");
         assert!(
-            h.cf.lock().unwrap().secrets.iter().any(|s| s == "CODE_PEPPER"),
+            h.cf.lock()
+                .unwrap()
+                .secrets
+                .iter()
+                .any(|s| s == "CODE_PEPPER"),
             "{path}"
         );
+        let routes = h.account()["routes"].clone();
+        assert_eq!(routes.as_array().map(Vec::len), Some(1), "{path}: {routes}");
+        assert_eq!(routes[0]["pattern"], "example.com/_p99/*", "{path}");
+        assert_eq!(routes[0]["script"], "p99", "{path}");
     }
+}
+
+fn with_hosts(app: &str, hosts: &[&str]) -> String {
+    let mut config = format!(
+        "license = \"{LICENSE}\"\n\n{}{app}\n",
+        account("main", "db1", TOKEN)
+    );
+    for host in hosts {
+        config.push_str(&format!("[hosts.\"{host}\"]\naccount = \"main\"\n"));
+    }
+    config
+}
+
+#[test]
+fn a_route_deploy_could_never_add_is_refused_before_its_first_write() {
+    let foreign = with_hosts("", &["example.com", "shop.example.org"]);
+    let h = home("route-no-zone", &foreign, live(&SHIPPED[..4], half_rows()));
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &hash],
+        "no route for shop.example.org",
+    );
+    assert!(
+        out.stderr
+            .contains("  !!  shop.example.org is on no zone this token reaches"),
+        "{}",
+        out.stderr
+    );
+    let json = h.refuses_and_changes_nothing(
+        &["deploy", "--json", "--accept-plan", &hash],
+        "no route for shop.example.org",
+    );
+    let report = json.json();
+    assert_eq!(report["ok"], false);
+    assert_eq!(report["migrations"]["applied"], json!([]));
+    let routes = report["routes"].as_array().unwrap();
+    assert_eq!(routes.len(), 1, "{report}");
+    assert_eq!(routes[0]["host"], "shop.example.org");
+    assert!(
+        routes[0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("is on no zone this token reaches")
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..4]));
+
+    let mut cf = live(&SHIPPED[..4], half_rows());
+    cf.routes = vec![json!({ "id": "r0", "pattern": "example.com/_p99/*", "script": "other" })];
+    let held = home("route-held", &plain_config(), cf);
+    let hash = plan_hash(&held.run(&["migrate", "--plan"]).stdout);
+    let out = held.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &hash],
+        "no route for example.com",
+    );
+    assert!(
+        out.stderr
+            .contains("the route example.com/_p99/* already runs the Worker other"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(held.applied(), names(&SHIPPED[..4]));
+    assert!(held.upload().is_none());
+    never_shows_a_secret(&[&out, &json], &[]);
+}
+
+#[test]
+fn a_p99_page_on_a_host_no_zone_holds_is_refused_before_its_first_write() {
+    let config = with_hosts("app = \"p99.example.org\"\n", &["example.com"]);
+    let h = home("app-no-zone", &config, live(&SHIPPED[..4], half_rows()));
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &hash],
+        "no address for the P99 page: p99.example.org is on no zone this token reaches",
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..4]));
+    assert!(!out.stderr.contains("applied 0005"), "{}", out.stderr);
+}
+
+#[test]
+fn a_p99_page_on_its_own_host_gets_its_route_after_the_migrations() {
+    let config = with_hosts("app = \"p99.example.com\"\n", &["example.com"]);
+    let h = home("app-own", &config, live(&SHIPPED[..4], half_rows()));
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    h.forget();
+    let out = h.run(&["deploy", "--json", "--accept-plan", &hash]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    let report = out.json();
+    assert_eq!(report["app"], "https://p99.example.com/");
+    assert_eq!(h.applied(), names(&SHIPPED));
+    let calls = h.calls();
+    let last = calls
+        .iter()
+        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .unwrap();
+    let added = calls
+        .iter()
+        .position(|c| {
+            c.method == "POST"
+                && c.path == "/zones/z1/workers/routes"
+                && c.body.contains("p99.example.com/*")
+        })
+        .expect("the P99 page got no route");
+    assert!(added > last);
+    assert!(calls.iter().position(Call::upload).unwrap() > last);
+    assert!(
+        !calls
+            .iter()
+            .any(|c| c.method == "POST" && c.path.ends_with("/subdomain"))
+    );
 }
 
 #[test]

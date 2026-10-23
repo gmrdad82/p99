@@ -1047,16 +1047,22 @@ fn route_pattern(host: &str) -> String {
     format!("{host}/_p99/*")
 }
 
-fn route(
+pub(crate) struct Placed {
+    zone: String,
+    pattern: String,
+    notes: Vec<String>,
+    there: bool,
+}
+
+fn place(
     cf: &Cloudflare,
     account: &str,
     worker: &str,
     zones: &[Named],
     host: &str,
     pattern: &str,
-) -> Result<Routed, String> {
+) -> Result<Placed, String> {
     let mut notes = Vec::new();
-    let mut created = false;
     let zone = crate::cloudflare::zone_of(zones, host).ok_or_else(|| {
         format!("{host} is on no zone this token reaches; add the zone to Cloudflare or to the token's Zone › Zone: Read")
     })?;
@@ -1091,8 +1097,11 @@ fn route(
             }
         ));
     }
-    match routes.iter().find(|r| r.pattern == pattern) {
-        Some(r) if r.script == worker => notes.push(format!("the route {pattern} is there")),
+    let there = match routes.iter().find(|r| r.pattern == pattern) {
+        Some(r) if r.script == worker => {
+            notes.push(format!("the route {pattern} is there"));
+            true
+        }
         Some(r) => {
             return Err(format!(
                 "the route {pattern} already runs the Worker {}; P99 leaves it alone (remove it in the dashboard to give it to {worker})",
@@ -1103,30 +1112,77 @@ fn route(
                 }
             ));
         }
-        None => {
-            cf.create_route(&zone.id, pattern, worker)?;
-            created = true;
-            notes.push(format!("added the route {pattern} → {worker}"));
-        }
-    }
-    Ok(Routed { notes, created })
+        None => false,
+    };
+    Ok(Placed {
+        zone: zone.id.clone(),
+        pattern: pattern.to_owned(),
+        notes,
+        there,
+    })
 }
 
-pub(crate) fn open_app(
+fn put(cf: &Cloudflare, worker: &str, placed: Placed) -> Result<Routed, String> {
+    let Placed {
+        zone,
+        pattern,
+        mut notes,
+        there,
+    } = placed;
+    if !there {
+        cf.create_route(&zone, &pattern, worker)?;
+        notes.push(format!("added the route {pattern} → {worker}"));
+    }
+    Ok(Routed {
+        notes,
+        created: !there,
+    })
+}
+
+fn route(
+    cf: &Cloudflare,
+    account: &str,
+    worker: &str,
+    zones: &[Named],
+    host: &str,
+    pattern: &str,
+) -> Result<Routed, String> {
+    put(
+        cf,
+        worker,
+        place(cf, account, worker, zones, host, pattern)?,
+    )
+}
+
+pub(crate) fn place_app(
     cf: &Cloudflare,
     account: &str,
     worker: &str,
     zones: &[Named],
     address: &crate::app::Address,
-) -> Result<Vec<String>, String> {
+) -> Result<Option<Placed>, String> {
     match address {
         crate::app::Address::Own(host) => {
-            Ok(route(cf, account, worker, zones, host, &format!("{host}/*"))?.notes)
+            place(cf, account, worker, zones, host, &format!("{host}/*")).map(Some)
         }
-        crate::app::Address::WorkersDev(host) => {
+        crate::app::Address::WorkersDev(_) => Ok(None),
+    }
+}
+
+pub(crate) fn open_placed(
+    cf: &Cloudflare,
+    account: &str,
+    worker: &str,
+    address: &crate::app::Address,
+    placed: Option<Placed>,
+) -> Result<Vec<String>, String> {
+    match placed {
+        Some(placed) => Ok(put(cf, worker, placed)?.notes),
+        None => {
             cf.enable_subdomain(account, worker)?;
             Ok(vec![format!(
-                "the Worker answers on its workers.dev address {host}"
+                "the Worker answers on its workers.dev address {}",
+                address.host()
             )])
         }
     }
@@ -1745,6 +1801,34 @@ fn deploy_into(
     let tag = cf.migration_tag(id, &account.worker)?;
     let secrets = cf.secrets(id, &account.worker)?;
     let zones = cf.zones(id)?;
+    let hosts = config.hosts_of(name);
+    let mut placed = Vec::new();
+    let mut failed = Vec::new();
+    for host in &hosts {
+        let pattern = route_pattern(host);
+        match place(&cf, id, &account.worker, &zones, host, &pattern) {
+            Ok(p) => placed.push((*host, p)),
+            Err(why) => {
+                say!("  !!  {why}");
+                report.routes.push(RouteReport {
+                    host: (*host).to_owned(),
+                    pattern,
+                    created: false,
+                    notes: Vec::new(),
+                    error: Some(why),
+                });
+                failed.push(*host);
+            }
+        }
+    }
+    if !failed.is_empty() {
+        return Err(format!("no route for {}", failed.join(", ")));
+    }
+    let app_placed = match &app {
+        Some(address) => place_app(&cf, id, &account.worker, &zones, address)
+            .map_err(|why| format!("no address for the P99 page: {why}"))?,
+        None => None,
+    };
     report.migrations = apply(&cf, account, steps)?;
     upload(
         &cf,
@@ -1760,15 +1844,13 @@ fn deploy_into(
     if crate::email::adopt_legacy(&cf, account)? {
         done("the mail sender moved from the config to the database");
     }
-    let hosts = config.hosts_of(name);
-    let mut failed = Vec::new();
-    for host in &hosts {
-        let pattern = route_pattern(host);
-        match route(&cf, id, &account.worker, &zones, host, &pattern) {
+    for (host, p) in placed {
+        let pattern = p.pattern.clone();
+        match put(&cf, &account.worker, p) {
             Ok(routed) => {
                 routed.notes.iter().for_each(|n| done(n));
                 report.routes.push(RouteReport {
-                    host: (*host).to_owned(),
+                    host: host.to_owned(),
                     pattern,
                     created: routed.created,
                     notes: routed.notes,
@@ -1778,18 +1860,18 @@ fn deploy_into(
             Err(why) => {
                 say!("  !!  {why}");
                 report.routes.push(RouteReport {
-                    host: (*host).to_owned(),
+                    host: host.to_owned(),
                     pattern,
                     created: false,
                     notes: Vec::new(),
                     error: Some(why),
                 });
-                failed.push(*host);
+                failed.push(host);
             }
         }
     }
     let app_error = match &app {
-        Some(address) => match open_app(&cf, id, &account.worker, &zones, address) {
+        Some(address) => match open_placed(&cf, id, &account.worker, address, app_placed) {
             Ok(notes) => {
                 notes.iter().for_each(|n| done(n));
                 done(&format!("the P99 page answers on {}", address.url()));

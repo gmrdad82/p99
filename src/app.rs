@@ -159,7 +159,11 @@ mod tests {
         let plain = address(&cf, &account(None)).unwrap().unwrap();
         assert_eq!(plain, Address::WorkersDev("p99.example.workers.dev".into()));
         assert_eq!(plain.url(), "https://p99.example.workers.dev/");
-        crate::setup::open_app(&cf, "a1", "p99", &[], &plain).unwrap();
+        let open = |zones: &[crate::cloudflare::Named], address: &Address| {
+            let placed = crate::setup::place_app(&cf, "a1", "p99", zones, address).unwrap();
+            crate::setup::open_placed(&cf, "a1", "p99", address, placed).unwrap()
+        };
+        open(&[], &plain);
         let zones = [crate::cloudflare::Named {
             id: "z1".into(),
             name: "example.com".into(),
@@ -170,7 +174,7 @@ mod tests {
             .unwrap();
         assert_eq!(own, Address::Own("p99.example.com".into()));
         assert_eq!(seen.lock().unwrap().len(), before);
-        crate::setup::open_app(&cf, "a1", "p99", &zones, &own).unwrap();
+        open(&zones, &own);
         let calls = seen.lock().unwrap().clone();
         let enabled = calls
             .iter()
