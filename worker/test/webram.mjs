@@ -242,7 +242,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     const visible = (host) => order.New.filter((id) => hostOf(id) === host).map(keyOf);
     writeFileSync(
       join(work, "webram.json"),
-      JSON.stringify({ [BUSIEST]: { new: visible(BUSIEST), "in-progress": order["In progress"].map(keyOf) }, [WWW]: { new: visible(WWW), "in-progress": [] } }),
+      JSON.stringify({ new: visible(BUSIEST), "in-progress": order["In progress"].map(keyOf) }),
     );
   });
 
@@ -293,17 +293,16 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
 
 export async function webramBoardChecks({ check, browse, mint, work }) {
   const want = JSON.parse(readFileSync(join(work, "webram.json"), "utf8"));
-  await check("[webram] the one board reads from the busiest host's panel in its old board's order, and from another host's panel with only its cards", async () => {
-    for (const host of [BUSIEST, WWW]) {
-      const owner = await mint("Ada Lovelace", "ada@example.com", [host], true);
-      const read = await browse("GET", "/board", owner.secret);
-      assert.equal(read.status, 200, JSON.stringify(read.json));
-      assert.deepEqual(read.json.board.lanes.map((l) => l.word), LANES);
-      for (const [status, keys] of Object.entries(want[host])) {
-        assert.deepEqual(read.json.cards.filter((c) => c.status === status).map((c) => c.key), keys, `${host} ${status}`);
-      }
-      assert.ok(read.json.cards.every((c) => c.host === host), host);
-      for (const path of ["/boards/21", "/boards/22", "/boards/23"]) assert.equal((await browse("GET", path, owner.secret)).status, 404, path);
+  await check("[webram] the one board reads from the busiest host's panel with an Owner code in its old board's order, and its old boards are gone", async () => {
+    const owner = await mint("Ada Lovelace", "ada@example.com", [BUSIEST], true);
+    const read = await browse("GET", "/board", owner.secret);
+    assert.equal(read.status, 200, JSON.stringify(read.json));
+    assert.deepEqual(read.json.board.lanes.map((l) => l.word), LANES);
+    for (const [status, keys] of Object.entries(want)) {
+      assert.ok(keys.length > 0, status);
+      assert.deepEqual(read.json.cards.filter((c) => c.status === status).map((c) => c.key), keys, status);
     }
+    assert.ok(read.json.cards.every((c) => c.host === BUSIEST));
+    for (const path of ["/boards/21", "/boards/22", "/boards/23"]) assert.equal((await browse("GET", path, owner.secret)).status, 404, path);
   });
 }
