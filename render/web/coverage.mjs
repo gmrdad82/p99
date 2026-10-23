@@ -2,14 +2,14 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { lineStarts, mergeLines, offsetCounts, plainLines, rows, table } from "../../worker/test/coverage-lines.mjs";
+import { lcov, lineStarts, mergeLines, offsetCounts, plainLines, rows, table } from "../../worker/test/coverage-lines.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
 const worker = join(repo, "worker");
 const web = join(worker, "src", "web");
 
-export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "board.mjs", "app-check.mjs"];
+export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "stories-board.mjs", "board.mjs", "app-check.mjs"];
 export const ARGS = { "board.mjs": ["check", "--worker"] };
 export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "app.js"];
 const SERVED = new Set(SHOWN);
@@ -98,6 +98,7 @@ export function fold(dir, readText = (name) => readFileSync(join(web, name), "ut
   for (const file of existsSync(dir) ? readdirSync(dir).sort() : []) {
     if (!file.endsWith(".json")) continue;
     for (const entry of JSON.parse(readFileSync(join(dir, file), "utf8"))) {
+      if (typeof entry.source !== "string") continue;
       const parts = servedParts(entry.url, entry.source);
       if (parts.length === 0) continue;
       const counts = offsetCounts(entry.source, entry.functions);
@@ -201,6 +202,7 @@ async function main() {
   const bytes = loaderBytes(dir);
   const text = `${report(dir, files)}\n\n${bytesLine(bytes)}`;
   writeFileSync(join(dir, "table.md"), `${text}\n\nThe loader's bytes that never ran:\n\n${bytes.missed.map((part) => `- \`${part}\``).join("\n")}\n`);
+  writeFileSync(join(dir, "lcov.info"), lcov(files));
   console.log(`\nBrowser line coverage (worker/src/web, from the browser checks):\n\n${text}`);
   const found = problems(taken, files);
   for (const line of found) console.error(line);

@@ -281,7 +281,7 @@ async function check(back) {
     await g.p.unroute(isMe);
 
     await g.p.goto(APP + "/");
-    assert.deepEqual(await spacesShown(g.p), [{ host: DOCS, href: `#space=${DOCS}`, role: "Manager", count: "1 open", open: "true" }]);
+    assert.deepEqual(await spacesShown(g.p), [{ host: DOCS, href: `#space=${DOCS}`, role: "Owner", count: "1 open", open: "true" }]);
     ok("a manager's space carries the Manager mark and counts every open item, not only her own");
 
     const isPanel = (url) => url.pathname === "/_p99/panel.js";

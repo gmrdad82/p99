@@ -1,5 +1,5 @@
 import { boardView } from "./boards.js";
-import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
+import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
 import { peopleOf } from "./people.js";
 
 const DONE_LANE = LANES.length - 1;
@@ -46,7 +46,7 @@ const CHANGED_AGENT = "CASE WHEN e.id IS NULL THEN i.reporter_agent ELSE e.actor
 function columnsSql(body) {
   return `i.id, i.kind, i.project, i.title, ${body ? "i.body," : ""} i.host, i.open, i.created_at, i.comment_count,
       i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, lb.name AS label_name,
-      ${CHANGED_AT} AS changed_at,
+      ${CHANGED_AT} AS changed_at, e.id AS changed_event,
       COALESCE(e.actor_email, i.reporter_email) AS changed_email,
       ${CHANGED_AGENT} AS changed_agent,
       CASE WHEN e.id IS NULL THEN i.reporter_via ELSE e.actor_via END AS changed_via,
@@ -56,8 +56,10 @@ function columnsSql(body) {
 const HEAVY_JOINS = `JOIN labels lb ON lb.id = i.label_id LEFT JOIN events e ON e.id = ${lastChangeSql("i")}`;
 const HANDLE_COLUMNS = `${handleSql("page.reporter_email")} AS reporter_username, ${handleSql("page.changed_email")} AS changed_username`;
 const PAGE_ORDER = "ORDER BY lane, keyed, COALESCE(ord, ''), id DESC";
+const LANE_ORDER = "r.lane, r.keyed, COALESCE(r.ord, ''), r.id DESC";
+const NEWEST_ORDER = "ORDER BY changed_at DESC, changed_event DESC, id DESC";
 
-function listSql(scope, lanes, outer, limit) {
+function listSql(scope, lanes, outer, limit, newest = false) {
   return `WITH ${LANES_CTE},
     ranked AS (
       SELECT id, lane, ord, ord IS NOT NULL AS keyed, ROW_NUMBER() OVER (PARTITION BY lane ORDER BY ord IS NOT NULL, ord, id DESC) AS place FROM (
@@ -70,8 +72,8 @@ function listSql(scope, lanes, outer, limit) {
       SELECT r.lane, r.ord, r.keyed, r.place, ${columnsSql(false)}
       FROM ranked r JOIN items i ON i.id = r.id ${HEAVY_JOINS}
       ${outer.length ? `WHERE ${outer.join(" AND ")}` : ""}
-      ORDER BY r.lane, r.keyed, COALESCE(r.ord, ''), r.id DESC LIMIT ${limit})
-    SELECT page.*, ${HANDLE_COLUMNS} FROM page ${PAGE_ORDER}`;
+      ORDER BY ${newest ? `${CHANGED_AT} DESC, e.id DESC, r.id DESC` : LANE_ORDER} LIMIT ${limit})
+    SELECT page.*, ${HANDLE_COLUMNS} FROM page ${newest ? NEWEST_ORDER : PAGE_ORDER}`;
 }
 
 function oneSql(scope, id, body) {
@@ -327,11 +329,8 @@ export async function listCards(c) {
     .bind(...q.binds)
     .all();
   const page = results.slice(0, limit);
-  const ids = page.map((row) => row.id);
-  await settle(c, page, ids);
-  const links = await linksFor(c, ids);
   return K.json(200, {
-    cards: page.map((row) => cardOf(row, links.get(row.id))),
+    cards: await cardsOf(c, page),
     next_cursor: results.length > limit ? encodeCursor(page[page.length - 1]) : null,
   });
 }
@@ -396,8 +395,32 @@ export async function listProjects(c) {
   return K.json(200, { projects: results.map((r) => ({ name: r.name, open: r.open, done: r.done })) });
 }
 
-export function cardSide(board, item) {
-  return `((${item}.project IS NOT NULL) = (${board}.cards = 1))`;
+function waitingLanes(q, column) {
+  return `${column} IN (${WAITING_LANES.map((word) => q.bind(laneIndex(word))).join(", ")})`;
+}
+
+export function waitingListStatement(c) {
+  const q = K.query();
+  const scope = scopeOf(boardView(c), q);
+  const lanes = waitingLanes(q, "lane");
+  return c.env.DB.prepare(listSql(scope, lanes, [], q.bind(MAX_CARDS_LIMIT), true)).bind(...q.binds);
+}
+
+export function waitingCountStatement(c) {
+  const q = K.query();
+  const scope = scopeOf(boardView(c), q);
+  return c.env.DB.prepare(
+    `WITH ${LANES_CTE}
+     SELECT count(*) AS n FROM items i JOIN lanes ON lanes.label_id = i.label_id
+     WHERE i.project IS NOT NULL AND ${scope("i")} AND ${waitingLanes(q, "lanes.lane")}`,
+  ).bind(...q.binds);
+}
+
+export async function cardsOf(c, rows) {
+  const ids = rows.map((row) => row.id);
+  await settle(c, rows, ids);
+  const links = await linksFor(c, ids);
+  return rows.map((row) => cardOf(row, links.get(row.id)));
 }
 
 export function cardFilters(c, params, q, where) {

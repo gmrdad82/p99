@@ -5,9 +5,11 @@ mod deck;
 pub mod demo;
 mod history;
 mod inbox;
+mod projects;
 mod source;
 #[cfg(test)]
 mod tests;
+mod waiting;
 
 use std::io::Write;
 use std::path::Path;
@@ -30,7 +32,9 @@ use badge::Badge;
 use board::Board;
 use codes::Codes;
 use inbox::Inbox;
+use projects::Shared;
 use source::{Loaded, Source};
+use waiting::Around;
 
 #[derive(Debug, Default, clap::Args)]
 pub struct Args {
@@ -209,6 +213,7 @@ pub fn run(options: &Args, global: &crate::cli::Global) -> ExitCode {
         let mut buffer = app.shot(width, height, &keys, !options.loading);
         if !options.loading {
             app.advance(SETTLE);
+            app.settle();
             buffer = app.frame(width, height);
         }
         if options.ansi {
@@ -261,15 +266,14 @@ pub enum Msg {
     Changed(String, Result<Issue, String>),
     Deleted(String, Result<crate::wire::Deleted, String>),
     Codes(Result<Vec<Code>, String>),
+    CodeDeleted(Box<Code>, Result<(), String>),
     Pushed(usize, Option<String>),
-    Board(
-        Option<(usize, i64)>,
-        Result<(usize, deck::BoardView), String>,
-    ),
+    Board(Vec<String>, Result<deck::BoardView, String>),
     Shifted(String, Result<deck::Moved, String>),
     Heard(usize, String),
-    Boards(Result<Vec<(usize, deck::Boards)>, String>),
     Labels(Result<Vec<String>, String>),
+    Waiting(bool, Result<waiting::Waiting, String>),
+    Projects(Result<Vec<String>, String>),
 }
 
 fn report(
@@ -356,6 +360,7 @@ fn tui(source: Source, state: State) -> Tui<Msg> {
 
 fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
     let badge = Badge::new(state, &palette);
+    let shared = Shared::new(badge.counter());
     Tui::new(NAME, VERSION, ACCENT)
         .title("P99")
         .words(words())
@@ -367,11 +372,21 @@ fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
         .modes(Modes::new().mouse(true))
         .screen(
             Section::new("Inbox"),
-            Inbox::new(source.clone(), palette).badge(badge.clone()),
+            Around::new(
+                Inbox::new(source.clone(), palette).badge(badge.clone()),
+                source.clone(),
+                palette,
+                shared.clone(),
+            ),
         )
         .screen(
             Section::new("Board"),
-            Board::new(source.clone(), palette).badge(badge.clone()),
+            Around::new(
+                Board::new(source.clone(), palette).badge(badge.clone()),
+                source.clone(),
+                palette,
+                shared,
+            ),
         )
         .screen(
             Section::new("Codes"),

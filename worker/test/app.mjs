@@ -79,6 +79,8 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const script = await app("GET", "/_p99/app.js?v=dev", { page: false });
     assert.equal(script.status, 200);
     assert.match(script.headers["cache-control"], /immutable/);
+    assert.match(script.text, /"Owner"/);
+    assert.doesNotMatch(script.text, /Manager/);
     assert.equal((await app("GET", "/_p99/app.css?v=dev", { page: false })).status, 200);
     assert.equal((await app("GET", "/_p99/panel.js?v=dev", { page: false })).status, 200);
     assert.equal((await app("GET", "/_p99/p99.js", { page: false })).status, 404);
@@ -146,6 +148,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal(spaces.status, 200, spaces.text);
     assert.deepEqual(spaces.json.spaces.map((s) => s.host), [here]);
     assert.equal(spaces.json.spaces[0].manager, false);
+    assert.equal(spaces.json.spaces[0].role, "user");
     assert.equal(typeof spaces.json.spaces[0].open, "number");
     assert.equal(spaces.json.license, LICENSE_STATE);
     annieDigits = totpOf(annie.totp_key, 1);
@@ -203,7 +206,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const all = await app("GET", `/_p99/api/issues?scope=all&host=${there}`, { token: bossToken });
     assert.equal(all.status, 200, all.text);
     const listed = await app("GET", "/_p99/app/spaces", { token: bossToken });
-    assert.deepEqual(listed.json.spaces.map((s) => [s.host, s.manager]), [[here, true], [there, true]].sort());
+    assert.deepEqual(listed.json.spaces.map((s) => [s.host, s.manager, s.role]), [[here, true, "owner"], [there, true, "owner"]].sort());
     assert.equal(JSON.stringify(listed.json).includes(boss.secret), false);
     assert.equal((await app("GET", `/_p99/api/issues/${filed.json.key}?host=${here}`, { token: bossToken })).status, 200);
     const stored = await call("PUT", `/_p99/v1/issues/${filed.json.key}/attachments/${randomUUID()}?host=${here}&name=trace.txt`, {

@@ -271,7 +271,12 @@ test("a patch writes only the fields its body names, keeping a cleared assignee 
   assert.deepEqual(patchValues(() => true, next), next);
 });
 
-test("only a manager, or the reporter of an open item still in the inbox, may edit the text", () => {
+test("the details' refusal names an Owner, the role word every output uses, never a manager", () => {
+  assert.equal(BODY_REFUSED, "only an Owner, or the reporter while the item is new, may change the details");
+  assert.doesNotMatch(`${BODY_REFUSED} ${TITLE_REFUSED}`, /manager|member/i);
+});
+
+test("only an Owner, or the reporter of an open item still in New, may edit the text", () => {
   const ada = { manager: false, actor: { email: "ada@example.com" } };
   const boss = { manager: true, actor: { email: "grace@example.com" } };
   const mine = { reporter_email: "ada@example.com", open: 1, label_role: "inbox" };

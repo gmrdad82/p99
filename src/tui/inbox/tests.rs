@@ -9,6 +9,7 @@ use super::super::demo::{Demo, NOW};
 use super::super::tests::{
     HIGH, INBOX, Run, WIDE, ctrl, line, palette, row, run, sample, spot, waiting,
 };
+use super::super::waiting::Around;
 use super::*;
 
 const OPEN: [&str; 16] = [
@@ -21,7 +22,10 @@ const CLOSED: [&str; 6] = [
 ];
 
 fn inbox(app: &Run) -> &Inbox {
-    app.tui.find::<Inbox>().expect("the inbox is a screen")
+    &app.tui
+        .find::<Around<Inbox>>()
+        .expect("the inbox is a screen")
+        .inner
 }
 
 fn tap(app: &mut Run, keys: &str) {
@@ -63,7 +67,7 @@ fn the_inbox_lists_open_items_newest_first_and_counts_the_unread() {
     let item = line(&text, "Q-10 ");
     for cell in [
         "Question",
-        "Inbox",
+        "New",
         "Is the newsletter sent every week?",
         "example.com",
         "Grace Hopper",
@@ -84,7 +88,7 @@ fn the_list_colours_unread_marks_labels_and_hosts_by_what_they_mean() {
         .find(|&x| buffer[(x, y)].symbol() == "•")
         .expect("Q-10 is unread");
     assert_eq!(fg((mark, y)), app.palette.accent.fg);
-    assert_eq!(fg(spot(&buffer, "Q-10 ", "Inbox")), app.palette.accent.fg);
+    assert_eq!(fg(spot(&buffer, "Q-10 ", "New")), app.palette.accent.fg);
     assert_eq!(
         fg(spot(&buffer, "Q-10 ", "example.com")),
         app.palette.accent.fg
@@ -93,7 +97,7 @@ fn the_list_colours_unread_marks_labels_and_hosts_by_what_they_mean() {
         fg(spot(&buffer, "FEAT-9 ", "dev.example.com")),
         app.palette.warn.fg
     );
-    let doing = spot(&buffer, "TASK-16 ", "Doing");
+    let doing = spot(&buffer, "TASK-16 ", "In progress");
     assert!(buffer[doing].modifier.contains(Modifier::BOLD));
     assert_ne!(fg(doing), app.palette.accent.fg);
     let (_, y) = spot(&buffer, "TASK-16 ", "TASK-16 ");
@@ -254,7 +258,7 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
     assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"));
     for said in [
         "BUG-11  The total does not update after removing a line",
-        "Bug · Inbox · host shop.example.com · production",
+        "Bug · New · host shop.example.com · production",
         "/cart · unassigned",
         "Grace Hopper reported it 50m ago · updated 12m ago",
         "I removed the second lamp from my cart and the total still shows both.",
@@ -425,29 +429,32 @@ fn a_deleted_item_with_files_says_how_many_went_with_it() {
 }
 
 #[test]
-fn move_to_lists_the_labels_and_moves_the_item() {
+fn move_to_lists_the_seven_lanes_and_moves_the_item() {
     let mut app = run(sample());
     let pick = app.press("enter m");
     for label in [
         "Move to",
-        "Inbox",
-        "Doing",
-        "QA ready",
+        "New",
+        "Planned",
+        "In progress",
+        "Needs you",
+        "Stuck",
+        "Landed",
         "Done",
         "Drop (close without fixing)",
         "Duplicate of…",
     ] {
         assert!(pick.contains(label), "{label}:\n{pick}");
     }
-    assert!(!pick.contains("Testing"), "{pick}");
-    let moved = app.press("down enter");
-    assert!(moved.contains("BUG-11 moved to Doing"), "{moved}");
-    assert!(moved.contains("Bug · Doing · host"), "{moved}");
+    assert!(!pick.contains("QA ready"), "{pick}");
+    let moved = app.press("down down enter");
+    assert!(moved.contains("BUG-11 moved to In progress"), "{moved}");
+    assert!(moved.contains("Bug · In progress · host"), "{moved}");
     let issue = thread(&app, "BUG-11").issue;
-    assert_eq!(issue.label.as_deref(), Some("Doing"));
+    assert_eq!(issue.label.as_deref(), Some("In progress"));
     assert_eq!(issue.status, "doing");
     let list = app.press("esc");
-    assert!(line(&list, "BUG-11 ").contains("Doing"), "{list}");
+    assert!(line(&list, "BUG-11 ").contains("In progress"), "{list}");
 }
 
 fn offered(app: &Run) -> Vec<String> {
@@ -476,11 +483,18 @@ fn move_to_on_a_done_card_offers_its_lanes_and_reopens_it_into_landed() {
     let pick = app.press("m");
     assert_eq!(
         offered(&app),
-        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+        [
+            "New",
+            "Planned",
+            "In progress",
+            "Needs you",
+            "Stuck",
+            "Landed",
+            "Done"
+        ]
     );
     assert!(pick.contains("Landed"), "{pick}");
     assert!(!pick.contains("Doing"), "{pick}");
-    assert!(!pick.contains("QA ready"), "{pick}");
     let moved = app.press("up enter");
     assert!(moved.contains(&format!("{key} moved to Landed")), "{moved}");
     let issue = thread(&app, &key).issue;
@@ -490,21 +504,29 @@ fn move_to_on_a_done_card_offers_its_lanes_and_reopens_it_into_landed() {
 }
 
 #[test]
-fn move_to_on_a_plain_item_offers_no_cards_lane() {
+fn move_to_on_a_plain_item_offers_the_same_seven_lanes_as_a_card() {
     let mut app = run(sample());
-    let pick = app.press("enter m");
+    app.press("enter m");
     assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"));
-    assert_eq!(offered(&app), ["Inbox", "Doing", "QA ready", "Done"]);
-    for lane in ["Planned", "In progress", "Stuck"] {
-        assert!(!pick.contains(lane), "{lane}:\n{pick}");
-    }
+    assert_eq!(
+        offered(&app),
+        [
+            "New",
+            "Planned",
+            "In progress",
+            "Needs you",
+            "Stuck",
+            "Landed",
+            "Done"
+        ]
+    );
 }
 
 #[test]
 fn move_to_drop_closes_the_item_without_fixing_it() {
     let mut app = run(sample());
     app.press("enter m");
-    let dropped = app.press("down down down down enter");
+    let dropped = app.press("down down down down down down down enter");
     assert!(dropped.contains("BUG-11 is Done (dropped)"), "{dropped}");
     assert!(dropped.contains("Bug · Done (dropped)"), "{dropped}");
     let issue = thread(&app, "BUG-11").issue;
@@ -518,7 +540,7 @@ fn move_to_drop_closes_the_item_without_fixing_it() {
 fn move_to_duplicate_asks_for_the_key_and_merges_into_it() {
     let mut app = run(sample());
     app.press("enter m");
-    let asked = app.press("down down down down down enter");
+    let asked = app.press("down down down down down down down down enter");
     assert!(asked.contains("Duplicate of"), "{asked}");
     assert!(asked.contains("an item key, such as BUG-11"), "{asked}");
     let merged = app.press("bug-3 enter");
@@ -532,7 +554,7 @@ fn move_to_duplicate_asks_for_the_key_and_merges_into_it() {
 #[test]
 fn an_empty_duplicate_key_changes_nothing() {
     let mut app = run(sample());
-    app.press("enter m down down down down down enter enter");
+    app.press("enter m down down down down down down down down enter enter");
     let issue = thread(&app, "BUG-11").issue;
     assert_eq!(issue.status, "inbox");
     assert_eq!(issue.duplicate_of, None);
@@ -582,7 +604,7 @@ fn a_assigns_someone_from_the_people_on_the_account() {
         assert!(pick.contains(person), "{person}:\n{pick}");
     }
     let assigned = app.press("down down down enter");
-    assert!(assigned.contains("BUG-11 is Inbox"), "{assigned}");
+    assert!(assigned.contains("BUG-11 is New"), "{assigned}");
     assert!(
         assigned.contains("/cart · assigned to @grace.hopper"),
         "{assigned}"
@@ -881,8 +903,9 @@ fn the_hints_follow_what_the_inbox_can_do_now() {
 
 fn opened(app: &mut Run, opener: fn(&str) -> Result<(), String>) -> String {
     app.tui
-        .find_mut::<Inbox>()
+        .find_mut::<Around<Inbox>>()
         .expect("the inbox is a screen")
+        .inner
         .opener = opener;
     app.press("enter");
     let mut paged = thread(app, "BUG-11");

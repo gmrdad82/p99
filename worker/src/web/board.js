@@ -4,9 +4,6 @@ const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
 const WORDS = {
   board: "Board",
-  boards: "Boards",
-  pick_board: "Pick a board",
-  watching: "watching {owner}",
   filtered: "showing {what}",
   close_board: "Close the board",
   live: "Live",
@@ -22,7 +19,6 @@ const WORDS = {
   moved: "this card moved; refreshed",
   move_failed: "Couldn't move {card}; it's back where it was.",
   loading: "Loading the board…",
-  no_boards: "No boards here yet. p99 boards set <name> --columns \"Inbox,Doing,Done\" makes one.",
   load_failed: "Couldn't load the board.",
   retry: "Retry",
 };
@@ -37,26 +33,8 @@ const CSS = `
 .p99-board-head{display:flex;align-items:center;gap:var(--p99-space-lg);flex:none;min-height:64px;padding:var(--p99-space-md) var(--p99-space-md) var(--p99-space-xs) var(--p99-space-xl)}
 .p99-board .p99-logo{flex:none;min-width:43.2px;height:36px;font-size:24px}
 .p99-board-name{position:relative;display:flex;flex-direction:column;align-items:flex-start;min-width:0;flex:0 1 auto}
-.p99-pick-board{display:inline-flex;align-items:center;gap:var(--p99-space-sm);min-width:0;max-width:calc(100% + var(--p99-space-sm));margin:0 0 0 calc(-1 * var(--p99-space-sm));padding:var(--p99-space-xs) var(--p99-space-sm);border:0;border-radius:var(--p99-radius-md);background:transparent;color:var(--p99-ink);text-align:left;cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out)}
-.p99-pick-board[aria-expanded=true]{background:color-mix(in srgb,var(--p99-ink) 8%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}
-@media (hover:hover){.p99-pick-board:hover:not(:disabled){background:color-mix(in srgb,var(--p99-ink) 8%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
-.p99-pick-board:disabled{cursor:default}
-.p99-pick-board:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
-.p99-pick-board h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xl)/var(--p99-leading-tight) var(--p99-font-display)}
-.p99-chev{flex:none;width:8px;height:8px;margin:0 2px 4px;border:solid var(--p99-muted);border-width:0 2px 2px 0;rotate:45deg;transition:rotate var(--p99-motion-base) var(--p99-ease-in-out)}
-.p99-pick-board[aria-expanded=true] .p99-chev{rotate:225deg;margin-bottom:-4px}
-.p99-pick-board:disabled .p99-chev{display:none}
-.p99-watch,.p99-board-filter{margin:0;color:var(--p99-muted);font-size:var(--p99-text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.p99-menu{position:absolute;left:calc(-1 * var(--p99-space-sm));top:calc(100% + var(--p99-space-xs));z-index:3;min-width:240px;max-width:min(360px,calc(100vw - 32px));max-height:min(60vh,420px);margin:0;padding:var(--p99-space-xs);list-style:none;overflow-y:auto;border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:var(--p99-shadow-overlay);opacity:0;translate:0 -6px;transition:opacity var(--p99-motion-base) var(--p99-ease-exit),translate var(--p99-motion-base) var(--p99-ease-exit)}
-.p99-menu.is-open{opacity:1;translate:0 0;transition-timing-function:var(--p99-ease-enter)}
-.p99-menu [role=option]{display:flex;align-items:center;gap:var(--p99-space-sm);min-height:40px;padding:var(--p99-space-xs) var(--p99-space-sm);border-radius:var(--p99-radius-sm);font-size:var(--p99-text-sm);cursor:pointer;outline:none;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out)}
-.p99-menu [role=option]:focus-visible{background:color-mix(in srgb,var(--p99-accent) 12%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}
-@media (hover:hover){.p99-menu [role=option]:hover{background:color-mix(in srgb,var(--p99-accent) 12%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
-.p99-menu [role=option]:focus-visible{box-shadow:inset 0 0 0 2px var(--p99-focus)}
-.p99-menu [role=option][aria-selected=true]{font-weight:var(--p99-weight-bold)}
-.p99-menu [role=option] span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.p99-menu [role=option] small{color:var(--p99-muted);font-size:var(--p99-text-xs)}
-.p99-menu .p99-sep{height:1px;margin:var(--p99-space-xs) var(--p99-space-sm);background:var(--p99-rule)}
+.p99-board-name h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xl)/var(--p99-leading-tight) var(--p99-font-display)}
+.p99-board-filter{margin:0;color:var(--p99-muted);font-size:var(--p99-text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .p99-live{flex:none;display:inline-flex;align-items:center;gap:var(--p99-space-sm);margin-left:auto;color:var(--p99-muted);font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase;white-space:nowrap}
 .p99-live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-rule)}
 .p99-live[data-state=live]::before{background:var(--p99-status-validated);box-shadow:0 0 0 3px color-mix(in srgb,var(--p99-status-validated) 22%,transparent)}
@@ -64,10 +42,11 @@ const CSS = `
 .p99-board .p99-x{flex:none;display:grid;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:var(--p99-radius-full);background:transparent;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xl)/1 var(--p99-font-text);cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out),color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
 @media (hover:hover){.p99-board .p99-x:hover{background:color-mix(in srgb,var(--p99-ink) 8%,transparent);color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
-.p99-cols{--n:4;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(240px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
+.p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
 .p99-col{--p99-tone:var(--p99-status-in-review);display:flex;flex-direction:column;min-height:0;contain:layout paint;border-radius:var(--p99-radius-md);background:color-mix(in srgb,var(--p99-ink) 6%,transparent);box-shadow:inset 0 2px 4px rgba(12,26,43,.22),inset 0 -1px 0 rgba(255,255,255,.25);transition:background var(--p99-motion-base) var(--p99-ease-in-out),box-shadow var(--p99-motion-base) var(--p99-ease-in-out)}
-.p99-col:first-child{--p99-tone:var(--p99-accent-ink)}
-.p99-col:nth-child(3),.p99-col:nth-child(5){--p99-tone:var(--p99-status-warning)}
+.p99-col[data-word=new]{--p99-tone:var(--p99-accent-ink)}
+.p99-col[data-word=in-progress],.p99-col[data-word=stuck]{--p99-tone:var(--p99-status-warning)}
+.p99-col[data-word=needs-you]{--p99-tone:var(--p99-accent)}
 .p99-col[data-closes]{--p99-tone:var(--p99-status-validated)}
 .p99-col-head{display:flex;align-items:center;gap:var(--p99-space-sm);padding:var(--p99-space-md) var(--p99-space-md) var(--p99-space-sm);border-top:3px solid var(--p99-tone);border-radius:var(--p99-radius-md) var(--p99-radius-md) 0 0}
 .p99-col-head h3{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
@@ -83,10 +62,10 @@ const CSS = `
 .p99-card .p99-key{font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono);letter-spacing:.02em;color:var(--p99-muted)}
 .p99-card-title{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-weight:var(--p99-weight-medium);font-size:var(--p99-text-sm);line-height:var(--p99-leading-snug)}
 .p99-card-top .p99-who{margin-left:auto}
+.p99-card-project{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xs) var(--p99-font-text)}
 .p99-who{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;overflow:hidden;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1 var(--p99-font-text)}
 .p99-who img{display:block;width:100%;height:100%;object-fit:cover}
 .p99-who:has(img){border-color:var(--p99-rule);background:var(--p99-raised)}
-.p99-pick-board .p99-who,.p99-menu .p99-who{width:28px;height:28px}
 .p99-card.is-placeholder{border:2px dashed;border-color:color-mix(in srgb,var(--p99-accent) 70%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 8%,transparent);box-shadow:none}
 .p99-card.is-placeholder>*{visibility:hidden}
 .p99-card.is-lifted{scale:1.03;z-index:1;border-color:var(--p99-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--p99-accent) 45%,transparent),0 10px 24px rgba(12,26,43,.3)}
@@ -101,33 +80,28 @@ const CSS = `
 .p99-board-note{position:absolute;left:50%;bottom:var(--p99-space-lg);translate:-50% 0;max-width:min(560px,90%);padding:var(--p99-space-sm) var(--p99-space-lg);border-radius:var(--p99-radius-sm);background:var(--p99-ink);color:var(--p99-base);font-size:var(--p99-text-sm);animation:p99-fade var(--p99-motion-base) var(--p99-ease-enter) both}
 .p99-board .p99-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo{display:none}.p99-live{font-size:0;gap:0}}
-@media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-col,.p99-menu,.p99-chev{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
+@media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-col{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, pick: null, title: null, owner: null, watch: null, filter: null, keep: null, keeping: null, keepSeq: 0, menu: null, live: null, say: null, note: null, id: null, want: null, data: null, boards: null, av: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, title: null, filter: null, live: null, say: null, note: null, data: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   if (B.el && B.root !== ctx.root) {
     hang();
     B.el = null;
     B.open = false;
-    B.boards = null;
-    B.id = null;
     B.data = null;
   }
   B.ctx = ctx;
-  B.keep = null;
-  keeping();
   if (!B.el) build(ctx.root);
   if (!B.open) show();
-  return load(ctx.board || B.id || remembered());
+  return load();
 }
 
 export function close() {
   if (!B.open) return;
   if (B.drag) { if (B.drag.keys) undo(); else abort(); }
-  shut(false);
   B.open = false;
   hang();
   B.el.classList.remove("is-open");
@@ -159,25 +133,19 @@ function build(root) {
   sheet.replaceSync(CSS);
   root.adoptedStyleSheets = root.adoptedStyleSheets.concat([sheet]);
   B.scrim = h("div", { class: "p99-board-scrim", hidden: true, onclick: () => close() });
-  B.owner = h("span", { class: "p99-who", hidden: true });
   B.title = h("h2", { id: "p99-board-title", text: t("board") });
-  B.pick = h("button", { type: "button", class: "p99-pick-board", "aria-haspopup": "listbox", "aria-expanded": "false", disabled: true, title: t("pick_board"), onclick: () => (folded() ? unfold() : shut(true)) }, B.owner, B.title, h("span", { class: "p99-chev", "aria-hidden": "true" }));
-  B.watch = h("p", { class: "p99-watch", hidden: true });
   B.filter = h("p", { class: "p99-board-filter", hidden: true });
-  B.menu = h("ul", { class: "p99-menu", role: "listbox", "aria-label": t("boards"), tabindex: "-1", hidden: true });
-  B.menu.addEventListener("click", (e) => { const o = e.target.closest("[role=option]"); if (o) choose(o.dataset.id); });
   B.live = h("span", { class: "p99-live", "data-state": "off", text: t("offline_live") });
   B.cols = h("div", { class: "p99-cols" });
   B.say = h("p", { class: "p99-sr", role: "status", "aria-live": "assertive" });
   const x = h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   B.el = h("div", { class: "p99-board", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
-    h("header", { class: "p99-board-head" }, h("b", { class: "p99-logo", text: "P99" }), h("nav", { class: "p99-board-name", "aria-label": t("boards") }, B.pick, B.watch, B.filter, B.menu), B.live, x),
+    h("header", { class: "p99-board-head" }, h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, x),
     B.cols,
     h("p", { class: "p99-sr", id: "p99-drag-help", text: t("drag_help") }),
     B.say);
   root.append(B.scrim, B.el);
   root.addEventListener("keydown", keys);
-  root.addEventListener("pointerdown", (e) => { if (!folded() && !e.composedPath().some((n) => n === B.menu || n === B.pick)) shut(false); });
   B.el.addEventListener("pointerdown", press);
   B.el.addEventListener("click", tap);
   B.el.addEventListener("touchmove", (e) => { if (B.drag && B.drag.up) e.preventDefault(); }, { passive: false });
@@ -194,48 +162,36 @@ function show() {
   listen();
 }
 
-function remembered() {
-  try { return sessionStorage.getItem("p99:board"); } catch (x) { return null; }
+function query() { return typeof B.ctx.query === "function" ? B.ctx.query() : ""; }
+function path() {
+  const q = query();
+  return "/board" + (q ? "?" + q : "");
 }
+function elsewhere(ev) { return !!ev.host && ev.host !== (B.ctx.host || location.hostname) && (!!B.ctx.host || new URLSearchParams(query()).has("host")); }
 
-function load(id) {
+function load() {
   const seq = ++B.seq;
-  B.want = id ? String(id) : null;
-  if (!B.data || (id && String(id) !== B.id)) waiting(id);
-  const all = B.boards ? Promise.resolve(B.boards) : B.ctx.call("GET", "/boards").then((r) => (B.boards = (r && r.boards) || []));
-  return all.then((boards) => {
-    const pick = boards.find((b) => String(b.id) === String(id)) || boards.find((b) => b.mine) || boards[0];
-    if (!pick) {
-      if (seq === B.seq) blank(t("no_boards"));
-      return null;
+  if (!B.data) waiting();
+  return B.ctx.call("GET", path()).then((d) => {
+    if (seq !== B.seq || !B.open) return;
+    if (!d || !d.board || !Array.isArray(d.board.lanes)) {
+      if (!B.data) blank(t("load_failed"), () => load());
+      else note(t("load_failed"));
+      return;
     }
-    return Promise.all([B.ctx.call("GET", "/boards/" + encodeURIComponent(pick.id)), B.keeping]).then(([d]) => {
-      if (seq !== B.seq || !B.open || !d || !d.board) return;
-      B.want = null;
-      B.id = String(d.board.id);
-      try { sessionStorage.setItem("p99:board", B.id); } catch (x) {}
-      B.data = d;
-      if (B.drag && !B.drag.keys) soon();
-      else paint();
-    });
+    B.data = { board: d.board, cards: Array.isArray(d.cards) ? d.cards : [] };
+    if (B.drag && !B.drag.keys) soon();
+    else paint();
   }).catch((e) => {
     if (e && e.status === 401) return close();
-    if (e && e.status === 404 && id && seq === B.seq) return load(null);
     if (seq !== B.seq) return;
-    B.want = null;
-    if (B.data) {
-      if (!B.cols.querySelector(".p99-col[data-label]")) paint();
-      note((e && e.message) || t("load_failed"));
-    } else blank((e && e.status && e.message) || t("load_failed"), () => load(id));
+    if (!B.data) return blank((e && e.status && e.message) || t("load_failed"), () => load());
+    if (!B.cols.querySelector(".p99-col[data-label]")) paint();
+    note((e && e.message) || t("load_failed"));
   });
 }
 
-function waiting(id) {
-  const b = id && B.boards && B.boards.find((x) => String(x.id) === String(id));
-  if (b) {
-    B.title.textContent = b.name;
-    B.owner.hidden = B.watch.hidden = true;
-  }
+function waiting() {
   delete B.cols.dataset.board;
   B.cols.setAttribute("aria-busy", "true");
   B.cols.style.setProperty("--n", "3");
@@ -251,25 +207,29 @@ function blank(text, retry) {
   B.cols.replaceChildren(h("div", { class: "p99-board-state", role: retry ? "alert" : "status" }, h("p", { text }), retry ? h("button", { type: "button", text: t("retry"), onclick: retry }) : null));
 }
 
-function columns() { return (B.data && B.data.board.columns) || []; }
+function columns() { return (B.data && B.data.board.lanes) || []; }
 function same(a, b) { return String(a).toLowerCase() === String(b).toLowerCase(); }
-function mine() { return !!(B.data && B.data.board.mine); }
+function mine() {
+  const me = B.ctx && B.ctx.me;
+  return !!me && (me.role ? me.role === "owner" : !!me.manager);
+}
+function filtered() { return !!(B.ctx && B.ctx.pickWord); }
 
 function paint() {
   const d = B.data;
-  paintHead(d.board);
+  paintHead();
   const list = columns();
   const kids = B.cols.children;
-  const keep = B.cols.dataset.board === B.id && kids.length === list.length && list.every((c, i) => same(kids[i].dataset.label, c.label));
+  const keep = B.cols.dataset.board === "one" && kids.length === list.length && list.every((c, i) => same(kids[i].dataset.label, c.label) && kids[i].dataset.word === c.word);
   const old = keep ? new Map(cards().map((e) => [e.dataset.id, e])) : new Map();
   const at = B.root.activeElement;
   const fill = () => {
     B.cols.removeAttribute("aria-busy");
     if (!keep) {
-      B.cols.replaceChildren(...list.map((c) => h("section", { class: "p99-col", "data-label": c.label, "data-closes": c.closes ? "" : null },
+      B.cols.replaceChildren(...list.map((c) => h("section", { class: "p99-col", "data-label": c.label, "data-word": c.word, "data-closes": c.closes ? "" : null },
         h("header", { class: "p99-col-head" }, h("h3"), h("span", { class: "p99-count", text: "0" })),
         h("ol", { class: "p99-cards", "data-empty": t("empty_column") }))));
-      B.cols.dataset.board = B.id;
+      B.cols.dataset.board = "one";
       B.cols.style.setProperty("--n", String(list.length || 1));
     }
     list.forEach((c, i) => {
@@ -286,7 +246,7 @@ function paint() {
   counts();
 }
 
-function shown(x) { return !B.keep || B.keep.has(x.key); }
+function shown(x) { return typeof B.ctx.keep !== "function" || !!B.ctx.keep(x); }
 
 function reuse(e, n) {
   if (!e) return n;
@@ -298,20 +258,15 @@ function reuse(e, n) {
   return e;
 }
 
+function person(p) { return typeof p === "string" ? { username: p } : p; }
 function handle(p) { return p && p.username ? "@" + p.username : ""; }
 
-function paintHead(b) {
-  B.el.dataset.mine = String(!!b.mine);
-  B.title.textContent = b.name;
-  const theirs = !b.mine && b.owner;
-  B.owner.hidden = !theirs;
-  if (theirs) B.owner.replaceChildren(...face(b.owner));
-  B.watch.hidden = !theirs;
-  B.watch.textContent = theirs ? t("watching", { owner: handle(b.owner) }) : "";
-  const word = B.keep && typeof B.ctx.pickWord === "string" ? B.ctx.pickWord : "";
+function paintHead() {
+  B.el.dataset.mine = String(mine());
+  B.title.textContent = t("board");
+  const word = typeof B.ctx.pickWord === "string" ? B.ctx.pickWord : "";
   B.filter.hidden = !word;
   B.filter.textContent = word ? t("filtered", { what: word }) : "";
-  B.pick.disabled = !B.boards || B.boards.length < 2;
 }
 
 function src(u) { return typeof u === "string" && (/^\/(?![\/\\])/.test(u) || /^https:\/\//.test(u)) ? u : null; }
@@ -331,8 +286,9 @@ function card(c) {
   if (mine()) e.setAttribute("aria-describedby", "p99-drag-help");
   e.dataset.order = String(c.order == null ? "" : c.order);
   e.dataset.label = c.label;
-  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(c.assignee)), h("b", { class: "p99-card-title", text: c.title }));
-  e.setAttribute("aria-label", c.key + ", " + c.title + (c.assignee && c.assignee.username ? ", " + handle(c.assignee) : ""));
+  const a = person(c.assignee);
+  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : null);
+  e.setAttribute("aria-label", c.key + ", " + c.title + (c.project ? ", " + c.project : "") + (a && a.username ? ", " + handle(a) : ""));
   return e;
 }
 
@@ -342,56 +298,9 @@ function counts() {
 
 function cards() { return Array.from(B.cols.querySelectorAll(".p99-card")); }
 function columnOf(e) { return e.closest(".p99-col"); }
-function column(name) { return Array.from(B.cols.children).find((c) => same(c.dataset.label, name)) || null; }
+function column(name) { return Array.from(B.cols.children).find((c) => same(c.dataset.label, name) || same(c.dataset.word, name)) || null; }
 function find(id) { return cards().find((e) => e.dataset.id === id) || null; }
 function label(e) { return e.getAttribute("aria-label") || e.dataset.id; }
-
-function unfold() {
-  const boards = B.boards || [];
-  if (boards.length < 2) return;
-  const opt = (b) => h("li", { role: "option", tabindex: "-1", "data-id": String(b.id), "aria-selected": String(String(b.id) === B.id) },
-    b.mine ? null : who(b.owner),
-    h("span", null, b.mine ? b.name : [h("b", { text: handle(b.owner) }), " ", h("small", { text: b.name })]));
-  const own = boards.filter((b) => b.mine), rest = boards.filter((b) => !b.mine);
-  B.menu.replaceChildren(...own.map(opt), ...(own.length && rest.length ? [h("li", { class: "p99-sep", role: "presentation" })] : []), ...rest.map(opt));
-  B.menu.hidden = false;
-  B.pick.setAttribute("aria-expanded", "true");
-  void B.menu.offsetWidth;
-  B.menu.classList.add("is-open");
-  const at = B.menu.querySelector("[aria-selected=true]") || B.menu.querySelector("[role=option]");
-  if (at) at.focus({ preventScroll: true });
-}
-
-function folded() { return !B.menu || !B.menu.classList.contains("is-open"); }
-
-function shut(refocus) {
-  if (folded()) return;
-  B.menu.classList.remove("is-open");
-  B.pick.setAttribute("aria-expanded", "false");
-  const m = B.menu;
-  const done = () => { if (!m.classList.contains("is-open")) m.hidden = true; };
-  if (still.matches) done();
-  else setTimeout(done, 200);
-  if (refocus) B.pick.focus({ preventScroll: true });
-}
-
-function choose(id) {
-  shut(true);
-  if (id && id !== B.id) load(id);
-}
-
-function roam(e) {
-  const opts = Array.from(B.menu.querySelectorAll("[role=option]"));
-  const i = opts.indexOf(B.root.activeElement);
-  if (e.key === "Escape") { e.preventDefault(); return shut(true); }
-  if (e.key === "Tab") return shut(false);
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (i >= 0) choose(opts[i].dataset.id); return; }
-  const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: opts.length - 1 }[e.key];
-  if (to == null) return;
-  e.preventDefault();
-  const n = opts[(to + opts.length) % opts.length];
-  if (n) n.focus({ preventScroll: false });
-}
 
 function flip(change, easing, ms, scope) {
   const list = scope || cards();
@@ -680,7 +589,7 @@ function replay(d) {
   d.queue = [];
   for (const ev of q) {
     if (ev.key !== d.id) event(ev);
-    else if (ev.type !== "order" || String(ev.board) === B.id) B.stale = true;
+    else B.stale = true;
   }
 }
 
@@ -700,7 +609,7 @@ function commit(d) {
   if (e.parentNode === list && e.nextSibling === next) return later();
   const from = columnOf(list).dataset.label;
   const to = columnOf(e).dataset.label;
-  const body = { key: e.dataset.id, from, to, board: B.data.board.id };
+  const body = { key: e.dataset.id, from, to: columnOf(e).dataset.word };
   const prev = e.previousElementSibling, nxt = e.nextElementSibling;
   if (nxt) body.before = nxt.dataset.id;
   else if (prev) body.after = prev.dataset.id;
@@ -736,7 +645,6 @@ function enter(c) {
 
 function keys(e) {
   if (!B.open || e.defaultPrevented) return;
-  if (!folded() && B.menu.contains(B.root.activeElement)) return roam(e);
   const d = B.drag;
   if (e.key === "Tab") {
     if (d && d.keys) { e.preventDefault(); drop(); return; }
@@ -745,8 +653,7 @@ function keys(e) {
   }
   if (e.key === "Escape") {
     e.preventDefault();
-    if (!folded()) shut(true);
-    else if (d) { if (d.keys) undo(); else abort(); }
+    if (d) { if (d.keys) undo(); else abort(); }
     else close();
     return;
   }
@@ -891,19 +798,10 @@ function hang() {
   state("off");
 }
 
-function keeping() {
-  const n = ++B.keepSeq;
-  const only = B.ctx && B.ctx.only;
-  const take = (k) => { if (n === B.keepSeq) B.keep = k instanceof Set ? k : null; };
-  B.keeping = (typeof only === "function" ? Promise.resolve().then(only) : Promise.resolve(null)).then(take, () => take(null));
-}
-
 function refresh() {
   B.stale = false;
-  if (B.ctx && typeof B.ctx.only === "function") keeping();
   clearTimeout(B.reload);
-  B.boards = null;
-  return load(B.want || B.id);
+  return load();
 }
 
 function soon() {
@@ -921,10 +819,10 @@ function later() {
 
 function event(ev) {
   if (!ev || !B.data) return;
-  if (ev.host && ev.host !== (B.ctx.host || location.hostname)) return;
+  if (elsewhere(ev)) return;
   if (B.drag && B.drag.up && !B.drag.keys) return void B.drag.queue.push(ev);
-  if (ev.type === "label") return relabel(ev.key, ev.to);
-  if (ev.type === "order") return String(ev.board) !== B.id ? undefined : ev.rebalanced ? soon() : reorder(ev.key, ev.order);
+  if (ev.type === "label") return filtered() ? soon() : relabel(ev.key, ev.to);
+  if (ev.type === "order") return ev.rebalanced ? soon() : reorder(ev.key, ev.order);
   if (ev.type === "delete") return gone(ev.key);
   soon();
 }
@@ -948,7 +846,7 @@ function relabel(id, to) {
   const col = column(to);
   if (!e) return col ? soon() : undefined;
   if (!col) return gone(id);
-  e.dataset.label = to;
+  e.dataset.label = col.dataset.label;
   const list = col.querySelector(".p99-cards");
   if (e.parentNode === list) return;
   flip(() => list.insertBefore(e, slotFor(list, e, e.dataset.order)), TRAVEL, 260);

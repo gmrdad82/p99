@@ -3,7 +3,7 @@ import { fold } from "./text.js";
 export const PATCH_FIELDS = ["kind", "assignee", "title", "body"];
 export const PATCH_TRIES = 3;
 export const TITLE_REFUSED = "the title can no longer be changed";
-export const BODY_REFUSED = "only a manager, or the reporter while the item is new, may change the details";
+export const BODY_REFUSED = "only an Owner, or the reporter while the item is new, may change the details";
 export const PATCH_CONFLICT = "the item changed while saving; try again";
 
 let K = null;

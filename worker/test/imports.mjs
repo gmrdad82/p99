@@ -259,12 +259,12 @@ export async function importChecks({ call, check, here, there }) {
     assert.equal(minted.status, 201, JSON.stringify(minted.json));
     const said = await post([
       { type: "manager", email: "Mary@Example.com" },
-      { type: "manager", email: "sophie@example.com" },
-      { type: "manager", email: "SOPHIE@example.com" },
+      { type: "manager", email: "sophie.import@example.com" },
+      { type: "manager", email: "SOPHIE.Import@example.com" },
     ]);
     assert.equal(said.status, 200, JSON.stringify(said.json));
     assert.deepEqual(said.json.counts.manager, { new: 1, existing: 2, conflicts: [] });
-    assert.deepEqual(said.json.managers, ["sophie@example.com"]);
+    assert.deepEqual(said.json.managers, ["sophie.import@example.com"]);
   });
 
   await check("import finish: bad lists and keys are refused; missing items and targets are conflicts; a link is made once", async () => {

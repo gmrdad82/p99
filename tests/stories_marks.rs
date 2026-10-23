@@ -1,8 +1,13 @@
 use std::process::{Command, Output, Stdio};
 
-const LANES: [&str; 6] = ["New", "Planned", "In progress", "Stuck", "Landed", "Done"];
-const CARDS: [&str; 6] = [
-    "FEAT-23", "TASK-24", "BUG-25", "BUG-26", "FEAT-27", "TASK-28",
+const LANES: [&str; 7] = [
+    "New",
+    "Planned",
+    "In progre",
+    "Needs you",
+    "Stuck",
+    "Landed",
+    "Done",
 ];
 
 fn home() -> std::path::PathBuf {
@@ -49,8 +54,8 @@ fn head_row(screen: &str) -> &str {
 }
 
 #[test]
-fn the_cards_board_draws_six_lanes_at_120_columns() {
-    let screen = dump("120x34", "tab b down enter");
+fn the_one_board_draws_seven_lanes_at_120_columns() {
+    let screen = dump("120x34", "tab");
     let heads = head_row(&screen);
     let mut from = 0;
     for lane in LANES {
@@ -59,44 +64,24 @@ fn the_cards_board_draws_six_lanes_at_120_columns() {
             .unwrap_or_else(|| panic!("{lane} missing or out of order in {heads:?}"));
         from += at + lane.len();
     }
-    for key in CARDS {
-        assert!(
-            screen.contains(key),
-            "{key} not on the Cards board:\n{screen}"
-        );
-    }
 }
 
 #[test]
-fn the_cards_board_fits_six_lanes_in_80_columns() {
-    let screen = dump("80x24", "tab b down enter");
-    let heads = head_row(&screen);
-    for lane in ["New", "Planned", "In prog", "Stuck", "Landed", "Done"] {
-        assert!(heads.contains(lane), "{lane} missing from {heads:?}");
+fn the_one_board_shows_cards_and_plain_items_side_by_side() {
+    let screen = dump("120x34", "tab");
+    for key in ["TASK-24", "BUG-25", "BUG-26", "FEAT-9", "Q-10", "IMP-5"] {
+        assert!(screen.contains(key), "{key} not on the board:\n{screen}");
     }
+    assert!(screen.contains("Mobile"), "{screen}");
+    assert!(screen.contains("Storefr"), "{screen}");
+}
+
+#[test]
+fn the_one_board_fits_80_columns() {
+    let screen = dump("80x24", "tab");
     assert!(screen.lines().all(|line| line.chars().count() <= 80));
-    assert!(screen.contains("FEAT-23"));
-    assert!(screen.contains("TASK-28"));
-}
-
-#[test]
-fn the_shop_board_never_shows_a_card_and_the_cards_board_never_shows_an_item() {
-    let shop = dump("120x34", "tab");
-    for key in CARDS {
-        assert!(
-            !shop.contains(key),
-            "{key} leaked onto the Shop board:\n{shop}"
-        );
-    }
-    let cards = dump("120x34", "tab b down enter");
-    assert!(
-        !cards.contains("TASK-18"),
-        "a plain item leaked onto the Cards board:\n{cards}"
-    );
-    assert!(
-        !cards.contains("TASK-21"),
-        "a plain item leaked onto the Cards board:\n{cards}"
-    );
+    assert!(screen.contains("New"), "{screen}");
+    assert!(screen.contains("BUG-25"), "{screen}");
 }
 
 #[test]

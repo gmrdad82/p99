@@ -56,6 +56,10 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("cards.js", ES),
     worker!("cards-read.js", ES),
     worker!("cards-write.js", ES),
+    worker!("one-board.js", ES),
+    worker!("needs-you.js", ES),
+    worker!("codes-delete.js", ES),
+    worker!("roles.js", ES),
     worker!("patch.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
@@ -93,9 +97,10 @@ pub const MIGRATIONS: &[(&str, &str)] = &[
     migration!("0013_app.sql"),
     migration!("0014_backup_cut.sql"),
     migration!("0015_cards.sql"),
+    migration!("0016_one_board.sql"),
 ];
 
-pub const GATED: &[&str] = &["0004", "0011", "0012", "0013"];
+pub const GATED: &[&str] = &["0004", "0011", "0012", "0013", "0016"];
 
 pub fn modules() -> Vec<Module<'static>> {
     MODULES

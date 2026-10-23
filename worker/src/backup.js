@@ -30,6 +30,7 @@ export const BACKUP_TABLES = [
   { name: "mail_optouts", size: "length(email) + 100", cut: true, item: true },
   { name: "people", size: "length(email) + length(username) + 100", cut: true },
   { name: "deletions", size: "length(r2_key) + 100", cut: true },
+  { name: "archived", size: "50" },
   { name: "sqlite_sequence", size: "length(name) + 50" },
 ];
 const BACKUP_PAGE_ROWS = 1000;

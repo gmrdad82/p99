@@ -15,7 +15,7 @@ export async function peopleChecks({ call, browse, mint, check, issueBody, here,
     const names = seen.json.people.map((p) => p.username);
     assert.ok(names.includes("pia.moss") && names.includes("pia.moss2") && names.includes("rex.holt"), names.join(","));
     assert.ok(!names.includes("sam.away") && !names.includes("tom.gone"), names.join(","));
-    for (const p of seen.json.people) assert.deepEqual(Object.keys(p).sort(), ["manager", "username"]);
+    for (const p of seen.json.people) assert.deepEqual(Object.keys(p).sort(), ["manager", "role", "username"]);
     assert.equal(seen.json.people.find((p) => p.username === "rex.holt").manager, true);
     assert.equal(/@/.test(JSON.stringify(seen.json)), false);
     assert.equal((await browse("GET", "/me", twin.secret)).json.username, "pia.moss2");

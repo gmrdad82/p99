@@ -22,7 +22,7 @@ pub struct EmailArgs {
 #[derive(clap::Subcommand)]
 pub enum EmailAction {
     #[command(
-        about = "turn reporter and manager mail on: the provider's key goes to the Worker as a secret, the sender to its database"
+        about = "turn User and Owner mail on: the provider's key goes to the Worker as a secret, the sender to its database"
     )]
     Set(SetArgs),
     #[command(about = "show whether mail is on, with its provider and sender")]

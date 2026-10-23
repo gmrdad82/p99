@@ -212,6 +212,15 @@ try {
         value: input.value,
       };
     }, sel);
+  const listed = async (p, s, ready, ms = 10000) => {
+    const t0 = Date.now();
+    let l = await listbox(p, s);
+    while (!ready(l) && Date.now() - t0 < ms) {
+      await p.waitForTimeout(50);
+      l = await listbox(p, s);
+    }
+    return l;
+  };
   const hidden = (p, name) => p.evaluate((n) => document.querySelector("p99-root").shadowRoot.querySelector(`.p99-manage [name=${n}]`).value, name);
   const pickers = { assignee: ".p99-picker:nth-of-type(1)", duplicate: ".p99-picker:nth-of-type(2)" };
   const sel = (k) => `.p99-manage ${pickers[k]}`;
@@ -223,12 +232,10 @@ try {
     await toManage(p);
 
     await hit(`${sel("assignee")} [role=combobox]`);
-    await p.waitForTimeout(400);
-    let l = await listbox(p, sel("assignee"));
+    let l = await listed(p, sel("assignee"), (l) => l.open && l.items.some((t) => t.includes("@grace.hopper")));
     check(`${label}: the assignee picker opens with Unassigned and the people (${l.items.join(" | ")})`, l.open && l.items[0] === "Unassigned" && l.items.some((t) => t.includes("@grace.hopper")) && !l.items.some((t) => t.includes("@example.com")) && l.fits);
     await p.keyboard.type("hop");
-    await p.waitForTimeout(200);
-    l = await listbox(p, sel("assignee"));
+    l = await listed(p, sel("assignee"), (l) => l.items.length === 1);
     check(`${label}:   typing filters it to Grace, first one active`, l.items.length === 1 && /grace/.test(l.active || ""));
     await p.keyboard.press("Enter");
     check(`${label}:   Enter picks her`, (await hidden(p, "assignee")) === "grace.hopper" && (await listbox(p, sel("assignee"))).value === "@grace.hopper" && !(await listbox(p, sel("assignee"))).open);
@@ -238,24 +245,10 @@ try {
     check(`${label}:   a ${touch ? "tap" : "click"} picks Linus`, (await hidden(p, "assignee")) === "linus.park");
 
     await hit(`${sel("duplicate")} [role=combobox]`);
-    await p
-      .waitForFunction((s) => {
-        const r = document.querySelector("p99-root").shadowRoot;
-        const lb = r.getElementById(r.querySelector(s + " [role=combobox]").getAttribute("aria-controls"));
-        return lb.querySelectorAll("[role=option]:not([aria-disabled])").length >= 4;
-      }, sel("duplicate"), { timeout: 5000 })
-      .catch(() => {});
-    l = await listbox(p, sel("duplicate"));
+    l = await listed(p, sel("duplicate"), (l) => l.open && l.items.length >= 4);
     check(`${label}: the duplicate picker lists this site's items, newest first, never the item itself (${l.items.length})`, l.open && l.items.length >= 4 && !l.items.some((t) => t.startsWith(main.key)) && l.items[0].startsWith(cart.key) && l.fits);
     await p.keyboard.type("badge");
-    await p
-      .waitForFunction((s) => {
-        const r = document.querySelector("p99-root").shadowRoot;
-        const lb = r.getElementById(r.querySelector(s + " [role=combobox]").getAttribute("aria-controls"));
-        return lb.querySelectorAll("[role=option]:not([aria-disabled])").length === 1;
-      }, sel("duplicate"), { timeout: 5000 })
-      .catch(() => {});
-    l = await listbox(p, sel("duplicate"));
+    l = await listed(p, sel("duplicate"), (l) => l.items.length === 1);
     check(`${label}:   typing words searches (${l.items.join(" | ")})`, l.items.length === 1 && l.items[0].startsWith(cart.key));
     await p.keyboard.press("ArrowDown");
     await p.keyboard.press("ArrowUp");
@@ -269,7 +262,7 @@ try {
 
     const moves = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-manage .p99-move-to option"), (o) => o.value));
     const drop = await p.evaluate(() => { const o = document.querySelector("p99-root").shadowRoot.querySelector(".p99-manage .p99-move-to option:last-child"); return o && o.dataset.drop; });
-    check(`${label}: Move to lists the labels on my boards and ends with Drop (${moves.join(" | ")})`, moves[0] === "Inbox" && moves.includes("Done") && drop === "Done");
+    check(`${label}: Move to lists the seven lanes in lane order, the item's own first, and ends with Drop (${moves.join(" | ")})`, moves.join("|") === "New|Planned|In progress|Needs you|Stuck|Landed|Done|" && drop === "Done");
     const gone = await p.evaluate(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-tag-pick, .p99-manage [name=priority], .p99-manage [name=status]"));
     check(`${label}: no labels picker, Priority or Status select in Manage`, gone);
     const wide = await p.evaluate(() => { const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-scroll"); return s.scrollWidth <= s.clientWidth; });
@@ -281,17 +274,20 @@ try {
       check(`Save sends the picks (${got.assignee && got.assignee.username}, ${got.duplicate_of})`, got.assignee && got.assignee.username === "linus.park" && !!got.duplicate_of);
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { assignee: null, duplicate_of: null, resolution: null });
       const moved = await open(DESK, main.key);
+      let offered = [];
       const pickMove = async (opt) => {
         await moved.p.waitForFunction(() => document.querySelectorAll("p99-root").length && document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option").length > 2);
         await toManage(moved.p);
+        offered = await moved.p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-move-to option"), (o) => o.value));
         await moved.p.locator(S(".p99-move-to select")).selectOption(opt);
         await moved.p.locator(S(".p99-manage > button[type=submit]")).click();
         await moved.p.waitForTimeout(1500);
         return (await api("GET", `/issues/${main.key}?host=${HOST}`)).json.issue;
       };
-      const doing = await pickMove({ label: "Doing" });
-      check(`Save with Move to Doing moves the item (${doing.label}, ${doing.stage})`, doing.label === "Doing" && doing.stage === "in_progress");
+      const doing = await pickMove({ label: "In progress" });
+      check(`Save with Move to In progress moves the item (${doing.label}, ${doing.stage})`, doing.label === "In progress" && doing.stage === "in_progress");
       const dropped = await pickMove({ label: "Drop (close without fixing)" });
+      check(`Move to on an item in a later lane lists its own lane first, then the rest in lane order (${offered.join(" | ")})`, offered.join("|") === "In progress|New|Planned|Needs you|Stuck|Landed|Done|");
       check(`Drop closes it under Done without fixing (${dropped.label}, ${dropped.resolution}, ${dropped.stage})`, dropped.label === "Done" && dropped.resolution === "abandoned" && dropped.stage === "dropped");
       await must("PATCH", `/issues/${main.key}?host=${HOST}`, { resolution: null });
       await moved.ctx.close();

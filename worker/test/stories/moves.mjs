@@ -57,7 +57,7 @@ function held(base, count) {
 }
 
 export async function moveStories({ base, call, check, issueBody, here, keys, root, work }) {
-  await check("moves: two CLI sessions moving one card at once both read it in the Inbox, and its history ends with exactly one move", async () => {
+  await check("moves: two CLI sessions moving one card at once both read it in New, and its history ends with exactly one move", async () => {
     const dir = join(work, "moves");
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, "home"), { recursive: true });
@@ -108,15 +108,16 @@ export async function moveStories({ base, call, check, issueBody, here, keys, ro
           });
         });
 
-      const listed = await call("GET", `/_p99/v1/boards?host=${here}`, { actor: MARY });
+      const listed = await call("GET", `/_p99/v1/board?host=${here}`, { actor: MARY });
       assert.equal(listed.status, 200, JSON.stringify(listed.json));
-      const columns = listed.json.boards.find((b) => b.mine).columns.map((c) => c.label);
+      const lanes = listed.json.board.lanes;
+      assert.deepEqual(lanes.map((l) => l.word), ["new", "planned", "in-progress", "needs-you", "stuck", "landed", "done"]);
       const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { actor: MARY, body: issueBody({ title: "Two tabs move the same report" }) });
       assert.equal(filed.status, 201, JSON.stringify(filed.json));
       const key = filed.json.key;
-      const [inbox, doing] = columns;
+      const [inbox, doing] = [lanes[0].label, lanes[2].label];
 
-      const both = await Promise.all([run(["move", key, "--to", doing, "--host", here]), run(["move", key, "--to", doing, "--host", here])]);
+      const both = await Promise.all([run(["move", key, "--to", "in-progress", "--host", here]), run(["move", key, "--to", "in-progress", "--host", here])]);
       const landed = both.filter((r) => r.status === 0);
       const refused = both.filter((r) => r.status !== 0);
       assert.equal(landed.length, 1, JSON.stringify(both));

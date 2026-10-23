@@ -16,6 +16,8 @@ pub enum Lane {
     New,
     Planned,
     InProgress,
+    #[value(alias = "needs you")]
+    NeedsYou,
     Stuck,
     Landed,
     Done,
@@ -27,9 +29,22 @@ impl Lane {
             Lane::New => "new",
             Lane::Planned => "planned",
             Lane::InProgress => "in-progress",
+            Lane::NeedsYou => "needs-you",
             Lane::Stuck => "stuck",
             Lane::Landed => "landed",
             Lane::Done => "done",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Lane::New => "New",
+            Lane::Planned => "Planned",
+            Lane::InProgress => "In progress",
+            Lane::NeedsYou => "Needs you",
+            Lane::Stuck => "Stuck",
+            Lane::Landed => "Landed",
+            Lane::Done => "Done",
         }
     }
 }
@@ -552,8 +567,37 @@ mod tests {
         let words: Vec<&str> = Lane::value_variants().iter().map(|l| l.word()).collect();
         assert_eq!(
             words,
-            ["new", "planned", "in-progress", "stuck", "landed", "done"]
+            [
+                "new",
+                "planned",
+                "in-progress",
+                "needs-you",
+                "stuck",
+                "landed",
+                "done"
+            ]
         );
+        let names: Vec<&str> = Lane::value_variants().iter().map(|l| l.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "New",
+                "Planned",
+                "In progress",
+                "Needs you",
+                "Stuck",
+                "Landed",
+                "Done"
+            ]
+        );
+        assert_eq!(Lane::from_str("needs you", true).unwrap(), Lane::NeedsYou);
+        assert_eq!(Lane::from_str("NEEDS-YOU", true).unwrap(), Lane::NeedsYou);
+        assert!(Lane::from_str("needs_you", true).is_err());
+        assert_eq!(
+            serde_json::from_str::<Lane>("\"needs-you\"").unwrap(),
+            Lane::NeedsYou
+        );
+
         for source in Source::value_variants() {
             let json = serde_json::to_string(source).unwrap();
             assert_eq!(json, format!("\"{}\"", source.word()));

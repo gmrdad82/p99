@@ -318,7 +318,7 @@ async function stills(thread) {
     await p.waitForFunction(() => {
       const r = document.querySelector("p99-root")?.shadowRoot;
       const n = r && r.querySelector(".w .n");
-      return n && !n.hidden;
+      return n && n.textContent;
     });
     await p.evaluate(() => document.activeElement?.blur());
     await shot(p, `badge-${scheme}.png`, { x: 1280 - 420, y: 800 - 240, width: 420, height: 240 });

@@ -6,14 +6,15 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { LABEL_COLUMNS, LABEL_JOIN, useKit as useBoardKit } from "../src/boards.js";
 import { useKit as useCardKit } from "../src/cards.js";
-import { cardSide } from "../src/cards-read.js";
 import { cardsBoard, patchProject, postCardStatus } from "../src/cards-write.js";
+import { leaveNeedsYou } from "../src/needs-you.js";
 import { isChars } from "../src/text.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const NOW = "2026-10-23T09:00:00.000Z";
 const HOST = "shop.example.com";
 const ADA = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
+const GRACE = { email: "grace@example.com", name: "Grace Hopper", agent: false };
 const MOVED = { status: 409, body: { message: "this card moved; refreshed", error: "moved" } };
 
 class Refused extends Error {
@@ -50,7 +51,6 @@ function query(firstBinds = []) {
 
 useBoardKit({
   MAX_JSON_BYTES: 1 << 20,
-  cardSide,
   fail,
   json,
   keyOf,
@@ -254,7 +254,7 @@ test("two cards moved into one lane at once with a note each both land, each wit
     assert.equal(events(w, id, "comment").length, 1);
     assert.equal(events(w, id, "label").length, 1);
     assert.equal(positions(w, id).length, 1);
-    assert.equal(itemOf(w, id).label_id, w.lanes[3]);
+    assert.equal(itemOf(w, id).label_id, w.lanes[4]);
   }
 });
 
@@ -270,37 +270,70 @@ test("a note on a card that stays in its lane is still stored when nothing races
   assert.deepEqual(positions(w, 41), [{ label_id: w.lanes[1], key: "a0" }]);
 });
 
-test("two project sets of one plain issue at once, both read first: the winner's name, one project event and one key stand; the loser gets 409 and writes nothing", async () => {
+test("two project sets of one plain issue at once, both read first: the winner's name and one project event stand; the loser gets 409 and writes nothing, and the issue keeps its lane", async () => {
   const w = await world();
   item(w, 51, w.inbox, null);
   const { out, log } = await race(w, [project(w, 51, "Paper"), project(w, 51, "Splicer")]);
   assert.deepEqual(log, readsFirst(2));
   assert.equal(out[1].status, 200, JSON.stringify(out[1]));
   assert.deepEqual(out[0], MOVED);
-  assert.deepEqual(itemOf(w, 51), { label_id: w.lanes[0], project: "Splicer", comment_count: 0 });
+  assert.deepEqual(itemOf(w, 51), { label_id: w.inbox, project: "Splicer", comment_count: 0 });
   assert.deepEqual(events(w, 51, "project"), [{ from: null, to: "Splicer" }]);
-  assert.equal(events(w, 51, "label").length, 1);
-  assert.equal(positions(w, 51).length, 1);
+  assert.deepEqual(events(w, 51, "label"), []);
+  assert.deepEqual(positions(w, 51), []);
 });
 
-test("two project clears of one card in a lane at once, both read first: one project event, the card in the inbox with no key; the loser gets 409", async () => {
+test("two project clears of one card in a lane at once, both read first: one project event, the card stays in its lane with its key; the loser gets 409", async () => {
   const w = await world();
   item(w, 61, w.lanes[2], "Splicer", "a0");
   const { out } = await race(w, [project(w, 61, null), project(w, 61, null)]);
   assert.deepEqual(out[1], { status: 200, body: { id: 61 } });
   assert.deepEqual(out[0], MOVED);
-  assert.deepEqual(itemOf(w, 61), { label_id: w.inbox, project: null, comment_count: 0 });
+  assert.deepEqual(itemOf(w, 61), { label_id: w.lanes[2], project: null, comment_count: 0 });
   assert.deepEqual(events(w, 61, "project"), [{ from: "Splicer", to: null }]);
-  assert.equal(events(w, 61, "label").length, 1);
-  assert.deepEqual(positions(w, 61), []);
+  assert.deepEqual(events(w, 61, "label"), []);
+  assert.deepEqual(positions(w, 61), [{ label_id: w.lanes[2], key: "a0" }]);
 });
 
-test("a project set on a plain issue already open in the first lane needs no move and still lands", async () => {
+test("a project rename of one card raced by a clear, both read first: the first to write stands with its one event; the other gets 409", async () => {
+  const w = await world();
+  item(w, 65, w.lanes[1], "Splicer", "a0");
+  const { out } = await race(w, [project(w, 65, "Paper"), project(w, 65, null)]);
+  assert.deepEqual(out[1], { status: 200, body: { id: 65 } });
+  assert.deepEqual(out[0], MOVED);
+  assert.equal(itemOf(w, 65).project, null);
+  assert.deepEqual(events(w, 65, "project"), [{ from: "Splicer", to: null }]);
+});
+
+test("a project set on a plain issue already open in the first lane lands without a move", async () => {
   const w = await world();
   item(w, 71, w.lanes[0], null);
   const out = await answer(() => patchProject(context(d1(w.db), {}), rowOf(w, 71), { project: "Splicer" }));
   assert.equal(out.status, 200, JSON.stringify(out));
   assert.deepEqual(itemOf(w, 71), { label_id: w.lanes[0], project: "Splicer", comment_count: 0 });
   assert.deepEqual(events(w, 71, "project"), [{ from: null, to: "Splicer" }]);
-  assert.equal(positions(w, 71).length, 1);
+  assert.deepEqual(events(w, 71, "label"), []);
+});
+
+test("two replies that each take one card out of Needs you, both read first: one moves it back with one label event and one key; the other writes no event, and no key over a reorder that landed since", async () => {
+  const w = await world();
+  item(w, 81, w.lanes[3], "Splicer", "a0");
+  item(w, 82, w.lanes[2], "Splicer", "a0");
+  const row = rowOf(w, 81);
+  const plans = [];
+  for (const actor of [ADA, GRACE]) plans.push(await leaveNeedsYou({ ...context(d1(w.db), {}), actor }, row));
+  for (const plan of plans) assert.equal(plan.statements.length > 0, true);
+  const DB = d1(w.db);
+  const won = await DB.batch(plans[1].statements);
+  const [placed] = positions(w, 81);
+  assert.equal(placed.label_id, w.lanes[2]);
+  assert.ok(placed.key < "a0", placed.key);
+  w.db.prepare("UPDATE board_positions SET key = 'a1' WHERE item_id = 81").run();
+  const lost = await DB.batch(plans[0].statements);
+  assert.equal(won[0].meta.changes, 1);
+  assert.equal(lost[0].meta.changes, 0);
+  assert.equal(itemOf(w, 81).label_id, w.lanes[2]);
+  assert.equal(events(w, 81, "label").length, 1);
+  assert.deepEqual(positions(w, 81), [{ label_id: w.lanes[2], key: "a1" }]);
+  assert.deepEqual(positions(w, 82), [{ label_id: w.lanes[2], key: "a0" }]);
 });

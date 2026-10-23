@@ -681,7 +681,7 @@ fn status_to_a_label_moves_the_item_from_the_label_it_shows() {
 }
 
 #[test]
-fn status_on_an_item_without_a_label_says_only_a_manager_moves_it() {
+fn status_on_an_item_without_a_label_says_only_an_owner_moves_it() {
     let h = Home::new("status-nolabel", |req: &Req| {
         if req.is("GET", "/_p99/v1/issues/12") {
             let mut t = thread(12, "x");
@@ -692,7 +692,7 @@ fn status_on_an_item_without_a_label_says_only_a_manager_moves_it() {
         }
     });
     h.p99(&["status", "BUG-12", "Doing"])
-        .refused("12 shows no label; only a manager moves items");
+        .refused("12 shows no label; only an Owner moves items");
     assert!(h.stub.calls("POST", "/_p99/v1/move").is_empty());
 }
 
