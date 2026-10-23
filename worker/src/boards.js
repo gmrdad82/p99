@@ -565,8 +565,10 @@ export function placeIn(column, selfId, anchor, anchorId) {
   if (unkeyed === 0 || slot > unkeyed) {
     const prev = slot > 0 ? list[slot - 1].key : null;
     const next = slot < list.length ? list[slot].key : null;
-    const key = generateKeyBetween(prev, next);
-    if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    if (prev === null || next === null || prev < next) {
+      const key = generateKeyBetween(prev, next);
+      if (key.length <= LONG_KEY) return { key, rows: [{ id: selfId, key }] };
+    }
   }
   const ordered = [...list.slice(0, slot), { id: selfId }, ...list.slice(slot)];
   const keys = generateNKeysBetween(null, null, ordered.length);

@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { LABEL_COLUMNS, LABEL_JOIN, closeItem, postMove, useKit } from "../src/boards.js";
+import { LABEL_COLUMNS, LABEL_JOIN, closeItem, placeIn, postMove, useKit } from "../src/boards.js";
 import { cardSide } from "../src/cards-read.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -238,6 +238,39 @@ test("two different cards moved into a column that holds an unkeyed card both la
     assert.equal(positions(db, id)[0].label_id, DOING);
   }
   assert.equal(positions(db, 103).length, 1);
+});
+
+test("two cards raced to the top of one column share a key, and a later move anchored between them rebalances the column instead of failing", async () => {
+  const db = world();
+  item(db, 111, INBOX, "a0");
+  item(db, 112, INBOX, "a1");
+  item(db, 113, DOING, "a0");
+  item(db, 114, INBOX, "a2");
+  const { out } = await race(db, [
+    { key: "BUG-111", from: "Inbox", to: "Doing", board: BOARD },
+    { key: "BUG-112", from: "Inbox", to: "Doing", board: BOARD },
+  ]);
+  assert.deepEqual(out.map((r) => r.status), [200, 200]);
+  assert.equal(positions(db, 111)[0].key, positions(db, 112)[0].key);
+  const moved = await answer(() => postMove(context(d1(db), { key: "BUG-114", from: "Inbox", to: "Doing", board: BOARD, after: "BUG-112" })));
+  assert.equal(moved.status, 200);
+  assert.deepEqual(events(db, 114, "label"), [{ from: "Inbox", to: "Doing" }]);
+  const column = db.prepare("SELECT item_id, key FROM board_positions WHERE board_id = ? AND label_id = ? ORDER BY key").all(BOARD, DOING);
+  assert.deepEqual(column.map((r) => r.item_id), [112, 114, 111, 113]);
+  assert.equal(new Set(column.map((r) => r.key)).size, 4);
+  assert.equal(moved.body.card.order, column[1].key);
+});
+
+test("placing between two cards that share a key rebalances the whole column in order, before or after the anchor", () => {
+  const column = [{ id: 1, key: "Zz" }, { id: 2, key: "Zz" }, { id: 3, key: "a0" }];
+  for (const [side, anchorId] of [["after", 1], ["before", 2]]) {
+    const { key, rows } = placeIn(column, 9, { raw: `BUG-${anchorId}`, side }, anchorId);
+    assert.deepEqual(rows.map((r) => r.id), [1, 9, 2, 3]);
+    const keys = rows.map((r) => r.key);
+    assert.deepEqual([...keys].sort(), keys);
+    assert.equal(new Set(keys).size, 4);
+    assert.equal(key, rows.find((r) => r.id === 9).key);
+  }
 });
 
 test("two reorders of one card in its own column, both read first: one lands, the other gets 409, the card keeps the winner's one key", async () => {
