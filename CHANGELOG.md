@@ -2,6 +2,29 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.11.0 — 2026-10-23
+
+### Added
+
+- One board per account. Every item, plain or card, sits on one board whose lanes are `new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed` and `done`; a card's place in its lane is its priority, and any Owner moves cards. The panel's "…" filter and the TUI's project picker choose what shows.
+- `needs-you`: the pipeline sets it when something waits on a person, and a person's comment moves the card back to the lane it came from. `p99 cards --waiting` lists what waits on you (needs you, stuck, landed), and the widget's ⋯ button shows its count to Owners.
+- The TUI shows the waiting count in its header, opens the Needs you list with `w`, filters by one or more projects, and keeps working when one account's Worker is older (one line names it and how to upgrade it).
+- `p99 invites delete <id>` (also `p99 codes delete`) removes a revoked code for good, after its hint is typed back; the TUI's Codes tab does the same.
+- The role words are Owner and User everywhere P99 names a role; Guest is kept for people without a code.
+
+### Changed
+
+- The migration to one board (0016) runs only with `p99 deploy --accept-plan`, after `p99 migrate --plan` has shown it. Items keep their history (each move names the old column), the old boards are kept read-only, and nothing is deleted. A lane renamed on an older Cards board is archived read-only and its cards move to In progress; nothing is lost.
+- `p99 board` prints the one board; `GET /boards` answers for this release only, marked deprecated, and board writes answer 410.
+- `--manager` (now `--owner`), and `manager`, `person` and `reporter` as role words, still work in this release and go in the next; JSON carries `role` beside `manager` for this release.
+- pito-tui 1.3.0, with pito-header 1.1.2, pito-list 1.1.1 and pito-hourglass 1.0.2.
+- The waiting dot doesn't fade when the system asks for reduced motion.
+
+### Fixed
+
+- Moving one card from two places at once records one move; the other is told the card moved.
+- A title change and an assignee change made at once both stick.
+
 ## v1.10.0 — 2026-10-22
 
 ### Added
