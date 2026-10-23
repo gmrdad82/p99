@@ -414,6 +414,29 @@ export async function foldChecks({ check, root }) {
     assert.equal(db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'one\\_%' ESCAPE '\\'").get().n, 0);
   });
 
+  await check("[fold] the plan's own queries list exactly the labels 0016 then moves items from, whether the Cards board gets Needs you, is reset or is filled", async () => {
+    const plan = (name) => readFileSync(join(root, "..", "src", "fold", `${name}.sql`), "utf8");
+    for (const [how, extra, step] of [
+      ["insert", "", 6],
+      ["reset", "UPDATE labels SET name = 'Needs you' WHERE name = 'Stuck';", 6],
+      ["fill", "DELETE FROM board_columns WHERE board_id = 14;", 0],
+    ]) {
+      const db = seeded(root, extra);
+      const cards = db.prepare(plan("boards")).all().find((b) => b.cards === 1);
+      assert.equal(cards.columns, step, how);
+      const listed = db.prepare(plan("labels")).all().filter((r) => r.items > 0).map((r) => r.label).sort();
+      const unplaced = db.prepare(plan("unplaced")).get().items;
+      fold(root, db);
+      const lanes = new Set(laneNames(db));
+      const moved = [...new Set(db.prepare("SELECT json_extract(detail_json, '$.from') AS f FROM events WHERE kind = 'label' AND json_extract(detail_json, '$.migrated')").all().map((r) => r.f))]
+        .filter((f) => !lanes.has(f))
+        .sort();
+      assert.deepEqual(listed, moved, how);
+      assert.ok(listed.includes("Triage") && listed.includes("Shipped"), `${how}: ${listed}`);
+      assert.ok(unplaced > 0, how);
+    }
+  });
+
   await check("[fold] running 0016 twice changes nothing the second time", async () => {
     const db = seeded(root);
     fold(root, db);
