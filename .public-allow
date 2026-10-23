@@ -241,3 +241,22 @@ commit/b848a190f4a1:tests/stories_setup.rs:1468 a fake vault reference or the va
 commit/b848a190f4a1:tests/stories_setup.rs:1470 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
 commit/b848a190f4a1:tests/stories_setup.rs:1474 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
 commit/b848a190f4a1:tests/stories_setup.rs:1512 a fake vault reference or the vault tool's name in the vault and setup tests, from the one-board train's history
+commit/1eb0c27f37dc:tests/stories_deploy.rs:1704 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:docs/config.md:65 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:docs/guides/github.md:17 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:docs/guides/invite.md:124 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:docs/guides/invite.md:62 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:docs/guides/setup.md:87 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:README.md:131 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:src/links.rs:192 the documented secret-reference feature, as waived at its current line
+commit/90515c6fdf90:tests/cli_admin.rs:911 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1315 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1316 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1342 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1405 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1439 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1443 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1468 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1470 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1474 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
+commit/90515c6fdf90:tests/stories_setup.rs:1512 a fake vault reference in the tests, from the deploy-refusal line's history, as waived at its current line
