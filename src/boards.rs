@@ -1,9 +1,14 @@
-use std::io::{BufRead, IsTerminal, Write};
+use serde_json::Value;
 
+use crate::card::Lane;
 use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
-use crate::wire::{BoardSpec, Issue, LaneBoard, LaneCard, LanePage, LaneSpec, MoveTo, out};
+use crate::one_board::{
+    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, archived_lines, board_lines, lane_lines,
+    lane_named, lanes_from, refusal,
+};
+use crate::wire::{Issue, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
@@ -11,21 +16,21 @@ pub struct MoveArgs {
     pub key: String,
     #[arg(
         long,
-        value_name = "label",
-        help = "a label on your boards: its column"
+        value_name = "lane",
+        help = "a lane's word (`new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed`, `done`) or its name"
     )]
     pub to: String,
     #[arg(
         long,
         value_name = "KEY",
         conflicts_with = "after",
-        help = "place it just above this card on your board"
+        help = "place it just above this card in its lane"
     )]
     pub before: Option<String>,
     #[arg(
         long,
         value_name = "KEY",
-        help = "place it just below this card on your board"
+        help = "place it just below this card in its lane"
     )]
     pub after: Option<String>,
     #[arg(long, help = "the host the item belongs to")]
@@ -34,7 +39,7 @@ pub struct MoveArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct BoardsArgs {
-    #[arg(long, help = "the boards of this host")]
+    #[arg(long, help = "the account of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<BoardsAction>,
@@ -42,7 +47,8 @@ pub struct BoardsArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum BoardsAction {
-    #[command(about = "make one of your boards, or change its columns")]
+    #[allow(dead_code)]
+    #[command(about = "gone: boards are one per account; p99 board prints it")]
     Set {
         #[arg(help = "the board's name")]
         name: String,
@@ -63,15 +69,19 @@ pub enum BoardsAction {
 
 #[derive(Debug, clap::Args)]
 pub struct BoardArgs {
-    #[arg(help = "a board's name, or @username for that person's board; yours by default")]
-    pub which: Option<String>,
-    #[arg(long, help = "the boards of this host")]
+    #[arg(
+        long,
+        value_name = "name",
+        help = "only this project's cards; repeat it for several"
+    )]
+    pub project: Vec<String>,
+    #[arg(long, help = "only this host's items")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct LabelsArgs {
-    #[arg(long, help = "the boards of this host")]
+    #[arg(long, help = "the account of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<LabelsAction>,
@@ -79,13 +89,13 @@ pub struct LabelsArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum LabelsAction {
-    #[command(about = "rename a label on every board and item that has it")]
+    #[command(about = "rename a lane for everyone; its word stays")]
     Rename {
-        #[arg(help = "the label's name now")]
+        #[arg(help = "the lane's name now, or its word (needs-you)")]
         from: String,
         #[arg(help = "its new name")]
         to: String,
-        #[arg(long, help = "rename without asking, even when others' boards use it")]
+        #[arg(long, help = "kept for scripts; a lane's rename never asks")]
         yes: bool,
     },
 }
@@ -100,8 +110,21 @@ fn key(raw: &str) -> Result<String, String> {
     crate::cli::key_of(raw)
 }
 
+pub const GONE: &str = "boards are one per account; see p99 board";
+
 fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
+}
+
+pub fn lane_name(to: &str, lanes: &[LaneInfo]) -> String {
+    use clap::ValueEnum;
+    match Lane::from_str(to.trim(), true) {
+        Ok(lane) => lanes
+            .iter()
+            .find(|l| l.word == lane)
+            .map_or_else(|| lane.name().to_owned(), |l| l.label.clone()),
+        Err(_) => to.trim().to_owned(),
+    }
 }
 
 pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
@@ -114,15 +137,18 @@ pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
 
 pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
     if !error.ends_with("(409)") {
-        return error;
+        return crate::card::refusal(error);
     }
     match client.thread(key).map(|thread| thread.issue) {
         Ok(Issue {
             key,
             label: Some(now),
             ..
-        }) => meanwhile(&key, &now, to),
-        _ => error,
+        }) => {
+            let lanes = lanes_of(client);
+            meanwhile(&key, &now, &lane_name(to, &lanes))
+        }
+        _ => crate::card::refusal(error),
     }
 }
 
@@ -139,12 +165,12 @@ pub fn label_move(
         .thread(&key)?
         .issue
         .label
-        .ok_or_else(|| format!("{key} shows no label; only a manager moves items"))?;
+        .ok_or_else(|| format!("{key} shows no label; only an Owner moves items"))?;
     let moved = client
         .move_to(&MoveTo {
             key: key.clone(),
             from,
-            to: to.to_owned(),
+            to: to.trim().to_owned(),
             ..MoveTo::default()
         })
         .map_err(|error| raced(&client, &key, to, error))?;
@@ -165,18 +191,13 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
         .thread(&key)?
         .issue
         .label
-        .ok_or_else(|| format!("{key} shows no label; only a manager moves items"))?;
-    let boards = client.lanes()?.boards;
-    let board = boards
-        .iter()
-        .find(|b| b.mine && b.columns.iter().any(|c| same(&c.label, &args.to)))
-        .ok_or_else(|| format!("none of your boards has a {} column", args.to))?;
+        .ok_or_else(|| format!("{key} shows no label; only an Owner moves items"))?;
     let moved = client
         .move_to(&MoveTo {
             key: key.clone(),
             from,
-            to: args.to.clone(),
-            board: Some(board.id),
+            to: args.to.trim().to_owned(),
+            board: None,
             before: args.before.as_deref().map(crate::cli::key_of).transpose()?,
             after: args.after.as_deref().map(crate::cli::key_of).transpose()?,
         })
@@ -184,258 +205,85 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
     if global.json {
         return print_json(&moved);
     }
-    out!(
-        "{} is in {} on {}",
-        moved.card.key,
-        moved.card.label,
-        board.name
-    );
+    out!("{} is in {}", moved.card.key, moved.card.label);
     Ok(())
-}
-
-fn owner_of(board: &LaneBoard) -> String {
-    board
-        .owner
-        .as_ref()
-        .map_or_else(|| "someone".to_owned(), |o| o.handle())
-}
-
-fn columns_text(board: &LaneBoard) -> String {
-    board
-        .columns
-        .iter()
-        .map(|c| {
-            if c.closes {
-                format!("{} (closes)", c.label)
-            } else {
-                c.label.clone()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), String> {
-    let boards = client(config, global, host)?.lanes()?;
+    let raw = client(config, global, host)?.old_boards()?;
     if global.json {
-        return print_json(&boards);
+        return print_json(&raw);
     }
-    for board in &boards.boards {
-        out!(
-            "{:<5} {:<24} {:<16} {}",
-            board.id,
-            board.name,
-            if board.mine {
-                "yours".to_owned()
-            } else {
-                owner_of(board)
-            },
-            columns_text(board)
-        );
-    }
-    Ok(())
-}
-
-fn specs(columns: &str, closes: Option<&str>) -> Result<Vec<LaneSpec>, String> {
-    let names: Vec<&str> = columns
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .collect();
-    let closing: Vec<&str> = closes
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|c| !c.is_empty())
-        .collect();
-    if let Some(stray) = closing.iter().find(|c| !names.iter().any(|n| same(n, c))) {
-        return Err(format!(
-            "--closes names {stray}, which is not one of the columns"
-        ));
-    }
-    Ok(names
-        .iter()
-        .map(|n| LaneSpec {
-            label: (*n).to_owned(),
-            closes: closes.map(|_| closing.iter().any(|c| same(c, n))),
-        })
-        .collect())
-}
-
-pub fn run_boards(config: &Config, global: &Global, args: &BoardsArgs) -> Result<(), String> {
-    let Some(BoardsAction::Set {
-        name,
-        columns,
-        closes,
-    }) = &args.action
-    else {
-        return list(config, global, args.host.as_deref());
-    };
-    let client = client(config, global, args.host.as_deref())?;
-    let spec = BoardSpec {
-        name: Some(name.clone()),
-        columns: Some(specs(columns, closes.as_deref())?),
-    };
-    let boards = client.lanes()?.boards;
-    let board = match boards.iter().find(|b| b.mine && same(&b.name, name)) {
-        Some(found) => client.set_lane_board(found.id, &spec)?,
-        None => client.add_lane_board(&spec)?,
-    };
-    if global.json {
-        return print_json(&board);
-    }
-    out!("{}: {}", board.name, columns_text(&board));
-    Ok(())
-}
-
-fn pick<'a>(boards: &'a [LaneBoard], which: Option<&str>) -> Result<&'a LaneBoard, String> {
-    let found = match which.map(str::trim) {
-        None | Some("") => boards.iter().find(|b| b.mine),
-        Some(raw) if raw.starts_with('@') => {
-            let wanted = raw.trim_start_matches('@');
-            boards.iter().find(|b| {
-                b.owner
-                    .as_ref()
-                    .and_then(|o| o.username.as_deref())
-                    .is_some_and(|u| same(u, wanted))
-            })
-        }
-        Some(raw) => boards
-            .iter()
-            .find(|b| b.mine && same(&b.name, raw))
-            .or_else(|| boards.iter().find(|b| same(&b.name, raw)))
-            .or_else(|| boards.iter().find(|b| b.id.to_string() == raw)),
-    };
-    found.ok_or_else(|| match which {
-        Some(raw) => format!("no board is called {raw}; p99 boards lists them"),
-        None => "you have no board here yet".to_owned(),
-    })
-}
-
-pub fn columns(page: &LanePage) -> Vec<String> {
-    let board = &page.board;
-    let mut lines = vec![format!(
-        "{} ({}){}",
-        board.name,
-        if board.mine {
-            "yours".to_owned()
-        } else {
-            owner_of(board)
-        },
-        if board.mine { "" } else { ", watching" }
-    )];
-    for column in &board.columns {
-        let cards: Vec<&LaneCard> = page
-            .cards
-            .iter()
-            .filter(|c| same(&c.label, &column.label))
-            .collect();
-        lines.push(String::new());
-        lines.push(format!(
-            "{} ({}){}",
-            column.label,
-            cards.len(),
-            if column.closes { ", closes" } else { "" }
-        ));
-        for card in cards {
-            let mut line = format!("  {:<9} {}", card.key, card.title);
-            if let Some(who) = &card.assignee {
-                line.push_str(&format!("  {}", who.handle()));
-            }
-            lines.push(line);
-        }
-    }
-    lines
-}
-
-pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(), String> {
-    let client = client(config, global, args.host.as_deref())?;
-    let boards = client.lanes()?.boards;
-    let board = pick(&boards, args.which.as_deref())?;
-    let page = client.lane(board.id)?;
-    if global.json {
-        return print_json(&page);
-    }
-    for line in columns(&page) {
+    let boards: OldBoards = serde_json::from_value(raw)
+        .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
+    eprintln!("p99: {DEPRECATED}");
+    for line in archived_lines(&boards) {
         out!("{line}");
     }
     Ok(())
 }
 
-fn confirm(question: &str) -> Result<bool, String> {
-    if !(std::io::stdin().is_terminal() && std::io::stderr().is_terminal()) {
-        return Err(format!("{question} Run it again with --yes to rename"));
+pub fn run_boards(config: &Config, global: &Global, args: &BoardsArgs) -> Result<(), String> {
+    if args.action.is_some() {
+        return Err(GONE.to_owned());
     }
-    let mut err = std::io::stderr();
-    let _ = write!(err, "{question} [y/N] ");
-    let _ = err.flush();
-    let mut line = String::new();
-    std::io::stdin()
-        .lock()
-        .read_line(&mut line)
-        .map_err(|e| format!("standard input: {e}"))?;
-    Ok(matches!(line.trim(), "y" | "Y" | "yes" | "Yes"))
+    list(config, global, args.host.as_deref())
+}
+
+pub fn run_board(config: &Config, global: &Global, args: &BoardArgs) -> Result<(), String> {
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let projects = args
+        .project
+        .iter()
+        .map(|p| crate::card::project(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let q = BoardQuery {
+        projects,
+        host: host.clone(),
+        ..BoardQuery::default()
+    };
+    let raw: Value = client(config, global, host.as_deref())?
+        .one_board(&q)
+        .map_err(refusal)?;
+    if global.json {
+        return print_json(&raw);
+    }
+    let board: OneBoard = serde_json::from_value(raw)
+        .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
+    for line in board_lines(&board) {
+        out!("{line}");
+    }
+    Ok(())
+}
+
+fn lanes_of(client: &Client) -> Vec<LaneInfo> {
+    let query = BoardQuery {
+        statuses: vec![Lane::NeedsYou],
+        ..BoardQuery::default()
+    };
+    client
+        .one_board::<OneBoard>(&query)
+        .map(|board| board.board.lanes)
+        .unwrap_or_default()
 }
 
 pub fn run_labels(config: &Config, global: &Global, args: &LabelsArgs) -> Result<(), String> {
     let client = client(config, global, args.host.as_deref())?;
     let labels = client.label_list()?;
-    let Some(LabelsAction::Rename { from, to, yes }) = &args.action else {
+    let Some(LabelsAction::Rename { from, to, .. }) = &args.action else {
         if global.json {
             return print_json(&serde_json::json!({ "labels": labels }));
         }
-        for label in &labels {
-            out!(
-                "{:<20} {:<7} {}",
-                label.name,
-                if label.closes { "closes" } else { "" },
-                label
-                    .boards
-                    .iter()
-                    .map(|b| format!(
-                        "{} @{}",
-                        b.name,
-                        b.owner_username.as_deref().unwrap_or("someone")
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            );
+        let lanes = lanes_from(&labels);
+        for line in lane_lines(&labels, &lanes) {
+            out!("{line}");
         }
         return Ok(());
     };
-    let label = labels
-        .iter()
-        .find(|l| same(&l.name, from))
-        .ok_or_else(|| format!("no label is called {from}; p99 labels lists them"))?;
-    let mine: Vec<i64> = client
-        .lanes()?
-        .boards
-        .iter()
-        .filter(|b| b.mine)
-        .map(|b| b.id)
-        .collect();
-    if !*yes && label.boards.iter().any(|b| !mine.contains(&b.id)) {
-        let mut owners: Vec<String> = Vec::new();
-        for b in &label.boards {
-            let who = if mine.contains(&b.id) {
-                "@you".to_owned()
-            } else {
-                format!("@{}", b.owner_username.as_deref().unwrap_or("someone"))
-            };
-            if !owners.contains(&who) {
-                owners.push(who);
-            }
-        }
-        let question = format!(
-            "Used on {} boards: {}. Rename for everyone?",
-            label.boards.len(),
-            owners.join(", ")
-        );
-        if !confirm(&question)? {
-            return Err("nothing renamed".into());
-        }
-    }
-    let renamed = client.rename_label(label.id, to)?;
+    let lanes = lanes_from(&labels);
+    let label = lane_named(&labels, &lanes, from)
+        .ok_or_else(|| format!("no lane is called {from}; p99 labels lists them"))?;
+    let renamed = client.rename_label(label.id, to.trim())?;
     if global.json {
         return print_json(&renamed);
     }
@@ -460,25 +308,26 @@ mod tests {
     }
 
     #[test]
-    fn closes_marks_only_the_named_columns_and_refuses_a_stray() {
-        let set = specs("Inbox, Doing ,QA ready,Done", Some("done")).unwrap();
+    fn a_lane_word_resolves_to_the_boards_name_for_it_and_a_name_stays_itself() {
+        let mut lanes: Vec<LaneInfo> = Vec::new();
+        assert_eq!(lane_name("needs-you", &lanes), "Needs you");
+        assert_eq!(lane_name(" in-progress ", &lanes), "In progress");
+        assert_eq!(lane_name(" QA ready ", &lanes), "QA ready");
+        lanes.push(LaneInfo {
+            word: Lane::NeedsYou,
+            label: "Waiting on me".to_owned(),
+            closes: false,
+        });
+        assert_eq!(lane_name("needs-you", &lanes), "Waiting on me");
+        assert_eq!(lane_name("needs you", &lanes), "Waiting on me");
+        assert_eq!(lane_name("stuck", &lanes), "Stuck");
         assert_eq!(
-            set.iter()
-                .map(|c| (c.label.as_str(), c.closes))
-                .collect::<Vec<_>>(),
-            [
-                ("Inbox", Some(false)),
-                ("Doing", Some(false)),
-                ("QA ready", Some(false)),
-                ("Done", Some(true))
-            ]
+            meanwhile("FEAT-41", "Waiting on me", &lane_name("needs-you", &lanes)),
+            "FEAT-41 moved to Waiting on me meanwhile; nothing left to move"
         );
-        assert!(
-            specs("Inbox,Doing,Done", None)
-                .unwrap()
-                .iter()
-                .all(|c| c.closes.is_none())
+        assert_eq!(
+            meanwhile("FEAT-41", "Needs you", &lane_name("needs-you", &[])),
+            "FEAT-41 moved to Needs you meanwhile; nothing left to move"
         );
-        assert!(specs("Inbox,Doing,Done", Some("Shipped")).is_err());
     }
 }

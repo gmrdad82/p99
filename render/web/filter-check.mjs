@@ -76,6 +76,7 @@ const CARDS = [
   card("FEAT-903", "Splicer", "new", "New", HOST, person("Ada Lovelace", false)),
 ];
 let NEAR = "FEAT-903";
+const WAITING = { cards: [], fail: false };
 const PROJECTS = [{ name: "Manfred", open: 1, done: 0 }, { name: "Splicer", open: 2, done: 0 }];
 
 function cardsAnswer(url) {
@@ -142,6 +143,9 @@ try {
   const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false })).secret;
   const byAgent = (await file("An agent filed this", { ...ADA, agent: true, via: "pci" })).key;
   const byPerson = (await file("A person filed this", GRACE)).key;
+  const filed = (await must("GET", `/issues/${byPerson}?host=${HOST}`)).issue.label;
+  await must("POST", `/move?host=${HOST}`, { key: byPerson, from: filed, to: "landed" });
+  const plainLanded = (await must("GET", `/issues/${byPerson}?host=${HOST}`)).issue.label;
   NEAR = (await must("POST", `/cards?host=${HOST}`, { client_uid: randomUUID(), project: "Splicer", title: "Splicer: a card on this website", host: HOST })).card.key;
   CARDS[2] = card(NEAR, "Splicer", "new", "New", HOST, person("Ada Lovelace", false));
 
@@ -161,6 +165,11 @@ try {
       const cursor = url.searchParams.get("cursor");
       const body = !paged ? { cards: all, next_cursor: null } : cursor === "page-2" ? { cards: all.slice(1), next_cursor: null } : { cards: all.slice(0, 1), next_cursor: all.length > 1 ? "page-2" : null };
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+    });
+    await p.route((url) => url.pathname === "/_p99/api/cards/waiting", (r) => {
+      asked.push(new URL(r.request().url()).pathname);
+      if (WAITING.fail) return r.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "the database is busy" }) });
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ count: WAITING.cards.length, cards: WAITING.cards }) });
     });
     await p.route((url) => url.pathname === "/_p99/api/projects", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: PROJECTS }) }));
     await p.route((url) => url.pathname === "/_p99/api/issues" && url.searchParams.has("source"), (r) => {
@@ -183,36 +192,72 @@ try {
     await ctx.addInitScript(openShadow);
     let p = await open(ctx, boss);
     let s = await settled(p);
-    check(`a manager's list shows the filter, All and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "all" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
-    check(`All lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
+    check(`a manager's list shows the filter, Only this website and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "site" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
+    check(`Only this website lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
 
     asked.length = 0;
     await source(p, "agent");
     s = await settled(p, (s) => s.source === "agent");
-    check(`Agents on All asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
+    check(`Agents on Only this website asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
 
     asked.length = 0;
     await source(p, "");
     await choose(p, "site");
-    s = await settled(p, (s) => s.view === "site" && s.keys.length > 0);
-    check(`Only this website asks /cards for this host and hides the item tabs and filters (${asked.join(" ")}; ${s.keys})`, asked.some((a) => a.includes("site=1")) && !s.tabs && !s.filters && s.keys.join() === `FEAT-901,${NEAR}`);
-    const sent = asked.filter((a) => a.startsWith("/_p99/api/cards?")).map((a) => new URLSearchParams(a.split("?")[1]));
-    check(`Only this website sends site=1 and no host of its own (${JSON.stringify(sent.map(String))})`, sent.length > 0 && sent.every((q) => q.getAll("site").join() === "1" && !q.has("host")));
-    check(`this website's cards open in the panel, not on a new tab (${s.here}; ${s.away})`, s.away.length === 0 && s.here.join() === `#p99=FEAT-901,#p99=${NEAR}`);
+    await p.locator(S("[data-scope=all]")).click();
+    s = await settled(p, (s) => s.view === "site" && s.keys.includes(NEAR));
+    check(`Only this website lists everything on this host, plain items and cards alike, with today's tabs and filters (${s.keys})`, s.tabs && s.filters && [byAgent, byPerson, NEAR].every((k) => s.keys.includes(k)));
+    check(`Only this website reads the item list, never /cards (${asked.join(" ")})`, !asked.some((a) => a.startsWith("/_p99/api/cards")));
+
+    await choose(p, "projects");
+    s = await settled(p, (s) => s.view === "projects" && s.keys.length === 3);
+    check(`with no project picked, Projects lists every card, this website's opening in the panel and another host's on its own site (${s.here}; ${s.away})`, s.here.join() === `#p99=FEAT-901,#p99=${NEAR}` && s.away.join() === "https://elsewhere.example.com/#p99=FEAT-902");
     await p.locator(S(`.p99-card-row a[href="#p99=${NEAR}"]`)).click();
     const inPanel = await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item]"), null, { timeout: 8000 }).then(() => true, () => false);
     check(`clicking this website's card opens it in place, in the same page (${inPanel}, ${ctx.pages().length} page)`, inPanel && ctx.pages().length === 1);
+    const note = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-check")?.textContent.trim() || null);
+    check(`an Owner's internal note names the role: "${note}"`, note === "Internal note (only Owners see it)");
 
     paged = true;
     asked.length = 0;
     await p.close();
     p = await open(ctx, boss);
-    s = await settled(p, (s) => s.view === "site" && s.keys.length > 0);
+    s = await settled(p, (s) => s.view === "projects" && s.keys.length > 0);
     check(`a long card list stops at a page and offers more (${s.keys}; more ${s.more})`, s.keys.join() === "FEAT-901" && s.more);
     await p.locator(S(".p99-more")).click();
-    s = await settled(p, (s) => s.keys.length === 2);
-    check(`more reads the next page with the cursor (${s.keys}; ${asked.join(" ")})`, s.keys.join() === `FEAT-901,${NEAR}` && asked.some((a) => a.includes("cursor=page-2")));
+    s = await settled(p, (s) => s.keys.length === 3);
+    check(`more reads the next page with the cursor (${s.keys}; ${asked.join(" ")})`, s.keys.join() === `FEAT-901,FEAT-902,${NEAR}` && asked.some((a) => a.includes("cursor=page-2")));
     paged = false;
+
+    WAITING.cards = [CARDS[0], { ...CARDS[1], status: "needs-you", label: "Needs you" }];
+    asked.length = 0;
+    await choose(p, "needs");
+    s = await settled(p, (s) => s.view === "needs" && s.keys.length === 2);
+    check(`Needs you lists what /cards/waiting answers, newest change first, without the item tabs and filters (${s.keys}; ${asked.join(" ")})`, s.keys.join() === "FEAT-901,FEAT-902" && !s.tabs && !s.filters && asked.some((a) => a === "/_p99/api/cards/waiting"));
+    check(`a needs-you card carries its lane (${s.lanes})`, s.lanes.join() === "landed,needs-you");
+    await source(p, "human");
+    s = await settled(p, (s) => s.source === "human" && s.keys.length === 1);
+    check(`People on Needs you keeps the cards a person changed last (${s.keys})`, s.keys.join() === "FEAT-902");
+    await source(p, "");
+    WAITING.fail = true;
+    await choose(p, "site");
+    await settled(p, (s) => s.view === "site");
+    await choose(p, "needs");
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results .p99-failed"), null, { timeout: 8000 }).catch(() => {});
+    const broke = await p.evaluate(() => {
+      const r = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results");
+      return { error: r.querySelector(".p99-error")?.textContent ?? null, role: r.querySelector(".p99-error")?.getAttribute("role") ?? null, retry: !!r.querySelector(".p99-retry"), keys: r.querySelectorAll(".p99-key").length };
+    });
+    check(`a failing /cards/waiting under Needs you says why with Retry, and lists nothing stale (${JSON.stringify(broke)})`, broke.error === "the database is busy" && broke.role === "alert" && broke.retry && broke.keys === 0);
+    WAITING.fail = false;
+    await p.locator(S(".p99-results .p99-retry")).click();
+    s = await settled(p, (s) => s.view === "needs" && s.keys.length === 2);
+    check(`Retry reads /cards/waiting again and lists it (${s.keys})`, s.keys.join() === "FEAT-901,FEAT-902");
+    WAITING.cards = [];
+    await choose(p, "site");
+    await settled(p, (s) => s.view === "site");
+    await choose(p, "needs");
+    s = await settled(p, (s) => s.view === "needs" && s.empty);
+    check(`with nothing waiting, Needs you says so (${s.empty})`, s.empty === "Nothing needs you.");
 
     asked.length = 0;
     await choose(p, "landed");
@@ -246,13 +291,13 @@ try {
     check(`a reload comes back to the same view, projects and source (${JSON.stringify(s)})`, s.view === "projects" && s.source === "agent" && s.projects.every(([, on]) => on) && s.keys.join() === "FEAT-901");
     await p.screenshot({ path: join(stills, "filter-projects-1440-light.png") });
 
-    await choose(p, "all");
+    await choose(p, "site");
     await source(p, "agent");
-    await settled(p, (s) => s.view === "all" && s.source === "agent");
+    await settled(p, (s) => s.view === "site" && s.source === "agent");
     const boardAsked = [];
-    await p.route((url) => url.pathname === "/_p99/api/issues" && url.searchParams.get("source") === "agent" && url.searchParams.get("status") === "any", (r) => {
-      boardAsked.push(new URL(r.request().url()).searchParams.get("limit"));
-      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ issues: [{ key: byAgent }], next_cursor: null }) });
+    await p.route((url) => url.pathname === "/_p99/api/board", (r) => {
+      boardAsked.push(new URL(r.request().url()).search);
+      r.fallback();
     });
     await p.locator(S(".p99-board-open")).click();
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board.is-open .p99-col[data-label]"), null, { timeout: 15000 });
@@ -265,7 +310,7 @@ try {
       };
     });
     check(`the board overlay shows only what the filter keeps, and says so (${JSON.stringify(board)})`, board.cards.join() === byAgent && board.note === "showing Agents");
-    check(`the board overlay reads the kept items at the widest page, 100 (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((l) => l === "100"));
+    check(`the board overlay asks the one board for this website with the filter's source, nothing else (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((q) => q === `?host=${HOST}&source=agent`));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", JSON.stringify({ view: "landed", projects: [], source: "" })));
     await p.close();
@@ -281,13 +326,14 @@ try {
         note: r.querySelector(".p99-board-filter")?.hidden === false ? r.querySelector(".p99-board-filter").textContent : null,
       };
     });
-    check(`under Landed the personal board overlay hides every plain item and says so (${JSON.stringify(landed)})`, landed.cards.length === 0 && /Landed/i.test(landed.note || ""));
+    check(`the seed has plain ${byPerson} in Landed, so the next check can fail (${plainLanded})`, /^landed$/i.test(plainLanded || ""));
+    check(`under Landed the one board shows no plain item, ${byPerson} included, and says so (${JSON.stringify(landed)})`, !landed.cards.includes(byPerson) && landed.cards.length === 0 && /Landed/i.test(landed.note || ""));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", "{not json"));
     await p.close();
     p = await open(ctx, boss);
     s = await settled(p);
-    check(`a broken stored choice falls back to All and Everyone (${s.view}, ${s.source})`, s.view === "all" && s.source === "");
+    check(`a broken stored choice falls back to Only this website and Everyone (${s.view}, ${s.source})`, s.view === "site" && s.source === "");
     await ctx.close();
   }
 
@@ -299,7 +345,7 @@ try {
     });
     const p = await open(ctx, boss);
     const s = await settled(p);
-    check(`with storage blocked the filter still draws at All (${s && s.view})`, s && s.pick && s.view === "all");
+    check(`with storage blocked the filter still draws at Only this website (${s && s.view})`, s && s.pick && s.view === "site");
     await ctx.close();
   }
 

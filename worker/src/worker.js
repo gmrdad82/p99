@@ -32,8 +32,12 @@ import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.j
 import { ipKey } from "./tries.js";
 import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
-import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
+import { CARD_READS, cardFilters } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
+import { ONE_BOARD_ROUTES } from "./one-board.js";
+import { NEEDS_ROUTES, leaveNeedsYou, waitingCount } from "./needs-you.js";
+import { deleteCode, useCodesKit } from "./codes-delete.js";
+import { managerOf, roleOf } from "./roles.js";
 import { BODY_REFUSED, TITLE_REFUSED, mayEditText, useKit as usePatchKit, writePatch } from "./patch.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
@@ -596,7 +600,7 @@ function requireEmptyBody(c) {
 }
 
 function requireManager(c) {
-  if (!c.manager) fail(403, "only managers may do this");
+  if (!c.manager) fail(403, "only an Owner may do this");
 }
 
 function query(firstBinds = []) {
@@ -854,6 +858,7 @@ function commentOf(row, c, attachmentIds = []) {
       email: c.manager || row.author_email === c.actor.email ? row.author_email : null,
       name: row.author_name,
       manager: Boolean(row.author_manager),
+      role: roleOf(row.author_manager),
       agent: Boolean(row.author_agent),
       via: row.author_agent ? (row.author_via ?? null) : null,
     },
@@ -907,6 +912,7 @@ function codeOf(row) {
     email: row.email,
     hosts: parseJson(row.hosts_json, []),
     manager: Boolean(row.manager),
+    role: roleOf(row.manager),
     hint: row.hint,
     created_at: row.created_at,
     created_by: row.created_by,
@@ -1526,17 +1532,18 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const [counts, username] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c)]);
+  const [counts, username, waiting] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c), waitingCount(c)]);
   const config = c.hostRow.config;
   return json(200, {
     name: c.actor.name,
     email: c.actor.email,
     username,
     manager: c.manager,
+    role: roleOf(c.manager),
     host: c.hostRow.host,
     env: c.hostRow.env,
     version: c.env.VERSION || "dev",
-    counts,
+    counts: { ...counts, waiting },
     theme: config.theme || {},
     strings: config.strings || {},
     link: linkShown(c.env, config),
@@ -2001,6 +2008,7 @@ async function postComment(c, rawKey) {
   if (body.internal !== undefined && typeof body.internal !== "boolean") fail(400, "internal must be a boolean");
   if (internal) requireManager(c);
   checkUsage(c, "comments", 1, used);
+  const back = await leaveNeedsYou(c, row);
   let results;
   try {
     results = await DB.batch([
@@ -2036,6 +2044,7 @@ async function postComment(c, rawKey) {
       ).bind(row.id, c.actor.email, internal ? "true" : "false", internal ? 1 : 0, c.now, body.client_uid, agentOf(c), viaOf(c)),
       readStatement(c, row.id),
       usageStatement(c, "comments", 1),
+      ...back.statements,
     ]);
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -2044,6 +2053,7 @@ async function postComment(c, rawKey) {
     return json(200, commentOf(raced, c, await commentAttachmentIds(c, row.id, raced.id)));
   }
   const inserted = results[0].results[0];
+  back.after(results[results.length - back.statements.length]);
   push(c, "comment", row, { internal });
   if (!c.manager) {
     sendMail(c, row, MANAGERS_TOKEN, { template: "comment_to_managers", body: text, ref: `comment-${inserted.id}` });
@@ -2446,8 +2456,8 @@ async function postCode(c) {
   }
   const hosts = [...new Set(body.hosts.map((h) => String(h).toLowerCase()))];
   for (const host of hosts) if (!c.dir.hosts.has(host)) fail(400, `${host} is not a listed host`);
-  const manager = body.manager ?? false;
-  if (typeof manager !== "boolean") fail(400, "manager must be a boolean");
+  if (body.manager !== undefined && body.manager !== null && typeof body.manager !== "boolean") fail(400, "manager must be a boolean");
+  const manager = managerOf(body);
   const wantsTotp = body.totp ?? false;
   if (typeof wantsTotp !== "boolean") fail(400, "totp must be a boolean");
   const wantsMail = body.mail ?? false;
@@ -3144,12 +3154,13 @@ const ITEM_ROUTES = [
   ["POST", /^\/merge$/, postMerge],
 ];
 
-const CARD_ROUTES = [...CARD_READS, ...CARD_WRITES];
+const CARD_ROUTES = [...NEEDS_ROUTES, ...CARD_READS, ...CARD_WRITES];
 
 const BROWSER_ROUTES = [
   ["GET", /^\/me$/, getMe],
   ["POST", /^\/verify$/, postVerify],
   ...ITEM_ROUTES,
+  ...ONE_BOARD_ROUTES,
   ...BOARD_ROUTES,
   ...CARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
@@ -3176,6 +3187,7 @@ const SIGNED_ROUTES = [
   ["GET", /^\/counts$/, getCounts, { listed: true }],
   ["GET", /^\/stream$/, openStream, { listed: true }],
   ...ITEM_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: handler === listIssues }]),
+  ...ONE_BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...CARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ["GET", /^\/hosts$/, listHosts, {}],
@@ -3188,6 +3200,7 @@ const SIGNED_ROUTES = [
   ["POST", /^\/codes\/(\d{1,15})\/revoke$/, revokeCode, {}],
   ["POST", /^\/codes\/(\d{1,15})\/totp$/, postCodeTotp, {}],
   ["POST", /^\/codes\/(\d{1,15})\/relink$/, relinkCode, {}],
+  ["DELETE", /^\/codes\/(\d{1,15})$/, deleteCode, {}],
   ["POST", /^\/people\/rename$/, renamePerson, {}],
   ...signedPeopleRoutes(),
   ["GET", /^\/admin\/backup-status$/, backupStatus, {}],
@@ -3204,7 +3217,6 @@ const SIGNED_ROUTES = [
 useKit({
   MAX_JSON_BYTES,
   encoder,
-  cardSide,
   clean,
   eventStatement,
   fail,
@@ -3225,6 +3237,8 @@ useKit({
   sha256Hex,
   REPORTERS_TOKEN,
 });
+
+useCodesKit({ forget: () => codeCache.clear() });
 
 useCardKit({
   ITEM_SELECT,

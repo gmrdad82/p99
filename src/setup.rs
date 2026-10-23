@@ -149,7 +149,7 @@ pub struct Access {
     #[arg(
         long,
         value_name = "email",
-        help = "your e-mail, which becomes a manager"
+        help = "your e-mail, which becomes an Owner"
     )]
     pub email: Option<String>,
     #[arg(
@@ -478,7 +478,7 @@ impl Session<'_> {
             }
             while !config.me.email.contains('@') {
                 config.me.email = self.ask.line(
-                    "Your e-mail (it becomes the account's first manager)",
+                    "Your e-mail (it becomes the account's first Owner)",
                     None,
                     "--email",
                 )?;
@@ -500,7 +500,7 @@ impl Session<'_> {
                     "--name",
                 )?);
                 email = Some(self.ask.line(
-                    "Your e-mail on this account (it becomes its first manager)",
+                    "Your e-mail on this account (it becomes its first Owner)",
                     None,
                     "--email",
                 )?);
@@ -524,7 +524,7 @@ impl Session<'_> {
             .contains('@')
         {
             over.email = Some(self.ask.line(
-                "Your e-mail on this account (it becomes its first manager)",
+                "Your e-mail on this account (it becomes its first Owner)",
                 None,
                 "--email",
             )?);
@@ -1340,7 +1340,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         1,
         total,
         "You",
-        "P99 acts as you in the CLI and the TUI, and your e-mail is the account's first manager.",
+        "P99 acts as you in the CLI and the TUI, and your e-mail is the account's first Owner.",
     );
     let name = match &global.account {
         Some(name) => name.clone(),
@@ -1476,7 +1476,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         7,
         total,
         "Mail (optional)",
-        "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nmanagers about new items and reporters about replies and fixes.",
+        "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nOwners about new items and reporters about replies and fixes.",
     );
     let mut key = args
         .resend_key

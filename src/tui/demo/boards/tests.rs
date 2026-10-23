@@ -1,19 +1,18 @@
 use super::*;
 
-fn keys(view: &BoardView, label: &str) -> Vec<String> {
+fn keys(view: &BoardView, word: Lane) -> Vec<String> {
     view.cards
         .iter()
-        .filter(|card| card.label == label)
+        .filter(|card| card.status == word)
         .map(|card| card.key.clone())
         .collect()
 }
 
-fn to(key: &str, from: &str, to: &str, board: Option<i64>) -> Move {
+fn to(key: &str, from: &str, to: &str) -> Move {
     Move {
         key: key.into(),
         from: from.into(),
         to: to.into(),
-        board,
         ..Move::default()
     }
 }
@@ -60,142 +59,156 @@ fn keys_appended_or_squeezed_in_again_and_again_never_collide() {
 }
 
 #[test]
-fn the_sample_has_my_board_and_a_watched_one_with_their_own_lanes() {
+fn the_sample_is_one_board_of_seven_lanes_holding_plain_items_and_cards() {
     let demo = Demo::new();
-    let shelf = demo.boards().boards;
-    assert_eq!(shelf.len(), 3);
-    assert!(shelf[0].mine && !shelf[1].mine);
-    assert_eq!(shelf[1].whose(), "@grace.hopper");
-    let shop = demo.board(None).expect("the sample has it");
-    assert_eq!(shop.board.name, "Shop");
-    assert_eq!(keys(&shop, "QA ready"), ["IMP-4", "IMP-17"]);
-    assert_eq!(keys(&shop, "Done").len(), 5);
-    let qa = demo.board(Some(2)).expect("the sample has it");
-    assert_eq!(keys(&qa, "Testing"), ["BUG-14"]);
-    assert_eq!(keys(&qa, "Verified"), ["TASK-21"]);
-    assert!(qa.cards.iter().all(|card| card.order.is_some()));
+    let view = demo.one_board(&[]);
+    let words: Vec<&str> = view.lanes.iter().map(|l| l.word.word()).collect();
     assert_eq!(
-        demo.board(Some(9)).err().as_deref(),
-        Some("no board is called 9 (404)")
+        words,
+        [
+            "new",
+            "planned",
+            "in-progress",
+            "needs-you",
+            "stuck",
+            "landed",
+            "done"
+        ]
     );
-    let plain = ["Inbox", "Doing", "QA ready", "Done"];
-    let lanes = ["New", "Planned", "In progress", "Stuck", "Landed", "Done"];
-    assert_eq!(crate::tui::deck::offered(&shelf, false), plain);
-    assert_eq!(crate::tui::deck::offered(&shelf, true), lanes);
-    assert!(shelf.iter().filter(|b| b.cards).all(|b| b.name == "Cards"));
-}
-
-#[test]
-fn a_card_is_offered_the_cards_lanes_even_when_its_board_is_someone_elses() {
-    let mut shelf = Demo::new().boards().boards;
-    for board in shelf.iter_mut().filter(|b| b.cards) {
-        board.mine = false;
-    }
+    assert_eq!(view.cards.len(), 28);
+    assert!(view.missing.is_empty());
+    assert_eq!(keys(&view, Lane::Planned), ["TASK-24"]);
+    assert_eq!(keys(&view, Lane::NeedsYou), ["BUG-25"]);
     assert_eq!(
-        crate::tui::deck::offered(&shelf, true),
-        ["New", "Planned", "In progress", "Stuck", "Landed", "Done"]
+        keys(&view, Lane::Landed),
+        ["IMP-4", "BUG-14", "IMP-17", "FEAT-27"]
     );
-    assert_eq!(
-        crate::tui::deck::offered(&shelf, false),
-        ["Inbox", "Doing", "QA ready", "Done"]
-    );
-    shelf.retain(|b| !b.cards);
-    assert!(crate::tui::deck::offered(&shelf, true).is_empty());
-}
-
-#[test]
-fn a_done_card_reopens_into_its_own_lanes_and_never_onto_a_plain_board() {
-    let mut demo = Demo::new();
-    let done = demo
-        .threads
+    assert_eq!(keys(&view, Lane::Done).len(), 7);
+    assert!(view.cards.iter().all(|card| card.order.is_some()));
+    assert!(view.cards.iter().all(|card| card.account == 0));
+    let places: Vec<Option<u32>> = view
+        .cards
         .iter()
-        .find(|t| is_card(&t.issue) && t.issue.status == "done")
-        .map(|t| t.issue.clone())
-        .expect("the sample has a done card");
-    assert_eq!(done.label.as_deref(), Some("Done"));
-    assert_eq!(done.project.as_deref(), Some("Storefront"));
-    let offered = crate::tui::deck::offered(&demo.boards().boards, done.project.is_some());
-    assert!(offered.contains(&"Landed".to_owned()));
-    assert!(!offered.contains(&"Doing".to_owned()));
-    let refused = demo.shift(&to(&done.key, "Done", "Doing", None));
-    assert_eq!(
-        refused.err().as_deref(),
-        Some("Doing is not a label on your boards")
-    );
-    let moved = demo
-        .shift(&to(&done.key, "Done", "Landed", None))
-        .expect("a card reopens into Landed");
-    assert_eq!(moved.card.label, "Landed");
-    let plain = demo
-        .threads
-        .iter()
-        .find(|t| !is_card(&t.issue) && t.issue.label.as_deref() == Some("Inbox"))
-        .map(|t| t.issue.key.clone())
-        .expect("the sample has a plain item in Inbox");
-    assert_eq!(
-        demo.shift(&to(&plain, "Inbox", "Stuck", None))
-            .err()
-            .as_deref(),
-        Some("Stuck is not a label on your boards")
+        .filter(|c| c.status == Lane::Landed)
+        .map(|c| c.lane)
+        .collect();
+    assert_eq!(places, [Some(1), Some(2), Some(3), Some(4)]);
+    assert!(
+        view.cards
+            .iter()
+            .filter(|c| c.status == Lane::Done)
+            .all(|c| c.lane.is_none())
     );
 }
 
 #[test]
-fn labels_follow_the_status_unless_an_item_sits_in_a_watched_lane() {
-    assert_eq!(status_label("doing"), "Doing");
-    assert_eq!(status_label("review"), "QA ready");
+fn a_project_filter_keeps_that_project_s_cards_and_hides_plain_items() {
+    let demo = Demo::new();
+    let one = demo.one_board(&["storefront".into()]);
+    let shown: Vec<&str> = one.cards.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(shown, ["FEAT-23", "BUG-25", "BUG-26", "TASK-28"]);
+    let both = demo.one_board(&["Storefront".into(), "Mobile app".into()]);
+    assert_eq!(both.cards.len(), 6);
+    assert!(both.cards.iter().all(|c| c.project.is_some()));
+    assert!(demo.one_board(&["Nothing".into()]).cards.is_empty());
+    assert_eq!(demo.projects(), ["Mobile app", "Storefront"]);
+}
+
+#[test]
+fn what_waits_is_the_cards_in_needs_you_stuck_and_landed_newest_first() {
+    let demo = Demo::new();
+    let (count, cards) = demo.waiting();
+    assert_eq!(count, 3);
+    let keys: Vec<&str> = cards.iter().map(|c| c.key.as_str()).collect();
+    assert_eq!(keys, ["BUG-25", "BUG-26", "FEAT-27"]);
+    assert_eq!(cards[0].status, Lane::NeedsYou);
+    assert_eq!(cards[0].label, "Needs you");
+    assert_eq!(cards[0].project, "Storefront");
+    assert_eq!(cards[2].project, "Mobile app");
+    assert!(cards.iter().all(|c| c.reporter.name.is_some()));
+    assert!(
+        cards
+            .windows(2)
+            .all(|pair| pair[0].changed_at >= pair[1].changed_at)
+    );
+}
+
+#[test]
+fn labels_follow_the_status_into_the_seven_lanes() {
+    assert_eq!(status_label("inbox"), "New");
+    assert_eq!(status_label("doing"), "In progress");
+    assert_eq!(status_label("review"), "Landed");
     assert_eq!(status_label("done"), "Done");
-    assert_eq!(status_label("inbox"), "Inbox");
-    assert_eq!(status_label("anything"), "Inbox");
-    let testing = Issue {
+    assert_eq!(status_label("needs-you"), "Needs you");
+    assert_eq!(status_label("stuck"), "Stuck");
+    assert_eq!(status_label("anything"), "New");
+    let review = Issue {
         id: 14,
         status: "review".into(),
         ..Issue::default()
     };
-    assert_eq!(label_of(&testing), "Testing");
-    let plain = Issue {
-        id: 4,
-        status: "review".into(),
-        ..Issue::default()
-    };
-    assert_eq!(label_of(&plain), "QA ready");
+    assert_eq!(label_of(&review), "Landed");
+    assert_eq!(project_of(1), None);
+    assert_eq!(project_of(FIRST_CARD), Some("Storefront"));
+    assert_eq!(project_of(FIRST_CARD + 1), Some("Mobile app"));
 }
 
 #[test]
-fn a_move_on_my_board_relabels_reorders_and_returns_the_card() {
+fn a_move_by_lane_word_relabels_reorders_and_returns_the_card() {
     let mut demo = Demo::new();
-    let mut request = to("Q-10", "Inbox", "Doing", Some(1));
+    let mut request = to("Q-10", "New", "in-progress");
     request.before = Some("TASK-6".into());
     let moved = demo.shift(&request).expect("the sample takes it");
     assert_eq!(moved.card.key, "Q-10");
-    assert_eq!(moved.card.label, "Doing");
-    let shop = demo.board(Some(1)).expect("the sample has it");
-    assert_eq!(&keys(&shop, "Doing")[..3], ["IMP-5", "Q-10", "TASK-6"]);
+    assert_eq!(moved.card.label, "In progress");
+    assert!(moved.card.order.is_some());
+    let view = demo.one_board(&[]);
+    assert_eq!(
+        &keys(&view, Lane::InProgress)[..3],
+        ["IMP-5", "Q-10", "TASK-6"]
+    );
     let item = demo.thread("Q-10").expect("the sample has it").issue;
     assert_eq!(item.status, "doing");
     assert_eq!(item.resolution, None);
 }
 
 #[test]
-fn a_move_after_the_last_card_lands_at_the_end() {
+fn a_move_by_lane_name_in_any_case_works_like_its_word() {
     let mut demo = Demo::new();
-    let mut request = to("Q-10", "Inbox", "QA ready", Some(1));
-    request.after = Some("IMP-17".into());
-    demo.shift(&request).expect("the sample takes it");
-    let shop = demo.board(Some(1)).expect("the sample has it");
-    assert_eq!(keys(&shop, "QA ready"), ["IMP-4", "IMP-17", "Q-10"]);
+    let moved = demo
+        .shift(&to("Q-10", "New", "needs you"))
+        .expect("the sample takes it");
+    assert_eq!(moved.card.label, "Needs you");
+    assert_eq!(
+        keys(&demo.one_board(&[]), Lane::NeedsYou),
+        ["Q-10", "BUG-25"]
+    );
 }
 
 #[test]
-fn a_move_into_a_closing_lane_closes_and_out_of_it_reopens() {
+fn a_move_after_the_last_card_lands_at_the_end() {
     let mut demo = Demo::new();
-    demo.shift(&to("Q-10", "Inbox", "Done", Some(1)))
+    let mut request = to("Q-10", "New", "landed");
+    request.after = Some("FEAT-27".into());
+    demo.shift(&request).expect("the sample takes it");
+    let item = demo.thread("Q-10").expect("the sample has it").issue;
+    assert_eq!(item.status, "review");
+    assert_eq!(
+        keys(&demo.one_board(&[]), Lane::Landed),
+        ["IMP-4", "BUG-14", "IMP-17", "FEAT-27", "Q-10"]
+    );
+}
+
+#[test]
+fn a_move_into_the_closing_lane_closes_and_out_of_it_reopens() {
+    let mut demo = Demo::new();
+    demo.shift(&to("Q-10", "New", "done"))
         .expect("the sample takes it");
     let closed = demo.thread("Q-10").expect("the sample has it").issue;
     assert_eq!(closed.status, "done");
     assert_eq!(closed.resolution.as_deref(), Some("fixed"));
     assert!(closed.closed_at.is_some());
-    demo.shift(&to("Q-10", "Done", "Inbox", Some(1)))
+    demo.shift(&to("Q-10", "Done", "new"))
         .expect("the sample takes it");
     let open = demo.thread("Q-10").expect("the sample has it").issue;
     assert_eq!(open.status, "inbox");
@@ -203,68 +216,29 @@ fn a_move_into_a_closing_lane_closes_and_out_of_it_reopens() {
     assert_eq!(open.closed_at, None);
     let dropped = demo.thread("BUG-1").expect("the sample has it").issue;
     assert_eq!(dropped.resolution.as_deref(), Some("abandoned"));
-    demo.shift(&to("BUG-1", "Done", "Done", Some(1)))
+    demo.shift(&to("BUG-1", "Done", "done"))
         .expect("the sample takes it");
     let still = demo.thread("BUG-1").expect("the sample has it").issue;
     assert_eq!(still.resolution.as_deref(), Some("abandoned"));
 }
 
 #[test]
-fn a_move_without_a_board_relabels_and_appends_to_each_board_with_that_lane() {
-    let mut demo = Demo::new();
-    let moved = demo
-        .shift(&to("Q-10", "Inbox", "QA ready", None))
-        .expect("the sample takes it");
-    assert_eq!(moved.card.label, "QA ready");
-    let shop = demo.board(Some(1)).expect("the sample has it");
-    assert!(keys(&shop, "QA ready").contains(&"Q-10".to_owned()));
-    let qa = demo.board(Some(2)).expect("the sample has it");
-    assert_eq!(
-        keys(&qa, "QA ready").last().map(String::as_str),
-        Some("Q-10")
-    );
-}
-
-#[test]
 fn a_move_the_sample_cannot_make_says_why_like_the_worker() {
     let mut demo = Demo::new();
     assert_eq!(
-        demo.shift(&to("Q-10", "Inbox", "Testing", Some(1)))
-            .err()
-            .as_deref(),
-        Some("Testing is not a label on your boards")
+        demo.shift(&to("Q-10", "New", "testing")).err().as_deref(),
+        Some("testing is not a lane (400)")
     );
     assert_eq!(
-        demo.shift(&to("BUG-14", "Testing", "QA ready", Some(2)))
-            .err()
-            .as_deref(),
-        Some("this board is @grace.hopper's; only its owner moves its cards (403)")
+        demo.shift(&to("Q-10", "Inbox", "planned")).err().as_deref(),
+        Some("this card moved; refreshed (409)")
     );
     assert_eq!(
-        demo.shift(&to("Q-10", "Inbox", "Doing", Some(9)))
-            .err()
-            .as_deref(),
-        Some("no board is called 9 (404)")
-    );
-    assert_eq!(
-        demo.shift(&to("lamp", "Inbox", "Doing", Some(1)))
-            .err()
-            .as_deref(),
+        demo.shift(&to("lamp", "New", "planned")).err().as_deref(),
         Some("lamp is not an item key")
     );
     assert_eq!(
-        demo.shift(&to("BUG-99", "Inbox", "Doing", Some(1)))
-            .err()
-            .as_deref(),
+        demo.shift(&to("BUG-99", "New", "planned")).err().as_deref(),
         Some("no item is called BUG-99")
     );
-    assert_eq!(
-        demo.shift(&to("Q-10", "Doing", "Done", Some(1)))
-            .err()
-            .as_deref(),
-        Some("this card moved; refreshed (409)")
-    );
-    let untouched = demo.thread("Q-10").expect("the sample has it").issue;
-    assert_eq!(untouched.label.as_deref(), Some("Inbox"));
-    assert_eq!(untouched.status, "inbox");
 }

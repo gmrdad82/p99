@@ -68,32 +68,33 @@ code = "op://vault/item/field"
 
 With several hosts and none named, it asks which one in a terminal and lists them otherwise. `--print` prints the link instead of opening it; `P99_BROWSER` names another program to open it with.
 
-## Members and managers
+## Owners and Users
 
-A code holder files bugs, ideas, improvements and questions, and sees and follows only what they reported. Add `--manager` to let the person see and change every item, file tasks and write internal comments:
+A code holder is a User: they file bugs, ideas, improvements and questions, and see and follow only what they reported. Add `--owner` to make the person an Owner, who sees and changes every item, files tasks, writes internal comments and runs the boards (`--manager` still works, as an alias):
 
 ```sh
-p99 invite example.com --name "Ada Lovelace" --email ada@example.com --manager
+p99 invite example.com --name "Ada Lovelace" --email ada@example.com --owner
 ```
 
-The e-mail you gave `p99 setup` is a manager from the start: it is in the Worker's `MANAGERS` secret, and so is anyone you add there.
+The e-mail you gave `p99 setup` is an Owner from the start: it is in the Worker's `MANAGERS` secret, and so is anyone you add there. An account may have several Owners.
 
-Each code is limited to 120 requests a minute, and a member to 30 items, 200 comments and 100 MiB of files a day. Managers have no daily limits.
+Each code is limited to 120 requests a minute, and a User to 30 items, 200 comments and 100 MiB of files a day. Owners have no daily limits.
 
 ## See who holds a code
 
 ```sh
 p99 invites
 p99 invites --host shop.example.com
+p99 codes --role owner
 ```
 
 ```text
-   1  active  Ada Lovelace <ada@example.com>  manager  ...7k2q  2026-09-14 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
-   2  revoked  Grace Hopper <grace@example.com>  member  ...3fpd  2026-09-19 12:00  hosts: shop.example.com  last used: 2026-09-22 12:00
-   3  active  Grace Hopper <grace@example.com>  member  ...m9xa  2026-09-23 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
+   1  active  Ada Lovelace <ada@example.com>  Owner  ...7k2q  2026-09-14 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
+   2  revoked  Grace Hopper <grace@example.com>  User  ...3fpd  2026-09-19 12:00  hosts: shop.example.com  last used: 2026-09-22 12:00
+   3  active  Grace Hopper <grace@example.com>  User  ...m9xa  2026-09-23 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
 ```
 
-Each line is the code's id, its state, the person, the role, the secret's last four characters, when it was made, its hosts and when it was last used. In `p99 tui`, `tab` switches to the same list on the Codes screen, with `/` to filter it.
+Each line is the code's id, its state, the person, the role (Owner or User), the secret's last four characters, when it was made, its hosts and when it was last used. `p99 codes` is the same command. `--role` keeps one role, `owner` or `user` (`manager`, `person` and `reporter` still work as aliases). With `--json`, each code carries `"role":"owner"` or `"user"` beside the older `"manager"`. In `p99 tui`, `tab` switches to the same list on the Codes screen, with `/` to filter it.
 
 ## Revoke a code
 
@@ -106,6 +107,23 @@ revoked code 3 of Grace Hopper <grace@example.com>
 ```
 
 The next request with that code answers 401, and the loader forgets it, so the "+" disappears from that browser. The person's items and comments stay. To give someone a new code in place of the old one, use `p99 relink`; a code can't be changed or shown again. With an authenticator on the code, a forwarded link alone opens nothing in another browser, so revoking is for a link you want gone, or a person who should no longer file.
+
+## Delete a revoked code
+
+A revoked code stays in `p99 invites` until you delete it:
+
+```sh
+p99 invites delete 2
+```
+
+```text
+   2  revoked  Grace Hopper <grace@example.com>  User  ...3fpd
+Deleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.
+Type 3fpd to delete it: 3fpd
+deleted code 2 of Grace Hopper <grace@example.com>
+```
+
+It asks for the code's last four characters, the ones `p99 invites` shows after `...`, typed back. An active code is refused (`code 3 is active: revoke it first, p99 revoke 3`), so revoke it first. `--yes` deletes without asking, for scripts and agents, and is needed when no one is at a terminal; there is no undo. `p99 codes delete 2` is the same command. In `p99 tui`, `d` on a revoked code in the Codes screen asks for the same four characters.
 
 ## Add an authenticator
 

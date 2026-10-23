@@ -336,9 +336,9 @@ fn an_import_sends_each_type_in_order_keeps_keys_and_text_and_uploads_every_file
             row("manager", 1, 1, 0),
             "  files uploaded: 2".to_owned(),
             "  items recounted: 2, duplicates linked: 1".to_owned(),
-            "these managers have no manager code yet; mint one each, or list them in MANAGERS:"
+            "these Owners have no Owner code yet; mint one each, or list them in MANAGERS:"
                 .to_owned(),
-            "  p99 invite shop.example.com --manager --name \"<name>\" --email emmy@example.com"
+            "  p99 invite shop.example.com --owner --name \"<name>\" --email emmy@example.com"
                 .to_owned(),
         ]
     );

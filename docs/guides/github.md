@@ -55,7 +55,7 @@ Fixes: BUG-12
 Refs: FEAT-7
 ```
 
-- When a pull request with `Fixes: BUG-12` **merges**, P99 moves BUG-12 to Done with the resolution fixed, as a manager's move would: an event on the item, a live update, and the reporter's status mail when mail is on.
+- When a pull request with `Fixes: BUG-12` **merges**, P99 moves BUG-12 to Done with the resolution fixed, as an Owner's move would: an event on the item, a live update, and the reporter's status mail when mail is on.
 - When an issue opened with `p99 github open` is **closed** as completed, its item is marked the same way. An issue closed with the reason `not_planned` or `duplicate` changes nothing.
 - `Refs:` only records the pull request on the item.
 
@@ -63,4 +63,4 @@ Only items of the host the webhook belongs to are touched; a key of another host
 
 ## Where the links show
 
-`p99 show` lists an item's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to managers. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but a manager.
+`p99 show` lists an item's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to Owners. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but an Owner.

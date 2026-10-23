@@ -13,7 +13,6 @@ pub const NOW: i64 = 1_791_979_200;
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
 const VIA: &str = "pci";
-const PROJECT: &str = "Storefront";
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 3600;
@@ -395,9 +394,7 @@ impl Demo {
         threads[7].issue.landing.branch = true;
         threads[11].issue.duplicate_of = Some("BUG-11".into());
         for thread in &mut threads {
-            if thread.issue.id >= boards::FIRST_CARD {
-                thread.issue.project = Some(PROJECT.into());
-            }
+            thread.issue.project = boards::project_of(thread.issue.id).map(Into::into);
             thread.issue.label = Some(boards::label_of(&thread.issue));
         }
         let folded = &threads[11].issue;
@@ -591,6 +588,10 @@ impl Demo {
 
     pub fn codes(&self) -> Vec<Code> {
         self.codes.clone()
+    }
+
+    pub fn forget(&mut self, code: &Code) {
+        self.codes.retain(|c| !crate::cli::codes::same(c, code));
     }
 }
 

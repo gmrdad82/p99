@@ -230,6 +230,7 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     }
     let legacy = pending.iter().any(|p| p.starts_with("0004"));
     let labelled = applied.iter().any(|a| numbered(a, "0005"));
+    let carded = applied.iter().any(|a| numbered(a, "0015"));
     let lanes = pending.iter().any(|p| p.starts_with("0011"));
     let people = pending.iter().any(|p| p.starts_with("0012"));
     let mut decisions: Vec<String> = Vec::new();
@@ -238,6 +239,9 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
         legacy_plan(cf, account, &mut plan, &mut decisions)?;
     } else if lanes {
         lanes_plan(cf, account, labelled, &mut plan, &mut decisions)?;
+    }
+    if pending.iter().any(|p| p.starts_with("0016")) {
+        crate::fold::plan(cf, account, carded, &mut plan, &mut decisions)?;
     }
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
@@ -387,7 +391,7 @@ fn owner_decisions(
     }
     match owner {
         None if !hosts.is_empty() => decisions.push(
-            "no live manager code exists to own the boards: mint a manager code before deploying"
+            "no live Owner code exists to own the boards: mint an Owner code before deploying"
                 .into(),
         ),
         Some((email, name)) => {
@@ -429,7 +433,7 @@ fn members(
         .collect();
     if !members.is_empty() {
         decisions.push(format!(
-            "{} changed states that only managers set from 1.9 on: give them manager codes, or leave them reporters",
+            "{} changed states that only Owners set from 1.9 on: give them Owner codes, or leave them Users",
             many(members.len() as i64, "member")
         ));
     }
@@ -712,7 +716,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             o["name"].as_str().unwrap_or_default(),
             o["email"].as_str().unwrap_or_default(),
         ),
-        None => "nobody (no live manager code)".into(),
+        None => "nobody (no live Owner code)".into(),
     };
 
     if plan.get("statuses").is_some() {
@@ -745,7 +749,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             ));
         }
         out.push_str(&format!(
-            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first manager code that isn't revoked owns them; each column holds its cards newest first)\n"
+            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first Owner code that isn't revoked owns them; each column holds its cards newest first)\n"
         ));
         for row in list(&plan["boards"]) {
             out.push_str(&format!(
@@ -767,7 +771,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             ));
         }
         out.push_str(&format!(
-            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first manager code that isn't revoked owns them)\n"
+            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first Owner code that isn't revoked owns them)\n"
         ));
         for row in list(&plan["boards"]) {
             let nest = row["parent"]
@@ -899,6 +903,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     if let Some(url) = plan["url"].as_str() {
         out.push_str(&format!("  the CLI's url {url} stays\n"));
     }
+    crate::fold::render(&mut out, plan);
 
     out.push_str("\nDecisions\n");
     let decisions = list(&plan["decisions"]);
@@ -926,7 +931,7 @@ fn render_old_tags(out: &mut String, plan: &Value) {
 
 fn render_members(out: &mut String, plan: &Value) {
     let members = plan["members"].as_array().cloned().unwrap_or_default();
-    out.push_str("\nMembers who changed states that only managers set from 1.9 on\n");
+    out.push_str("\nMembers who changed states that only Owners set from 1.9 on\n");
     if members.is_empty() {
         out.push_str("  none\n");
     }
@@ -1066,7 +1071,7 @@ mod tests {
         let mut none = Vec::new();
         owner_decisions(&None, &BTreeSet::new(), &spread, "test", &mut none);
         assert_eq!(none.len(), 1);
-        assert!(none[0].starts_with("no live manager code"));
+        assert!(none[0].starts_with("no live Owner code"));
     }
 
     #[test]

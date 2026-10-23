@@ -125,6 +125,18 @@ impl Source {
         }))
     }
 
+    #[cfg(test)]
+    pub(super) fn over(config: Config) -> Source {
+        Source::Live(Arc::new(Live {
+            accounts: config.accounts.keys().cloned().collect(),
+            config,
+            holder: None,
+            agent: None,
+            clients: OnceLock::new(),
+            listeners: Mutex::new(Vec::new()),
+        }))
+    }
+
     pub fn accounts(&self) -> Vec<String> {
         match self {
             Source::Demo(..) => vec!["sample".to_owned()],

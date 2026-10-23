@@ -82,7 +82,7 @@ The Worker is built into the binary, so there is nothing else to install: no Nod
 4. Invite yourself and open the link it prints:
 
    ```sh
-   p99 invite example.com --name "Ada Lovelace" --email ada@example.com --manager
+   p99 invite example.com --name "Ada Lovelace" --email ada@example.com --owner
    ```
 
    The "+" now shows on your pages. File a bug from it, then read it in the terminal:

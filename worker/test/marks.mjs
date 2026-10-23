@@ -108,7 +108,7 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
   });
 
   await check("the browser never carries a label: a code's comment is a person's", async () => {
-    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    const ada = await mint("Ada Lovelace", "lovelace@example.com", [here]);
     const filed = await browse("POST", "/issues", ada.secret, issueBody({ title: "Marks: filed in the browser" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     assert.deepEqual([filed.json.reporter.agent, filed.json.reporter.via], [false, null]);
@@ -117,12 +117,12 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
   });
 
   await check(`an agent's reply mails the reporter as the person's name with ${ROBOT}, never an asterisk`, async () => {
-    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    const ada = await mint("Ada Lovelace", "lovelace@example.com", [here]);
     const filed = await browse("POST", "/issues", ada.secret, issueBody({ title: "Marks: mail me the agent's reply" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;
     await comment(key, agent(LABEL), "The agent answers.");
-    const mails = () => sent.filter((m) => m.to[0] === "ada@example.com" && m.subject.startsWith(`[${key}]`));
+    const mails = () => sent.filter((m) => m.to[0] === "lovelace@example.com" && m.subject.startsWith(`[${key}]`));
     await until("the reply mail", () => mails().length === 1);
     const mail = mails()[0];
     assert.ok(mail.text.includes(`Grace Hopper ${ROBOT} replied on ${key}`), mail.text);
@@ -183,7 +183,7 @@ export async function markChecks({ call, browse, mint, check, issueBody, here, s
   });
 
   await check("the mail event of an agent's reply carries the agent's label", async () => {
-    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    const ada = await mint("Ada Lovelace", "lovelace@example.com", [here]);
     const filed = await browse("POST", "/issues", ada.secret, issueBody({ title: "Marks: the mail event is labelled" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const said = await comment(filed.json.key, agent(LABEL), "The agent answers, and mail goes out.");

@@ -15,7 +15,10 @@ const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const ROBOT = "🤖";
 const PICK_KEY = "p99:pick";
-const VIEWS = ["all", "site", "projects", "landed"];
+const VIEWS = ["site", "projects", "needs", "landed"];
+const CARD_VIEWS = ["projects", "needs", "landed"];
+const WAITING = ["needs-you", "stuck", "landed"];
+const LANE_NAMES = ["new", "planned", "in progress", "needs you", "stuck", "landed", "done"];
 const SOURCES = ["", "human", "agent"];
 const MAX_PICKED = 50;
 const LEGACY = { received: "inbox", fixed: "done:fixed", dropped: "done:abandoned", new: "inbox", confirmed: "doing", in_progress: "doing", waiting: "review", resolved: "done:fixed", abandoned: "done:abandoned", duplicate: "done:duplicate" };
@@ -61,9 +64,9 @@ const WORDS = {
   only_branch: "The fix is written but isn't in a build yet.",
   list_title: "Items",
   view_label: "Show",
-  view_all: "All",
   view_site: "Only this website",
   view_projects: "Projects",
+  view_needs: "Needs you",
   view_landed: "Landed, waiting for your check",
   source_label: "Last change by",
   source_all: "Everyone",
@@ -71,6 +74,7 @@ const WORDS = {
   source_agent: "Agents",
   projects_none: "No projects yet.",
   cards_empty: "No cards here.",
+  needs_empty: "Nothing needs you.",
   agent: "Agent",
   tab_page: "This page",
   tab_mine: "Mine",
@@ -121,7 +125,7 @@ const WORDS = {
   comment_hint: "Write a comment",
   comment_files: "Files",
   comment_send: "Send reply",
-  internal_note: "Internal note (the reporter doesn't see it)",
+  internal_note: "Internal note (only Owners see it)",
   manage: "Manage",
   assignee: "Assignee",
   nobody: "Unassigned",
@@ -452,10 +456,10 @@ function brand() {
   return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.space }) : null, tags);
 }
 function boardOpen() {
-  return me && me.manager ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
+  return owner() ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
 }
 function foot() {
-  return me && me.manager ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
+  return owner() ? h("p", { class: "p99-foot" }, "P99: got questions or doubts? ", h("a", { href: DISCORD, target: "_blank", rel: "noopener noreferrer", text: "Ping me on Discord" }), ".") : null;
 }
 function rehead() {
   panel.querySelector(".p99-brand").replaceWith(brand());
@@ -471,12 +475,13 @@ function boardModule() {
 function openBoard() {
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
-  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, only: shownKeys, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  const p = picked();
+  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
 }
 function pickWord() {
   const p = picked();
   const words = [];
-  if (p.view !== "all") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
+  if (p.view !== "site") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
   if (p.source) words.push(say("source_" + p.source));
   return words.join(" · ");
 }
@@ -731,7 +736,7 @@ function choiceOf(s, r) {
 }
 function statusWord(s, r) {
   const [key, res] = choiceOf(s, r).split(":");
-  const named = me && me.manager && Array.isArray(me.statuses) ? me.statuses.find((x) => x.key === key) : null;
+  const named = owner() && Array.isArray(me.statuses) ? me.statuses.find((x) => x.key === key) : null;
   if (!named) return say("status_" + (res || key));
   return res && res !== "fixed" ? named.name + " · " + say("status_" + res) : named.name;
 }
@@ -739,7 +744,7 @@ function stateOf(x) { return choiceOf(x.stage || x.status, x.resolution); }
 function statusPill(x) {
   const c = stateOf(x);
   const res = c.split(":")[1];
-  const named = x.label && me && me.manager ? x.label + (res && res !== "fixed" ? " · " + say("status_" + res) : "") : null;
+  const named = x.label && owner() ? x.label + (res && res !== "fixed" ? " · " + say("status_" + res) : "") : null;
   return pill("p99-status", "data-status", c.replace(":", "-"), named || statusWord(c));
 }
 function kindPill(k) { return pill("p99-kind", "data-kind", k, say("kind_" + k)); }
@@ -774,20 +779,20 @@ function pieces(text) {
 function defaultList() {
   const c = (me && me.counts) || {};
   if (c.page_open > 0 && !o.space) return { scope: "page", status: "open", kind: "", q: "" };
-  if (me && me.manager) return { scope: "all", status: "open", kind: "", q: "" };
+  if (owner()) return { scope: "all", status: "open", kind: "", q: "" };
   return { scope: "mine", status: "open", kind: "", q: "" };
 }
 function pickOf(raw) {
   const p = raw && typeof raw === "object" ? raw : {};
   const names = Array.isArray(p.projects) ? p.projects.filter((n) => typeof n === "string" && n.length > 0 && n.length <= 40) : [];
   return {
-    view: VIEWS.includes(p.view) ? p.view : "all",
+    view: VIEWS.includes(p.view) ? p.view : "site",
     projects: names.slice(0, MAX_PICKED),
     source: SOURCES.includes(p.source) ? p.source : ""
   };
 }
 function picked() {
-  if (!me || !me.manager) return pickOf(null);
+  if (!owner()) return pickOf(null);
   if (!S.pick) {
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(PICK_KEY) || "null"); } catch (x) {}
@@ -800,29 +805,31 @@ function keepPick(p) {
   try { localStorage.setItem(PICK_KEY, JSON.stringify(S.pick)); } catch (x) {}
   return S.pick;
 }
+function owner() { return !!me && (me.role ? me.role === "owner" : !!me.manager); }
+function ownerSaid(p) { return !!p && (p.role ? p.role === "owner" : !!p.manager); }
 function siteHost() { return o.space || location.hostname; }
-function cardQuery(p, cursor) {
+function carded(p) { return CARD_VIEWS.includes(p.view); }
+function boardQuery(p) {
   const q = new URLSearchParams();
-  if (p.view === "site") q.set("site", "1");
+  if (p.view === "site" && !o.space) q.set("host", siteHost());
+  if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
+  if (p.view === "needs") WAITING.forEach((w) => q.append("status", w));
+  if (p.view === "landed") q.set("status", "landed");
+  if (p.source) q.set("source", p.source);
+  return String(q);
+}
+function bySource(p) { return (c) => !p.source || !!(c.changed_by && c.changed_by.agent) === (p.source === "agent"); }
+function cardQuery(p, cursor) {
+  if (p.view === "needs") return "/cards/waiting";
+  const q = new URLSearchParams();
   if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
   if (p.view === "landed") q.set("status", "landed");
   if (p.source) q.set("source", p.source);
   if (cursor) q.set("cursor", cursor);
   return "/cards?" + q;
 }
-function shownKeys() {
-  const p = picked();
-  if (p.view === "all" && !p.source) return Promise.resolve(null);
-  const keys = new Set();
-  const read = (path, field, cursor, left) => call("GET", path(cursor)).then((res) => {
-    ((res && res[field]) || []).forEach((r) => keys.add(r.key));
-    return res && res.next_cursor && left > 1 ? read(path, field, res.next_cursor, left - 1) : keys;
-  });
-  if (p.view === "all") return read((c) => listQuery({ scope: "all", status: "any" }, c) + "&limit=100", "issues", null, 5);
-  return read((c) => cardQuery(p, c) + "&limit=500" + (p.view === "landed" ? "" : "&status=new&status=planned&status=in-progress&status=stuck&status=landed&status=done"), "cards", null, 5);
-}
 function pickBar() {
-  if (!me || !me.manager) return null;
+  if (!owner()) return null;
   const p = picked();
   const view = h("select", { name: "view" }, VIEWS.map((v) => h("option", { value: v, selected: p.view === v, text: say("view_" + v) })));
   const projects = h("fieldset", { class: "p99-projects", hidden: p.view !== "projects" }, h("legend", { text: say("view_projects") }));
@@ -874,9 +881,9 @@ function list(f) {
   const results = view.querySelector(".p99-results");
   const form = view.querySelector(".p99-filters");
   const p = picked();
-  const carded = p.view !== "all";
-  form.hidden = carded;
-  view.querySelector(".p99-tabs").hidden = carded;
+  const cards = carded(p);
+  form.hidden = cards;
+  view.querySelector(".p99-tabs").hidden = cards;
   for (const a of view.querySelectorAll(".p99-tabs a")) {
     if (a.dataset.scope === f.scope) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -893,15 +900,15 @@ function list(f) {
     form.classList.remove("is-busy");
     results.replaceChildren(...kids);
   };
-  const page = (cursor, signal) => call("GET", carded ? cardQuery(p, cursor) : listQuery(f, cursor), null, null, signal).then((res) => ({
-    rows: ((res && (carded ? res.cards : res.issues)) || []).map(carded ? cardRow : row),
+  const page = (cursor, signal) => call("GET", cards ? cardQuery(p, cursor) : listQuery(f, cursor), null, null, signal).then((res) => ({
+    rows: ((res && (cards ? res.cards : res.issues)) || []).filter(p.view === "needs" ? bySource(p) : () => true).map(cards ? cardRow : row),
     next: res && res.next_cursor
   }));
   page(null, ask.signal).then(({ rows, next }) => {
     if (seq !== S.seq) return;
     const items = h("ol", { class: "p99-items" });
     items.append(...rows);
-    const empty = carded ? say("cards_empty") : f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") || p.source ? "list_empty_filtered" : "list_empty");
+    const empty = cards ? say(p.view === "needs" ? "needs_empty" : "cards_empty") : f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") || p.source ? "list_empty_filtered" : "list_empty");
     settle(rows.length ? items : h("p", { class: "p99-empty", text: empty }));
     more(results, items, page, next);
   }).catch((e) => {
@@ -913,7 +920,7 @@ function list(f) {
 }
 function listView(f) {
   const title = h("h2", { id: "p99-title", text: say("list_title") });
-  const tabs = (o.space ? [] : ["page"]).concat(["mine"], me && me.manager ? ["all"] : []);
+  const tabs = (o.space ? [] : ["page"]).concat(["mine"], owner() ? ["all"] : []);
   const nav = h("nav", { class: "p99-tabs", "aria-label": say("list_title") }, tabs.map((t) =>
     h("a", { href: "#", "data-scope": t, text: say("tab_" + t), onclick: (e) => { e.preventDefault(); list(Object.assign({}, S.list || f, { scope: t })); } })
   ));
@@ -959,7 +966,7 @@ function filters(f) {
 }
 function row(r) {
   const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
-  if (me && me.manager && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter, false, "")));
+  if (owner() && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter, false, "")));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread },
@@ -1024,7 +1031,7 @@ function back() {
 }
 function thread(t) {
   const i = t.issue;
-  const manager = !!(me && me.manager);
+  const manager = owner();
   const mine = !!(me && i.reporter && i.reporter.email && me.email && i.reporter.email.toLowerCase() === me.email.toLowerCase());
   const files = t.attachments || [];
   const byId = new Map(files.map((a) => [a.id, a]));
@@ -1112,7 +1119,7 @@ function entries(t, byId, mine) {
       const c = x.c;
       const self = !!(me && c.author && c.author.email && me.email && c.author.email.toLowerCase() === me.email.toLowerCase());
       const files = (c.attachments || []).map((id) => byId.get(id)).filter(Boolean);
-      return h("li", { class: "p99-comment", "data-internal": !!c.internal, "data-mine": self, "data-manager": !!(c.author && c.author.manager) },
+      return h("li", { class: "p99-comment", "data-internal": !!c.internal, "data-mine": self, "data-owner": ownerSaid(c.author) },
         h("p", { class: "p99-meta" }, h("b", null, person(c.author)), " · ", h("time", { text: when(c.created_at) }), c.internal ? [" · ", h("span", { class: "p99-internal", text: say("internal") })] : null),
         c.body ? h("div", { class: "p99-body" }, pieces(c.body)) : null,
         files.length ? fileList(files) : null);
@@ -1344,15 +1351,17 @@ function manageForm(i) {
 function moveTo(i) {
   const now = h("option", { value: i.label, selected: true, text: i.label });
   const sel = h("select", null, now);
-  call("GET", "/boards").then((r) => {
+  call("GET", "/labels").then((r) => {
     const seen = new Set([i.label.toLowerCase()]);
     const more = [];
     let shut = null;
-    for (const b of (r && r.boards) || []) if (b.mine) for (const c of b.columns || []) {
-      if (!shut && c.closes) shut = c.label;
-      if (seen.has(c.label.toLowerCase())) continue;
-      seen.add(c.label.toLowerCase());
-      more.push(h("option", { value: c.label, text: c.label }));
+    const at = (l) => { const n = LANE_NAMES.indexOf(l.name.toLowerCase()); return n < 0 ? LANE_NAMES.length : n; };
+    const labels = ((r && r.labels) || []).filter((l) => l && typeof l.name === "string").sort((a, b) => at(a) - at(b));
+    for (const l of labels) {
+      if (!shut && l.closes) shut = l.name;
+      if (seen.has(l.name.toLowerCase())) continue;
+      seen.add(l.name.toLowerCase());
+      more.push(h("option", { value: l.name, text: l.name }));
     }
     if (shut && i.resolution !== "abandoned") more.push(h("option", { value: "", "data-drop": shut, text: say("move_drop") }));
     sel.append(...more);
@@ -1625,7 +1634,7 @@ function fileFlow() {
   requestAnimationFrame(() => setTimeout(d.startShot, 0));
 }
 function newForm(d) {
-  const kinds = KINDS.filter((k) => k !== "task" || (me && me.manager));
+  const kinds = KINDS.filter((k) => k !== "task" || owner());
   const pick = (role, checked, disabled, label, fig) => h("div", { class: "p99-pick", "data-role": role },
     h("label", null, h("input", { type: "checkbox", name: "attach", value: role, checked, disabled }), " ", h("span", { text: label })), fig);
   const input = h("input", { type: "file", name: "files", multiple: true });
