@@ -1195,6 +1195,28 @@ fn a_move_made_in_a_thread_opened_from_w_reaches_the_board_underneath() {
 }
 
 #[test]
+fn a_refused_reply_or_label_list_in_a_thread_opened_from_w_is_said_there_and_the_thread_stays_open()
+{
+    let mut app = shown();
+    app.press("w enter");
+    assert!(wrapped(&app).crumb().is_some());
+    let refused = app.event(
+        BOARD,
+        Msg::Commented("BUG-25".into(), Err("the Worker is busy".into())),
+    );
+    assert!(refused.contains("the Worker is busy"), "{refused}");
+    assert!(wrapped(&app).crumb().is_some(), "{refused}");
+    let labels = app.event(BOARD, Msg::Labels(Err("labels are offline".into())));
+    assert!(labels.contains("labels are offline"), "{labels}");
+    assert!(wrapped(&app).crumb().is_some(), "{labels}");
+    let back = app.press("esc");
+    assert!(
+        lane(&app, "Needs you").contains(&"BUG-25".to_owned()),
+        "{back}"
+    );
+}
+
+#[test]
 fn a_thread_opened_from_w_takes_keys_pastes_and_live_events_and_the_board_underneath_hears_them() {
     let mut app = shown();
     let open = app.press("w enter");
