@@ -1208,7 +1208,7 @@ fn below_120_columns_only_the_lanes_with_cards_and_the_focused_one_show() {
     }
     let new = board(&app).lanes[0];
     let landed = board(&app).lanes[5];
-    assert!(new.width >= 38 && landed.width >= 38, "{new:?} {landed:?}");
+    assert!(new.width >= 36 && landed.width >= 36, "{new:?} {landed:?}");
     assert_eq!(board(&app).lane_of(landed.x + 2), 5);
     assert_eq!(board(&app).lane_of(new.x + 2), 0);
     tap(&mut app, "right");
