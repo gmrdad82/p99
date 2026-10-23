@@ -1297,7 +1297,10 @@ fn a_card_deleted_on_a_board_of_several_accounts_marks_it_stale_instead_of_guess
         key: "FEAT-9".into(),
         ..Default::default()
     };
-    app.event(BOARD, Msg::Deleted("FEAT-9".into(), Ok(deleted)));
+    app.tui
+        .event(BOARD, Msg::Deleted("FEAT-9".into(), Ok(deleted)));
     assert!(board(&app).stale.is_some());
     assert_eq!(lane(&app, "New"), before);
+    app.tui.settle();
+    assert!(board(&app).stale.is_none());
 }
