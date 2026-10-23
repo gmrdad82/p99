@@ -433,18 +433,27 @@ export async function migrateChecks({ check, root, work }) {
       assert.equal(state.db.prepare("SELECT count(*) AS n FROM boards WHERE owner IS NOT NULL").get().n, 0);
     });
 
-    await check("a deploy cut off between 0004 and 0005 picks up with this CLI: 0005 to 0010 go ahead, then the plan reads and gates the rest", async () => {
+    await check("a deploy cut off between 0004 and 0005 is refused with the plan, writing nothing, and its accepted plan applies 0005 onwards in one go", async () => {
       state.db = d1(root, "0005");
       const uploads = state.uploads;
+      const applied = () => state.db.prepare("SELECT name FROM d1_migrations ORDER BY id").all().map((r) => r.name.slice(0, 4));
       state.sql = [];
       const bare = await run(["deploy", "--no-check"]);
       assert.equal(bare.status, 1);
       assert.match(bare.stderr, /^p99: 0011.*--accept-plan <hash>\n$/);
-      const names = state.db.prepare("SELECT name FROM d1_migrations ORDER BY id").all().map((r) => r.name.slice(0, 4));
-      assert.deepEqual(names, ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010"]);
+      assert.deepEqual(writes(), []);
+      assert.deepEqual(applied(), ["0001", "0002", "0003", "0004"]);
       assert.equal(state.uploads, uploads);
       const now = await plan();
       assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016", "0017"]);
+      assert.deepEqual(applied(), ["0001", "0002", "0003", "0004"]);
+      const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", now.hash]);
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.equal(JSON.parse(ok.stdout).migrations.accepted, now.hash);
+      const all = readdirSync(join(root, "migrations")).filter((f) => f.endsWith(".sql")).sort().map((f) => f.slice(0, 4));
+      assert.deepEqual(applied(), all);
+      assert.equal(state.uploads, uploads + 1);
+      assert.deepEqual((await plan()).plan.pending, []);
     });
 
     await check("a 1.11 account plans 0017 with SELECTs only, a refused deploy changes nothing, and the accepted one carries a stray item and leaves no archive", async () => {
