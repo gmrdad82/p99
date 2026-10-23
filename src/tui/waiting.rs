@@ -176,6 +176,13 @@ pub fn counts(text: &str) -> bool {
     })
 }
 
+fn settled(event: &Msg) -> bool {
+    matches!(
+        event,
+        Msg::Commented(_, Ok(_)) | Msg::Changed(_, Ok(_)) | Msg::Deleted(_, Ok(_))
+    )
+}
+
 pub fn line(card: &Card) -> String {
     format!(
         "{}  {}  {}  {}",
@@ -349,10 +356,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                 self.reader.event(Msg::Pushed(account, key.clone()), cx);
                 self.inner.event(Msg::Pushed(account, key), cx);
             }
-            event
-            @ (Msg::Commented(_, Ok(_)) | Msg::Changed(_, Ok(_)) | Msg::Deleted(_, Ok(_)))
-                if self.reading() =>
-            {
+            event if self.reading() && settled(&event) => {
                 self.reader.event(event, cx);
                 self.inner.touched(cx);
             }
