@@ -220,6 +220,26 @@ test("two different cards moved into one column at once both land, each with one
   assert.deepEqual(positions(db, 33), [{ label_id: DOING, key: "a0" }]);
 });
 
+test("two different cards moved into a column that holds an unkeyed card both land, each with one event and one order key, though each rebalances the column", async () => {
+  const db = world();
+  item(db, 101, INBOX, "a0");
+  item(db, 102, INBOX, "a1");
+  item(db, 103, DOING);
+  const { out, log } = await race(db, [
+    { key: "BUG-101", from: "Inbox", to: "Doing", board: BOARD },
+    { key: "BUG-102", from: "Inbox", to: "Doing", board: BOARD },
+  ]);
+  assert.deepEqual(log, readsFirst(2));
+  assert.deepEqual(out.map((r) => r.status), [200, 200]);
+  for (const id of [101, 102]) {
+    assert.deepEqual(events(db, id, "label"), [{ from: "Inbox", to: "Doing" }]);
+    assert.equal(labelOf(db, id).label_id, DOING);
+    assert.equal(positions(db, id).length, 1);
+    assert.equal(positions(db, id)[0].label_id, DOING);
+  }
+  assert.equal(positions(db, 103).length, 1);
+});
+
 test("two reorders of one card in its own column, both read first: one lands, the other gets 409, the card keeps the winner's one key", async () => {
   const db = world();
   item(db, 41, DOING, "a0");

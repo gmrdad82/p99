@@ -118,9 +118,11 @@ export async function moveStories({ base, call, check, issueBody, here, keys, ro
 
       const both = await Promise.all([run(["move", key, "--to", doing, "--host", here]), run(["move", key, "--to", doing, "--host", here])]);
       const landed = both.filter((r) => r.status === 0);
-      assert.ok(landed.length >= 1, JSON.stringify(both));
-      for (const r of landed) assert.equal(r.stdout, `${key} is in ${doing}\n`, JSON.stringify(r));
-      for (const r of both.filter((x) => x.status !== 0)) {
+      const refused = both.filter((r) => r.status !== 0);
+      assert.equal(landed.length, 1, JSON.stringify(both));
+      assert.equal(refused.length, 1, JSON.stringify(both));
+      assert.equal(landed[0].stdout, `${key} is in ${doing}\n`, JSON.stringify(landed[0]));
+      for (const r of refused) {
         assert.equal(r.status, 1, JSON.stringify(r));
         assert.equal(r.stdout, "");
         assert.equal(r.stderr, `p99: ${key} moved to ${doing} meanwhile; nothing left to move\n`);
