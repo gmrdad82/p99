@@ -182,6 +182,7 @@ async function call(method, path, options = {}, again = method === "GET") {
     response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
   } catch (e) {
     if (!again || e?.cause?.code !== "UND_ERR_SOCKET") throw e;
+    console.error(`retried: ${method} ${path} lost its socket once`);
     return call(method, path, options, false);
   }
   return { status: response.status, json: await jsonOf(response), response };
