@@ -185,10 +185,9 @@ function load() {
   }).catch((e) => {
     if (e && e.status === 401) return close();
     if (seq !== B.seq) return;
-    if (B.data) {
-      if (!B.cols.querySelector(".p99-col[data-label]")) paint();
-      note((e && e.message) || t("load_failed"));
-    } else blank((e && e.status && e.message) || t("load_failed"), () => load());
+    if (!B.data) return blank((e && e.status && e.message) || t("load_failed"), () => load());
+    if (!B.cols.querySelector(".p99-col[data-label]")) paint();
+    note((e && e.message) || t("load_failed"));
   });
 }
 

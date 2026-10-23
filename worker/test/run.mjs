@@ -164,7 +164,8 @@ function sign({ secret, ts, method, path, actor, hash }) {
   return `v1 ts=${ts},sig=${sig}`;
 }
 
-async function call(method, path, { actor = grace, body, raw, type, keyId = "p99", tamper } = {}) {
+async function call(method, path, options = {}, again = method === "GET") {
+  const { actor = grace, body, raw, type, keyId = "p99", tamper } = options;
   const bytes = raw ?? (body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body)));
   const hash = sha256(bytes);
   const actorText = actor ? actorHeader(actor) : "";
@@ -175,7 +176,13 @@ async function call(method, path, { actor = grace, body, raw, type, keyId = "p99
   if (actorText) headers["x-p99-actor"] = actorText;
   const sent = bytes.length > 0 || type !== undefined;
   if (sent) headers["content-type"] = type ?? "application/json";
-  const response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
+  let response;
+  try {
+    response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
+  } catch (e) {
+    if (!again || e?.cause?.code !== "UND_ERR_SOCKET") throw e;
+    return call(method, path, options, false);
+  }
   return { status: response.status, json: await jsonOf(response), response };
 }
 
@@ -1019,6 +1026,28 @@ async function run() {
       ]);
     }
     assert.equal((await move({ key, from: "New", to: "planned" })).status, 200);
+  });
+
+  await check("a board with no lanes refuses to close an item with 409 and writes nothing", async () => {
+    const cards = d1count("SELECT id AS n FROM boards WHERE cards = 1");
+    const key = await fileOn("Nowhere to close");
+    const id = Number(key.split("-")[1]);
+    const saved = d1count(`SELECT group_concat(label_id || ':' || position, ',') AS n FROM board_columns WHERE board_id = ${cards}`);
+    const events = () => d1count(`SELECT count(*) AS n FROM events WHERE item_id = ${id}`);
+    const before = [events(), d1count(`SELECT label_id AS n FROM items WHERE id = ${id}`)];
+    wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `DELETE FROM board_columns WHERE board_id = ${cards}`]);
+    try {
+      const closed = await call("PATCH", `/_p99/v1/issues/${key}?host=${here}`, { body: { resolution: "fixed" } });
+      assert.deepEqual([closed.status, closed.json.message], [409, "no lane closes items; run p99 deploy"]);
+      assert.deepEqual([events(), d1count(`SELECT label_id AS n FROM items WHERE id = ${id}`)], before);
+      assert.equal(d1count(`SELECT closed_at IS NULL AS n FROM items WHERE id = ${id}`), 1);
+    } finally {
+      const rows = saved.split(",").map((pair) => pair.split(":")).map(([label, position]) => `(${cards}, ${label}, ${position})`);
+      wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `INSERT INTO board_columns (board_id, label_id, position) VALUES ${rows.join(", ")}`]);
+    }
+    assert.equal(d1count(`SELECT count(*) AS n FROM board_columns WHERE board_id = ${cards}`), 7);
+    const done = await call("PATCH", `/_p99/v1/issues/${key}?host=${here}`, { body: { resolution: "fixed" } });
+    assert.deepEqual([done.status, done.json.label], [200, "Done"]);
   });
 
   await check("a reporter's mail opens their item with their code, its opt-out works only for that item, and an opted-out reporter gets no more mail", async () => {

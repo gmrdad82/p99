@@ -196,12 +196,8 @@ async function oneLane(c, index) {
   return lane ? { ...lane, closes: index === -1 ? 1 : 0 } : null;
 }
 
-async function closingLabel(c) {
-  return await c.env.DB.prepare("SELECT id, name, role, closes FROM labels WHERE closes = 1 ORDER BY role = 'done' DESC, id LIMIT 1").first();
-}
-
 export async function closeItem(c, row, resolution, opts = {}) {
-  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : (await oneLane(c, -1)) ?? (await closingLabel(c));
+  const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : await oneLane(c, -1);
   if (!to) K.fail(409, "no lane closes items; run p99 deploy");
   return applyLabel(c, row, to, { ...opts, resolution });
 }
