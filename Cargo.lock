@@ -475,7 +475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -1001,8 +1001,8 @@ dependencies = [
 
 [[package]]
 name = "pito-header"
-version = "1.1.0"
-source = "git+https://github.com/gmrdad82/pito-header?tag=v1.1.0#c47d746b55136145a1b0aed28c403585ae5ae773"
+version = "1.1.2"
+source = "git+https://github.com/gmrdad82/pito-header?tag=v1.1.2#adeca3cdad3cbe6eaba26a10fa407ba271460e27"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1012,18 +1012,17 @@ dependencies = [
 
 [[package]]
 name = "pito-hourglass"
-version = "1.0.1"
-source = "git+https://github.com/gmrdad82/pito-hourglass?tag=v1.0.1#468ea3c908845d0302e1e2617bdc8f1f420a0d1e"
+version = "1.0.2"
+source = "git+https://github.com/gmrdad82/pito-hourglass?tag=v1.0.2#85b766f2cd873e7a62b9288b423685768b71f28c"
 dependencies = [
  "ratatui",
  "unicode-segmentation",
- "unicode-width",
 ]
 
 [[package]]
 name = "pito-list"
-version = "1.0.2"
-source = "git+https://github.com/gmrdad82/pito-list?tag=v1.0.2#81c71947659d60ad80426dae3f46b80736481fdd"
+version = "1.1.1"
+source = "git+https://github.com/gmrdad82/pito-list?tag=v1.1.1#9920429f9d07cc272073af170972cbf38e1aab33"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1033,8 +1032,8 @@ dependencies = [
 
 [[package]]
 name = "pito-tui"
-version = "1.1.0"
-source = "git+https://github.com/gmrdad82/pito-tui?tag=v1.1.0#b4fc2749e9af52e1b4a10214c0ff26f80d566d46"
+version = "1.3.0"
+source = "git+https://github.com/gmrdad82/pito-tui?tag=v1.3.0#cb58c0efca83489c0133d4742645f8069eb4601a"
 dependencies = [
  "crossterm",
  "pito-footer",
@@ -1220,7 +1219,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
