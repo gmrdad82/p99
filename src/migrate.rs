@@ -520,14 +520,14 @@ fn lanes_plan(
     plan["boards"] = Value::Array(boards);
     plan["nested"] = json!(nested);
 
-    let labelled_rows = |sql: String| -> Result<Vec<Value>, String> {
+    let labelled_rows = |sql: &str| -> Result<Vec<Value>, String> {
         if labelled {
-            select(cf, account, &sql)
+            select(cf, account, sql)
         } else {
             Ok(Vec::new())
         }
     };
-    let order: Vec<Value> = labelled_rows(Q_ORDER.to_owned())?
+    let order: Vec<Value> = labelled_rows(Q_ORDER)?
         .iter()
         .map(|r| {
             json!({
@@ -540,13 +540,13 @@ fn lanes_plan(
         .collect();
     plan["order"] = Value::Array(order);
 
-    let tags: Vec<Value> = labelled_rows(format!(
+    let tags: Vec<Value> = labelled_rows(&format!(
         "SELECT l.name AS tag, count(*) AS items {EXTRA_TAGS} GROUP BY l.id ORDER BY lower(l.name), l.id"
     ))?
     .iter()
     .map(|r| json!({ "tag": text(r, "tag"), "items": count(r, "items") }))
     .collect();
-    let tagged = labelled_rows(format!(
+    let tagged = labelled_rows(&format!(
         "SELECT count(DISTINCT il.item_id) AS items {EXTRA_TAGS}"
     ))?
     .first()
@@ -564,7 +564,7 @@ fn lanes_plan(
     plan["members"] = members(cf, account, decisions)?;
 
     let mut collisions = Vec::new();
-    for row in labelled_rows(Q_COLLIDE.to_owned())? {
+    for row in labelled_rows(Q_COLLIDE)? {
         let (label, tag) = (text(&row, "label"), text(&row, "tag"));
         decisions.push(format!(
             "the column {label} and the tag {tag} would share one label name: rename one before deploying"
@@ -946,6 +946,40 @@ fn agent_shown(username: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrations_0005_to_0010_only_add_empty_schema_so_a_plan_read_before_0005_still_holds() {
+        let between: Vec<&(&str, &str)> = crate::bundle::MIGRATIONS
+            .iter()
+            .filter(|(name, _)| ("0005".."0011").contains(&&name[..4]))
+            .collect();
+        assert_eq!(between.len(), 6);
+        for (name, sql) in between {
+            let body: String = sql
+                .lines()
+                .map(|l| l.split("--").next().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for statement in body.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let upper = statement.to_ascii_uppercase();
+                assert!(
+                    ["CREATE TABLE ", "CREATE INDEX ", "CREATE UNIQUE INDEX ", "ALTER TABLE "]
+                        .iter()
+                        .any(|start| upper.starts_with(start)),
+                    "{name} does more than add schema: {statement}"
+                );
+                for word in [" AS SELECT", "INSERT ", "UPDATE ", "DELETE ", "TRIGGER "] {
+                    assert!(!upper.contains(word), "{name} writes data: {statement}");
+                }
+                if upper.starts_with("ALTER TABLE ") {
+                    assert!(
+                        upper.contains(" ADD COLUMN ") && !upper.contains(" DEFAULT "),
+                        "{name} fills a column the plan reads as empty: {statement}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn an_agent_in_the_plan_shows_with_the_robot_never_an_asterisk() {

@@ -762,12 +762,11 @@ struct Steps {
 fn steps(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Steps, String> {
     let before = applied(cf, &entry.account_id, &entry.database_id)?;
     let accepted = crate::migrate::gate(cf, entry, &before, accept)?;
-    let mut already: Vec<String> = bundle::MIGRATIONS
+    let already: Vec<String> = bundle::MIGRATIONS
         .iter()
         .filter(|(name, _)| before.iter().any(|a| a == name))
         .map(|(name, _)| (*name).to_owned())
         .collect();
-    already.sort();
     Ok(Steps {
         todo: pending(bundle::MIGRATIONS, &before),
         already,

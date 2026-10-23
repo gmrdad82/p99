@@ -46,7 +46,7 @@ p99 deploy --account shop
 4. gives the P99 page its address: the route `<app>/*` when the account sets `app` in the config, or else the Worker's `workers.dev` address, which it turns on, and prints it (`p99 app` prints it later);
 5. checks that every host answers the new version on `/_p99/health`.
 
-Before its first write it reads everything it needs: the migrations already applied, the plan when one is needed, the Worker's bindings and secrets, the account's zones and the P99 page's address. A deploy refused on any of those (a plan not accepted, a hash that no longer matches, a token Cloudflare turns away) changes nothing: no migration, no table, no upload, no secret and no route.
+Before its first write it reads everything it needs: the migrations already applied, the plan when one is needed, the Worker's bindings and secrets, the account's zones and the P99 page's address. A deploy refused on any of those (a plan not accepted, a hash that no longer matches, a token Cloudflare turns away on one of those reads, a rate-limiting namespace it can't pick) changes nothing: no migration, no table, no upload, no secret and no route. Cloudflare only checks a write permission on the write itself, so a token that can read but not edit the Worker, its secrets or its routes is turned away after the migrations are in: the account keeps them, with the Worker it had. Run `p99 deploy` again with a token that can write them; it needs no `--accept-plan` then, since nothing is left to accept.
 
 It fails, naming the hosts, when a route can't be added or a host doesn't answer the new version; `--no-check` skips the health check. `--json` prints a report with the modules, the migrations applied, each route and each host's health, and `"ok"`.
 
@@ -75,7 +75,7 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A refused deploy changes nothing on the account, not even the migrations that need no plan. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
+   Deploy works out the plan again first and refuses when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A deploy refused for its plan or its hash changes nothing on the account, not even the migrations that need no plan. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
 On an account already past 0011, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). 0011 keeps them untouched and unused, and no migration drops them.
 

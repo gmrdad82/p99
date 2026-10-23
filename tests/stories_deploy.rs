@@ -79,6 +79,7 @@ struct Cf {
     fail: Option<String>,
     denied: bool,
     deny: Option<&'static str>,
+    deny_write: Option<&'static str>,
     calls: Vec<Call>,
 }
 
@@ -159,7 +160,10 @@ fn answer(cf: &mut Cf, method: &str, path: &str, body: &str) -> (u16, Value) {
     if method == "GET" && parts == ["_p99", "health"] {
         return (200, json!({ "ok": true, "version": VERSION }));
     }
-    if cf.denied || cf.deny.is_some_and(|p| bare.ends_with(p)) {
+    if cf.denied
+        || cf.deny.is_some_and(|p| bare.ends_with(p))
+        || (method != "GET" && cf.deny_write.is_some_and(|p| bare.ends_with(p)))
+    {
         return refused(403, 10000, "Authentication error");
     }
     match (method, parts.as_slice()) {
@@ -1329,6 +1333,119 @@ fn a_token_refused_partway_on_an_up_to_date_account_writes_nothing_either() {
         h.refuses_and_changes_nothing(&["deploy"], "Authentication error (10000)");
         assert!(h.upload().is_none(), "{path}");
     }
+}
+
+#[test]
+fn a_rate_namespace_that_cant_be_picked_stops_the_deploy_before_its_first_write() {
+    let mut cf = live(&SHIPPED[..4], half_rows());
+    cf.bindings.retain(|b| b["name"] != "RATE");
+    cf.deny = Some("/workers/scripts");
+    let h = home("partway-rate", &plain_config(), cf);
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &hash],
+        "couldn't pick a rate-limiting namespace",
+    );
+    assert!(
+        out.stderr.contains("p99 setup --rate-namespace <id>"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..4]));
+    assert!(h.upload().is_none());
+    never_shows_a_secret(&[&out], &[]);
+
+    h.cf.lock().unwrap().deny = None;
+    h.forget();
+    let done = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    assert_eq!(h.inserted(), names(&SHIPPED[4..]));
+    let sent = metadata(&h.upload().unwrap());
+    assert_eq!(
+        sent["bindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|b| b["name"] == "RATE")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_token_turned_away_on_a_write_keeps_the_migrations_and_a_plain_rerun_finishes() {
+    for (n, path, pepper) in [
+        (0, "/workers/scripts/p99", true),
+        (1, "/secrets", false),
+    ] {
+        let mut cf = live(&SHIPPED[..4], half_rows());
+        cf.deny_write = Some(path);
+        if !pepper {
+            cf.secrets.retain(|s| s != "CODE_PEPPER");
+        }
+        let h = home(&format!("write-denied-{n}"), &plain_config(), cf);
+        let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+        let routes = h.account()["routes"].clone();
+        h.forget();
+        let out = h.run(&["deploy", "--accept-plan", &hash]);
+        assert_eq!(out.code, Some(1), "{path}: {}", out.stderr);
+        assert!(
+            out.stderr.contains("Authentication error (10000)") && out.stderr.contains(path),
+            "{path}: {}",
+            out.stderr
+        );
+        assert_eq!(h.applied(), names(&SHIPPED), "{path}");
+        assert_eq!(h.account()["routes"], routes, "{path}");
+        assert!(
+            !h.calls()
+                .iter()
+                .any(|c| c.method == "POST" && c.path.ends_with("/workers/routes")),
+            "{path}"
+        );
+        never_shows_a_secret(&[&out], &[]);
+
+        h.cf.lock().unwrap().deny_write = None;
+        h.forget();
+        let done = h.run(&["deploy"]);
+        assert_eq!(done.code, Some(0), "{path}: {}", done.stderr);
+        assert!(h.inserted().is_empty(), "{path}: {:?}", h.inserted());
+        assert!(h.upload().is_some(), "{path}");
+        assert!(
+            h.cf.lock().unwrap().secrets.iter().any(|s| s == "CODE_PEPPER"),
+            "{path}"
+        );
+    }
+}
+
+#[test]
+fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0015_with_its_hash() {
+    let mut cf = live(&SHIPPED[..1], v17_rows());
+    cf.tag = None;
+    let h = home("only-0001", &plain_config(), cf);
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    let hash = plan_hash(&plan.stdout);
+
+    let out = h.refuses_and_changes_nothing(&["deploy"], "change this account's data");
+    assert!(!out.stderr.contains("0002_code_uid.sql"), "{}", out.stderr);
+    h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &"0".repeat(64)],
+        "the plan changed since that hash was taken",
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..1]));
+
+    h.forget();
+    let done = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    assert_eq!(h.inserted(), names(&SHIPPED[1..]));
+    assert_eq!(h.applied(), names(&SHIPPED));
+    let calls = h.calls();
+    let last = calls
+        .iter()
+        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .unwrap();
+    assert!(calls.iter().position(Call::upload).unwrap() > last);
 }
 
 #[test]
