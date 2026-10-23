@@ -34,6 +34,7 @@ import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
+import { PATCH_FIELDS, writeFields } from "./patch.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -1968,28 +1969,21 @@ async function patchIssue(c, rawKey) {
   if (closing && !c.manager && !(reporter && wanted === "abandoned" && row.open)) fail(403, "this change is not allowed");
   if (closing) refuseAgentClose(c, row, { closes: 1 });
 
-  const statements = [];
-  const actor = c.actor.email;
-  if (next.kind !== row.kind) statements.push(eventStatement(c, row.id, actor, "kind", { from: row.kind, to: next.kind }));
-  if (next.assignee !== row.assignee) {
-    statements.push(eventStatement(c, row.id, actor, "assignee", { from: row.assignee, to: next.assignee }));
-  }
-  if (next.title !== row.title) statements.push(eventStatement(c, row.id, actor, "title", { from: row.title, to: next.title }));
-  if (next.body !== row.body) statements.push(eventStatement(c, row.id, actor, "body", { from: row.body, to: next.body }));
-  if (statements.length > 0) {
-    statements.unshift(
-      c.env.DB.prepare(
-        `UPDATE items SET kind = ?2, assignee = ?3, title = ?4, body = ?5, updated_at = ?6, activity_at = ?6, search_text = ?7
-         WHERE id = ?1`,
-      ).bind(row.id, next.kind, next.assignee, next.title, next.body, c.now, searchText(next.title, next.body)),
-    );
-    statements.push(readStatement(c, row.id));
-    await c.env.DB.batch(statements);
-    push(c, "change", { ...row, kind: next.kind, title: next.title }, {
-      what: ["kind", "assignee", "title", "body"].filter((f) => next[f] !== (row[f] ?? null)),
-    });
-  }
-  const current = { ...row, ...next };
+  const values = {};
+  for (const field of PATCH_FIELDS) if (has(field)) values[field] = next[field];
+  const written = await writeFields(c.env.DB, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) }, row, values, {
+    extra: [readStatement(c, row.id)],
+    reload: async () => {
+      const fresh = await loadItem(c, rawKey);
+      if ((has("title") || has("body")) && !c.manager && !(fresh.reporter_email === c.actor.email && Boolean(fresh.open) && fresh.label_role === "inbox")) {
+        fail(403, has("title") ? "the title can no longer be changed" : "only a manager, or the reporter while the item is new, may change the details");
+      }
+      return fresh;
+    },
+    conflict: () => fail(409, "the item changed while saving; try again"),
+  });
+  if (written.changed.length > 0) push(c, "change", written.row, { what: written.changed });
+  const current = written.row;
   if (closing) await closeItem(c, current, wanted, { duplicateOf });
   else if (reopening) await reopenItem(c, current, role ?? "inbox");
   else if (role !== null && role !== row.label_role) {
