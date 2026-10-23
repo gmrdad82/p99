@@ -56,6 +56,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("cards.js", ES),
     worker!("cards-read.js", ES),
     worker!("cards-write.js", ES),
+    worker!("patch.js", ES),
     worker!("web/p99.js", TEXT),
     worker!("web/panel.js", TEXT),
     worker!("web/board.js", TEXT),
