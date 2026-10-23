@@ -75,7 +75,9 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
 
    Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A new account, or one already past every migration that changes data (0017 is the last), needs no `--accept-plan`; one on 1.7, 1.8, 1.10 or 1.11 does.
 
-On an account past 0011 and not yet past 0017, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). Nothing reads them; 0017 deletes them, with the old boards and labels, and its section of the plan (`delete_archived` in `--json`) names each board and label it deletes and each item it first carries onto the one board.
+On an account past 0011 with migrations still to run before 0017, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). Nothing reads them, and 0017 deletes them. Once 0017 is the only migration left (an account on 1.11), its section of the plan (`delete_archived` in `--json`) counts them instead, with each board and label it deletes and each item it first carries onto the one board. When the Cards board doesn't have seven lanes, the plan stops with that reason and deploy deletes nothing.
+
+0017 drops the archive table the 1.11 Worker still reads, and deploy uploads the new Worker right after the migrations. If a deploy stops between the two (a failed upload), the board list of the Worker still running answers an error until `p99 deploy` runs again.
 
 ## Change the setup
 

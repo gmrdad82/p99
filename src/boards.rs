@@ -5,8 +5,8 @@ use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
-    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, board_lines, lane_lines,
-    lane_named, lanes_from, refusal,
+    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, board_lines, lane_lines, lane_named,
+    lanes_from, refusal,
 };
 use crate::wire::{Issue, MoveTo, out};
 

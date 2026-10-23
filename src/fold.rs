@@ -11,25 +11,25 @@ pub const Q_LABELS: &str = include_str!("fold/labels.sql");
 
 pub const Q_UNPLACED: &str = include_str!("fold/unplaced.sql");
 
-fn select(cf: &Cloudflare, account: &Account, sql: &str) -> Result<Vec<Value>, String> {
+pub(crate) fn select(cf: &Cloudflare, account: &Account, sql: &str) -> Result<Vec<Value>, String> {
     if !sql.starts_with("SELECT ") || sql.contains(';') {
         return Err("the plan only reads, one SELECT at a time".into());
     }
     Ok(cf.query(&account.account_id, &account.database_id, sql, &[])?)
 }
 
-fn text(row: &Value, key: &str) -> String {
+pub(crate) fn text(row: &Value, key: &str) -> String {
     row[key].as_str().unwrap_or_default().to_owned()
 }
 
-fn count(row: &Value, key: &str) -> i64 {
+pub(crate) fn count(row: &Value, key: &str) -> i64 {
     row[key]
         .as_i64()
         .or_else(|| row[key].as_f64().map(|f| f as i64))
         .unwrap_or(0)
 }
 
-fn many(n: i64, one: &str, more: &str) -> String {
+pub(crate) fn many(n: i64, one: &str, more: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { more })
 }
 
@@ -52,12 +52,16 @@ pub fn cards_board(columns: Option<i64>, needs: bool) -> &'static str {
 }
 
 pub fn earlier(plan: &Value) -> Vec<String> {
+    before(plan, "0016")
+}
+
+pub(crate) fn before(plan: &Value, step: &str) -> Vec<String> {
     plan["pending"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
-        .filter(|p| *p < "0016")
+        .filter(|p| *p < step)
         .map(str::to_owned)
         .collect()
 }
@@ -148,7 +152,7 @@ fn lanes_line() -> String {
         .join(", ")
 }
 
-fn board_name(row: &Value) -> String {
+pub(crate) fn board_name(row: &Value) -> String {
     match row["owner"].as_str() {
         Some(owner) => format!("{} ({owner})", text(row, "name")),
         None => text(row, "name"),
@@ -507,8 +511,14 @@ mod tests {
             out.contains("  no item carries a label outside the lanes\n"),
             "{out}"
         );
-        assert!(out.contains("  deleted once moved (0017): 0 boards\n"), "{out}");
-        assert!(out.contains("  labels deleted once moved (0017): none\n"), "{out}");
+        assert!(
+            out.contains("  deleted once moved (0017): 0 boards\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("  labels deleted once moved (0017): none\n"),
+            "{out}"
+        );
         assert!(
             out.contains("  the order in each lane: nothing to keep\n"),
             "{out}"

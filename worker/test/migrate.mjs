@@ -465,11 +465,14 @@ export async function migrateChecks({ check, root, work }) {
       ]);
       assert.deepEqual(prune.labels.filter((l) => l.items > 0), [{ label: "Triage", items: 1, open: 1, closed: 0 }]);
       assert.equal(prune.tags, 1);
+      assert.equal(p.plan.old_tags, undefined);
       assert.ok(p.plan.decisions.some((d) => d.startsWith("1 item on the old label Triage is not on the one board: 0017 moves 1 open to In progress")), p.plan.decisions.join("\n"));
       const text = (await run(["migrate", "--plan"])).stdout;
       assert.match(text, /\nDelete what the one board carries \(0017\)\n/);
       assert.match(text, /  deleted: 3 old boards \(Ada's board \(ada@example\.com\), Grace's board \(grace@example\.com\), Ada's QA \(ada@example\.com\)\), with their 11 columns and 10 card places\n/);
-      assert.doesNotMatch(text, /archived|read-only/);
+      assert.doesNotMatch(text, /archived,|archived labels|read-only/);
+      assert.doesNotMatch(text, /Old tags beyond the label/);
+      assert.match(text, /  deleted old tags: 1 \(item_labels rows nothing reads\)\n/);
 
       const snapshot = () => ["boards", "board_columns", "board_positions", "labels", "items", "events", "item_labels", "archived"].map((t) => state.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
       const before = snapshot();

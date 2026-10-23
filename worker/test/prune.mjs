@@ -96,8 +96,8 @@ export async function pruneChecks({ check, root }) {
     assert.deepEqual(history, [{ from: "Triage", to: "In progress", migrated: true }]);
   });
 
-  await check("[prune] an item left on an old label is a decision in the plan, and 0017 carries it onto its lane after the last card, in its old board order", async () => {
-    const db = folded(root, "", `UPDATE items SET label_id = ${label("QA ready")} WHERE id = 5; UPDATE items SET label_id = ${label("Triage")} WHERE id = 6;
+  await check("[prune] an item left on an old label is a decision in the plan: 0017 carries it onto its lane after the last card, or back to the place the one board kept for it there", async () => {
+    const db = folded(root, "", `UPDATE items SET label_id = ${label("QA ready")} WHERE id = 5; UPDATE items SET label_id = ${label("Triage")} WHERE id = 6; DELETE FROM board_positions WHERE board_id = 14 AND item_id = 6;
       ${item(21, "Shipped", { open: 0, resolution: "fixed", day: 3 })} ${place(12, 21, "Shipped", "a1")}`);
     const plan = planOf(root, db);
     assert.deepEqual(
@@ -113,8 +113,9 @@ export async function pruneChecks({ check, root }) {
     assert.equal(laneOfItem(db, 5), "In progress");
     assert.equal(laneOfItem(db, 6), "In progress");
     assert.equal(laneOfItem(db, 21), "Done");
-    assert.deepEqual(lane(db, "In progress"), [...before.filter((id) => id !== 5 && id !== 6), 5, 6]);
-    assert.deepEqual([keyOf(db, 5), keyOf(db, 6)], [`${tail}Va0V`, `${tail}Va1V`]);
+    assert.deepEqual(before, [2, 14, 13]);
+    assert.deepEqual(lane(db, "In progress"), [2, 5, 14, 13, 6]);
+    assert.deepEqual([keyOf(db, 5), keyOf(db, 6)], ["a1", `${tail}Va0V`]);
     assert.equal(keyOf(db, 21), `${doneTail}Va0V`);
     assert.deepEqual({ ...db.prepare("SELECT open, resolution FROM items WHERE id = 21").get() }, { open: 0, resolution: "fixed" });
     const moved = db
@@ -188,25 +189,29 @@ export async function pruneChecks({ check, root }) {
     assert.equal(n(db, "SELECT count(*) AS n FROM boards"), 1);
   });
 
-  await check("[prune] with a Cards board short of seven lanes 0017 deletes no board, label or place, only the unread tags and the empty archive", async () => {
-    const db = folded(root, "", `DELETE FROM board_positions WHERE board_id = 14 AND label_id = ${label("Stuck")}; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")}; UPDATE items SET label_id = ${label("Triage")} WHERE id = 6;`);
+  await check("[prune] with a Cards board short of seven lanes 0017 fails as a whole: no board, label, place, tag or archive row goes, so the deploy stops before recording it", async () => {
+    const db = folded(root, "INSERT INTO item_labels (item_id, label_id) SELECT id, label_id FROM items WHERE id IN (2, 3);", `DELETE FROM board_positions WHERE board_id = 14 AND label_id = ${label("Stuck")}; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")}; UPDATE items SET label_id = ${label("Triage")} WHERE id = 6;`);
     assert.equal(planOf(root, db).lanes, 6);
-    const keep = (d) => ["boards", "board_columns", "board_positions", "labels", "items", "events"].map((t) => d.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
-    const before = keep(db);
-    prune(root, db);
-    assert.deepEqual(keep(db), before);
-    assert.equal(laneOfItem(db, 6), "Triage");
-    assert.equal(n(db, "SELECT count(*) AS n FROM item_labels"), 0);
-    assert.equal(has(db, "archived"), false);
-  });
-
-  await check("[prune] a statement that fails midway rolls the whole of 0017 back, deleting nothing", async () => {
-    const db = folded(root, "", `UPDATE items SET label_id = ${label("Triage")} WHERE id = 6;`);
     const before = dump(db);
-    db.exec("CREATE TRIGGER no_drop BEFORE DELETE ON boards BEGIN SELECT RAISE(ABORT, 'refused'); END;");
-    assert.throws(() => prune(root, db), /refused/);
+    const tags = n(db, "SELECT count(*) AS n FROM item_labels");
+    assert.ok(tags > 0);
+    assert.equal(has(db, "archived"), true);
+    assert.throws(() => prune(root, db), /CHECK constraint failed/);
     assert.deepEqual(dump(db), before);
     assert.equal(laneOfItem(db, 6), "Triage");
+    assert.equal(n(db, "SELECT count(*) AS n FROM item_labels"), tags);
+    assert.equal(has(db, "archived"), true);
+    assert.equal(n(db, "SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'prune\\_%' ESCAPE '\\'"), 0);
+  });
+
+  await check("[prune] a stale one-board place under an old label carries no order: the item keeps the place the board shows it at, and the stale row goes", async () => {
+    const db = folded(root, "", `UPDATE board_positions SET label_id = ${label("Triage")} WHERE board_id = 14 AND item_id = 2;`);
+    assert.equal(n(db, `SELECT count(*) AS n FROM board_positions WHERE board_id = 14 AND item_id = 2 AND label_id = ${label("Triage")}`), 1);
+    const shown = boardRows(db, ALL, {}).map((r) => [r.id, r.lane, r.place, r.ord]);
+    assert.equal(planOf(root, db).orders, 0);
+    prune(root, db);
+    gone(db);
+    assert.deepEqual(boardRows(db, ALL, {}).map((r) => [r.id, r.lane, r.place, r.ord]), shown);
   });
 
   await check("[prune] the plan's queries only read and list exactly what 0017 then deletes and carries", async () => {

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use crate::card::Lane;
 use crate::cloudflare::Cloudflare;
 use crate::config::Account;
+use crate::fold::{board_name, count, many, select, text};
 
 pub const Q_LANES: &str = include_str!("prune/lanes.sql");
 
@@ -21,28 +22,6 @@ fn seven() -> i64 {
     Lane::value_variants().len() as i64
 }
 
-fn select(cf: &Cloudflare, account: &Account, sql: &str) -> Result<Vec<Value>, String> {
-    if !sql.starts_with("SELECT ") || sql.contains(';') {
-        return Err("the plan only reads, one SELECT at a time".into());
-    }
-    Ok(cf.query(&account.account_id, &account.database_id, sql, &[])?)
-}
-
-fn text(row: &Value, key: &str) -> String {
-    row[key].as_str().unwrap_or_default().to_owned()
-}
-
-fn count(row: &Value, key: &str) -> i64 {
-    row[key]
-        .as_i64()
-        .or_else(|| row[key].as_f64().map(|f| f as i64))
-        .unwrap_or(0)
-}
-
-fn many(n: i64, one: &str, more: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { more })
-}
-
 fn first(cf: &Cloudflare, account: &Account, sql: &str, key: &str) -> Result<i64, String> {
     Ok(select(cf, account, sql)?
         .first()
@@ -50,14 +29,16 @@ fn first(cf: &Cloudflare, account: &Account, sql: &str, key: &str) -> Result<i64
 }
 
 pub fn earlier(plan: &Value) -> Vec<String> {
-    plan["pending"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|p| *p < STEP)
-        .map(str::to_owned)
-        .collect()
+    crate::fold::before(plan, STEP)
+}
+
+pub fn lanes_ready(lanes: i64) -> Result<(), String> {
+    if lanes == seven() {
+        return Ok(());
+    }
+    Err(format!(
+        "the Cards board has {lanes} lanes, not seven, so 0017 can't tell where an old board's cards belong: deploy stops before any migration, and nothing is deleted"
+    ))
 }
 
 pub fn shape(
@@ -68,18 +49,11 @@ pub fn shape(
     tags: i64,
 ) -> (Value, Vec<String>) {
     let mut decisions = Vec::new();
-    let ready = lanes == seven();
-    if !ready {
-        decisions.push(format!(
-            "the Cards board has {} lanes, not seven, so 0017 can't tell where an old board's cards belong: it deletes no board and no label, and only the old tags go",
-            lanes
-        ));
-    }
     let mut rows = Vec::new();
     for row in labels {
         let items = count(row, "items");
         let open = count(row, "open");
-        if ready && items > 0 {
+        if items > 0 {
             let mut moves = Vec::new();
             if open > 0 {
                 moves.push(format!("{open} open to {}", Lane::InProgress.name()));
@@ -87,7 +61,11 @@ pub fn shape(
             if items > open {
                 moves.push(format!("{} closed to {}", items - open, Lane::Done.name()));
             }
-            let (them, their) = if items == 1 { ("it", "its") } else { ("them", "their") };
+            let (them, their) = if items == 1 {
+                ("it", "its")
+            } else {
+                ("them", "their")
+            };
             decisions.push(format!(
                 "{} on the old label {} {} not on the one board: 0017 moves {}, after the lane's last card in {their} old order, each with a migrated label event; move {them} yourself first to put {them} elsewhere",
                 many(items, "item", "items"),
@@ -103,7 +81,7 @@ pub fn shape(
             "closed": items - open,
         }));
     }
-    if ready && orders > 0 {
+    if orders > 0 {
         decisions.push(format!(
             "{} {} a place on an old board but none on the one board: 0017 places {} after {} lane's last card, in {} old order",
             many(orders, "item", "items"),
@@ -149,6 +127,7 @@ pub fn plan(
         return Ok(());
     }
     let lanes = first(cf, account, Q_LANES, "lanes")?;
+    lanes_ready(lanes)?;
     let boards = select(cf, account, Q_BOARDS)?;
     let labels = select(cf, account, Q_LABELS)?;
     let orders = first(cf, account, Q_ORDERS, "unplaced")?;
@@ -159,13 +138,6 @@ pub fn plan(
     Ok(())
 }
 
-fn board_name(row: &Value) -> String {
-    match row["owner"].as_str() {
-        Some(owner) => format!("{} ({owner})", text(row, "name")),
-        None => text(row, "name"),
-    }
-}
-
 pub fn render(out: &mut String, plan: &Value) {
     let Some(prune) = plan.get("delete_archived") else {
         return;
@@ -174,74 +146,66 @@ pub fn render(out: &mut String, plan: &Value) {
     if let Some(after) = prune["after"].as_array() {
         let names: Vec<&str> = after.iter().filter_map(Value::as_str).collect();
         out.push_str(&format!(
-            "  runs after {}: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays\n",
+            "  runs after {}: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n",
             names.join(", ")
         ));
         return;
     }
-    let ready = count(prune, "lanes") == seven();
     let boards = prune["boards"].as_array().cloned().unwrap_or_default();
     let labels = prune["labels"].as_array().cloned().unwrap_or_default();
-    if ready {
-        let names: Vec<String> = boards.iter().map(board_name).collect();
-        let columns: i64 = boards.iter().map(|b| count(b, "columns")).sum();
-        let places: i64 = boards.iter().map(|b| count(b, "places")).sum();
-        out.push_str(&format!(
-            "  deleted: {}{}\n",
-            many(names.len() as i64, "old board", "old boards"),
-            if names.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " ({}), with their {} and {}",
-                    names.join(", "),
-                    many(columns, "column", "columns"),
-                    many(places, "card place", "card places")
-                )
-            }
-        ));
-        for row in labels.iter().filter(|r| count(r, "items") > 0) {
-            let mut said = Vec::new();
-            if count(row, "open") > 0 {
-                said.push(format!(
-                    "{} open -> {}",
-                    count(row, "open"),
-                    Lane::InProgress.word()
-                ));
-            }
-            if count(row, "closed") > 0 {
-                said.push(format!(
-                    "{} closed -> {}",
-                    count(row, "closed"),
-                    Lane::Done.word()
-                ));
-            }
-            out.push_str(&format!(
-                "  carried first: {:<20} {}\n",
-                text(row, "label"),
-                said.join("; ")
+    let names: Vec<String> = boards.iter().map(board_name).collect();
+    let columns: i64 = boards.iter().map(|b| count(b, "columns")).sum();
+    let places: i64 = boards.iter().map(|b| count(b, "places")).sum();
+    out.push_str(&format!(
+        "  deleted: {}{}\n",
+        many(names.len() as i64, "old board", "old boards"),
+        if names.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " ({}), with their {} and {}",
+                names.join(", "),
+                many(columns, "column", "columns"),
+                many(places, "card place", "card places")
+            )
+        }
+    ));
+    for row in labels.iter().filter(|r| count(r, "items") > 0) {
+        let mut said = Vec::new();
+        if count(row, "open") > 0 {
+            said.push(format!(
+                "{} open -> {}",
+                count(row, "open"),
+                Lane::InProgress.word()
             ));
         }
-        let names: Vec<String> = labels.iter().map(|r| text(r, "label")).collect();
-        out.push_str(&format!(
-            "  deleted labels: {}\n",
-            if names.is_empty() {
-                "none".to_owned()
-            } else {
-                names.join(", ")
-            }
-        ));
-        let orders = count(prune, "orders");
-        if orders > 0 {
-            out.push_str(&format!(
-                "  placed first: {} with a place only on an old board, after the lane's last card\n",
-                many(orders, "item", "items")
+        if count(row, "closed") > 0 {
+            said.push(format!(
+                "{} closed -> {}",
+                count(row, "closed"),
+                Lane::Done.word()
             ));
         }
-    } else {
         out.push_str(&format!(
-            "  kept: the Cards board has {} lanes, not seven, so no board and no label is deleted\n",
-            count(prune, "lanes")
+            "  carried first: {:<20} {}\n",
+            text(row, "label"),
+            said.join("; ")
+        ));
+    }
+    let names: Vec<String> = labels.iter().map(|r| text(r, "label")).collect();
+    out.push_str(&format!(
+        "  deleted labels: {}\n",
+        if names.is_empty() {
+            "none".to_owned()
+        } else {
+            names.join(", ")
+        }
+    ));
+    let orders = count(prune, "orders");
+    if orders > 0 {
+        out.push_str(&format!(
+            "  placed first: {} with a place only on an old board, after the lane's last card\n",
+            many(orders, "item", "items")
         ));
     }
     out.push_str(&format!(
@@ -304,8 +268,14 @@ mod tests {
 
     #[test]
     fn only_gated_steps_before_0017_put_the_delete_after_them() {
-        let plan = json!({"pending": ["0013_app.sql", "0016_one_board.sql", "0017_delete_archived.sql"]});
+        let plan =
+            json!({"pending": ["0013_app.sql", "0016_one_board.sql", "0017_delete_archived.sql"]});
         assert_eq!(earlier(&plan), ["0013_app.sql", "0016_one_board.sql"]);
+        assert_eq!(
+            crate::fold::earlier(&plan),
+            ["0013_app.sql"],
+            "the fold waits only for what comes before 0016"
+        );
         assert!(earlier(&json!({"pending": ["0017_delete_archived.sql"]})).is_empty());
         assert!(earlier(&json!({})).is_empty());
     }
@@ -399,28 +369,16 @@ mod tests {
     }
 
     #[test]
-    fn a_cards_board_without_seven_lanes_keeps_everything_but_the_old_tags_and_says_so() {
-        let (prune, decisions) = shape(
-            6,
-            &[board(2, "Web", None, 4, 2)],
-            &[label("Triage", 2, 2)],
-            3,
-            4,
-        );
-        assert_eq!(
-            decisions,
-            [
-                "the Cards board has 6 lanes, not seven, so 0017 can't tell where an old board's cards belong: it deletes no board and no label, and only the old tags go"
-            ]
-        );
-        let out = rendered(prune);
-        assert!(
-            out.contains("  kept: the Cards board has 6 lanes, not seven, so no board and no label is deleted\n"),
-            "{out}"
-        );
-        assert!(!out.contains("  deleted: "), "{out}");
-        assert!(!out.contains("deleted labels"), "{out}");
-        assert!(out.contains("  deleted old tags: 4"), "{out}");
+    fn a_cards_board_without_seven_lanes_stops_the_plan_before_anything_is_deleted() {
+        assert_eq!(lanes_ready(7), Ok(()));
+        for lanes in [0, 6, 8] {
+            assert_eq!(
+                lanes_ready(lanes),
+                Err(format!(
+                    "the Cards board has {lanes} lanes, not seven, so 0017 can't tell where an old board's cards belong: deploy stops before any migration, and nothing is deleted"
+                ))
+            );
+        }
     }
 
     #[test]
@@ -438,7 +396,7 @@ mod tests {
         let out = rendered(json!({"after": ["0016_one_board.sql"]}));
         assert_eq!(
             out,
-            "\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays\n"
+            "\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n"
         );
         let mut nothing = String::new();
         render(&mut nothing, &json!({"pending": []}));

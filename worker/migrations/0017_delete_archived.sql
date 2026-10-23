@@ -4,12 +4,16 @@ DROP TABLE IF EXISTS prune_lanes;
 CREATE TABLE prune_lanes AS
 SELECT row_number() OVER (ORDER BY bc.position) - 1 AS lane, bc.label_id FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1;
 
+DROP TABLE IF EXISTS prune_gate;
+CREATE TABLE prune_gate (lanes INTEGER NOT NULL CHECK (lanes = 7));
+INSERT INTO prune_gate SELECT count(*) FROM prune_lanes;
+
 DROP TABLE IF EXISTS prune_map;
 CREATE TABLE prune_map AS
 SELECT i.id AS item_id, i.label_id AS from_id, l.name AS from_name,
   (SELECT k.label_id FROM prune_lanes k WHERE k.lane = CASE WHEN i.open = 0 THEN 6 ELSE 2 END) AS to_id
 FROM items i JOIN labels l ON l.id = i.label_id
-WHERE (SELECT count(*) FROM prune_lanes) = 7 AND i.label_id NOT IN (SELECT label_id FROM prune_lanes);
+WHERE i.label_id NOT IN (SELECT label_id FROM prune_lanes);
 
 INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at, actor_via)
 SELECT m.item_id, NULL, 0, 'label', json_object('from', m.from_name, 'to', l.name, 'migrated', json('true')), 1,
@@ -22,8 +26,7 @@ CREATE TABLE prune_place AS
 WITH want AS (
   SELECT i.id AS item_id, COALESCE(m.to_id, i.label_id) AS label_id, COALESCE(m.from_id, i.label_id) AS was_id
   FROM items i LEFT JOIN prune_map m ON m.item_id = i.id
-  WHERE (SELECT count(*) FROM prune_lanes) = 7
-    AND NOT EXISTS (SELECT 1 FROM board_positions op JOIN boards ob ON ob.id = op.board_id
+  WHERE NOT EXISTS (SELECT 1 FROM board_positions op JOIN boards ob ON ob.id = op.board_id
       WHERE ob.cards = 1 AND op.item_id = i.id AND op.label_id = COALESCE(m.to_id, i.label_id))
     AND (m.item_id IS NOT NULL OR EXISTS (SELECT 1 FROM board_positions bp JOIN boards b ON b.id = bp.board_id
       WHERE b.cards = 0 AND bp.item_id = i.id AND bp.label_id = i.label_id))
@@ -59,19 +62,17 @@ FROM prune_place p WHERE true
 ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key;
 
 DELETE FROM board_positions
-WHERE (SELECT count(*) FROM prune_lanes) = 7
-  AND (board_id IN (SELECT id FROM boards WHERE cards = 0) OR label_id NOT IN (SELECT label_id FROM prune_lanes));
+WHERE (board_id IN (SELECT id FROM boards WHERE cards = 0) OR label_id NOT IN (SELECT label_id FROM prune_lanes));
 
 DELETE FROM board_columns
-WHERE (SELECT count(*) FROM prune_lanes) = 7 AND board_id IN (SELECT id FROM boards WHERE cards = 0);
+WHERE board_id IN (SELECT id FROM boards WHERE cards = 0);
 
-DELETE FROM boards WHERE cards = 0 AND (SELECT count(*) FROM prune_lanes) = 7;
+DELETE FROM boards WHERE cards = 0;
 
 DELETE FROM item_labels;
 
 DELETE FROM labels
-WHERE (SELECT count(*) FROM prune_lanes) = 7
-  AND id NOT IN (SELECT label_id FROM prune_lanes)
+WHERE id NOT IN (SELECT label_id FROM prune_lanes)
   AND NOT EXISTS (SELECT 1 FROM items i WHERE i.label_id = labels.id)
   AND NOT EXISTS (SELECT 1 FROM board_columns bc WHERE bc.label_id = labels.id)
   AND NOT EXISTS (SELECT 1 FROM board_positions bp WHERE bp.label_id = labels.id);
@@ -81,3 +82,4 @@ DROP TABLE IF EXISTS archived;
 DROP TABLE prune_place;
 DROP TABLE prune_map;
 DROP TABLE prune_lanes;
+DROP TABLE prune_gate;

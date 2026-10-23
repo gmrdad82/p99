@@ -904,7 +904,10 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0016_one_board.sql, 0017_delete_archived.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0016_one_board.sql, 0017_delete_archived.sql\n"),
+        "{text}"
+    );
     assert!(text.contains("\nOne board per account (0016)\n"), "{text}");
     assert!(text.contains("  the Cards board gets Needs you as lane 4; its cards stay where they are: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{text}");
     assert!(
@@ -925,7 +928,8 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
         "{text}"
     );
     assert!(text.contains("\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane"), "{text}");
-    assert!(!text.contains("archived"), "{text}");
+    assert!(!text.contains("archived labels"), "{text}");
+    assert!(!text.contains("read-only"), "{text}");
     assert!(text.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 items with no place, newest first\n"), "{text}");
     assert!(text.contains("  - 1 item on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished\n"), "{text}");
     assert!(
@@ -937,7 +941,10 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
 
     let json = h.run(&["migrate", "--plan", "--json"]).json();
     assert_eq!(json["hash"], hash);
-    assert_eq!(json["plan"]["pending"], json!(["0016_one_board.sql", "0017_delete_archived.sql"]));
+    assert_eq!(
+        json["plan"]["pending"],
+        json!(["0016_one_board.sql", "0017_delete_archived.sql"])
+    );
     assert_eq!(json["plan"]["one_board"]["cards_board"], "insert");
     assert_eq!(json["plan"]["one_board"]["unplaced"], 2);
     assert_eq!(json["plan"]["one_board"]["labels"][2]["to"], "in-progress");
@@ -980,13 +987,16 @@ fn v111_rows() -> Vec<(&'static str, Value)> {
             ]),
         ),
         ("AS unplaced FROM items", json!([{ "unplaced": 1 }])),
-        ("SELECT count(*) AS tags FROM item_labels", json!([{ "tags": 4 }])),
+        (
+            "SELECT count(*) AS tags FROM item_labels",
+            json!([{ "tags": 4 }]),
+        ),
     ]
 }
 
 #[test]
 fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_names_what_it_deletes_and_carries()
-{
+ {
     let mut rows = v111_rows();
     rows.extend(v19_rows());
     let h = home("at-0016", &plain_config(), live(&SHIPPED[..16], rows));
@@ -1009,9 +1019,15 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0017_delete_archived.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0017_delete_archived.sql\n"),
+        "{text}"
+    );
     assert!(!text.contains("One board per account (0016)"), "{text}");
-    assert!(text.contains("\nDelete what the one board carries (0017)\n"), "{text}");
+    assert!(
+        text.contains("\nDelete what the one board carries (0017)\n"),
+        "{text}"
+    );
     assert!(text.contains("  deleted: 2 old boards (Web (ada@example.com), Ops), with their 7 columns and 4 card places\n"), "{text}");
     assert!(
         text.contains(&format!(
@@ -1021,11 +1037,20 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
         "{text}"
     );
     assert!(text.contains("  deleted labels: Inbox, Triage\n"), "{text}");
-    assert!(text.contains("  placed first: 1 item with a place only on an old board, after the lane's last card\n"), "{text}");
-    assert!(text.contains("  deleted old tags: 4 (item_labels rows nothing reads)\n"), "{text}");
+    assert!(
+        text.contains(
+            "  placed first: 1 item with a place only on an old board, after the lane's last card\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("  deleted old tags: 4 (item_labels rows nothing reads)\n"),
+        "{text}"
+    );
     assert!(text.contains("  - 2 items on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n"), "{text}");
     assert!(text.contains("  - 1 item has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n"), "{text}");
     assert!(!text.contains("archived,"), "{text}");
+    assert!(!text.contains("Old tags"), "{text}");
     assert!(
         h.calls().iter().all(|c| !c.writes()),
         "the plan wrote: {:?}",
@@ -1043,7 +1068,11 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     h.forget();
     let stale = h.run(&["deploy", "--accept-plan", &"0".repeat(64)]);
     assert_eq!(stale.code, Some(1));
-    assert!(h.writes().is_empty(), "a stale hash wrote: {:?}", h.writes());
+    assert!(
+        h.writes().is_empty(),
+        "a stale hash wrote: {:?}",
+        h.writes()
+    );
 
     h.forget();
     let done = h.run(&["deploy", "--accept-plan", &hash]);
@@ -1052,6 +1081,34 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     assert_eq!(h.applied(), names(&SHIPPED));
     assert!(h.upload().is_some());
     never_shows_a_secret(&[&out, &plan, &stale, &done], &[]);
+}
+
+#[test]
+fn an_account_at_0016_whose_cards_board_lacks_a_lane_is_refused_before_0017_and_nothing_is_written()
+{
+    let mut rows = v111_rows();
+    rows[0] = ("AS lanes FROM board_columns", json!([{ "lanes": 6 }]));
+    rows.extend(v19_rows());
+    let h = home("short-lanes", &plain_config(), live(&SHIPPED[..16], rows));
+    let said = "the Cards board has 6 lanes, not seven, so 0017 can't tell where an old board's cards belong: deploy stops before any migration, and nothing is deleted";
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(1));
+    assert!(plan.stderr.contains(said), "{}", plan.stderr);
+    assert!(plan.stdout.is_empty(), "{}", plan.stdout);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &"0".repeat(64)]);
+    assert_eq!(out.code, Some(1));
+    assert!(out.stderr.contains(said), "{}", out.stderr);
+    assert!(
+        h.writes().is_empty(),
+        "a refused deploy wrote: {:?}",
+        h.writes()
+    );
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&plan, &out], &[]);
 }
 
 #[test]

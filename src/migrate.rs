@@ -355,7 +355,10 @@ fn old_tags(
     applied: &[String],
     plan: &mut Value,
 ) -> Result<(), String> {
-    if !applied.iter().any(|a| numbered(a, "0011")) || applied.iter().any(|a| numbered(a, "0017")) {
+    if !applied.iter().any(|a| numbered(a, "0011"))
+        || applied.iter().any(|a| numbered(a, "0017"))
+        || crate::prune::earlier(plan).is_empty()
+    {
         return Ok(());
     }
     let row = select(cf, account, Q_OLD_TAGS)?
