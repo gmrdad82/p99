@@ -88,7 +88,7 @@ settle = "300ms"
 
 [shots.board]
 kind = "clip"
-line = "The board on sample data: four label columns, item cards with their assignee, a card picked up with the keys and slid into QA ready, then the board picker and Grace Hopper's watched QA board, read-only, with the card on it"
+line = "The board on sample data: one board with seven lanes, item cards with their assignee or project, a card picked up with the keys and dropped into Planned, then the project filter narrowing it to Storefront and the cards that need you"
 tape = "render/terminal/board.tape"
 launch = "p99 tui --demo"
 settle = "400ms"

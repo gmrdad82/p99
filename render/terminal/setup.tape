@@ -6,7 +6,7 @@ Wait /Your name, as P99 shows it: $/
 Sleep 900ms
 Type@40ms "Ada Lovelace"
 Enter
-Wait /first manager\): $/
+Wait /first Owner\): $/
 Type@35ms "ada@example.com"
 Enter
 Wait /Paste the token \(hidden\): $/
