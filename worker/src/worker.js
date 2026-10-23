@@ -34,7 +34,7 @@ import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
-import { BODY_REFUSED, PATCH_FIELDS, TITLE_REFUSED, mayEditText, useKit as usePatchKit, writePatch } from "./patch.js";
+import { BODY_REFUSED, TITLE_REFUSED, mayEditText, useKit as usePatchKit, writePatch } from "./patch.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -1968,9 +1968,7 @@ async function patchIssue(c, rawKey) {
   if (closing && !c.manager && !(reporter && wanted === "abandoned" && row.open)) fail(403, "this change is not allowed");
   if (closing) refuseAgentClose(c, row, { closes: 1 });
 
-  const values = {};
-  for (const field of PATCH_FIELDS) if (has(field)) values[field] = next[field];
-  const written = await writePatch(c, rawKey, row, values, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) });
+  const written = await writePatch(c, rawKey, row, has, next, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) });
   if (written.changed.length > 0) push(c, "change", written.row, { what: written.changed });
   const current = written.row;
   if (closing) await closeItem(c, current, wanted, { duplicateOf });

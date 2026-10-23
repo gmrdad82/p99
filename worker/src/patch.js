@@ -14,6 +14,12 @@ export function useKit(kit) {
 
 const given = (values, field) => Object.prototype.hasOwnProperty.call(values, field);
 
+export function patchValues(has, next) {
+  const values = {};
+  for (const field of PATCH_FIELDS) if (has(field)) values[field] = next[field];
+  return values;
+}
+
 export function mayEditText(c, row) {
   return Boolean(c.manager) || (row.reporter_email === c.actor.email && Boolean(row.open) && row.label_role === "inbox");
 }
@@ -89,12 +95,13 @@ export async function writeFields(DB, at, row, values, { extra = [], reload, con
       const changed = PATCH_FIELDS.filter((f) => given(events, f) && results[events[f]].meta.changes > 0);
       return { row: { ...current, ...values }, changed };
     }
-    current = await reload();
+    if (attempt + 1 < PATCH_TRIES) current = await reload();
   }
   return conflict();
 }
 
-export function writePatch(c, rawKey, row, values, at) {
+export function writePatch(c, rawKey, row, has, next, at) {
+  const values = patchValues(has, next);
   return writeFields(c.env.DB, at, row, values, {
     extra: [K.readStatement(c, row.id)],
     reload: async () => {

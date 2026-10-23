@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { BODY_REFUSED, PATCH_CONFLICT, PATCH_TRIES, TITLE_REFUSED, mayEditText, textRefusal, useKit, writeFields, writePatch } from "../src/patch.js";
+import { BODY_REFUSED, PATCH_CONFLICT, PATCH_TRIES, TITLE_REFUSED, mayEditText, patchValues, textRefusal, useKit, writeFields, writePatch } from "../src/patch.js";
 import { fold } from "../src/text.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -175,7 +175,7 @@ test("a text write that keeps losing its guard gives up after the tries and writ
     }),
     /conflict/,
   );
-  assert.equal(reloads, PATCH_TRIES);
+  assert.equal(reloads, PATCH_TRIES - 1);
   assert.equal(batches.length, 1 + PATCH_TRIES);
   assert.equal(read().title, "Checkout total is wrong");
   assert.deepEqual(events().map((e) => e.kind), ["body"]);
@@ -260,6 +260,17 @@ test("an assignee and a title in one patch that keeps losing its body guard writ
   assert.deepEqual(events().map((e) => e.kind), ["body"]);
 });
 
+test("a patch writes only the fields its body names, keeping a cleared assignee and leaving out status and project", () => {
+  const next = { kind: "task", assignee: null, title: "Coupon ignored", body: "Steps: add a coupon" };
+  const named = (body) => (field) => Object.prototype.hasOwnProperty.call(body, field);
+  assert.deepEqual(patchValues(named({ title: "x" }), next), { title: "Coupon ignored" });
+  assert.deepEqual(patchValues(named({ assignee: null }), next), { assignee: null });
+  assert.deepEqual(patchValues(named({ status: "done" }), next), {});
+  assert.deepEqual(patchValues(named({ project: "web" }), next), {});
+  assert.deepEqual(patchValues(named({ body: "", kind: "task", status: "doing" }), next), { kind: "task", body: "Steps: add a coupon" });
+  assert.deepEqual(patchValues(() => true, next), next);
+});
+
 test("only a manager, or the reporter of an open item still in the inbox, may edit the text", () => {
   const ada = { manager: false, actor: { email: "ada@example.com" } };
   const boss = { manager: true, actor: { email: "grace@example.com" } };
@@ -297,7 +308,13 @@ function handler(world, { manager, actor, between = () => {} }) {
     },
   });
   const c = { env: { DB: world.DB }, manager, actor: { email: actor.actor }, now: actor.now };
-  return { c, loads, write: (row, values) => writePatch(c, "BUG-1", { ...row, label_role: "inbox" }, values, actor) };
+  const write = (row, body) => {
+    const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
+    const next = { kind: row.kind, assignee: row.assignee, title: row.title, body: row.body };
+    for (const field of Object.keys(next)) if (has(field)) next[field] = body[field];
+    return writePatch(c, "BUG-1", { ...row, label_role: "inbox" }, has, next, actor);
+  };
+  return { c, loads, write };
 }
 
 const moveTo = (db, role) => db.prepare("UPDATE items SET label_id = (SELECT id FROM labels WHERE role = ?1) WHERE id = 1").run(role);
@@ -337,8 +354,53 @@ test("the handler's write: a manager whose body guard misses on every try gets 4
   bump();
   const { loads, write } = handler(world, { manager: true, actor: ADA, between: bump });
   await assert.rejects(write(stale, { assignee: "ada@example.com", title: "Coupon ignored" }), (e) => e.status === 409 && e.message === PATCH_CONFLICT);
-  assert.equal(loads.length, PATCH_TRIES);
+  assert.equal(loads.length, PATCH_TRIES - 1);
   const row = world.read();
   assert.deepEqual([row.assignee, row.title], [null, "Checkout total is wrong"]);
   assert.deepEqual(world.events(), []);
+});
+
+test("the handler's race: Grace's assignee PATCH lands between Ada's read and her title PATCH, and both stick", async () => {
+  const world = local();
+  const adaRead = world.read();
+  const grace = handler(world, { manager: true, actor: GRACE });
+  const g = await grace.write(world.read(), { assignee: "grace@example.com" });
+  const ada = handler(world, { manager: true, actor: ADA });
+  const a = await ada.write(adaRead, { title: "Checkout total ignores the coupon" });
+  const row = world.read();
+  assert.deepEqual([row.title, row.assignee, row.body, row.kind], ["Checkout total ignores the coupon", "grace@example.com", "Steps: add two", "bug"]);
+  assert.deepEqual([g.changed, a.changed], [["assignee"], ["title"]]);
+  assert.deepEqual([grace.loads, ada.loads], [[], []]);
+  assert.deepEqual(
+    world.events().map((e) => [e.kind, e.actor_email]),
+    [
+      ["assignee", "grace@example.com"],
+      ["title", "ada@example.com"],
+    ],
+  );
+});
+
+test("the handler's race: Ada's title PATCH lands between Grace's read and her assignee PATCH, and both stick", async () => {
+  const world = local();
+  const graceRead = world.read();
+  const ada = handler(world, { manager: true, actor: ADA });
+  await ada.write(world.read(), { title: "Checkout total ignores the coupon" });
+  const grace = handler(world, { manager: true, actor: GRACE });
+  const g = await grace.write(graceRead, { assignee: "grace@example.com" });
+  const row = world.read();
+  assert.deepEqual([row.title, row.assignee], ["Checkout total ignores the coupon", "grace@example.com"]);
+  assert.equal(row.search_text, fold("Checkout total ignores the coupon Steps: add two"));
+  assert.deepEqual(g.changed, ["assignee"]);
+  assert.deepEqual(world.events().map((e) => e.kind), ["title", "assignee"]);
+});
+
+test("the handler's race: a status-only PATCH from a stale read writes none of the four fields back", async () => {
+  const world = local();
+  const stale = world.read();
+  await handler(world, { manager: true, actor: GRACE }).write(world.read(), { assignee: "grace@example.com", title: "Coupon ignored" });
+  const { write } = handler(world, { manager: true, actor: ADA });
+  const done = await write(stale, { status: "doing" });
+  assert.deepEqual(done.changed, []);
+  assert.deepEqual([world.read().assignee, world.read().title], ["grace@example.com", "Coupon ignored"]);
+  assert.deepEqual(world.events().map((e) => e.kind), ["assignee", "title"]);
 });
