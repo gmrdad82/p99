@@ -34,7 +34,7 @@ import { chars, fold, isChars, searchMatch } from "./text.js";
 import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters, cardSide } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
-import { PATCH_FIELDS, writeFields } from "./patch.js";
+import { BODY_REFUSED, PATCH_FIELDS, TITLE_REFUSED, mayEditText, useKit as usePatchKit, writePatch } from "./patch.js";
 import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
@@ -1911,16 +1911,15 @@ async function patchIssue(c, rawKey) {
   const row = await loadItem(c, rawKey);
   if (Object.prototype.hasOwnProperty.call(body, "project")) return patchProject(c, row, body);
   const reporter = row.reporter_email === c.actor.email;
-  const fresh = Boolean(row.open) && row.label_role === "inbox";
   const has = (field) => Object.prototype.hasOwnProperty.call(body, field);
   const next = { kind: row.kind, assignee: row.assignee, title: row.title, body: row.body };
   if (has("title")) {
-    if (!c.manager && !(reporter && fresh)) fail(403, "the title can no longer be changed");
+    if (!mayEditText(c, row)) fail(403, TITLE_REFUSED);
     next.title = validTitle(body.title);
     if (next.title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   }
   if (has("body")) {
-    if (!c.manager && !(reporter && fresh)) fail(403, "only a manager, or the reporter while the item is new, may change the details");
+    if (!mayEditText(c, row)) fail(403, BODY_REFUSED);
     const text = clean(body.body);
     if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
     next.body = text;
@@ -1971,17 +1970,7 @@ async function patchIssue(c, rawKey) {
 
   const values = {};
   for (const field of PATCH_FIELDS) if (has(field)) values[field] = next[field];
-  const written = await writeFields(c.env.DB, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) }, row, values, {
-    extra: [readStatement(c, row.id)],
-    reload: async () => {
-      const fresh = await loadItem(c, rawKey);
-      if ((has("title") || has("body")) && !c.manager && !(fresh.reporter_email === c.actor.email && Boolean(fresh.open) && fresh.label_role === "inbox")) {
-        fail(403, has("title") ? "the title can no longer be changed" : "only a manager, or the reporter while the item is new, may change the details");
-      }
-      return fresh;
-    },
-    conflict: () => fail(409, "the item changed while saving; try again"),
-  });
+  const written = await writePatch(c, rawKey, row, values, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) });
   if (written.changed.length > 0) push(c, "change", written.row, { what: written.changed });
   const current = written.row;
   if (closing) await closeItem(c, current, wanted, { duplicateOf });
@@ -3294,6 +3283,8 @@ useGithubKit({
 usePeopleKit({ fail, json, managersOf, isUniqueViolation, readJson, requireEmptyBody, requireManager, maxJson: MAX_JSON_BYTES });
 
 useDeleteKit({ fail, json, keyOf, loadItem, push, requireEmptyBody, requireManager });
+
+usePatchKit({ fail, loadItem, readStatement });
 
 useLinkKit({
   codeHash,

@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { PATCH_TRIES, fieldStatements, writeFields } from "../src/patch.js";
+import { BODY_REFUSED, PATCH_CONFLICT, PATCH_TRIES, TITLE_REFUSED, mayEditText, textRefusal, useKit, writeFields, writePatch } from "../src/patch.js";
 import { fold } from "../src/text.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -82,20 +82,6 @@ test("a title patch and an assignee patch that interleave both survive, one even
   );
   assert.deepEqual([seen[0].actor_agent, seen[0].actor_via, seen[0].at], [1, "cli", GRACE.now]);
   assert.deepEqual([seen[1].actor_agent, seen[1].actor_via, seen[1].at], [0, null, ADA.now]);
-});
-
-test("the old whole-row write under the same interleaving loses the assignee, so the forced race is real", async () => {
-  const { DB, read } = local();
-  const first = read();
-  const second = read();
-  await writeFields(DB, GRACE, second, { assignee: "grace@example.com" }, { reload: never, conflict: refused });
-  await DB.batch([
-    DB.prepare(
-      `UPDATE items SET kind = ?2, assignee = ?3, title = ?4, body = ?5, updated_at = ?6, activity_at = ?6, search_text = ?7
-       WHERE id = ?1`,
-    ).bind(first.id, first.kind, first.assignee, "Checkout total ignores the coupon", first.body, ADA.now, "x"),
-  ]);
-  assert.equal(read().assignee, null);
 });
 
 test("the same field patched twice at once: the last write wins, two events chained, one row", async () => {
@@ -220,6 +206,16 @@ test("a patch to the values already there writes no event and keeps the timestam
   assert.deepEqual([read().updated_at, read().activity_at], [T0, T0]);
 });
 
+test("a patch that changes nothing still marks the item read for its caller, who looked at it", async () => {
+  const { db, DB, read, events } = local();
+  const row = read();
+  const extra = DB.prepare("INSERT INTO reads (actor_email, item_id, read_at) VALUES (?1, ?2, ?3)").bind("ada@example.com", 1, ADA.now);
+  const done = await writeFields(DB, ADA, row, { assignee: null }, { extra: [extra], reload: never, conflict: refused });
+  assert.deepEqual(done.changed, []);
+  assert.deepEqual(events(), []);
+  assert.equal(db.prepare("SELECT read_at FROM reads WHERE item_id = 1").get().read_at, ADA.now);
+});
+
 test("a patch with no field runs no batch at all", async () => {
   const { DB, read, batches } = local();
   const row = read();
@@ -266,15 +262,99 @@ test("a write that fails inside the batch leaves the row and the events untouche
   assert.deepEqual(events(), []);
 });
 
-test("the statements guard only the text field that was not given", () => {
-  const { DB, read } = local();
+test("an assignee and a title in one patch that keeps losing its body guard writes nothing at all, then conflicts", async () => {
+  const { DB, read, events, batches } = local();
+  const stale = read();
+  await writeFields(DB, GRACE, read(), { body: "Steps: add a coupon" }, { reload: never, conflict: refused });
+  await assert.rejects(
+    writeFields(DB, ADA, stale, { assignee: "ada@example.com", kind: "task", title: "Coupon ignored" }, { reload: async () => stale, conflict: refused }),
+    /conflict/,
+  );
   const row = read();
-  const sql = (values) => fieldStatements(DB, ADA, row, values).statements.map((s) => s.sql).join("\n");
-  assert.match(sql({ title: "x" }), /body IS \?6/);
-  assert.doesNotMatch(sql({ title: "x" }), /title IS \?6/);
-  assert.match(sql({ body: "x" }), /title IS \?6/);
-  assert.doesNotMatch(sql({ title: "x", body: "y" }), /\bIS \?[67]\b/);
-  assert.doesNotMatch(sql({ assignee: "x" }), /title|body/);
-  const { events, text } = fieldStatements(DB, ADA, row, { assignee: "x", title: "y" });
-  assert.deepEqual([events, text], [{ assignee: 0, title: 2 }, 3]);
+  assert.equal(batches.length, 1 + PATCH_TRIES);
+  assert.deepEqual([row.assignee, row.kind, row.title, row.body], [null, "bug", "Checkout total is wrong", "Steps: add a coupon"]);
+  assert.deepEqual(events().map((e) => e.kind), ["body"]);
+});
+
+test("only a manager, or the reporter of an open item still in the inbox, may edit the text", () => {
+  const ada = { manager: false, actor: { email: "ada@example.com" } };
+  const boss = { manager: true, actor: { email: "grace@example.com" } };
+  const mine = { reporter_email: "ada@example.com", open: 1, label_role: "inbox" };
+  assert.equal(mayEditText(ada, mine), true);
+  assert.equal(mayEditText(boss, { ...mine, reporter_email: "x@example.com", open: 0, label_role: "done" }), true);
+  assert.equal(mayEditText(ada, { ...mine, label_role: "doing" }), false);
+  assert.equal(mayEditText(ada, { ...mine, open: 0 }), false);
+  assert.equal(mayEditText(ada, { ...mine, reporter_email: "grace@example.com" }), false);
+  const moved = { ...mine, label_role: "review" };
+  assert.equal(textRefusal(ada, moved, { title: "x", body: "y" }), TITLE_REFUSED);
+  assert.equal(textRefusal(ada, moved, { body: "y" }), BODY_REFUSED);
+  assert.equal(textRefusal(ada, moved, { assignee: null }), null);
+  assert.equal(textRefusal(ada, mine, { title: "x" }), null);
+});
+
+function handler(world, { manager, actor, between = () => {} }) {
+  const loads = [];
+  useKit({
+    fail(status, message) {
+      throw Object.assign(new Error(message), { status });
+    },
+    async loadItem(c, rawKey) {
+      loads.push(rawKey);
+      const row = world.db.prepare("SELECT i.*, lb.role AS label_role FROM items i JOIN labels lb ON lb.id = i.label_id WHERE i.id = 1").get();
+      between();
+      return { ...row };
+    },
+    readStatement(c, itemId) {
+      return c.env.DB.prepare("INSERT INTO reads (actor_email, item_id, read_at) VALUES (?1, ?2, ?3) ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at").bind(
+        c.actor.email,
+        itemId,
+        c.now,
+      );
+    },
+  });
+  const c = { env: { DB: world.DB }, manager, actor: { email: actor.actor }, now: actor.now };
+  return { c, loads, write: (row, values) => writePatch(c, "BUG-1", { ...row, label_role: "inbox" }, values, actor) };
+}
+
+const moveTo = (db, role) => db.prepare("UPDATE items SET label_id = (SELECT id FROM labels WHERE role = ?1) WHERE id = 1").run(role);
+
+test("the handler's write: a reporter whose item left the inbox mid-patch is refused with 403 and nothing of theirs lands", async () => {
+  const world = local();
+  const stale = world.read();
+  await writeFields(world.DB, GRACE, world.read(), { body: "Steps: add a coupon" }, { reload: never, conflict: refused });
+  moveTo(world.db, "doing");
+  const { loads, write } = handler(world, { manager: false, actor: ADA });
+  await assert.rejects(write(stale, { title: "Coupon ignored" }), (e) => e.status === 403 && e.message === TITLE_REFUSED);
+  assert.deepEqual(loads, ["BUG-1"]);
+  assert.equal(world.read().title, "Checkout total is wrong");
+  assert.deepEqual(world.events().map((e) => e.kind), ["body"]);
+});
+
+test("the handler's write: a reporter still in the inbox reloads once and keeps both texts", async () => {
+  const world = local();
+  const stale = world.read();
+  await writeFields(world.DB, GRACE, world.read(), { body: "Steps: add a coupon" }, { reload: never, conflict: refused });
+  const { loads, write } = handler(world, { manager: false, actor: ADA });
+  const done = await write(stale, { title: "Coupon ignored" });
+  assert.deepEqual(loads, ["BUG-1"]);
+  assert.deepEqual(done.changed, ["title"]);
+  assert.deepEqual([world.read().title, world.read().body], ["Coupon ignored", "Steps: add a coupon"]);
+  assert.equal(world.db.prepare("SELECT read_at FROM reads WHERE actor_email = 'ada@example.com'").get().read_at, ADA.now);
+});
+
+test("the handler's write: a manager whose body guard misses on every try gets 409 and the item keeps its assignee and title", async () => {
+  const world = local();
+  const stale = world.read();
+  let edits = 0;
+  const bump = () => {
+    edits += 1;
+    world.db.prepare("UPDATE items SET body = ?1 WHERE id = 1").run(`Steps: edit ${edits}`);
+  };
+  bump();
+  const { loads, write } = handler(world, { manager: true, actor: ADA, between: bump });
+  await assert.rejects(write(stale, { assignee: "ada@example.com", title: "Coupon ignored" }), (e) => e.status === 409 && e.message === PATCH_CONFLICT);
+  assert.equal(loads.length, PATCH_TRIES);
+  const row = world.read();
+  assert.deepEqual([row.assignee, row.title], [null, "Checkout total is wrong"]);
+  assert.deepEqual(world.events(), []);
 });

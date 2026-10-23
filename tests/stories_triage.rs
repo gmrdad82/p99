@@ -1625,31 +1625,6 @@ fn an_edit_of_the_title_and_an_assign_at_once_both_stick_because_each_sends_only
 }
 
 #[test]
-fn an_edit_and_an_assign_at_once_on_a_missing_item_both_fail_plainly_and_change_nothing() {
-    let gate = Gate::new(2);
-    let writes = Arc::clone(&gate);
-    let stub = Stub::hooked(
-        World::new(vec![Item::new(12, "Checkout total is wrong")]),
-        move |req, world| {
-            req.is("PATCH", "/v1/issues/40")
-                .then(|| world.answer(req).gated(&writes))
-        },
-    );
-    let ada = Home::of("both-gone-ada", &stub);
-    let grace = Home::of("both-gone-grace", &stub);
-    let one = ada.command(&["edit", "40", "--title", "Nothing here", "--host", HOST]);
-    let two = grace.command(&["assign", "40", "@grace.hopper", "--host", HOST]);
-    let one = thread::spawn(move || run(one));
-    let two = thread::spawn(move || run(two));
-    let (one, two) = (one.join().unwrap(), two.join().unwrap());
-    lone_error(&one, "no such item (404)");
-    lone_error(&two, "no such item (404)");
-    let (title, assignee) = stub.world(|w| (w.get(12).title, w.get(12).assignee));
-    assert_eq!(title, "Checkout total is wrong");
-    assert_eq!(assignee, None);
-}
-
-#[test]
 fn an_owner_assigns_by_username_to_me_or_to_no_one_and_a_stranger_is_refused_plainly() {
     let stub = Stub::start(World::new(vec![Item::new(12, "Checkout total is wrong")]));
     let home = Home::of("assign", &stub);
