@@ -66,8 +66,6 @@ function item(db, labelId, open, places = []) {
 function laneOf(row) {
   if (row.role === "inbox") return 0;
   if (row.role === "review") return 5;
-  if (row.role === "doing") return 2;
-  if (row.role === null && row.first === 1) return 0;
   return 2;
 }
 
@@ -159,8 +157,7 @@ test("a Cards board with six columns: the plan predicts every move 0016 makes an
   assert.equal(before.labels.find((r) => r.label === "Needs you"), undefined);
   assert.equal(lanes[3], "Needs you");
   assert.equal(moved["Needs you"], undefined);
-  assert.equal(before.labels.find((r) => r.label === "Triage").first, 1);
-  assert.deepEqual([...moved.Triage.toOpen], ["New"]);
+  assert.deepEqual([...moved.Triage.toOpen], ["In progress"]);
   assert.deepEqual([...moved["QA ready"].toOpen], ["In progress"]);
   assert.deepEqual([...moved.Shipped.toClosed], [lanes[6]]);
 });
@@ -181,7 +178,7 @@ test("a Cards board with seven lanes and a renamed fourth: a label still called 
   const row = before.labels.find((r) => r.label === "Needs you");
   assert.equal(row.items, 2);
   assert.equal(row.open, 1);
-  assert.deepEqual([...moved["Needs you"].toOpen], ["New"]);
+  assert.deepEqual([...moved["Needs you"].toOpen], ["In progress"]);
   assert.equal(moved["Waiting on me"], undefined);
   assert.deepEqual(
     before.boards.map((b) => [b.name, b.placed]),
@@ -213,7 +210,31 @@ test("no Cards board: the lane names already in use stay as lanes and every othe
   }
   assert.equal(before.labels.find((r) => r.role === "done"), undefined);
   assert.deepEqual(Object.values(lanes), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
-  assert.deepEqual([...moved.Later.toOpen], ["New"]);
+  assert.deepEqual([...moved.Later.toOpen], ["In progress"]);
   assert.deepEqual([...moved.Review.toOpen], ["Landed"]);
   assert.deepEqual([...moved.Doing.toClosed], ["Done"]);
+});
+
+test("a Cards board of six with its own Needs you, or of four, is reset to the seven lanes and the plan predicts every move", () => {
+  for (const [how, names] of [
+    ["six with Needs you", ["New", "Planned", "In progress", "Needs you", "Landed"]],
+    ["four", ["New", "Next up", "Landed"]],
+  ]) {
+    const db = before0016();
+    const [inbox, done] = ["inbox", "done"].map((r) => role(db, r));
+    const columns = names.map((n) => label(db, n));
+    const triage = label(db, "Triage");
+    const cards = board(db, "Cards", "ada@example.com", 1, AT, [...columns, done]);
+    const web = board(db, "Web", "ada@example.com", 0, AT, [triage, inbox, done]);
+    item(db, triage, true, [[web, "a0"]]);
+    item(db, inbox, true, [[web, "a1"]]);
+    columns.forEach((id, at) => item(db, id, true, [[cards, `a${at}`]]));
+
+    const { before, lanes, moved } = predicts(db);
+    assert.deepEqual(Object.values(lanes), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"], how);
+    assert.deepEqual([...moved.Triage.toOpen], ["In progress"], how);
+    for (const kept of names.filter((n) => Object.values(lanes).includes(n))) assert.equal(moved[kept], undefined, `${how}: ${kept}`);
+    if (names.includes("Next up")) assert.deepEqual([...moved["Next up"].toOpen], ["In progress"], how);
+    assert.ok(before.labels.some((r) => r.label === "Triage"), how);
+  }
 });

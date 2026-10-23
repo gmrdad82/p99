@@ -368,7 +368,7 @@ export async function foldChecks({ check, root }) {
     const db = seeded(root);
     db.exec(`UPDATE boards SET owner = 'old@example.com' WHERE id = 12; UPDATE boards SET created_at = '2025-01-01T00:00:00.000Z' WHERE id = 12;`);
     fold(root, db);
-    assert.deepEqual(lane(db, "New"), [1, 6, 12, 11]);
+    assert.deepEqual(lane(db, "In progress"), [2, 5, 6, 14, 13]);
     const fresh = migrated(root, FOLD);
     fold(root, fresh);
     assert.deepEqual(laneNames(fresh), ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"]);
@@ -470,7 +470,7 @@ export async function foldChecks({ check, root }) {
     const db = seeded(root);
     fold(root, db);
     const ids = (v, filter) => boardRows(db, v, filter).map((r) => r.id);
-    assert.deepEqual(ids(ALL, {}), [1, 6, 12, 11, 2, 5, 14, 13, 9, 3, 10, 4, 7]);
+    assert.deepEqual(ids(ALL, {}), [1, 12, 11, 2, 5, 6, 14, 13, 9, 3, 10, 4, 7]);
     assert.deepEqual(ids({ all: false, host: "shop.example.com" }, {}), [14, 9, 10]);
     assert.deepEqual(ids(ALL, { projects: ["splicer"] }), [9, 10]);
     assert.deepEqual(ids(ALL, { hosts: ["shop.example.com"] }), [14, 9, 10]);
