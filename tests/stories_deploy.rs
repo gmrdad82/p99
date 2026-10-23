@@ -1550,7 +1550,8 @@ fn half_rows() -> Vec<(&'static str, Value)> {
 }
 
 #[test]
-fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_0005_to_0015_in_one_deploy() {
+fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_later_migration_in_one_deploy()
+ {
     let h = home(
         "half-0004",
         &plain_config(),

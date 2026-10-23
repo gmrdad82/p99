@@ -361,7 +361,7 @@ mod tests {
         assert!(boards.contains("ORDER BY CASE WHEN 0 = 0 AND b.owner IS"));
         assert!(boards.contains("ORDER BY CASE WHEN 0 = 0 AND f.owner IS"));
         let labels = uncarded(Q_LABELS);
-        assert_eq!(labels.matches("WHERE 0 = 1").count(), 4);
+        assert_eq!(labels.matches("WHERE 0 = 1").count(), 5);
         assert!(labels.contains("WHERE 0 = 1 AND n.name = 'Needs you'"));
         assert_eq!(uncarded(Q_UNPLACED), Q_UNPLACED);
     }
