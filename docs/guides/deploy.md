@@ -63,7 +63,7 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
    p99 migrate --plan --account shop --json
    ```
 
-   It shows, for that account: how each 1.8 status maps to a label (on 1.7, each 1.7 status with its label and stage) and how many open items each holds; every board, nested ones included, and who would own it (1.8 kept no board creator, so the account's first Owner code that isn't revoked; on 1.7, each host's home board), and a decision when one person would own more than 3 boards in one space (one site, or every host), the most a person may have there; how many cards change place in each column as priority becomes order; the tags beyond each item's label, which 0011 keeps untouched and unused; the members whose 1.8 status changes only Owners make from 1.9 on; label names that would collide; the usernames that get a number or fall back, and how many people rows are created (the hash covers every default username, through the people digest); the people who act through agents and the @username* they show under; the kinds with their key counts; and the hosts' settings, which carry over. It ends with the decisions needed, one line each, and the plan hash, the SHA-256 of the plan's JSON with its keys sorted.
+   It shows, for that account: how each 1.8 status maps to a label (on 1.7, each 1.7 status with its label and stage) and how many open items each holds; every board, nested ones included, and who would own it (1.8 kept no board creator, so the account's first Owner code that isn't revoked; on 1.7, each host's home board), and a decision when one person would own more than 3 boards in one space (one site, or every host), the most a person may have there; how many cards change place in each column as priority becomes order; the tags beyond each item's label, which nothing reads and 0017 deletes; the members whose 1.8 status changes only Owners make from 1.9 on; label names that would collide; the usernames that get a number or fall back, and how many people rows are created (the hash covers every default username, through the people digest); the people who act through agents and the @username* they show under; the kinds with their key counts; and the hosts' settings, which carry over. It ends with the decisions needed, one line each, and the plan hash, the SHA-256 of the plan's JSON with its keys sorted.
 
 2. Answer the decisions (mint an Owner code, rename a tag, remove a board) and read the plan again: any change to the data gives a new hash.
 
@@ -73,9 +73,9 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
+   Deploy works out the plan again first and refuses before any migration that changes data when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A new account, or one already past every migration that changes data (0017 is the last), needs no `--accept-plan`; one on 1.7, 1.8, 1.10 or 1.11 does.
 
-On an account already past 0011, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). 0011 keeps them untouched and unused, and no migration drops them.
+On an account past 0011 and not yet past 0017, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). Nothing reads them; 0017 deletes them, with the old boards and labels, and its section of the plan (`delete_archived` in `--json`) names each board and label it deletes and each item it first carries onto the one board.
 
 ## Change the setup
 

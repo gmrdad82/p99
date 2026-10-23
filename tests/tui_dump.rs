@@ -239,7 +239,9 @@ fn the_board_tab_is_one_board_of_seven_lanes_at_80_and_120_columns() {
         ] {
             assert!(board.contains(key), "{size} {key}:\n{board}");
         }
-        for gone in ["Shop", "QA ready", "b boards", "watching"] {
+        for gone in [
+            "Shop", "QA ready", "b boards", "watching", "archived", "Archived",
+        ] {
             assert!(!board.contains(gone), "{size} {gone}:\n{board}");
         }
     }

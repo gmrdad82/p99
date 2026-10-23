@@ -885,21 +885,6 @@ pub struct Owner {
     pub username: Option<String>,
 }
 
-impl Owner {
-    pub fn handle(&self) -> String {
-        self.username
-            .as_deref()
-            .map_or_else(|| "someone".to_owned(), |u| format!("@{u}"))
-    }
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct Lane {
-    pub label: String,
-    #[serde(default, deserialize_with = "lenient")]
-    pub closes: bool,
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LaneCard {
     pub key: String,

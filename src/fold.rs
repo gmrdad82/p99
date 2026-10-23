@@ -103,7 +103,7 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
                 "owner": b["owner"].as_str(),
                 "columns": count(b, "columns"),
                 "placed": count(b, "placed"),
-                "archived": count(b, "cards") != 1,
+                "deleted": count(b, "cards") != 1,
             })
         })
         .collect();
@@ -163,7 +163,7 @@ pub fn render(out: &mut String, plan: &Value) {
     if let Some(after) = fold["after"].as_array() {
         let names: Vec<&str> = after.iter().filter_map(Value::as_str).collect();
         out.push_str(&format!(
-            "  runs after {}: every board folds into the Cards board's seven lanes ({}), the old boards and labels are archived read-only, and each item gets one migrated label event\n",
+            "  runs after {}: every board folds into the Cards board's seven lanes ({}), each item gets one migrated label event, and 0017 then deletes the old boards and labels\n",
             names.join(", "),
             lanes_line()
         ));
@@ -203,23 +203,23 @@ pub fn render(out: &mut String, plan: &Value) {
         ));
     }
     let boards = fold["boards"].as_array().cloned().unwrap_or_default();
-    let archived: Vec<String> = boards
+    let deleted: Vec<String> = boards
         .iter()
-        .filter(|b| b["archived"] == true)
+        .filter(|b| b["deleted"] == true)
         .map(board_name)
         .collect();
     out.push_str(&format!(
-        "  archived, read-only: {}{}\n",
-        many(archived.len() as i64, "board", "boards"),
-        if archived.is_empty() {
+        "  deleted once moved (0017): {}{}\n",
+        many(deleted.len() as i64, "board", "boards"),
+        if deleted.is_empty() {
             String::new()
         } else {
-            format!(" ({})", archived.join(", "))
+            format!(" ({})", deleted.join(", "))
         }
     ));
     let names: Vec<String> = labels.iter().map(|r| text(r, "label")).collect();
     out.push_str(&format!(
-        "  archived labels: {}\n",
+        "  labels deleted once moved (0017): {}\n",
         if names.is_empty() {
             "none".to_owned()
         } else {
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn the_plan_says_per_label_where_its_items_go_and_what_it_archives() {
+    fn the_plan_says_per_label_where_its_items_go_and_what_goes() {
         let (fold, decisions) = two_owners();
         assert_eq!(fold["cards_board"], "insert");
         let to: Vec<(&str, &str, i64, i64)> = fold["labels"]
@@ -379,14 +379,14 @@ mod tests {
                 ("Triage", "in-progress", 2, 0),
             ]
         );
-        let archived: Vec<i64> = fold["boards"]
+        let deleted: Vec<i64> = fold["boards"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|b| b["archived"] == true)
+            .filter(|b| b["deleted"] == true)
             .map(|b| b["id"].as_i64().unwrap())
             .collect();
-        assert_eq!(archived, [2, 3]);
+        assert_eq!(deleted, [2, 3]);
         assert_eq!(fold["unplaced"], 2);
         assert_eq!(
             decisions,
@@ -447,7 +447,7 @@ mod tests {
     }
 
     #[test]
-    fn the_render_names_lanes_moves_archives_and_order() {
+    fn the_render_names_lanes_moves_deletes_and_order() {
         let (fold, _) = two_owners();
         let mut out = String::new();
         render(&mut out, &json!({"one_board": fold}));
@@ -467,25 +467,25 @@ mod tests {
         assert!(!out.contains("  Review "), "{out}");
         assert!(
             out.contains(
-                "  archived, read-only: 2 boards (Web (ada@example.com), Ops (grace@example.com))\n"
+                "  deleted once moved (0017): 2 boards (Web (ada@example.com), Ops (grace@example.com))\n"
             ),
             "{out}"
         );
         assert!(
-            out.contains("  archived labels: Doing, Inbox, QA ready, Review, Shipped, Triage\n"),
+            out.contains("  labels deleted once moved (0017): Doing, Inbox, QA ready, Review, Shipped, Triage\n"),
             "{out}"
         );
         assert!(out.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 items with no place, newest first\n"), "{out}");
     }
 
     #[test]
-    fn a_board_with_no_owner_is_named_alone_in_the_archived_line() {
+    fn a_board_with_no_owner_is_named_alone_in_the_deleted_line() {
         let orphan = json!({"id": 4, "name": "Old flow", "owner": null, "cards": 0, "columns": 3, "placed": 1});
         let (fold, _) = shape(&[orphan], &[], 0);
         let mut out = String::new();
         render(&mut out, &json!({"one_board": fold}));
         assert!(
-            out.contains("  archived, read-only: 1 board (Old flow)\n"),
+            out.contains("  deleted once moved (0017): 1 board (Old flow)\n"),
             "{out}"
         );
         assert!(
@@ -507,8 +507,8 @@ mod tests {
             out.contains("  no item carries a label outside the lanes\n"),
             "{out}"
         );
-        assert!(out.contains("  archived, read-only: 0 boards\n"), "{out}");
-        assert!(out.contains("  archived labels: none\n"), "{out}");
+        assert!(out.contains("  deleted once moved (0017): 0 boards\n"), "{out}");
+        assert!(out.contains("  labels deleted once moved (0017): none\n"), "{out}");
         assert!(
             out.contains("  the order in each lane: nothing to keep\n"),
             "{out}"

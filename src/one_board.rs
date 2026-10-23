@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::card::{Card, Lane, Person, Source};
-use crate::wire::{LaneCard, Owner};
 
 pub const DEPRECATED: &str =
     "p99 boards is deprecated: one board per account since 1.11; p99 board prints it";
@@ -53,27 +52,20 @@ pub struct OneBoard {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ArchivedBoard {
-    pub id: i64,
-    pub name: String,
-    #[serde(default)]
-    pub owner: Option<Owner>,
-    #[serde(default)]
-    pub columns: Vec<crate::wire::Lane>,
-    #[serde(default)]
-    pub cards: Vec<LaneCard>,
-    #[serde(default)]
-    pub archived: bool,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OldBoards {
     pub deprecated: String,
     pub board: Lanes,
     #[serde(default)]
     pub cards: Vec<BoardCard>,
-    #[serde(default)]
-    pub archived: Vec<ArchivedBoard>,
+}
+
+impl OldBoards {
+    pub fn one(self) -> OneBoard {
+        OneBoard {
+            board: self.board,
+            cards: self.cards,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,29 +163,6 @@ pub fn board_lines(board: &OneBoard) -> Vec<String> {
         lines.push(format!("{}  in {}", card_line(card), card.label));
     }
     lines
-}
-
-pub fn archived_lines(old: &OldBoards) -> Vec<String> {
-    if old.archived.is_empty() {
-        return vec!["no archived boards".to_owned()];
-    }
-    old.archived
-        .iter()
-        .map(|b| {
-            let n = b.cards.len();
-            format!(
-                "{:<5} {:<24} {:<16} archived, {} column{}, {n} card{}",
-                b.id,
-                b.name,
-                b.owner
-                    .as_ref()
-                    .map_or_else(|| "someone".to_owned(), |o| o.handle()),
-                b.columns.len(),
-                if b.columns.len() == 1 { "" } else { "s" },
-                if n == 1 { "" } else { "s" }
-            )
-        })
-        .collect()
 }
 
 fn word_of<'a>(lanes: &'a [LaneInfo], name: &str) -> Option<&'a LaneInfo> {
@@ -427,40 +396,18 @@ mod tests {
     }
 
     #[test]
-    fn the_archived_boards_print_one_line_each_or_say_there_are_none() {
-        let mut old = OldBoards::default();
-        assert_eq!(archived_lines(&old), ["no archived boards"]);
-        old.archived = vec![
-            ArchivedBoard {
-                id: 2,
-                name: "Web".to_owned(),
-                owner: Some(Owner {
-                    username: Some("ada".to_owned()),
-                }),
-                columns: vec![crate::wire::Lane::default(); 4],
-                cards: vec![LaneCard::default()],
-                archived: true,
-            },
-            ArchivedBoard {
-                id: 3,
-                name: "Ops".to_owned(),
-                columns: vec![crate::wire::Lane::default()],
-                ..ArchivedBoard::default()
-            },
-        ];
-        assert_eq!(
-            archived_lines(&old),
-            [
-                format!(
-                    "{:<5} {:<24} {:<16} archived, 4 columns, 1 card",
-                    2, "Web", "@ada"
-                ),
-                format!(
-                    "{:<5} {:<24} {:<16} archived, 1 column, 0 cards",
-                    3, "Ops", "someone"
-                ),
-            ]
-        );
+    fn the_old_boards_answer_reads_as_the_one_board_and_ignores_an_old_archive_list() {
+        let old: OldBoards = serde_json::from_value(serde_json::json!({
+            "deprecated": "one board per account since 1.11; read /board",
+            "board": {"lanes": [{"word": "new", "label": "New", "closes": false}]},
+            "cards": [],
+            "archived": [{"id": 2, "name": "Web", "archived": true}]
+        }))
+        .unwrap();
+        let one = old.one();
+        assert_eq!(one.board.lanes.len(), 1);
+        assert!(one.cards.is_empty());
+        assert!(board_lines(&one).iter().all(|l| !l.contains("archived")));
     }
 
     #[test]

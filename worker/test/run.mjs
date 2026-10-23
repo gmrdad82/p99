@@ -27,6 +27,7 @@ import { cardWriteChecks } from "./cards-write.mjs";
 import { needsChecks } from "./needs.mjs";
 import { markChecks } from "./marks.mjs";
 import { foldChecks } from "./fold.mjs";
+import { pruneChecks } from "./prune.mjs";
 import { oneBoardChecks } from "./one-board.mjs";
 import { LANE_NAMES } from "../src/cards.js";
 import { codeChecks } from "./codes.mjs";
@@ -903,7 +904,7 @@ async function run() {
     assert.equal(stranger.status, 428);
   });
 
-  await check("0004 and 0011 map every old status to its label and resolution, and keep the item's thread and its old tags", async () => {
+  await check("0004 and 0011 map every old status to its label and resolution and keep the item's thread; 0017 deletes the old tags, labels and boards", async () => {
     const want = {
       901: ["New", "received", null],
       902: ["In progress", "in_progress", null],
@@ -926,8 +927,12 @@ async function run() {
     const labels = (await call("GET", "/_p99/v1/labels")).json.labels;
     assert.deepEqual(labels.map((l) => [l.name, l.closes]), LANE_NAMES.map((name) => [name, name === "Done"]));
     assert.equal(labels.some((l) => l.name === "legacy tag"), false);
-    assert.equal(await d1count("SELECT count(*) AS n FROM item_labels WHERE item_id IN (951, 952)"), 3);
-    assert.equal(await d1count(TAG_COUNT), 2);
+    assert.equal(await d1count("SELECT count(*) AS n FROM item_labels WHERE item_id IN (951, 952)"), 0);
+    assert.equal(await d1count(TAG_COUNT), 0);
+    assert.equal(await d1count("SELECT count(*) AS n FROM labels WHERE name IN ('legacy tag', 'review', 'Building')"), 0);
+    assert.equal(await d1count("SELECT count(*) AS n FROM boards WHERE cards = 0"), 0);
+    assert.equal(await d1count("SELECT count(*) AS n FROM sqlite_master WHERE name = 'archived'"), 0);
+    assert.equal(await d1count("SELECT count(*) AS n FROM board_positions bp JOIN boards b ON b.id = bp.board_id WHERE b.cards = 0"), 0);
   });
 
   const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
@@ -1138,6 +1143,7 @@ async function run() {
   await brandChecks({ call, browse, mint, check, here, placement: PLACEMENT });
   await migrateChecks({ check, root, work });
   await foldChecks({ check, root });
+  await pruneChecks({ check, root });
   await backupChecks({ check, root });
   await ticketChecks({ check });
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });

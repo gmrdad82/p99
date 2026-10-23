@@ -260,6 +260,9 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     if pending.iter().any(|p| p.starts_with("0016")) {
         crate::fold::plan(cf, account, &mut plan, &mut decisions)?;
     }
+    if pending.iter().any(|p| p.starts_with("0017")) {
+        crate::prune::plan(cf, account, &mut plan, &mut decisions)?;
+    }
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
     if people {
@@ -352,7 +355,7 @@ fn old_tags(
     applied: &[String],
     plan: &mut Value,
 ) -> Result<(), String> {
-    if !applied.iter().any(|a| numbered(a, "0011")) {
+    if !applied.iter().any(|a| numbered(a, "0011")) || applied.iter().any(|a| numbered(a, "0017")) {
         return Ok(());
     }
     let row = select(cf, account, Q_OLD_TAGS)?
@@ -917,6 +920,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         out.push_str(&format!("  the CLI's url {url} stays\n"));
     }
     crate::fold::render(&mut out, plan);
+    crate::prune::render(&mut out, plan);
 
     out.push_str("\nDecisions\n");
     let decisions = list(&plan["decisions"]);
@@ -935,7 +939,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
 fn render_old_tags(out: &mut String, plan: &Value) {
     if let Some(tags) = plan.get("old_tags") {
         out.push_str(&format!(
-            "\nOld tags beyond the label (item_labels rows 0011 kept untouched and unused; nothing drops them): {} on {}\n",
+            "\nOld tags beyond the label (item_labels rows nothing reads; 0017 deletes them): {} on {}\n",
             many(count(tags, "tags"), "tag"),
             many(count(tags, "items"), "item")
         ));

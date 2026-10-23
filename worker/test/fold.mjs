@@ -4,14 +4,10 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { LANES, LANE_NAMES, useKit } from "../src/cards.js";
 import {
-  ARCHIVED_BOARDS,
-  ARCHIVED_CARDS,
   BOARDS_DEPRECATED,
   BOARDS_GONE,
   LANES_SQL,
-  LIVE_LABEL,
   anchorOf,
-  archivedOf,
   boardCardOf,
   boardFilter,
   laneOf,
@@ -22,7 +18,8 @@ import {
 import { stageOf } from "../src/boards.js";
 
 const AT = (day) => `'2026-01-0${day}T00:00:00.000Z'`;
-const FOLD = "0016_one_board.sql";
+export const FOLD = "0016_one_board.sql";
+const LIVE_LABEL = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'label' AND a.id = l.id))";
 const TABLES = ["archived", "board_columns", "board_positions", "boards", "codes", "events", "item_labels", "items", "labels"];
 
 class Refused extends Error {
@@ -34,7 +31,7 @@ class Refused extends Error {
 
 const refused = (status, message) => (error) => error instanceof Refused && error.status === status && (message === undefined || error.message === message);
 
-function unitKit() {
+export function unitKit() {
   useKit({
     clean: (value) => (typeof value === "string" ? value.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "") : value),
     fail: (status, message) => {
@@ -48,22 +45,22 @@ function unitKit() {
   });
 }
 
-function migrated(root, upTo) {
+export function migrated(root, upTo) {
   const db = new DatabaseSync(":memory:");
   const dir = join(root, "migrations");
   for (const f of readdirSync(dir).filter((f) => f.endsWith(".sql") && f < upTo).sort()) db.exec(readFileSync(join(dir, f), "utf8"));
   return db;
 }
 
-function fold(root, db) {
+export function fold(root, db) {
   db.exec(readFileSync(join(root, "migrations", FOLD), "utf8"));
 }
 
-function label(name) {
+export function label(name) {
   return `(SELECT id FROM labels WHERE name = '${name}')`;
 }
 
-function item(id, name, { open = 1, resolution = null, project = null, host = "example.com", day = 1, kind = "bug", assignee = null } = {}) {
+export function item(id, name, { open = 1, resolution = null, project = null, host = "example.com", day = 1, kind = "bug", assignee = null } = {}) {
   return `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
     reporter_email, reporter_name, reporter_json, reporter_agent, assignee, context_json, marks_json, search_text, activity_at, public_activity_at,
     created_at, updated_at, closed_at, resolution, project)
@@ -72,15 +69,15 @@ function item(id, name, { open = 1, resolution = null, project = null, host = "e
     ${AT(day)}, ${AT(day)}, ${open ? "NULL" : AT(day)}, ${resolution ? `'${resolution}'` : "NULL"}, ${project ? `'${project}'` : "NULL"});`;
 }
 
-function column(board, name, position) {
+export function column(board, name, position) {
   return `INSERT INTO board_columns (board_id, label_id, position) VALUES (${board}, ${label(name)}, ${position});`;
 }
 
-function place(board, itemId, name, key) {
+export function place(board, itemId, name, key) {
   return `INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (${board}, ${itemId}, ${label(name)}, '${key}');`;
 }
 
-const SEED = [
+export const SEED = [
   `INSERT INTO codes (id, hash, hint, name, email, hosts_json, manager, created_at, created_by, revoked_at) VALUES
     (1, 'h1', 'a', 'Old Owner', 'old@example.com', '["*"]', 1, ${AT(1)}, 'setup', ${AT(2)}),
     (2, 'h2', 'b', 'Ada Lovelace', 'ada@example.com', '["*"]', 1, ${AT(1)}, 'setup', NULL),
@@ -137,18 +134,18 @@ const SEED = [
   `INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES (9, 'grace@example.com', 1, 'link', '{"ref":"pci#1"}', 0, ${AT(5)});`,
 ].join("\n");
 
-function counts(db) {
+export function counts(db) {
   return Object.fromEntries(
     TABLES.map((t) => [t, db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t).n ? db.prepare(`SELECT count(*) AS n FROM ${t}`).get().n : 0]),
   );
 }
 
-function dump(db) {
+export function dump(db) {
   const has = (t) => db.prepare(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?`).get(t).n > 0;
   return Object.fromEntries(TABLES.map((t) => [t, has(t) ? db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() : []]));
 }
 
-function seeded(root, extra = "") {
+export function seeded(root, extra = "") {
   const db = migrated(root, FOLD);
   db.exec(SEED);
   db.exec(extra);
@@ -160,15 +157,15 @@ function stages(db) {
   return Object.fromEntries(rows.map((r) => [r.id, stageOf(r)]));
 }
 
-function laneNames(db) {
+export function laneNames(db) {
   return db.prepare(LANES_SQL).all().map((l) => l.name);
 }
 
-function laneOfItem(db, id) {
+export function laneOfItem(db, id) {
   return db.prepare(`SELECT l.name FROM items i JOIN labels l ON l.id = i.label_id WHERE i.id = ?`).get(id).name;
 }
 
-function lane(db, name) {
+export function lane(db, name) {
   return db
     .prepare(
       `SELECT bp.item_id FROM board_positions bp JOIN boards b ON b.id = bp.board_id AND b.cards = 1 JOIN items i ON i.id = bp.item_id AND i.label_id = bp.label_id
@@ -178,12 +175,12 @@ function lane(db, name) {
     .map((r) => r.item_id);
 }
 
-function boardRows(db, v, filter) {
+export function boardRows(db, v, filter) {
   const { sql, binds } = oneBoardSql(v, { projects: [], hosts: [], source: null, statuses: [], ...filter });
   return db.prepare(sql).all(...binds);
 }
 
-const ALL = { all: true, host: null };
+export const ALL = { all: true, host: null };
 
 async function unitChecks(check) {
   unitKit();
@@ -245,20 +242,6 @@ async function unitChecks(check) {
     assert.deepEqual(lanesOf(lanes.slice(0, 2)), [{ word: "new", label: "New", closes: false }, { word: "planned", label: "Planned", closes: false }]);
     assert.deepEqual(lanesOf(lanes).at(-1), { word: "done", label: "Done", closes: true });
     assert.equal(lanesOf([...lanes, { name: "Extra", closes: 0 }]).at(-1).word, null);
-  });
-
-  await check("[fold] an archived board answers its owner's username, its columns and its cards, marked archived", async () => {
-    const board = { id: 7, name: "Old", owner: "ada@example.com", owner_username: "ada", columns: '[{"label":"Inbox","closes":0},{"label":"Done","closes":1}]' };
-    const cards = [{ id: 3, kind: "bug", title: "T", label: "Inbox", assignee: "grace@example.com", assignee_username: "grace", ord: "a0" }];
-    assert.deepEqual(archivedOf(board, cards), {
-      id: 7, name: "Old", owner: { username: "ada" },
-      columns: [{ label: "Inbox", closes: false }, { label: "Done", closes: true }],
-      cards: [{ key: "BUG-3", kind: "bug", title: "T", label: "Inbox", assignee: { username: "grace" }, order: "a0" }],
-      archived: true,
-    });
-    const bare = archivedOf({ ...board, owner: null, columns: null }, [{ ...cards[0], assignee: null, ord: null }]);
-    assert.deepEqual([bare.owner, bare.columns, bare.cards[0].assignee, bare.cards[0].order], [null, [], null, null]);
-    assert.equal(/@/.test(JSON.stringify(archivedOf(board, cards))), false);
   });
 
   await check("[fold] before or after names one neighbour by key; both, or a non-key, is refused", async () => {
@@ -389,7 +372,7 @@ export async function foldChecks({ check, root }) {
     assert.equal(db.prepare("SELECT closes FROM labels WHERE name = 'Done'").get().closes, 1);
   });
 
-  await check("[fold] old boards and labels are archived, not deleted: no row goes, the old order stays, and only lanes are live", async () => {
+  await check("[fold] 0016 alone deletes no row: it marks the old boards and labels, keeps the old order, and only lanes are live until 0017 deletes the rest", async () => {
     const db = seeded(root);
     const before = counts(db);
     const oldPositions = db.prepare("SELECT * FROM board_positions WHERE board_id <> 14 ORDER BY board_id, item_id").all();
@@ -443,27 +426,6 @@ export async function foldChecks({ check, root }) {
     const once = dump(db);
     fold(root, db);
     assert.deepEqual(dump(db), once);
-  });
-
-  await check("[fold] the archived boards read back with the items they showed at the fold, under their old column names, in their old order", async () => {
-    const db = seeded(root);
-    fold(root, db);
-    const boards = db.prepare(ARCHIVED_BOARDS).all(1, null, null);
-    assert.deepEqual(boards.map((b) => [b.id, b.name, b.owner_username]), [[11, "Ada's board", "ada"], [12, "Grace's board", "grace"], [13, "Ada's QA", "ada"]]);
-    assert.deepEqual(JSON.parse(boards[1].columns).map((c) => [c.label, c.closes]), [["Triage", 0], ["Doing", 0], ["Review", 0], ["Shipped", 1]]);
-    const cards = db.prepare(ARCHIVED_CARDS).all(1, null, null);
-    const on = (id) => cards.filter((r) => r.board_id === id).map((r) => [r.id, r.label]);
-    assert.deepEqual(on(11), [[12, "Inbox"], [11, "Inbox"], [1, "Inbox"], [14, "Doing"], [2, "Doing"], [5, "QA ready"], [13, "Done"], [4, "Done"]]);
-    assert.deepEqual(on(12), [[6, "Triage"], [2, "Doing"], [3, "Review"], [7, "Shipped"]]);
-    assert.deepEqual(on(13), [[5, "QA ready"], [3, "Review"], [13, "Done"], [4, "Done"]]);
-    assert.equal(cards.some((r) => r.id === 9 || r.id === 10), false);
-    assert.equal(cards.find((r) => r.id === 2 && r.board_id === 11).assignee_username, "ada");
-    const scoped = db.prepare(ARCHIVED_BOARDS).all(0, "example.com", null);
-    assert.deepEqual(scoped.map((b) => b.id), [12]);
-    const scopedCards = db.prepare(ARCHIVED_CARDS).all(0, "example.com", null);
-    assert.equal(scopedCards.some((r) => r.id === 14), false);
-    assert.deepEqual(db.prepare(ARCHIVED_BOARDS).all(1, null, 13).map((b) => b.id), [13]);
-    assert.deepEqual(db.prepare(ARCHIVED_BOARDS).all(1, null, 14), []);
   });
 
   await check("[fold] the one board lists every item a viewer may see, in lane order, and each filter narrows it", async () => {
@@ -527,7 +489,7 @@ export async function foldChecks({ check, root }) {
     assert.equal(db.prepare("SELECT count(*) AS n FROM items WHERE label_id IN (SELECT id FROM archived WHERE kind = 'label')").get().n, 0);
   });
 
-  await check("[fold] after a reset the renamed lane's cards read on the one board in In progress, their history names the lane, and the label stays, archived", async () => {
+  await check("[fold] after a reset the renamed lane's cards read on the one board in In progress, their history names the lane, and 0016 leaves the label for 0017", async () => {
     const db = seeded(root, `UPDATE labels SET name = 'Next up' WHERE name = 'Planned'; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")}; ${item(15, "Next up", { project: "Splicer", kind: "feature", host: "shop.example.com", day: 4 })} ${place(14, 15, "Next up", "a0")}`);
     const nextUp = db.prepare("SELECT id FROM labels WHERE name = 'Next up'").get().id;
     const archivedBefore = db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 0").get().n;
@@ -541,11 +503,7 @@ export async function foldChecks({ check, root }) {
     assert.deepEqual({ ...db.prepare("SELECT id, name FROM labels WHERE id = ?").get(nextUp) }, { id: nextUp, name: "Next up" });
     assert.ok(db.prepare("SELECT 1 FROM archived WHERE kind = 'label' AND id = ?").get(nextUp));
     assert.equal(laneNames(db).includes("Next up"), false);
-    const boards = db.prepare(ARCHIVED_BOARDS).all(1, null, null);
-    assert.deepEqual(boards.map((b) => b.id), [11, 12, 13]);
-    assert.equal(boards.length, archivedBefore);
-    assert.equal(boards.some((b) => JSON.parse(b.columns).some((c) => c.label === "Next up")), false);
-    assert.equal(db.prepare(ARCHIVED_CARDS).all(1, null, null).some((r) => r.id === 15), false);
+    assert.equal(db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 0").get().n, archivedBefore);
   });
 
   await check("[fold] a six-lane Cards board with a renamed lane gets Needs you fourth, the renamed lane kept in its place", async () => {
@@ -566,28 +524,5 @@ export async function foldChecks({ check, root }) {
     assert.deepEqual(changed, {});
     assert.equal(after[6], "in_progress");
     assert.equal(after[1], "received");
-  });
-
-  await check("[fold] the archived boards stay as they were at the fold when items close, reopen or are filed afterwards", async () => {
-    const db = seeded(root, item(15, "Planned", { day: 3 }));
-    fold(root, db);
-    const read = () => db.prepare(ARCHIVED_CARDS).all(1, null, null).map((r) => [r.board_id, r.id, r.label]);
-    const atFold = read();
-    const after = "(SELECT at FROM archived WHERE kind = 'fold')";
-    db.exec(`
-      UPDATE items SET label_id = ${label("Done")}, open = 0, resolution = 'fixed', closed_at = ${after} WHERE id = 15;
-      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
-        VALUES (15, 'ada@example.com', 0, 'label', '{"from":"Planned","to":"Done"}', 1, ${after});
-      UPDATE items SET label_id = ${label("In progress")}, open = 1, resolution = NULL, closed_at = NULL WHERE id = 4;
-      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
-        VALUES (4, 'ada@example.com', 0, 'label', '{"from":"Done","to":"In progress"}', 1, ${after});
-      UPDATE items SET label_id = ${label("Done")}, open = 0, resolution = 'fixed', closed_at = ${after} WHERE id = 2;
-      INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at)
-        VALUES (2, 'ada@example.com', 0, 'label', '{"from":"In progress","to":"Done"}', 1, ${after});
-    `);
-    db.exec(item(20, "Done", { open: 0, resolution: "fixed" }).replace(/'2026-01-01T00:00:00.000Z'/g, "'2999-01-01T00:00:00.000Z'"));
-    assert.deepEqual(read(), atFold);
-    assert.ok(atFold.some((r) => r[0] === 11 && r[1] === 4 && r[2] === "Done"));
-    assert.ok(atFold.some((r) => r[0] === 11 && r[1] === 2 && r[2] === "Doing"));
   });
 }

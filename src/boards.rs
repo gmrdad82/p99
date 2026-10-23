@@ -5,7 +5,7 @@ use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
-    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, archived_lines, board_lines, lane_lines,
+    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, board_lines, lane_lines,
     lane_named, lanes_from, refusal,
 };
 use crate::wire::{Issue, MoveTo, out};
@@ -217,7 +217,7 @@ fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), Stri
     let boards: OldBoards = serde_json::from_value(raw)
         .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
     eprintln!("p99: {DEPRECATED}");
-    for line in archived_lines(&boards) {
+    for line in board_lines(&boards.one()) {
         out!("{line}");
     }
     Ok(())
