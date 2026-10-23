@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { lineStarts, mergeLines, offsetCounts, plainLines, rows, table } from "../../worker/test/coverage-lines.mjs";
+import { lcov, lineStarts, mergeLines, offsetCounts, plainLines, rows, table } from "../../worker/test/coverage-lines.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../..");
@@ -202,6 +202,7 @@ async function main() {
   const bytes = loaderBytes(dir);
   const text = `${report(dir, files)}\n\n${bytesLine(bytes)}`;
   writeFileSync(join(dir, "table.md"), `${text}\n\nThe loader's bytes that never ran:\n\n${bytes.missed.map((part) => `- \`${part}\``).join("\n")}\n`);
+  writeFileSync(join(dir, "lcov.info"), lcov(files));
   console.log(`\nBrowser line coverage (worker/src/web, from the browser checks):\n\n${text}`);
   const found = problems(taken, files);
   for (const line of found) console.error(line);

@@ -179,6 +179,13 @@ export function rows(files, root, universe = []) {
     .sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 }
 
+export function lcov(files) {
+  return [...files]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([file, lines]) => [`SF:${file}`, ...[...lines].sort(([a], [b]) => a - b).map(([line, hit]) => `DA:${line},${hit ? 1 : 0}`), "end_of_record"].join("\n"))
+    .join("\n") + "\n";
+}
+
 export function table(list) {
   const covered = list.reduce((n, r) => n + r.covered, 0);
   const lines = list.reduce((n, r) => n + r.lines, 0);

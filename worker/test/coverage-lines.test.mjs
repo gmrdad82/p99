@@ -3,7 +3,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeMappings, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
+import { decodeMappings, lcov, lineStarts, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 import { collect, ownsFile, problems, report, workerFiles } from "./coverage.mjs";
 import { V8_FLAGS, coverWorker, matchScripts, v8Flags } from "./inspect.mjs";
 
@@ -427,4 +427,13 @@ test("an inspector that closes or goes silent while scripts are read fails the s
 test("an inspector that closes before coverage starts fails the start", async () => {
   const socket = new FakeInspector((msg, s) => s.close());
   await assert.rejects(coverWorker(9229, "", { connect: async () => socket }), /Runtime\.enable: the Worker's inspector on 9229 closed/);
+});
+
+test("the lcov lists each file once, its lines in order with 1 for a line that ran and 0 for one that didn't", () => {
+  const files = new Map([
+    ["/w/src/b.js", new Map([[3, false], [1, true]])],
+    ["/w/src/a.js", new Map([[2, true]])],
+  ]);
+  assert.equal(lcov(files), "SF:/w/src/a.js\nDA:2,1\nend_of_record\nSF:/w/src/b.js\nDA:1,1\nDA:3,0\nend_of_record\n");
+  assert.equal(lcov(new Map()), "\n");
 });

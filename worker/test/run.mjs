@@ -265,6 +265,7 @@ async function check(name, fn) {
     failed.push(name);
     console.log(`not ok - ${name}`);
     console.error(error?.stack ?? error);
+    if (error?.cause) console.error(error.cause);
     return;
   }
   passed += 1;

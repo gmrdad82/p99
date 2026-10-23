@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync
 import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { v8Flags } from "./inspect.mjs";
-import { keepLines, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
+import { keepLines, lcov, mappedLines, mergeLines, offsetCounts, plainLines, rows, sourceMapOf, table } from "./coverage-lines.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const src = join(root, "src");
@@ -103,6 +103,7 @@ async function main() {
   }
   const text = report(dir, files);
   writeFileSync(join(dir, "table.md"), text + "\n");
+  writeFileSync(join(dir, "lcov.info"), lcov(files));
   console.log(`\nWorker line coverage (worker/src, from the worker suite):\n\n${text}`);
   const found = problems(dir, files);
   for (const line of found) console.error(line);

@@ -28,8 +28,8 @@ const BUDGET = 1000 / 120;
 const work = join(repo, "tmp", "bench", "drag");
 const OUT = resolve(repo, flags.get("out") || join(work, "drag-bench.json"));
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".woff2": "font/woff2" };
-const COLUMNS = ["Inbox", "Doing", "QA ready", "Done"];
-const WORDS_OF = ["new", "in-progress", "landed", "done"];
+const COLUMNS = ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"];
+const WORDS_OF = ["new", "planned", "in-progress", "needs-you", "stuck", "landed", "done"];
 const WORDS = "cart total coupon refund invoice shipping banner header footer search filter checkout address postcode payment receipt avatar upload preview colour contrast mobile tablet layout spacing tooltip modal dropdown carousel".split(" ");
 const PEOPLE = [null, { username: "ada.lovelace", avatar: null }, null, { username: "grace.hopper", avatar: null }];
 
@@ -229,7 +229,7 @@ const median = (v) => { const s = [...v].sort((a, b) => a - b); return s.length 
 
 async function main() {
   mkdirSync(work, { recursive: true });
-  const xdg = join(work, "xdg");
+  const xdg = join(repo, "tmp", "xd");
   rmSync(xdg, { recursive: true, force: true });
   mkdirSync(xdg, { recursive: true, mode: 0o700 });
   const sides = [side("base", tree(BASE)), side("branch", join(repo, "worker", "src", "web"))];
