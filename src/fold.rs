@@ -118,9 +118,14 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
     )
 }
 
+fn uncarded(sql: &str) -> String {
+    sql.replace("b.cards", "0").replace("f.cards", "0")
+}
+
 pub fn plan(
     cf: &Cloudflare,
     account: &Account,
+    carded: bool,
     plan: &mut Value,
     decisions: &mut Vec<String>,
 ) -> Result<(), String> {
@@ -129,8 +134,15 @@ pub fn plan(
         plan["one_board"] = json!({ "after": before });
         return Ok(());
     }
-    let boards = select(cf, account, Q_BOARDS)?;
-    let labels = select(cf, account, Q_LABELS)?;
+    let read = |sql: &str| {
+        if carded {
+            select(cf, account, sql)
+        } else {
+            select(cf, account, &uncarded(sql))
+        }
+    };
+    let boards = read(Q_BOARDS)?;
+    let labels = read(Q_LABELS)?;
     let unplaced = select(cf, account, Q_UNPLACED)?
         .first()
         .map_or(0, |r| count(r, "items"));
@@ -332,6 +344,61 @@ mod tests {
             }
         }
         assert!(Q_BOARDS.contains("ORDER BY CASE WHEN b.cards = 0 AND b.owner IS (SELECT email FROM codes WHERE manager = 1"));
+    }
+
+    #[test]
+    fn before_0015_every_board_reads_as_no_cards_board_without_naming_the_column() {
+        for sql in [Q_BOARDS, Q_LABELS, Q_UNPLACED] {
+            let read = uncarded(sql);
+            assert!(!read.contains("cards ="), "{read}");
+            assert!(!read.contains(".cards"), "{read}");
+            assert!(read.starts_with("SELECT ") && !read.contains(';'), "{read}");
+        }
+        let boards = uncarded(Q_BOARDS);
+        assert!(
+            boards.starts_with("SELECT b.id AS id, b.name AS name, b.owner AS owner, 0 AS cards,")
+        );
+        assert!(boards.contains("ORDER BY CASE WHEN 0 = 0 AND b.owner IS"));
+        assert!(boards.contains("ORDER BY CASE WHEN 0 = 0 AND f.owner IS"));
+        let labels = uncarded(Q_LABELS);
+        assert_eq!(labels.matches("WHERE 0 = 1").count(), 5);
+        assert!(labels.contains("WHERE 0 = 1 AND n.name = 'Needs you'"));
+        assert_eq!(uncarded(Q_UNPLACED), Q_UNPLACED);
+    }
+
+    #[test]
+    fn migration_0015_only_adds_schema_and_fills_cards_with_zero() {
+        let (_, sql) = crate::bundle::MIGRATIONS
+            .iter()
+            .find(|(name, _)| name.starts_with("0015_"))
+            .unwrap();
+        let statements: Vec<String> = sql
+            .split(';')
+            .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+            .filter(|s| !s.is_empty())
+            .collect();
+        for statement in &statements {
+            let upper = statement.to_ascii_uppercase();
+            for word in ["INSERT ", "UPDATE ", "DELETE ", "TRIGGER ", " AS SELECT"] {
+                assert!(!upper.contains(word), "0015 writes data: {statement}");
+            }
+            if upper.starts_with("ALTER TABLE ") {
+                assert!(upper.contains(" ADD COLUMN "), "{statement}");
+                assert_eq!(
+                    upper.contains(" DEFAULT "),
+                    upper.starts_with("ALTER TABLE BOARDS ADD COLUMN CARDS "),
+                    "{statement}"
+                );
+            } else {
+                assert!(
+                    upper.starts_with("CREATE INDEX ") || upper.starts_with("CREATE UNIQUE INDEX "),
+                    "{statement}"
+                );
+            }
+        }
+        assert!(statements.contains(
+            &"ALTER TABLE boards ADD COLUMN cards INTEGER NOT NULL DEFAULT 0 CHECK (cards IN (0, 1))".to_owned()
+        ));
     }
 
     fn two_owners() -> (Value, Vec<String>) {

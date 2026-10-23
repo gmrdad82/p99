@@ -106,19 +106,6 @@ pub fn gated_pending(applied: &[String]) -> Vec<String> {
         .collect()
 }
 
-pub fn early(applied: &[String]) -> Vec<(&'static str, &'static str)> {
-    if applied.is_empty() {
-        return Vec::new();
-    }
-    let Some(first) = gated_pending(applied).into_iter().next() else {
-        return Vec::new();
-    };
-    crate::setup::pending(bundle::MIGRATIONS, applied)
-        .into_iter()
-        .filter(|(name, _)| *name < first.as_str())
-        .collect()
-}
-
 fn numbered(name: &str, prefix: &str) -> bool {
     name.strip_prefix(prefix)
         .is_some_and(|rest| rest.starts_with('_'))
@@ -242,12 +229,8 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
         return Ok(plan);
     }
     let legacy = pending.iter().any(|p| p.starts_with("0004"));
-    if !legacy && !applied.iter().any(|a| numbered(a, "0005")) {
-        return Err(
-            "this account's schema stops between 0004 and 0005: run `p99 deploy` with this CLI, which adds 0005 to 0010 first and then asks for the plan"
-                .into(),
-        );
-    }
+    let labelled = applied.iter().any(|a| numbered(a, "0005"));
+    let carded = applied.iter().any(|a| numbered(a, "0015"));
     let lanes = pending.iter().any(|p| p.starts_with("0011"));
     let people = pending.iter().any(|p| p.starts_with("0012"));
     let mut decisions: Vec<String> = Vec::new();
@@ -255,10 +238,10 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     if legacy {
         legacy_plan(cf, account, &mut plan, &mut decisions)?;
     } else if lanes {
-        lanes_plan(cf, account, &mut plan, &mut decisions)?;
+        lanes_plan(cf, account, labelled, &mut plan, &mut decisions)?;
     }
     if pending.iter().any(|p| p.starts_with("0016")) {
-        crate::fold::plan(cf, account, &mut plan, &mut decisions)?;
+        crate::fold::plan(cf, account, carded, &mut plan, &mut decisions)?;
     }
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
@@ -496,6 +479,7 @@ fn legacy_plan(
 fn lanes_plan(
     cf: &Cloudflare,
     account: &Account,
+    labelled: bool,
     plan: &mut Value,
     decisions: &mut Vec<String>,
 ) -> Result<(), String> {
@@ -540,7 +524,14 @@ fn lanes_plan(
     plan["boards"] = Value::Array(boards);
     plan["nested"] = json!(nested);
 
-    let order: Vec<Value> = select(cf, account, Q_ORDER)?
+    let labelled_rows = |sql: &str| -> Result<Vec<Value>, String> {
+        if labelled {
+            select(cf, account, sql)
+        } else {
+            Ok(Vec::new())
+        }
+    };
+    let order: Vec<Value> = labelled_rows(Q_ORDER)?
         .iter()
         .map(|r| {
             json!({
@@ -553,19 +544,15 @@ fn lanes_plan(
         .collect();
     plan["order"] = Value::Array(order);
 
-    let tags: Vec<Value> = select(
-        cf,
-        account,
-        &format!("SELECT l.name AS tag, count(*) AS items {EXTRA_TAGS} GROUP BY l.id ORDER BY lower(l.name), l.id"),
-    )?
+    let tags: Vec<Value> = labelled_rows(&format!(
+        "SELECT l.name AS tag, count(*) AS items {EXTRA_TAGS} GROUP BY l.id ORDER BY lower(l.name), l.id"
+    ))?
     .iter()
     .map(|r| json!({ "tag": text(r, "tag"), "items": count(r, "items") }))
     .collect();
-    let tagged = select(
-        cf,
-        account,
-        &format!("SELECT count(DISTINCT il.item_id) AS items {EXTRA_TAGS}"),
-    )?
+    let tagged = labelled_rows(&format!(
+        "SELECT count(DISTINCT il.item_id) AS items {EXTRA_TAGS}"
+    ))?
     .first()
     .map_or(0, |r| count(r, "items"));
     if tagged > 0 {
@@ -581,7 +568,7 @@ fn lanes_plan(
     plan["members"] = members(cf, account, decisions)?;
 
     let mut collisions = Vec::new();
-    for row in select(cf, account, Q_COLLIDE)? {
+    for row in labelled_rows(Q_COLLIDE)? {
         let (label, tag) = (text(&row, "label"), text(&row, "tag"));
         decisions.push(format!(
             "the column {label} and the tag {tag} would share one label name: rename one before deploying"
@@ -966,6 +953,45 @@ mod tests {
     use super::*;
 
     #[test]
+    fn migrations_0005_to_0010_only_add_empty_schema_so_a_plan_read_before_0005_still_holds() {
+        let between: Vec<&(&str, &str)> = crate::bundle::MIGRATIONS
+            .iter()
+            .filter(|(name, _)| ("0005".."0011").contains(&&name[..4]))
+            .collect();
+        assert_eq!(between.len(), 6);
+        for (name, sql) in between {
+            let body: String = sql
+                .lines()
+                .map(|l| l.split("--").next().unwrap_or(""))
+                .collect::<Vec<_>>()
+                .join("\n");
+            for statement in body.split(';').map(str::trim).filter(|s| !s.is_empty()) {
+                let upper = statement.to_ascii_uppercase();
+                assert!(
+                    [
+                        "CREATE TABLE ",
+                        "CREATE INDEX ",
+                        "CREATE UNIQUE INDEX ",
+                        "ALTER TABLE "
+                    ]
+                    .iter()
+                    .any(|start| upper.starts_with(start)),
+                    "{name} does more than add schema: {statement}"
+                );
+                for word in [" AS SELECT", "INSERT ", "UPDATE ", "DELETE ", "TRIGGER "] {
+                    assert!(!upper.contains(word), "{name} writes data: {statement}");
+                }
+                if upper.starts_with("ALTER TABLE ") {
+                    assert!(
+                        upper.contains(" ADD COLUMN ") && !upper.contains(" DEFAULT "),
+                        "{name} fills a column the plan reads as empty: {statement}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn an_agent_in_the_plan_shows_with_the_robot_never_an_asterisk() {
         assert_eq!(agent_shown("ada.lovelace"), "@ada.lovelace 🤖");
         assert!(!agent_shown("ada.lovelace").contains('*'));
@@ -1046,28 +1072,6 @@ mod tests {
         owner_decisions(&None, &BTreeSet::new(), &spread, "test", &mut none);
         assert_eq!(none.len(), 1);
         assert!(none[0].starts_with("no live Owner code"));
-    }
-
-    #[test]
-    fn ungated_migrations_before_the_first_gated_one_go_ahead() {
-        let upto = |n: usize| -> Vec<String> {
-            bundle::MIGRATIONS[..n]
-                .iter()
-                .map(|(m, _)| (*m).to_owned())
-                .collect()
-        };
-        let names = |v: Vec<(&str, &str)>| -> Vec<String> {
-            v.into_iter().map(|(n, _)| n[..4].to_owned()).collect()
-        };
-        assert!(early(&[]).is_empty());
-        assert_eq!(names(early(&upto(1))), ["0002", "0003"]);
-        assert!(early(&upto(3)).is_empty());
-        assert_eq!(
-            names(early(&upto(4))),
-            ["0005", "0006", "0007", "0008", "0009", "0010"]
-        );
-        assert!(early(&upto(10)).is_empty());
-        assert!(early(&upto(bundle::MIGRATIONS.len())).is_empty());
     }
 
     #[test]
