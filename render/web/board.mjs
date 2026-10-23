@@ -305,7 +305,7 @@ export async function board(browser, back, opts = {}) {
   });
   await p.locator("p99-root .w button:not(.f)").click();
   await p.locator("p99-root .p99-board-open").click();
-  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card").length > 5);
+  await p.waitForFunction((least) => document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-card").length > least, opts.least ?? 5);
   await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live");
   await p.waitForTimeout(400);
   return { ctx, p, errors, seen };
@@ -859,7 +859,7 @@ async function check(back) {
     assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website, the default, keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
     assert.equal(boardRead(site), `?host=${HOST}`);
     await site.ctx.close();
-    const every = await board(browser, back, { pick: { view: "projects", projects: [], source: "" } });
+    const every = await board(browser, back, { pick: { view: "projects", projects: [], source: "" }, least: 0 });
     assert.ok((await cardsOf(every)).includes(K("BUG-31")), `Projects shows ${ELSEWHERE}'s BUG-31`);
     assert.equal(boardRead(every), "");
     await every.ctx.close();
