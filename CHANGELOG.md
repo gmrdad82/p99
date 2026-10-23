@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.11.1 — 2026-10-23
+
+### Changed
+
+- The README's pictures show 1.11: the agent's 🤖 in a thread, the one board's seven lanes and its project filter, and the Owner and User words in the codes list.
+
 ## v1.11.0 — 2026-10-23
 
 ### Added
