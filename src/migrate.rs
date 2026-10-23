@@ -116,7 +116,7 @@ pub fn gate(
     account: &Account,
     applied: &[String],
     accept: Option<&str>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<(String, Value)>, String> {
     let pending = gated_pending(applied);
     if applied.is_empty() || pending.is_empty() {
         return Ok(None);
@@ -132,14 +132,15 @@ pub fn gate(
             "--accept-plan takes the 64-character hash `p99 migrate --plan` ends with".into(),
         );
     }
-    let now = hash(&plan(cf, account, applied)?);
+    let read = plan(cf, account, applied)?;
+    let now = hash(&read);
     if given != now {
         return Err(
             "the plan changed since that hash was taken (the database moved on): read `p99 migrate --plan` again and run with its new hash"
                 .into(),
         );
     }
-    Ok(Some(now))
+    Ok(Some((now, read)))
 }
 
 pub fn hash(plan: &Value) -> String {
@@ -246,6 +247,7 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     if pending.iter().any(|p| p.starts_with("0017")) {
         crate::prune::plan(cf, account, &mut plan, &mut decisions)?;
     }
+    crate::counts::plan(cf, account, carded, &mut plan)?;
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
     if people {
@@ -911,6 +913,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     }
     crate::fold::render(&mut out, plan);
     crate::prune::render(&mut out, plan);
+    crate::counts::render(&mut out, plan);
 
     out.push_str("\nDecisions\n");
     let decisions = list(&plan["decisions"]);

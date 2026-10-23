@@ -79,6 +79,7 @@ struct Cf {
     applied: Vec<String>,
     rows: Vec<(&'static str, Value)>,
     fail: Option<String>,
+    fail_with: Option<&'static str>,
     mail: Option<String>,
     denied: bool,
     deny: Option<&'static str>,
@@ -131,7 +132,12 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
             return refused(400, 7500, "no such table: d1_migrations: SQLITE_ERROR");
         }
         if cf.fail.as_deref() == Some(name.as_str()) {
-            return refused(400, 7500, "near \"github\": syntax error: SQLITE_ERROR");
+            return refused(
+                400,
+                7500,
+                cf.fail_with
+                    .unwrap_or("near \"github\": syntax error: SQLITE_ERROR"),
+            );
         }
         cf.applied.push(name);
         return rows(json!([]));
@@ -1146,6 +1152,97 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     assert_eq!(h.applied(), names(&SHIPPED));
     assert!(h.upload().is_some());
     never_shows_a_secret(&[&out, &plan, &stale, &done], &[]);
+}
+
+fn count_rows() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "AS attachments, (SELECT count(*) FROM events) AS events",
+            json!([{ "items": 5, "comments": 4, "attachments": 2, "events": 9 }]),
+        ),
+        (
+            "FROM labels l JOIN items i ON i.label_id = l.id",
+            json!([{ "label": "In progress", "items": 3 }, { "label": "Triage", "items": 2 }]),
+        ),
+        (
+            "sum(s.moved) AS moved",
+            json!([{ "lane": 2, "items": 4, "moved": 1 }, { "lane": 6, "items": 1, "moved": 1 }]),
+        ),
+    ]
+}
+
+#[test]
+fn an_account_at_0016_counts_before_and_after_and_a_count_that_differs_inside_0017_refuses_with_nothing_deleted()
+ {
+    let mut rows = count_rows();
+    rows.extend(v111_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..16], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: count_check_comments: SQLITE_CONSTRAINT");
+    let h = home("count-check", &plain_config(), cf);
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    let text = &plan.stdout;
+    assert!(text.contains("\nCount check\n  before: 5 items, 4 comments, 2 attachments, 9 events\n  before, by label: In progress 3, Triage 2\n  after:  5 items, 4 comments, 2 attachments, 11 events\n  after, by lane: In progress 4, Done 1\n  the events grow by the 2 migrated label events and by nothing else\n"), "{text}");
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(json["plan"]["count_check"]["after"]["events"], 11);
+    assert_eq!(json["plan"]["count_check"]["after"]["lanes"][2]["items"], 4);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &plan_hash(text)]);
+    assert_eq!(out.code, Some(1));
+    assert_eq!(
+        out.stderr,
+        "p99: the count check stopped 0017: the comments no longer count 4 as the plan said, so 0017 rolled back: nothing is deleted and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+    );
+    let guarded: Vec<String> = h
+        .calls()
+        .iter()
+        .filter_map(Call::sql)
+        .filter(|sql| recorded(sql).as_deref() == Some("0017_delete_archived.sql"))
+        .collect();
+    assert_eq!(guarded.len(), 1);
+    let at = guarded[0]
+        .find("CREATE TABLE count_check")
+        .expect("0017 carries the count check");
+    assert!(at > guarded[0].find("DROP TABLE IF EXISTS archived").unwrap());
+    assert!(at < guarded[0].find("INSERT INTO d1_migrations").unwrap());
+    for want in [
+        "CONSTRAINT count_check_items CHECK (items = 5)",
+        "CONSTRAINT count_check_comments CHECK (comments = 4)",
+        "CONSTRAINT count_check_events CHECK (events = 11)",
+        "CONSTRAINT count_check_lane_2 CHECK (lane_2 = 4)",
+        "CONSTRAINT count_check_lane_6 CHECK (lane_6 = 1)",
+    ] {
+        assert!(guarded[0].contains(want), "{want}");
+    }
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&plan, &out], &[]);
+}
+
+#[test]
+fn a_migration_failing_for_another_reason_is_reported_as_cloudflare_said_it() {
+    let mut rows = count_rows();
+    rows.extend(v111_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..16], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: lanes = 7: SQLITE_CONSTRAINT");
+    let h = home("other-failure", &plain_config(), cf);
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr
+            .contains("CHECK constraint failed: lanes = 7: SQLITE_CONSTRAINT"),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("count check"), "{}", out.stderr);
+    assert!(h.upload().is_none());
 }
 
 #[test]

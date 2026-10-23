@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
 import { LANE_NAMES } from "../src/cards.js";
 import { SEED as FOLD_SEED, label as labelOf } from "./fold.mjs";
+import { webramChecks } from "./webram.mjs";
 
 const AT = "'2026-01-01T00:00:00.000Z'";
 
@@ -515,6 +516,7 @@ export async function migrateChecks({ check, root, work }) {
       const again = await run(["deploy", "--no-check"]);
       assert.equal(again.status, 0, again.stderr);
     });
+    await webramChecks({ check, root, work, state, run, plan, writes, d1 });
   } finally {
     server.close();
     server.closeAllConnections();

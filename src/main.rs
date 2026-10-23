@@ -6,6 +6,7 @@ mod cli;
 mod client;
 mod cloudflare;
 mod config;
+mod counts;
 mod docs;
 mod email;
 mod fold;

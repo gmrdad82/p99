@@ -29,6 +29,7 @@ import { markChecks } from "./marks.mjs";
 import { foldChecks } from "./fold.mjs";
 import { pruneChecks } from "./prune.mjs";
 import { oneBoardChecks } from "./one-board.mjs";
+import { BUSIEST, webramBoardChecks } from "./webram.mjs";
 import { LANE_NAMES } from "../src/cards.js";
 import { codeChecks } from "./codes.mjs";
 import { githubChecks, githubStub, githubVars } from "./github.mjs";
@@ -373,6 +374,17 @@ async function main() {
     dev = await startDev(port + 1, [...vars, "LICENSE_LINK:hideable"], "test-dev-hideable.log");
     await hideableLinkChecks({ call, browse, mint, check, here, placement: PLACEMENT });
     await licenceStories({ base, call, browse, mint, check, red, here, placement: PLACEMENT, root });
+    await dev.stop();
+    dev = null;
+    await check("[webram] the account 0016 and 0017 left loads into a local D1 that serves its busiest host", async () => {
+      const webram = join(work, "webram-state");
+      rmSync(webram, { recursive: true, force: true });
+      mkdirSync(webram, { recursive: true });
+      wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", webram, "--file", join(work, "webram.sql")]);
+      base = `http://127.0.0.1:${port + 2}`;
+      dev = await startDev(port + 2, [...vars, "LICENSE_LINK:shown"], "test-dev-webram.log", { persist: webram, upstream: BUSIEST });
+    });
+    if (dev) await webramBoardChecks({ check, browse, mint, work });
     console.log(`${passed} checks passed, ${reds.length} known red, ${failed.length} failed, ${unexpected.length} red that passed`);
     if (failed.length + unexpected.length > 0) process.exitCode = 1;
   } finally {
@@ -385,7 +397,7 @@ async function main() {
   }
 }
 
-async function startDev(at, vars, logName) {
+async function startDev(at, vars, logName, { persist = state, upstream = null } = {}) {
   const log = openSync(join(work, logName), "w");
   const covering = process.env.P99_COVERAGE;
   const inspector = covering ? ["--inspector-port", String(at + 1000)] : [];
@@ -399,7 +411,8 @@ async function startDev(at, vars, logName) {
       "--ip",
       "127.0.0.1",
       "--persist-to",
-      state,
+      persist,
+      ...(upstream ? ["--local-upstream", upstream] : []),
       "--show-interactive-dev-session=false",
       ...inspector,
       "--var",
