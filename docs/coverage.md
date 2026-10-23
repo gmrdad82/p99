@@ -243,12 +243,6 @@ JavaScript, the browser (`cd render/web && npm run coverage`, then the filter st
 
 The one-board migration 0016 runs in the worker suite over seeded node:sqlite databases (the fold checks) and once more over a database the 1.10.0 Worker itself wrote: two Owners' boards with custom columns and a six-lane Cards board, 12 items and 3 cards. It moved 10 items (Doing to In progress, Review to Landed, a custom first column to New, a custom closing column to Done keeping its resolution, every other custom column to In progress), kept 5 in their lanes, archived the 4 old boards and 7 old labels, wrote one migrated `label` event per moved item, and a second run changed nothing. The plan's promises, end to end with the release binary against wrangler dev, pass 41 of 41: `p99 board`, the deprecated `boards`, `move --to <word|name>`, `cards --waiting`, `invites delete`, `invite --owner`, the role words, and the TUI `--dump` with seven lanes and the badge.
 
-## Uncovered critical paths, first in line
-
-- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the TUI's waiting list when its accounts fail in turn (src/tui/waiting.rs, 93%), and the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
-- Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and import (42%).
-- Secrets: vault.rs at 54%; storing a new secret in the vault, which setup does, has no test.
-- delete's terminal confirmation (cli/delete.rs, 57%) and the client's fallback to a host's own address.
 ## w208 coverage gaps, 2026-10-22 (agent/cov-gaps)
 
 Tests only. The "after" column is the train's measured run (agent/cov-i2, below).
@@ -310,9 +304,37 @@ Bugs the new tests found:
 
 From the reviews, for the repo session (each needs a product change outside a tests-only brief): `vault::store` reports "Broken pipe" instead of what `op` said when `op` exits before reading the template; and `p99 import`'s own checks are looser than the Worker's (marks' shape, context over 64 KB, page titles over 300, `created_at` such as `2025-13-45`, a bad `resolution` with `status: done`), so a bundle that passes the dry run can still stop part way. Two browser checks failed on code this wave doesn't touch. board.mjs:709 waits 30 s for the held drag's autoscroll and ran out on this train's last two passes, at a load average near 20. The widget's hover story failed at 20 s here and in the w199 pass. The w199 integrator traced it to the per-minute budget of the code it shares with the other widget stories: a run that packs their requests into one minute gets 12 429s. A longer wait won't fix it; giving the story its own code will, as main did for the per-minute comment story.
 
+## w203 one board, round 2, 2026-10-23 (agent/board-i2, the w203 train merged with main 2ff3c72)
+
+The before column is the w208 train above (main), or round 1 of this train for a file main doesn't have.
+
+Rust: **94.52% of lines** (93.65% of regions, 93.29% of functions), up from 93.14%; 837 tests pass under `cargo llvm-cov nextest`.
+
+| File | Before | After |
+|---|---|---|
+| src/one_board.rs | 100.00% of 371 | 100.00% of 404 |
+| src/fold.rs | 98.77% of 408 | 99.49% of 393 |
+| src/boards.rs | 63% (main) | 98.48% of 198 |
+| src/cli/codes.rs | 99.15% of 234 | 99.15% of 234 |
+| src/cli/waiting.rs | 96.00% of 25 | 100.00% of 30 |
+| src/client.rs | 95.22% of 857 | 97.56% of 860 |
+| src/migrate.rs | 94.74% of 1065 | 94.74% of 1065 |
+| src/tui/board.rs | 97.76% of 1070 | 98.08% of 1095 |
+| src/tui/codes.rs | 97.49% of 279 | 97.85% of 279 |
+| src/tui/projects.rs | 96.82% of 157 | 100.00% of 152 |
+| src/tui/waiting.rs | 92.89% of 422 | 92.87% of 421 |
+
+The Worker: **96.87% of lines** of worker/src, from 334 checks with none known red and 40 unit tests; main read 97.11% and round 1 94.42%. one-board.js, needs-you.js, codes-delete.js and roles.js are at 100%; worker.js at 97.41% of 3,168; cards-write.js at 92.08% of 303, where its runtime making of a Cards board that 0016 always makes stays unrun.
+
+The browser (`npm run coverage`, then the filter story under the same hook): **88.98% of lines** of worker/src/web, up from 87.03%. board.js is at 92.80% of 792, panel.js at 89.78% of 1,986, app.js at 79.14% of 350, and the loader by bytes at 95.65%. Every check passed: capture, manage, mobile, search and swap, the widget stories 260 of 260, the board stories 62 of 62, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
+
+Both JavaScript passes now write lcov.info beside their table (worker/.wrangler/coverage, tmp/browser-coverage), so `pci loop coverage` reads the JavaScript lines too. On this train's changed lines against origin/main it reads 76% (2,264 of 2,969); 662 of those lines are the browser checks in render/web themselves, which no coverage pass can run, and without them it reads 98.2% (2,264 of 2,306).
+
+The bugs this round's runs found: the fold plan's label query dropped every custom column when the Cards board was reset or filled (a label with no role made `l.role = 'done'` NULL), so its preview left out what 0016 then moved; a fold check now compares the plan's queries with what 0016 moved. The import manager check counted Sophie as existing because the needs-you checks mint her as an Owner, and main's import story still read the manager wording.
+
 ## Uncovered critical paths, first in line
 
-- Boards from the CLI (boards.rs, 63%): `p99 boards`' list and run, its confirm prompt, and `p99 labels`. Its files belong to the w203 train.
+- The one board: src/cards-write.js (92%) leaves unrun its making of the Cards board when there is none, which 0016 now always makes, and its two `client_uid` races, which only concurrent requests reach; the TUI's wrapper around the inbox and board (src/tui/waiting.rs, 93%) passes answers, claims, commands and pastes through to screens that never ask for them in a test; the demo board's sample rows (85%, `const fn` rows the compiler evaluates).
 - The live stream (stream.rs, 78%): the TLS handshake for a `wss://` Worker and `follow`'s reconnect after a drop.
 - Setup's interactive walk, its mail and rate-namespace refusals (setup.rs, 83%), and secrets: setup's interactive vault question (`vault::available`, vault.rs:30–37, asked only without `--yes` or `--vault`).
 - `p99 link`'s host choice and the browser it opens (links.rs, 85%).
