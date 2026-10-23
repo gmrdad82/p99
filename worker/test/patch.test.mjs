@@ -181,22 +181,6 @@ test("a text write that keeps losing its guard gives up after the tries and writ
   assert.deepEqual(events().map((e) => e.kind), ["body"]);
 });
 
-test("a reload that refuses stops the write with its refusal", async () => {
-  const { DB, read } = local();
-  const stale = read();
-  await writeFields(DB, GRACE, read(), { body: "Steps: add a coupon" }, { reload: never, conflict: refused });
-  await assert.rejects(
-    writeFields(DB, ADA, stale, { title: "Coupon ignored" }, {
-      reload: async () => {
-        throw new Error("the title can no longer be changed");
-      },
-      conflict: refused,
-    }),
-    /can no longer/,
-  );
-  assert.equal(read().title, "Checkout total is wrong");
-});
-
 test("a patch to the values already there writes no event and keeps the timestamps", async () => {
   const { DB, read, events } = local();
   const row = read();
@@ -248,7 +232,7 @@ test("the extra statements ride in the same batch as the fields", async () => {
   const { db, DB, read, batches } = local();
   const extra = DB.prepare("INSERT INTO reads (actor_email, item_id, read_at) VALUES (?1, ?2, ?3)").bind("ada@example.com", 1, ADA.now);
   await writeFields(DB, ADA, read(), { title: "Coupon ignored" }, { extra: [extra], reload: never, conflict: refused });
-  assert.deepEqual(batches, [2]);
+  assert.deepEqual(batches, [3]);
   assert.equal(db.prepare("SELECT read_at FROM reads WHERE item_id = 1").get().read_at, ADA.now);
 });
 

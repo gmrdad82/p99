@@ -1612,14 +1612,23 @@ fn an_edit_of_the_title_and_an_assign_at_once_both_stick_because_each_sends_only
     assert_eq!(two.out, "BUG-12 is assigned to @grace.hopper\n");
     let sent = patches(&stub, 12);
     assert_eq!(sent.len(), 2);
-    assert!(sent.contains(&json!({"title": "Checkout total ignores the coupon"})), "{sent:?}");
-    assert!(sent.contains(&json!({"assignee": "grace.hopper"})), "{sent:?}");
+    assert!(
+        sent.contains(&json!({"title": "Checkout total ignores the coupon"})),
+        "{sent:?}"
+    );
+    assert!(
+        sent.contains(&json!({"assignee": "grace.hopper"})),
+        "{sent:?}"
+    );
     let (title, assignee) = stub.world(|w| (w.get(12).title, w.get(12).assignee));
     assert_eq!(title, "Checkout total ignores the coupon");
     assert_eq!(assignee.as_deref(), Some("grace.hopper"));
     for home in [&ada, &grace] {
         let shown = home.ok(&["show", "12", "--host", HOST]);
-        assert!(shown.contains("Checkout total ignores the coupon"), "{shown}");
+        assert!(
+            shown.contains("Checkout total ignores the coupon"),
+            "{shown}"
+        );
         assert!(shown.contains("assigned to @grace.hopper\n"), "{shown}");
     }
 }
