@@ -17,6 +17,7 @@ import { APP_HOST, LICENSE_STATE, appChecks } from "./app.mjs";
 import { brandChecks, hideableLinkChecks } from "./brand.mjs";
 import { widgetStories } from "./stories/widget.mjs";
 import { triageStories } from "./stories/triage.mjs";
+import { moveStories } from "./stories/moves.mjs";
 import { licenceStories } from "./stories/licence.mjs";
 import { safetyStories } from "./stories/safety.mjs";
 import { criticalChecks } from "./critical.mjs";
@@ -1255,6 +1256,7 @@ async function run() {
   await appChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await widgetStories({ base, call, browse, mint, check, red, issueBody, here, there, state, wrangler, root });
   await triageStories({ call, browse, mint, check, red, issueBody, here, listen, wrangler, state, root });
+  await moveStories({ base, call, check, issueBody, here, keys, root, work });
   await cardWriteChecks({ base, call, browse, mint, check, issueBody, here, there, keys, d1count });
   await cardReadChecks({ base, call, browse, mint, check, issueBody, here, there, keys });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });

@@ -62,13 +62,13 @@ async function topOf(c, board, labelId, selfId) {
   return placeIn(results, selfId, null, null);
 }
 
-function placeStatement(c, board, labelId, place, uid) {
+function placeStatement(c, board, labelId, place, uid, won = false) {
   return c.env.DB.prepare(
     `INSERT INTO board_positions (board_id, item_id, label_id, key)
      SELECT ?1, COALESCE(NULLIF(json_extract(j.value, '$.id'), 0), (SELECT id FROM items WHERE client_uid = ?4)), ?2, json_extract(j.value, '$.key')
-     FROM json_each(?3) j WHERE (SELECT label_id FROM items WHERE client_uid = ?4) = ?2
+     FROM json_each(?3) j WHERE CASE WHEN ?5 THEN changes() > 0 ELSE (SELECT label_id FROM items WHERE client_uid = ?4) = ?2 END
      ON CONFLICT (board_id, item_id) DO UPDATE SET label_id = excluded.label_id, key = excluded.key`,
-  ).bind(board, labelId, JSON.stringify(place.rows), uid);
+  ).bind(board, labelId, JSON.stringify(place.rows), uid, won ? 1 : 0);
 }
 
 function viaOf(c) {
@@ -86,19 +86,19 @@ function eventStatement(c, itemId, kind, detail, internal) {
   ).bind(itemId, c.actor.email, kind, JSON.stringify(detail), internal ? 1 : 0, c.now, agentOf(c), viaOf(c));
 }
 
-function projectEvent(c, itemId, detail, labelId) {
+function projectEvent(c, itemId, detail, won) {
   return c.env.DB.prepare(
     `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
-     SELECT ?1, ?2, 'project', ?3, 1, ?4, ?5, ?6 WHERE ?7 IS NULL OR (SELECT label_id FROM items WHERE id = ?1) = ?7`,
-  ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c), labelId);
+     SELECT ?1, ?2, 'project', ?3, 1, ?4, ?5, ?6 WHERE ?7 = 0 OR changes() > 0`,
+  ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c), won ? 1 : 0);
 }
 
-function projectStatement(c, itemId, name, labelId) {
-  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1 AND (?4 IS NULL OR label_id = ?4)").bind(
+function projectStatement(c, itemId, name, won) {
+  return c.env.DB.prepare("UPDATE items SET project = ?2, updated_at = ?3, activity_at = ?3 WHERE id = ?1 AND (?4 = 0 OR changes() > 0)").bind(
     itemId,
     name,
     c.now,
-    labelId,
+    won ? 1 : 0,
   );
 }
 
@@ -270,15 +270,15 @@ export async function postCardStatus(c, rawKey) {
   let place = null;
   if (row.label_id !== to.id && !closing) {
     place = await topOf(c, lanes.board, to.id, row.id);
-    statements.push(placeStatement(c, lanes.board, to.id, place, row.client_uid));
+    statements.push(placeStatement(c, lanes.board, to.id, place, row.client_uid, true));
   }
   if (note !== null) {
     statements.push(
       DB.prepare(
         `INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal,
            origin_env, created_at, author_agent, author_via)
-         SELECT ?1, ?2, ?3, ?4, 1, ?5, 0, ?6, ?7, ?8, ?9 WHERE (SELECT label_id FROM items WHERE id = ?1) = ?10`,
-      ).bind(row.id, body.client_uid, c.actor.email, c.actor.name, note, c.actionEnv ?? row.origin_env, c.now, agentOf(c), viaOf(c), to.id),
+         SELECT ?1, ?2, ?3, ?4, 1, ?5, 0, ?6, ?7, ?8, ?9 WHERE CASE WHEN ?11 THEN changes() > 0 ELSE (SELECT label_id FROM items WHERE id = ?1) = ?10 END`,
+      ).bind(row.id, body.client_uid, c.actor.email, c.actor.name, note, c.actionEnv ?? row.origin_env, c.now, agentOf(c), viaOf(c), to.id, plan ? 1 : 0),
       DB.prepare(
         `UPDATE items SET comment_count = comment_count + 1, public_comment_count = public_comment_count + 1,
            activity_at = ?2, updated_at = ?2, public_activity_at = ?2
@@ -352,11 +352,11 @@ export async function patchProject(c, row, body) {
     if (from === null) return K.issueResponse(c, row.id, 200);
     const inbox = await DB.prepare("SELECT id, name, role, closes FROM labels WHERE role = 'inbox'").first();
     const plan = row.label_id !== inbox.id ? labelChangeStatements(c, row, inbox, {}) : null;
-    const guard = plan ? inbox.id : null;
+    const won = plan !== null;
     const results = await DB.batch([
       ...(plan ? plan.statements : []),
-      projectStatement(c, row.id, null, guard),
-      projectEvent(c, row.id, { from, to: null }, guard),
+      projectStatement(c, row.id, null, won),
+      projectEvent(c, row.id, { from, to: null }, won),
       DB.prepare(
         `DELETE FROM board_positions WHERE item_id = ?1 AND board_id IN (SELECT id FROM boards WHERE cards = 1)
            AND (SELECT project FROM items WHERE id = ?1) IS NULL`,
@@ -371,20 +371,18 @@ export async function patchProject(c, row, body) {
   const name = await spelling(c, projectName(body.project));
   if (from === name) return K.json(200, { card: await loadCard(c, key) });
   let plan = null;
-  let guard = null;
   const statements = [];
   if (from === null) {
     const lanes = await cardsBoard(c);
     const lane = { ...laneAt(lanes, 0), closes: 0 };
     plan = row.label_id !== lane.id || !row.open ? labelChangeStatements(c, { ...row, project: name }, lane, {}) : null;
-    guard = plan ? lane.id : null;
     const place = await topOf(c, lanes.board, lane.id, row.id);
-    statements.push(...(plan ? plan.statements : []), placeStatement(c, lanes.board, lane.id, place, row.client_uid));
+    statements.push(...(plan ? plan.statements : []), placeStatement(c, lanes.board, lane.id, place, row.client_uid, plan !== null));
   }
   const results = await DB.batch([
     ...statements,
-    projectStatement(c, row.id, name, guard),
-    projectEvent(c, row.id, { from, to: name }, guard),
+    projectStatement(c, row.id, name, plan !== null),
+    projectEvent(c, row.id, { from, to: name }, plan !== null),
     K.readStatement(c, row.id),
   ]);
   if (plan && !results[0].meta.changes) K.fail(409, "this card moved; refreshed", "moved");
