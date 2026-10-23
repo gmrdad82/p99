@@ -63,7 +63,7 @@ commit/8d51052cc978:tests/cli_vault.rs:141 the tests check the error that names 
 commit/07fdf97a2cfe:tests/stories_deploy.rs:1279 the deploy story's fake config reference, made neutral in a later commit (pci 2631)
 commit/ea55d653924a:tests/stories_deploy.rs:1279 the deploy story's fake config reference as the story train merged it, made neutral in a later commit (pci 2631)
 commit/dfca0352d62d:tests/stories_deploy.rs:1279 the deploy story's fake vault reference on agent/deploy, made neutral in a later commit (pci 2631)
-tests/stories_deploy.rs:1511 a fake op reference in the deploy story that proves P99_TOKEN wins over it
+tests/stories_deploy.rs:1614 a fake op reference in the deploy story that proves P99_TOKEN wins over it
 commit/a4d5ac6035ec:tests/stories_deploy.rs:1456 the deploy story's fake op reference that proves P99_TOKEN wins over it, after the odd-columns story shrank
 commit/d21bc08e6f76:tests/stories_deploy.rs:1469 the deploy story's fake op reference that proves P99_TOKEN wins over it, as the w203 train left it before round 2
 commit/1a3a547e00d0:tests/stories_deploy.rs:1291 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1291
