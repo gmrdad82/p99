@@ -13,8 +13,12 @@ Type "Fixed on main, out with the next release."
 Sleep 500ms
 Enter
 Sleep 1.4s
-Type "s"
+Type "m"
 Sleep 600ms
+Down
+Sleep 250ms
+Down
+Sleep 250ms
 Down
 Sleep 250ms
 Down
