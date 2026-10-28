@@ -87,7 +87,8 @@ try {
       await sleep(500);
     }
   }
-  await api("PUT", `/hosts/${HOST}`, { env: "production", config: { above: "#totop" } });
+  await api("POST", "/projects", { name: "Shop" });
+  await api("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: { above: "#totop" } });
   const plain = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: false })).secret;
   const guarded = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: false, totp: true })).secret;
 

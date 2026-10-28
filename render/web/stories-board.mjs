@@ -1,5 +1,5 @@
 process.env.P99_BOARD_PORT ||= "8833";
-const { HOST, ELSEWHERE, LANES, USER_CODE, launch, oneBoard, openShadow, stub } = await import("./board.mjs");
+const { HOST, ELSEWHERE, HOME, LANES, USER_CODE, launch, oneBoard, openShadow, stub } = await import("./board.mjs");
 
 const ORIGIN = `http://${HOST}`;
 const VIEW = { width: 1440, height: 900 };
@@ -71,14 +71,15 @@ const sameSet = (a, b) => a.length === b.length && [...a].sort().join() === [...
 const back = await stub();
 const browser = await launch();
 try {
-  await story("an Owner's Board button opens the one board on this website: seven lanes, plain items and cards together, no picker and no filter line", async () => {
+  await story("an Owner's Board button opens the board narrowed to this host's project: seven lanes, plain items and cards together, no picker and no filter line", async () => {
     const { ctx, p, asked, errors } = await page(browser, back.code);
     await openBoard(p);
     const s = await shown(p);
     const asks = boardAsks(asked);
-    check(`the board reads /board for this website alone under the default, Only this website (${asks.map((a) => String(a.query))})`, asks.length === 1 && String(asks[0].query) === `host=${HOST}`);
+    check(`the board reads /board for ${HOST}'s project, ${HOME}, under the default, This project (${asks.map((a) => String(a.query))})`, asks.length === 1 && String(asks[0].query) === `project=${HOME}`);
+    check(`the panel asked /space once to learn the host's project (${asked.filter((a) => a.path === "/space").length})`, asked.filter((a) => a.path === "/space").length === 1);
     check(`its lanes are the seven words in order (${s.lanes})`, s.lanes.join() === LANES.map((l) => l.word).join());
-    check(`it shows every item on this website, plain or card, and none from ${ELSEWHERE} (${s.cards.length})`, sameSet(s.cards, keys(`host=${HOST}`)) && !s.cards.includes("BUG-31"));
+    check(`it shows every item in ${HOME}, plain or card, and none from ${ELSEWHERE} (${s.cards.length})`, sameSet(s.cards, keys(`project=${HOME}`)) && !s.cards.includes("BUG-31"));
     check(`its title is Board and no filter line shows (${s.title}, ${s.note})`, s.title === "Board" && s.note === null);
     const extra = await R(p, () => {
       const r = document.querySelector("p99-root").shadowRoot;
@@ -90,13 +91,14 @@ try {
   });
 
   const views = [
-    { name: "Only this website", pick: { view: "site", projects: [], source: "" }, query: `host=${HOST}`, note: null },
-    { name: "a stored All from an older panel", pick: { view: "all", projects: [], source: "" }, query: `host=${HOST}`, note: null },
+    { name: "This project", pick: { view: "project", projects: [], source: "" }, query: `project=${HOME}`, note: null },
+    { name: "a stored Only this website from an older panel", pick: { view: "site", projects: [], source: "" }, query: `project=${HOME}`, note: null },
+    { name: "a stored All from an older panel", pick: { view: "all", projects: [], source: "" }, query: `project=${HOME}`, note: null },
     { name: "Projects with Manfred picked", pick: { view: "projects", projects: ["Manfred"], source: "" }, query: "project=Manfred", note: "showing Manfred", cardsOnly: true },
     { name: "Projects with none picked", pick: { view: "projects", projects: [], source: "" }, query: "", note: "showing Projects", cardsOnly: true },
     { name: "Needs you", pick: { view: "needs", projects: [], source: "" }, query: "status=needs-you&status=stuck&status=landed", note: "showing Needs you", cardsOnly: true, plain: ["BUG-9", "Q-4"] },
     { name: "Landed, waiting for your check", pick: { view: "landed", projects: [], source: "" }, query: "status=landed", note: "showing Landed, waiting for your check", cardsOnly: true, plain: ["BUG-9", "Q-4"] },
-    { name: "Agents", pick: { view: "site", projects: [], source: "agent" }, query: `host=${HOST}&source=agent`, note: "showing Agents" },
+    { name: "Agents", pick: { view: "project", projects: [], source: "agent" }, query: `project=${HOME}&source=agent`, note: "showing Agents" },
     { name: "Projects and People", pick: { view: "projects", projects: ["Splicer", "Manfred"], source: "human" }, query: "project=Splicer&project=Manfred&source=human", note: "showing Splicer, Manfred · People", cardsOnly: true },
   ];
   for (const v of views) {
@@ -119,18 +121,38 @@ try {
     });
   }
 
-  await story("Only this website on another host's page never shows that other host's card", async () => {
-    const { ctx, p } = await page(browser, back.code, { pick: { view: "site", projects: [], source: "" } });
+  await story("This project on a host's page never shows another project's host's card", async () => {
+    const { ctx, p } = await page(browser, back.code, { pick: { view: "project", projects: [], source: "" } });
     await openBoard(p);
     const s = await shown(p);
     check(`BUG-31 of ${ELSEWHERE} stays off (${s.cards.includes("BUG-31")})`, !s.cards.includes("BUG-31") && s.cards.length > 0);
     await ctx.close();
   });
 
-  await story("the panel's filter lists Only this website first, then Projects, Needs you and Landed, and no second choice for this website", async () => {
+  await story("the panel's filter lists This project first, then Projects, Needs you and Landed, and opens on This project", async () => {
     const { ctx, p } = await page(browser, back.code);
     const options = await R(p, () => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-pick select[name=view] option"), (o) => [o.value, o.textContent]));
-    check(`the views in order (${JSON.stringify(options)})`, JSON.stringify(options) === JSON.stringify([["site", "Only this website"], ["projects", "Projects"], ["needs", "Needs you"], ["landed", "Landed, waiting for your check"]]));
+    const chosen = await R(p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-pick select[name=view]").value);
+    check(`the views in order (${JSON.stringify(options)})`, JSON.stringify(options) === JSON.stringify([["project", "This project"], ["projects", "Projects"], ["needs", "Needs you"], ["landed", "Landed, waiting for your check"]]));
+    check(`with nothing stored it opens on This project (${chosen})`, chosen === "project");
+    await ctx.close();
+  });
+
+  await story("an Owner's list under This project asks for the host's project", async () => {
+    const { ctx, p, asked } = await page(browser, back.code);
+    await p.locator("p99-root .p99-panel.is-open .p99-tabs a[data-scope=all]").click();
+    await p.waitForTimeout(300);
+    const lists = asked.filter((a) => a.method === "GET" && a.path === "/issues");
+    const last = lists.at(-1);
+    check(`the list names ${HOME} (${last && String(last.query)})`, !!last && last.query.get("scope") === "all" && last.query.getAll("project").join() === HOME);
+    await ctx.close();
+  });
+
+  await story("a Worker without /space falls back to this host for This project", async () => {
+    const { ctx, p, asked } = await page(browser, back.code, { route: (p) => p.route((u) => u.pathname === "/_p99/api/space", (r) => r.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "no such route" }) })) });
+    await openBoard(p);
+    const sent = String(boardAsks(asked).at(-1)?.query ?? "");
+    check(`the board asks host=${HOST} (${sent})`, sent === `host=${HOST}`);
     await ctx.close();
   });
 
@@ -240,7 +262,7 @@ try {
   });
 
   await story("an empty lane keeps its drop target: under Agents the keyboard drops TASK-3 into a lane that had nothing", async () => {
-    const { ctx, p, asked } = await page(browser, back.code, { pick: { view: "site", projects: [], source: "agent" } });
+    const { ctx, p, asked } = await page(browser, back.code, { pick: { view: "project", projects: [], source: "agent" } });
     await openBoard(p);
     const s = await shown(p);
     const from = s.lanes.findIndex((w) => s.byLane[w].includes("TASK-3"));
@@ -284,15 +306,15 @@ try {
     await ctx.close();
   });
 
-  await story(`under Only this website, the default, a live move on ${ELSEWHERE} is ignored: no reload, its card never shows`, async () => {
+  await story(`under This project, the default, a live move on ${ELSEWHERE} never brings its card in`, async () => {
     const { ctx, p, asked } = await page(browser, back.code);
     await openBoard(p);
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 10000 });
-    const before = boardAsks(asked).length;
     await back.other({ key: "BUG-31", from: "Stuck", to: "landed" });
     await p.waitForTimeout(600);
     const s = await shown(p);
-    check(`no /board reload and no BUG-31 (${boardAsks(asked).length - before} more, ${s.cards.includes("BUG-31")})`, boardAsks(asked).length === before && !s.cards.includes("BUG-31"));
+    const sent = String(boardAsks(asked).at(-1)?.query ?? "");
+    check(`any reload keeps project=${HOME} and BUG-31 stays off (${sent}, ${s.cards.includes("BUG-31")})`, sent === `project=${HOME}` && !s.cards.includes("BUG-31"));
     await back.other({ key: "BUG-31", from: "Landed", to: "stuck" });
     await ctx.close();
   });

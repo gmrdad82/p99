@@ -75,7 +75,8 @@ try {
     if (i > 120) throw new Error("the local Worker did not come up");
     await sleep(500);
   }
-  await must("PUT", `/hosts/${HOST}`, { env: "production", config: {} });
+  await must("POST", "/projects", { name: "Shop" });
+  await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: {} });
   const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
   await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false });
   await must("POST", "/codes", { name: "Linus Park", email: "linus@example.com", hosts: [HOST], manager: false });

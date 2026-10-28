@@ -195,7 +195,8 @@ function uidsOf(p) {
 
 try {
   await until("the local Worker", async () => (await api("PUT", "/envs/production", { kind: "release", position: 1, notify: false }).catch(() => ({ status: 0 }))).status === 200, 90000);
-  await must("PUT", `/hosts/${HOST}`, { env: "production", config: {} });
+  await must("POST", "/projects", { name: "Shop" });
+  await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: {} });
   const mint = async (name, email) => (await must("POST", "/codes", { name, email, hosts: [HOST], manager: false })).secret;
   const code = await mint(ADA.name, ADA.email);
   const chromiumPath = process.env.P99_CHROMIUM || (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined);
@@ -1366,6 +1367,176 @@ try {
     const sized = (b) => !!b && b.scale !== "0" && b.w > 0 && b.h > 0;
     check(`no input, textarea or image in the panel is scaled to nothing (${JSON.stringify(boxes.scaled)})`, boxes.scaled.length === 0);
     check(`the title, the description, a checkbox and the lockup each keep a box (${JSON.stringify(boxes)})`, sized(boxes.title) && sized(boxes.body) && sized(boxes.check) && sized(boxes.lockup));
+    await ctx.close();
+  });
+
+  const mePage = async (me, scheme = "light") => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", colorScheme: scheme });
+    await ctx.addInitScript(openShadow);
+    const seen = [];
+    await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(me) }));
+    const p = await ctx.newPage();
+    p.on("request", (r) => seen.push({ method: r.method(), path: new URL(r.url()).pathname, type: r.headers()["content-type"] || "" }));
+    await p.goto(`${PAGE}#p99=${code}`);
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    return { ctx, p, seen };
+  };
+  const openList = async (p) => {
+    await p.locator("p99-root >> .w .b:not(.f)").click();
+    await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]"), null, { timeout: 20000 });
+  };
+  const CONTRAST = `(() => {
+    const rgb = (c) => {
+      const m = /^rgba?\\(([^)]+)\\)/.exec(c);
+      if (m) return m[1].split(/[ ,/]+/).slice(0, 3).map(Number);
+      const s = /^color\\(srgb ([^)]+)\\)/.exec(c);
+      return s ? s[1].split(/[ /]+/).slice(0, 3).map((v) => Number(v) * 255) : null;
+    };
+    const lum = (c) => { const [r, g, b] = c.map((v) => { const x = v / 255; return x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    return (a, b) => { const x = lum(rgb(a)), y = lum(rgb(b)); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  })()`;
+
+  await story("licensed: true hides the panel's P99 lockup and its by PITO.MD link; without it both show", async () => {
+    for (const [licensed, want] of [[true, false], [false, true]]) {
+      const { ctx, p } = await mePage({ ...owner(0, 0, 0), licensed });
+      await openList(p);
+      const got = await p.evaluate(() => { const r = document.querySelector("p99-root").shadowRoot; return { lockup: !!r.querySelector(".p99-panel .p99-lockup"), by: !!r.querySelector(".p99-panel .p99-by") }; });
+      check(`licensed ${licensed}: lockup and link ${want ? "show" : "hide"} (${JSON.stringify(got)})`, got.lockup === want && got.by === want);
+      await ctx.close();
+    }
+  });
+
+  await story("the panel's wordmark sits at about half the head's width, with the badge scaled to match", async () => {
+    const { ctx, p } = await mePage(owner(0, 0, 0));
+    await openList(p);
+    const s = await p.evaluate(() => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      const brand = r.querySelector(".p99-brand").getBoundingClientRect();
+      const lockup = r.querySelector(".p99-lockup").getBoundingClientRect();
+      const badge = r.querySelector(".p99-badge").getBoundingClientRect();
+      return { brand: brand.width, lockup: lockup.width, tall: lockup.height, badge: badge.height };
+    });
+    check(`the lockup is at most 220px and about half the brand (${JSON.stringify(s)})`, s.lockup <= 220 && s.lockup <= s.brand * 0.55 + 1 && s.tall <= 40 && s.badge <= 33);
+    await ctx.close();
+  });
+
+  await story("every close button and the Board button share one round shape", async () => {
+    const { ctx, p } = await mePage(owner(0, 0, 0));
+    await openList(p);
+    const shapes = await p.evaluate(() => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      const shape = (e) => { const cs = getComputedStyle(e); const b = e.getBoundingClientRect(); return { h: Math.round(b.height), radius: parseFloat(cs.borderTopLeftRadius) >= b.height / 2, border: cs.borderTopWidth, style: cs.borderTopStyle, bg: cs.backgroundColor }; };
+      return { x: shape(r.querySelector(".p99-panel .p99-x")), board: shape(r.querySelector(".p99-panel .p99-board-open")), square: Math.round(r.querySelector(".p99-panel .p99-x").getBoundingClientRect().width) };
+    });
+    check(`the close button and Board match in height, roundness and border (${JSON.stringify(shapes)})`, shapes.x.h === 40 && shapes.square === 40 && JSON.stringify(shapes.x) === JSON.stringify(shapes.board));
+    await ctx.close();
+  });
+
+  for (const scheme of ["light", "dark"]) {
+    await story(`${scheme}: the panel's scrolling areas have thin themed scrollbars and no script scroller`, async () => {
+      const { ctx, p } = await mePage(owner(0, 0, 0), scheme);
+      await openList(p);
+      const s = await p.evaluate(() => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const cs = getComputedStyle(r.querySelector(".p99-scroll"));
+        return { width: cs.scrollbarWidth, color: cs.scrollbarColor, overflow: cs.overflowY, scrollers: r.querySelectorAll("[data-scrollbar], .simplebar-content").length };
+      });
+      check(`${scheme}: thin, coloured, native (${JSON.stringify(s)})`, s.width === "thin" && s.color !== "auto" && s.overflow === "auto" && s.scrollers === 0);
+      await ctx.close();
+    });
+  }
+
+  await story("on a site themed only for light, dark mode keeps the + and the panel legible, and light mode keeps the site's colours", async () => {
+    const theme = { accent: "#1d2b6b", raised: "#ffffff", base: "#fafafa", ink: "#111111" };
+    for (const scheme of ["dark", "light"]) {
+      const { ctx, p } = await mePage({ ...owner(0, 0, 0), theme }, scheme);
+      await openList(p);
+      const s = await p.evaluate((src) => {
+        const contrast = eval(src);
+        const r = document.querySelector("p99-root").shadowRoot;
+        const plus = getComputedStyle(r.querySelector(".w .f"));
+        const more = getComputedStyle(r.querySelector(".w .b:not(.f)"));
+        const panel = getComputedStyle(r.querySelector(".p99-panel"));
+        const title = getComputedStyle(r.querySelector(".p99-view h2"));
+        return { plus: contrast(plus.color, plus.backgroundColor), more: contrast(more.color, more.backgroundColor), title: contrast(title.color, panel.backgroundColor), raised: plus.backgroundColor };
+      }, CONTRAST);
+      if (scheme === "dark") check(`dark: the + at 3:1 or better, the ⋯ and the panel's title at 4.5:1 or better (${JSON.stringify(s)})`, s.plus >= 3 && s.more >= 4.5 && s.title >= 4.5);
+      else check(`light: the site's own raised colour stays on the buttons (${s.raised})`, s.raised === "rgb(255, 255, 255)");
+      await ctx.close();
+    }
+  });
+
+  const SCAN = `(async (src) => {
+    const bmp = await createImageBitmap(await (await fetch(src)).blob());
+    const c = new OffscreenCanvas(bmp.width, bmp.height);
+    const g = c.getContext("2d");
+    g.drawImage(bmp, 0, 0);
+    const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
+    const near = (i, [r, gg, b]) => Math.hypot(d[i] - r, d[i + 1] - gg, d[i + 2] - b) < 80;
+    const n = { red: 0, green: 0, magenta: 0, orange: 0, fill: 0 };
+    for (let i = 0; i < d.length; i += 4) {
+      if (near(i, [255, 0, 0])) n.red++;
+      if (near(i, [0, 255, 0])) n.green++;
+      if (near(i, [255, 0, 255])) n.magenta++;
+      if (near(i, [255, 165, 0])) n.orange++;
+      if (near(i, [59, 125, 216])) n.fill++;
+    }
+    return n;
+  })`;
+  const plant = (p) => p.evaluate(() => {
+    const box = (css, attrs = {}) => { const d = document.createElement("div"); d.style.cssText = css; for (const k in attrs) d.setAttribute(k, attrs[k]); return d; };
+    const wrap = box("position:fixed;left:24px;top:96px;z-index:5;display:flex;gap:24px;padding:24px;background:#ffffff");
+    const marked = box("width:120px;height:120px;background:#ff0000;color:#ff0000", { "data-p99-redact": "" });
+    marked.textContent = "secret";
+    const outer = box("position:relative;width:120px;height:120px;background:#ffffff", { "data-p99-redact": "" });
+    const inner = box("position:absolute;left:30px;top:30px;width:160px;height:160px;background:#00ff00");
+    inner.append(box("width:40px;height:40px;background:#ff00ff", { "data-p99-redact": "" }));
+    outer.append(inner);
+    const masked = box("width:120px;height:120px;background:#ff00ff", { class: "p99-story-mask" });
+    masked.append(box("width:60px;height:60px;background:#00ff00"));
+    const control = box("width:120px;height:120px;background:#ffa500");
+    wrap.append(marked, outer, masked, control);
+    document.body.append(wrap);
+  });
+
+  await story("a marked area, its nested children and a selector-matched area never show in the screenshot, in the preview or in what is sent", async () => {
+    const me = { ...visitor(0, 0, 0), mask: [".p99-story-mask", "::not a selector("], capture: "on" };
+    const { ctx, p } = await mePage(me);
+    await plant(p);
+    let sent = null;
+    await p.route((u) => /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(u.pathname), (route) => {
+      const r = route.request();
+      if (new URL(r.url()).searchParams.get("role") === "screenshot") sent = { type: r.headers()["content-type"], body: r.postDataBuffer() };
+      route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
+    await openForm(p);
+    await shotReady(p);
+    const src = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-shot[data-role=screenshot] img").src);
+    const preview = await p.evaluate(`${SCAN}(${JSON.stringify(src)})`);
+    check(`the control box shows, so the scan can fail (${JSON.stringify(preview)})`, preview.orange > 1000);
+    check(`the preview has no red, green or magenta from the private boxes, and the theme's block covers them (${JSON.stringify(preview)})`, preview.red === 0 && preview.green === 0 && preview.magenta === 0 && preview.fill > 3000);
+    await write(p, tag("Private areas stay private"));
+    await p.locator(SEND).click();
+    await until("the screenshot upload", () => sent, 30000);
+    const url = `data:${sent.type || "image/webp"};base64,${sent.body.toString("base64")}`;
+    const upload = await p.evaluate(`${SCAN}(${JSON.stringify(url)})`);
+    check(`the uploaded screenshot holds none of them either (${JSON.stringify(upload)})`, upload.orange > 1000 && upload.red === 0 && upload.green === 0 && upload.magenta === 0 && upload.fill > 3000);
+    await ctx.close();
+  });
+
+  await story("with capture off the form says no screenshot goes, and the report files with no image", async () => {
+    const { ctx, p, seen } = await mePage({ ...visitor(0, 0, 0), capture: "off" });
+    await openForm(p);
+    const form = await p.evaluate(() => { const f = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new"); return { capture: !!f.querySelector(".p99-capture"), mark: !!f.querySelector(".p99-mark-start"), note: f.querySelector(".p99-no-shot")?.textContent ?? null }; });
+    check(`no capture section and a plain note (${JSON.stringify(form)})`, !form.capture && !form.mark && form.note === "This site doesn't send screenshots, so your report goes without one.");
+    const title = tag("Filed with capture off");
+    await write(p, title);
+    await p.locator(SEND).click();
+    await thread(p);
+    const [item] = await found(title);
+    const t = item ? await must("GET", `/issues/${item.key}?host=${HOST}`) : null;
+    const puts = seen.filter((r) => r.method === "PUT" && /\/attachments\//.test(r.path));
+    check(`one item, no attachment sent or stored (${puts.length} sent, ${t && (t.attachments || []).length} stored)`, !!t && puts.length === 0 && (t.attachments || []).length === 0);
     await ctx.close();
   });
 

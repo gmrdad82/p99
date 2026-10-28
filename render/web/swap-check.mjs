@@ -54,7 +54,8 @@ try {
       await sleep(500);
     }
   }
-  await api("PUT", `/hosts/${HOST}`, { env: "production", config: { off: ["/off/**"], above: "#totop" } });
+  await api("POST", "/projects", { name: "Shop" });
+  await api("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: { off: ["/off/**"], above: "#totop" } });
   const issue = await api("POST", `/issues?host=${HOST}`, {
     client_uid: "00000000-0000-4000-8000-000000000001",
     kind: "bug",
