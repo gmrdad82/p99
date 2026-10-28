@@ -98,9 +98,14 @@ function all(db, sql) {
   return db.prepare(sql).all().map((r) => ({ ...r }));
 }
 
+function before0018({ project_id, grant_json, avatar, ...rest }) {
+  return rest;
+}
+
 function snapshot(db) {
-  const out = Object.fromEntries(THREAD.map((t) => [t, all(db, `SELECT * FROM ${t} ORDER BY rowid`)]));
-  out.items = all(db, "SELECT * FROM items ORDER BY id").map(({ label_id, ...rest }) => rest);
+  const out = Object.fromEntries(THREAD.map((t) => [t, all(db, `SELECT * FROM ${t} ORDER BY rowid`).map(before0018)]));
+  out.codes = out.codes.map(({ hosts_json, ...rest }) => rest);
+  out.items = all(db, "SELECT * FROM items ORDER BY id").map(({ label_id, ...rest }) => before0018(rest));
   out.events = all(db, "SELECT * FROM events ORDER BY id");
   out.followers = all(db, "SELECT duplicate_of, reporter_email FROM items WHERE duplicate_of IS NOT NULL ORDER BY id");
   return out;
@@ -162,7 +167,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     assert.notDeepEqual(order.New, [...order.New].sort((a, b) => a - b));
 
     const p = await plan();
-    assert.deepEqual(p.plan.pending, ["0016_one_board.sql", "0017_delete_archived.sql"]);
+    assert.deepEqual(p.plan.pending, ["0016_one_board.sql", "0017_delete_archived.sql", "0018_spaces.sql"]);
     const fold = p.plan.one_board;
     assert.equal(fold.cards_board, "make");
     assert.deepEqual(
@@ -197,7 +202,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     const uploads = state.uploads;
     const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", p.hash]);
     assert.equal(ok.status, 0, ok.stderr);
-    assert.deepEqual(JSON.parse(ok.stdout).migrations.applied, ["0016_one_board.sql", "0017_delete_archived.sql"]);
+    assert.deepEqual(JSON.parse(ok.stdout).migrations.applied, ["0016_one_board.sql", "0017_delete_archived.sql", "0018_spaces.sql"]);
     assert.equal(state.uploads, uploads + 1);
     const guarded = state.sql.find((sql) => sql.includes("INSERT INTO d1_migrations (name) VALUES ('0017_delete_archived.sql')"));
     assert.match(guarded, /CONSTRAINT count_check_events CHECK \(events = \d+\)/);
@@ -231,7 +236,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     assert.equal(n(db, "SELECT count(*) AS n FROM board_positions WHERE board_id NOT IN (SELECT id FROM boards WHERE cards = 1)"), 0);
     assert.deepEqual(all(db, "SELECT name FROM labels ORDER BY name").map((l) => l.name), [...LANE_NAMES].sort());
     assert.equal(n(db, "SELECT count(*) AS n FROM sqlite_master WHERE name = 'archived'"), 0);
-    assert.equal(n(db, "SELECT count(*) AS n FROM item_labels"), 0);
+    assert.equal(n(db, "SELECT count(*) AS n FROM sqlite_master WHERE name = 'item_labels'"), 0);
 
     const again = await run(["--json", "deploy", "--no-check"]);
     assert.equal(again.status, 0, again.stderr);
@@ -274,7 +279,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
 
     db.exec("DROP TRIGGER lose_a_note;");
     const next = await plan();
-    assert.deepEqual(next.plan.pending, ["0016_one_board.sql", "0017_delete_archived.sql"]);
+    assert.deepEqual(next.plan.pending, ["0016_one_board.sql", "0017_delete_archived.sql", "0018_spaces.sql"]);
     assert.deepEqual(next.plan.count_check, p.plan.count_check);
     assert.equal(next.hash, p.hash);
     const ok = await run(["deploy", "--no-check", "--accept-plan", next.hash]);
