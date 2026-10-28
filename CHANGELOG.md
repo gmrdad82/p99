@@ -2,6 +2,17 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.12.0 — 2026-10-28
+
+### Changed
+
+- An agent (`--agent`) can close a card as abandoned or as a duplicate of another card, with `p99 status`, `p99 edit` or `p99 merge`; the card's history shows the person with 🤖. Closing a card as done stays a person's word.
+- In the TUI, text that doesn't fit is cut after a whole word and ends with "…", so a card's foot shows "Mobile…" and never "Storefr…".
+
+### Fixed
+
+- `p99 move --before` or `--after` against a Worker older than 1.11 says to run `p99 deploy`, instead of failing unclearly.
+
 ## v1.11.2 — 2026-10-23
 
 ### Fixed
