@@ -287,8 +287,7 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"board": {"lanes": []}, "cards": []})
         }
         ("GET", "/v1/board") => the_board(),
-        ("GET" | "POST", "/v1/boards")
-        | ("GET" | "PUT" | "DELETE", "/v1/boards/2") => {
+        ("GET" | "POST", "/v1/boards") | ("GET" | "PUT" | "DELETE", "/v1/boards/2") => {
             return (
                 410,
                 r#"{"message":"boards are one per space; see p99 board"}"#.into(),

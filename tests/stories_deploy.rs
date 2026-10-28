@@ -985,7 +985,7 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
         text.contains("  pending: 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql\n"),
         "{text}"
     );
-    assert!(text.contains("\nOne board per account (0016)\n"), "{text}");
+    assert!(text.contains("\nOne board per space (0016)\n"), "{text}");
     assert!(text.contains("  the Cards board gets Needs you as lane 4; its cards stay where they are: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{text}");
     assert!(
         text.contains(&format!(
@@ -1104,7 +1104,7 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
         text.contains("  pending: 0017_delete_archived.sql, 0018_spaces.sql\n"),
         "{text}"
     );
-    assert!(!text.contains("One board per account (0016)"), "{text}");
+    assert!(!text.contains("One board per space (0016)"), "{text}");
     assert!(
         text.contains("\nDelete what the one board carries (0017)\n"),
         "{text}"
@@ -1680,7 +1680,7 @@ fn migrate_plan_on_an_account_already_on_one_board_never_previews_the_fold_again
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     let text = &out.stdout;
     assert!(text.contains("  pending: 0013_app.sql\n"), "{text}");
-    assert!(!text.contains("One board per account (0016)"), "{text}");
+    assert!(!text.contains("One board per space (0016)"), "{text}");
     let json = h.run(&["migrate", "--plan", "--json"]).json();
     assert_eq!(json["plan"]["pending"], json!(["0013_app.sql"]));
     assert!(json["plan"]["one_board"].is_null(), "{}", json["plan"]);
@@ -2503,10 +2503,8 @@ fn a_config_others_can_read_is_refused_before_any_call_and_names_no_secret() {
 fn spaces_config() -> String {
     format!(
         "license = \"{LICENSE}\"\n\n{}[spaces.main.projects]\n\"Example site\" = [\"example.com\", \"dev.example.com\"]\nLicences = [\"licence.example.com\"]\n\n[hosts.\"example.com\"]\nspace = \"main\"\n",
-        account("main", "db1", TOKEN).replace(
-            "[spaces.main]\n",
-            "[spaces.main]\nname = \"Example Co\"\n"
-        )
+        account("main", "db1", TOKEN)
+            .replace("[spaces.main]\n", "[spaces.main]\nname = \"Example Co\"\n")
     )
 }
 

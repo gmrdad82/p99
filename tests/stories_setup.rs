@@ -1389,13 +1389,7 @@ esac
             &h,
             &bin,
             false,
-            &[
-                "--space",
-                "main",
-                "--host",
-                "shop.example.com",
-                "--no-mail",
-            ],
+            &["--space", "main", "--host", "shop.example.com", "--no-mail"],
         );
         again.ok();
         assert_eq!(h.config(), before);
@@ -1881,10 +1875,7 @@ mod sources {
         first.ok();
         let config = h.toml();
         assert_eq!(config["spaces"]["main"]["token"].as_str(), Some(TOKEN));
-        let key = config["spaces"]["main"]["key"]
-            .as_str()
-            .unwrap()
-            .to_owned();
+        let key = config["spaces"]["main"]["key"].as_str().unwrap().to_owned();
         assert!(is_hex(&key));
 
         let second = again(&h, &[], &["--no-mail"]);
@@ -1929,9 +1920,7 @@ mod sources {
             h.toml()["spaces"]["main"]["token"]["env"].as_str(),
             Some("CF_STORY_TOKEN")
         );
-        assert!(is_hex(
-            h.toml()["spaces"]["main"]["key"].as_str().unwrap()
-        ));
+        assert!(is_hex(h.toml()["spaces"]["main"]["key"].as_str().unwrap()));
         assert!(secret_of(&cf, "KEY_P99").is_some());
         every_cloudflare_call_carried_the_token(&h);
         never_shows(&[&out], &[]);

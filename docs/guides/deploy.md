@@ -5,7 +5,7 @@ sidebar:
   order: 8
 ---
 
-The Worker is built into the `p99` binary: each version of `p99` carries the Worker of the same version, its web files and its database migrations. So upgrading P99 is two steps: install the new binary, then deploy it to each account.
+The Worker is built into the `p99` binary: each version of `p99` carries the Worker of the same version, its web files and its database migrations. So upgrading P99 is two steps: install the new binary, then deploy it to each space.
 
 ## See what this build carries
 
@@ -46,7 +46,7 @@ p99 deploy --space shop
 4. gives the P99 page its address: the route `<app>/*` when the space sets `app` in the config, or else the Worker's `workers.dev` address, which it turns on, and prints it (`p99 app` prints it later);
 5. checks that every host answers the new version on `/_p99/health`.
 
-Before its first write it reads everything it needs: the migrations already applied, the plan when one is needed, the Worker's bindings and secrets, the account's zones, each host's zone and routes, and the P99 page's address. A deploy refused on any of those (a plan not accepted, a hash that no longer matches, a token Cloudflare turns away on one of those reads, a rate-limiting namespace it can't pick, a host on no zone the token reaches, a route another Worker already holds) changes nothing: no migration, no table, no upload, no secret and no route. Cloudflare only checks a write permission on the write itself, so a token that can read but not edit the Worker, its secrets or its routes is turned away after the migrations are in, and the account keeps them. The Worker stays as it was when its upload was the write refused; when a secret or a route was refused, the new Worker is already up. Run `p99 deploy` again with a token that can write them; it needs no `--accept-plan` then, since nothing is left to accept.
+Before its first write it reads everything it needs: the migrations already applied, the plan when one is needed, the Worker's bindings and secrets, the account's zones, each host's zone and routes, and the P99 page's address. A deploy refused on any of those (a plan not accepted, a hash that no longer matches, a token Cloudflare turns away on one of those reads, a rate-limiting namespace it can't pick, a host on no zone the token reaches, a route another Worker already holds) changes nothing: no migration, no table, no upload, no secret and no route. Cloudflare only checks a write permission on the write itself, so a token that can read but not edit the Worker, its secrets or its routes is turned away after the migrations are in, and the space keeps them. The Worker stays as it was when its upload was the write refused; when a secret or a route was refused, the new Worker is already up. Run `p99 deploy` again with a token that can write them; it needs no `--accept-plan` then, since nothing is left to accept.
 
 It fails, naming the hosts, when a route can't be added or a host doesn't answer the new version; `--no-check` skips the health check. `--json` prints a report with the modules, the migrations applied, each route and each host's health, and `"ok"`.
 
@@ -54,9 +54,9 @@ Run it once for each space in the config. The loader is cached for five minutes 
 
 ## Upgrading to 1.9
 
-1.9 changes data, not only the schema: each item gets one label from its 1.8 status, nested boards become separate boards with an owner, priority becomes each column's card order, and every person gets a username. So `p99 deploy` (and `p99 setup`, when it applies migrations) doesn't apply migrations 0011 to 0013 to an account that holds 1.8 data until that account's plan is accepted.
+1.9 changes data, not only the schema: each item gets one label from its 1.8 status, nested boards become separate boards with an owner, priority becomes each column's card order, and every person gets a username. So `p99 deploy` (and `p99 setup`, when it applies migrations) doesn't apply migrations 0011 to 0013 to a space that holds 1.8 data until that space's plan is accepted.
 
-It works the same from 1.7, in one deploy: a space on 1.7 goes straight to 1.9, with no 1.8 deploy in between. Its plan covers 0004 to 0013 together, and 0004 waits for the accepted plan too, since it changes data as well: each 1.7 status becomes a 1.9 label and the stage reporters see (new: Inbox, received; confirmed and in progress: Doing, in progress; waiting: Review, in progress; resolved: Done, fixed; abandoned: Done, dropped; duplicate: Done, duplicate), and each host gets one home board, owned by the space's first Owner code that isn't revoked, with each column's cards newest first. The other migrations in between (0005 to 0010) add tables, columns and indexes only, so they need no plan of their own: once the plan is accepted, `p99 deploy` applies them in the same run, in order. An account cut off after 0004 reads its plan the same way, as 0005 to 0010 would leave it, and a deploy there without the accepted plan writes nothing.
+It works the same from 1.7, in one deploy: a space on 1.7 goes straight to 1.9, with no 1.8 deploy in between. Its plan covers 0004 to 0013 together, and 0004 waits for the accepted plan too, since it changes data as well: each 1.7 status becomes a 1.9 label and the stage reporters see (new: Inbox, received; confirmed and in progress: Doing, in progress; waiting: Review, in progress; resolved: Done, fixed; abandoned: Done, dropped; duplicate: Done, duplicate), and each host gets one home board, owned by the space's first Owner code that isn't revoked, with each column's cards newest first. The other migrations in between (0005 to 0010) add tables, columns and indexes only, so they need no plan of their own: once the plan is accepted, `p99 deploy` applies them in the same run, in order. A space cut off after 0004 reads its plan the same way, as 0005 to 0010 would leave it, and a deploy there without the accepted plan writes nothing.
 
 1. Read the plan. It only reads the database, through the same Cloudflare API calls `p99 setup` uses, and changes nothing:
 
@@ -75,7 +75,7 @@ It works the same from 1.7, in one deploy: a space on 1.7 goes straight to 1.9, 
    p99 deploy --accept-plan <hash>
    ```
 
-   Deploy works out the plan again first and refuses when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A deploy refused for its plan or its hash changes nothing on the account, not even the migrations that need no plan. A new account, or one already past every migration that changes data (0018 is the last), needs no `--accept-plan`; one on 1.7, 1.8, 1.10, 1.11 or 1.12 does.
+   Deploy works out the plan again first and refuses when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A deploy refused for its plan or its hash changes nothing in the space, not even the migrations that need no plan. A new space, or one already past every migration that changes data (0018 is the last), needs no `--accept-plan`; one on 1.7, 1.8, 1.10, 1.11 or 1.12 does.
 
 0011 kept the old tag rows (`item_labels`) untouched and unused; 0017 deletes them, and 0018, in 1.13, drops the table. Once the steps before 0017 have run (a space on 1.11), 0017's section of the plan (`delete_archived` in `--json`) counts them, with each board and label it deletes and each item it first carries onto the one board, and 0018's section counts them again. When the Cards board doesn't have seven lanes, the plan stops with that reason and deploy deletes nothing.
 

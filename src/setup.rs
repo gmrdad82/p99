@@ -2416,7 +2416,8 @@ mod tests {
     }
 
     #[test]
-    fn an_accepted_plan_runs_every_pending_migration_as_one_batch_and_without_one_only_0017_and_0018_share_one() {
+    fn an_accepted_plan_runs_every_pending_migration_as_one_batch_and_without_one_only_0017_and_0018_share_one()
+     {
         let todo: Vec<Step> = vec![
             ("0011_lanes.sql", "A;"),
             ("0016_one_board.sql", "B;"),

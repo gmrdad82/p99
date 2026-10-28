@@ -901,17 +901,20 @@ mod tests {
                 key: "k".into(),
                 url: full("https://example.com"),
                 app: full("app.example.com"),
-                resend_key: full("r").map(Secret::Text),
+                resend_key: full("/run/p99/resend").map(Secret::File),
                 mail_from: full("P99 <p99@example.com>"),
                 access_client_id: full("c"),
-                access_client_secret: full("s").map(Secret::Text),
-                code: full("o").map(Secret::Text),
+                access_client_secret: Some(Secret::Command(vec![
+                    "pass".into(),
+                    "show".into(),
+                    "access".into(),
+                ])),
+                code: full("P99_CODE").map(Secret::Env),
                 me: AccountMe {
                     name: full("Grace Hopper"),
                     email: full("grace@example.com"),
                     agent: Some(true),
                 },
-                ..Account::default()
             },
         );
         config.hosts.insert(

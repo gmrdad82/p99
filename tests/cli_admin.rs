@@ -1035,10 +1035,7 @@ fn invite_owner_and_its_old_manager_alias_mint_an_owner() {
         "--no-mail",
     ])
     .ok();
-    assert_eq!(
-        h.stub.call("POST", "/_p99/v1/codes").json()["role"],
-        "user"
-    );
+    assert_eq!(h.stub.call("POST", "/_p99/v1/codes").json()["role"], "user");
 }
 
 #[test]
