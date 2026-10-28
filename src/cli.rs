@@ -1076,14 +1076,12 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
     let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
-    let entry = client
-        .put_host(
-            &host,
-            &args.env,
-            &config.hosts[&host].pushed(),
-            Some(&project),
-        )
-        .map_err(crate::card::refusal)?;
+    let entry = client.put_host(
+        &host,
+        &args.env,
+        &config.hosts[&host].pushed(),
+        Some(&project),
+    )?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
     if args.kind.is_some() || current.is_none() {
@@ -1249,9 +1247,7 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
             None => return Err(missing_project(wanted, &space)),
         }
     }
-    let mut sent = client
-        .put_host(&host, &env, &pushed, None)
-        .map_err(crate::card::refusal)?;
+    let mut sent = client.put_host(&host, &env, &pushed, None)?;
     config.save()?;
     if let Some(name) = &project {
         sent = client
@@ -1393,17 +1389,15 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
     };
     let mine = crate::links::owner(config, &account, &args.email);
     let asked = crate::links::mailing(mine, args.no_mail, args.mail_me);
-    let minted = client
-        .mint(&NewCode {
-            client_uid: crate::client::uid(),
-            name: args.name.clone(),
-            email: args.email.clone(),
-            grant,
-            manager: args.owner,
-            totp: args.totp,
-            mail: asked,
-        })
-        .map_err(crate::card::refusal)?;
+    let minted = client.mint(&NewCode {
+        client_uid: crate::client::uid(),
+        name: args.name.clone(),
+        email: args.email.clone(),
+        grant,
+        manager: args.owner,
+        totp: args.totp,
+        mail: asked,
+    })?;
     if minted.secret.is_none() {
         return Err("this invite was already minted; revoke it and invite again".into());
     }
@@ -1449,15 +1443,23 @@ fn grant_set(config: &Config, global: &Global, args: &GrantArgs) -> Result<(), S
         value["space"] = space_ref(config, &account);
         return print_json(&value);
     }
-    out!(
-        "code {} of {} <{}> now grants {}; no one was mailed",
-        code.id,
-        code.name,
-        code.email,
-        code.grant
-            .as_ref()
-            .map_or_else(|| grant.words(), |g| g.words())
-    );
+    let held = code.grant.clone().unwrap_or(grant);
+    if held.parked() {
+        out!(
+            "code {} of {} <{}> is parked: it opens nothing and is not revoked; no one was mailed",
+            code.id,
+            code.name,
+            code.email
+        );
+    } else {
+        out!(
+            "code {} of {} <{}> now grants {}; no one was mailed",
+            code.id,
+            code.name,
+            code.email,
+            held.words()
+        );
+    }
     Ok(())
 }
 
@@ -2323,5 +2325,60 @@ mod tests {
         assert_eq!(found[0].key, "BUG-2");
         let mut none: Vec<Summary> = Vec::new();
         assert!(!newest(&mut none, 1));
+    }
+
+    fn masks(raw: &[&str]) -> Result<Vec<String>, String> {
+        super::masks_of(&raw.iter().map(|m| (*m).to_owned()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn masks_are_trimmed_deduplicated_and_none_clears() {
+        assert_eq!(
+            masks(&[" #a ", ".b, .c", "#a"]).unwrap(),
+            ["#a", ".b, .c"].map(String::from)
+        );
+        assert_eq!(masks(&["none"]).unwrap(), Vec::<String>::new());
+        assert_eq!(masks(&["NONE"]).unwrap(), Vec::<String>::new());
+        assert!(masks(&["none", "#a"]).is_err());
+        assert!(masks(&[" "]).is_err());
+    }
+
+    #[test]
+    fn masks_are_held_to_fifty_selectors_of_two_hundred_characters() {
+        let many: Vec<String> = (0..50).map(|n| format!(".m{n}")).collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(masks(&refs).unwrap().len(), 50);
+        let mut over = refs.clone();
+        over.push(".one-more");
+        assert_eq!(
+            masks(&over).unwrap_err(),
+            "a host takes at most 50 mask selectors"
+        );
+        let edge = "a".repeat(200);
+        assert!(masks(&[edge.as_str()]).is_ok());
+        let long = "a".repeat(201);
+        assert!(
+            masks(&[long.as_str()])
+                .unwrap_err()
+                .starts_with("a mask selector has at most 200 characters")
+        );
+    }
+
+    #[test]
+    fn a_host_pushes_its_masks_and_only_capture_off() {
+        let host = Host {
+            mask: vec!["#a".into()],
+            capture: Some("off".into()),
+            ..Host::default()
+        };
+        let pushed = host.pushed();
+        assert_eq!(pushed["mask"], serde_json::json!(["#a"]));
+        assert_eq!(pushed["capture"], "off");
+        let on = Host {
+            capture: Some("on".into()),
+            ..Host::default()
+        };
+        assert!(on.pushed().get("capture").is_none());
+        assert!(on.pushed().get("mask").is_none());
     }
 }

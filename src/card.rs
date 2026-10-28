@@ -749,4 +749,39 @@ mod tests {
             serde_json::json!({"project":null})
         );
     }
+
+    #[test]
+    fn a_card_with_no_host_reads_as_empty_and_writes_null_again() {
+        let mut raw: Value = serde_json::from_str(CARD).unwrap();
+        raw["host"] = Value::Null;
+        let card: Card = serde_json::from_value(raw.clone()).unwrap();
+        assert_eq!(card.host, "");
+        assert_eq!(serde_json::to_value(&card).unwrap(), raw);
+        raw.as_object_mut().unwrap().remove("host");
+        let card: Card = serde_json::from_value(raw).unwrap();
+        assert_eq!(card.host, "");
+    }
+
+    #[test]
+    fn a_new_card_names_no_host_unless_asked() {
+        let mut request = NewCard {
+            client_uid: "u".into(),
+            project: "Splicer".into(),
+            title: "t".into(),
+            body: String::new(),
+            kind: "feature".into(),
+            host: None,
+        };
+        assert!(
+            serde_json::to_value(&request)
+                .unwrap()
+                .get("host")
+                .is_none()
+        );
+        request.host = Some("shop.example.com".into());
+        assert_eq!(
+            serde_json::to_value(&request).unwrap()["host"],
+            "shop.example.com"
+        );
+    }
 }

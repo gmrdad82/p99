@@ -1348,4 +1348,89 @@ mod tests {
         let line = format!("export const RESOLUTIONS = [{}];", resolutions.join(", "));
         assert!(boards.contains(&line), "{line}");
     }
+
+    #[test]
+    fn a_grant_reads_and_writes_the_contracts_two_shapes_and_parked() {
+        let whole: Grant = serde_json::from_str(r#"{"space":true}"#).unwrap();
+        assert_eq!(whole, Grant::whole());
+        assert_eq!(serde_json::to_string(&whole).unwrap(), r#"{"space":true}"#);
+        let some: Grant = serde_json::from_str(r#"{"projects":["Shop","Blog"]}"#).unwrap();
+        assert_eq!(some, Grant::of(vec!["Shop".into(), "Blog".into()]));
+        assert_eq!(
+            serde_json::to_string(&some).unwrap(),
+            r#"{"projects":["Shop","Blog"]}"#
+        );
+        let parked: Grant = serde_json::from_str(r#"{"projects":[]}"#).unwrap();
+        assert!(parked.parked());
+        assert_eq!(
+            serde_json::to_string(&parked).unwrap(),
+            r#"{"projects":[]}"#
+        );
+        assert_eq!(whole.words(), "the whole space");
+        assert_eq!(some.words(), "projects: Shop, Blog");
+        assert_eq!(parked.words(), "parked");
+        let both: Grant = serde_json::from_str(r#"{"space":true,"projects":["x"]}"#).unwrap();
+        assert_eq!(both, Grant::whole());
+    }
+
+    #[test]
+    fn a_code_carries_its_grant_in_json_and_reaches_a_host_by_it() {
+        let code: Code = serde_json::from_value(serde_json::json!({
+            "id": 4, "name": "Grace Hopper", "email": "grace@example.com",
+            "grant": {"projects": ["Shop"]}, "hosts": ["shop.example.com"],
+        }))
+        .unwrap();
+        assert_eq!(code.reach(), "projects: Shop");
+        assert!(code.reaches("shop.example.com", Some("shop")));
+        assert!(!code.reaches("blog.example.com", Some("Blog")));
+        assert!(!code.reaches("shop.example.com", None));
+        let printed = serde_json::to_value(&code).unwrap();
+        assert_eq!(printed["grant"], serde_json::json!({"projects": ["Shop"]}));
+        let whole = Code {
+            grant: Some(Grant::whole()),
+            ..Code::default()
+        };
+        assert!(whole.reaches("any.example.com", None));
+        let old: Code = serde_json::from_value(serde_json::json!({
+            "id": 5, "hosts": ["a.example.com", "b.example.com"],
+        }))
+        .unwrap();
+        assert_eq!(old.grant, None);
+        assert_eq!(old.reach(), "hosts: a.example.com, b.example.com");
+        assert!(old.reaches("b.example.com", None));
+        assert_eq!(serde_json::to_value(&old).unwrap()["grant"], Value::Null);
+    }
+
+    #[test]
+    fn a_new_code_sends_a_grant_and_no_hosts() {
+        let sent = serde_json::to_value(NewCode {
+            client_uid: "u".into(),
+            name: "G".into(),
+            email: "g@example.com".into(),
+            grant: Grant::of(vec!["Shop".into()]),
+            ..NewCode::default()
+        })
+        .unwrap();
+        assert_eq!(sent["grant"], serde_json::json!({"projects": ["Shop"]}));
+        assert!(sent.get("hosts").is_none());
+    }
+
+    #[test]
+    fn the_space_view_and_a_host_entry_read_the_contracts_shapes() {
+        let view: SpaceView = serde_json::from_value(serde_json::json!({
+            "space": {"slug": "pito", "name": "PITO MD"},
+            "projects": [{"name": "Alfred", "hosts": ["license.example.com"], "open": 2, "closed": 5}],
+        }))
+        .unwrap();
+        assert_eq!(view.space.slug, "pito");
+        assert_eq!(view.projects[0].closed, 5);
+        let host: HostEntry = serde_json::from_value(serde_json::json!({
+            "host": "a.example.com", "project": "Alfred",
+        }))
+        .unwrap();
+        assert_eq!(host.project.as_deref(), Some("Alfred"));
+        let bare: HostEntry =
+            serde_json::from_value(serde_json::json!({"host": "b.example.com"})).unwrap();
+        assert_eq!(bare.project, None);
+    }
 }

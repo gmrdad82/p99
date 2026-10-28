@@ -1389,4 +1389,167 @@ mod tests {
         );
         assert_eq!(marked(None, Some("\u{7}"), false), (true, None));
     }
+
+    const LEGACY_TEXT: &str = r#"
+        default_account = "main"
+
+        [accounts.main]
+        account_id = "a"
+        token = ""
+
+        [hosts."example.com"]
+        account = "main"
+        env = "production"
+        "#;
+
+    #[test]
+    fn the_legacy_names_load_as_spaces_and_say_they_were_renamed() {
+        let config: Config = toml::from_str(LEGACY_TEXT).unwrap();
+        assert!(config.renamed);
+        assert_eq!(config.default_account.as_deref(), Some("main"));
+        assert_eq!(config.accounts["main"].account_id, "a");
+        assert_eq!(config.hosts["example.com"].account, "main");
+        assert_eq!(config.hosts["example.com"].legacy, None);
+        let written = toml::to_string(&config).unwrap();
+        assert!(written.contains("[spaces.main]"), "{written}");
+        assert!(written.contains("default_space = \"main\""), "{written}");
+        assert!(written.contains("space = \"main\""), "{written}");
+        assert!(!written.contains("accounts"), "{written}");
+        assert!(!written.contains("default_account"), "{written}");
+        assert!(!written.contains("\naccount = "), "{written}");
+        let again: Config = toml::from_str(&written).unwrap();
+        assert!(!again.renamed);
+    }
+
+    #[test]
+    fn a_space_and_an_account_of_one_name_or_a_host_with_no_space_are_refused() {
+        let both = "[spaces.a]\naccount_id = \"1\"\ntoken = \"\"\n[accounts.a]\naccount_id = \"2\"\ntoken = \"\"\n";
+        let error = toml::from_str::<Config>(both).err().unwrap().to_string();
+        assert!(
+            error.contains("the space a is in both [spaces.a] and [accounts.a]; keep [spaces.a]"),
+            "{error}"
+        );
+        let twice = "[spaces.a]\naccount_id = \"1\"\ntoken = \"\"\n[hosts.\"x.example.com\"]\nspace = \"a\"\naccount = \"a\"\n";
+        let error = toml::from_str::<Config>(twice).err().unwrap().to_string();
+        assert!(error.contains("has both space and account"), "{error}");
+        let none = "[hosts.\"x.example.com\"]\nenv = \"production\"\n";
+        let error = toml::from_str::<Config>(none).err().unwrap().to_string();
+        assert!(
+            error.contains("the host x.example.com names no space"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn spaces_read_their_name_and_projects_and_write_them_back() {
+        let text = r#"
+            [spaces.pito]
+            name = "PITO MD"
+            account_id = "a"
+            token = ""
+
+            [spaces.pito.projects]
+            "PITO MD site" = ["pitomd.com", "dev.pitomd.com"]
+            Alfred = ["license.pitomd.com"]
+
+            [hosts."pitomd.com"]
+            space = "pito"
+            "#;
+        let config: Config = toml::from_str(text).unwrap();
+        assert!(!config.renamed);
+        let pito = &config.accounts["pito"];
+        assert_eq!(pito.title("pito"), "PITO MD");
+        assert_eq!(pito.project_of("dev.pitomd.com"), Some("PITO MD site"));
+        assert_eq!(pito.project_of("elsewhere.com"), None);
+        assert_eq!(pito.project_named("alfred"), Some("Alfred"));
+        let bare = Account::default();
+        assert_eq!(bare.title("fepra"), "fepra");
+        let written = toml::to_string(&config).unwrap();
+        let again: Config = toml::from_str(&written).unwrap();
+        assert_eq!(again.accounts["pito"].projects, pito.projects);
+        assert_eq!(again.accounts["pito"].name, pito.name);
+    }
+
+    #[test]
+    fn placing_a_host_moves_it_between_projects_and_renaming_keeps_its_hosts() {
+        let mut space = Account::default();
+        space.place("a.example.com", "Shop");
+        space.place("b.example.com", "shop");
+        assert_eq!(space.projects.len(), 1);
+        assert_eq!(space.projects["Shop"], ["a.example.com", "b.example.com"]);
+        space.place("a.example.com", "Blog");
+        assert_eq!(space.projects["Shop"], ["b.example.com"]);
+        assert_eq!(space.projects["Blog"], ["a.example.com"]);
+        space.rename_project("blog", "Notes");
+        assert_eq!(space.project_of("a.example.com"), Some("Notes"));
+        assert!(!space.projects.contains_key("Blog"));
+        space.unplace("b.example.com");
+        assert!(space.projects["Shop"].is_empty());
+        space.rename_project("gone", "Other");
+        assert!(!space.projects.contains_key("Other"));
+    }
+
+    #[test]
+    fn a_hosts_project_comes_from_its_spaces_mapping() {
+        let config: Config = toml::from_str(
+            r#"
+            [spaces.a]
+            account_id = "1"
+            token = ""
+            [spaces.a.projects]
+            Shop = ["x.example.com"]
+            [hosts."x.example.com"]
+            space = "a"
+            [hosts."y.example.com"]
+            space = "a"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(config.project_of_host("x.example.com"), Some("Shop"));
+        assert_eq!(config.project_of_host("y.example.com"), None);
+        assert_eq!(config.project_of_host("z.example.com"), None);
+    }
+
+    #[test]
+    fn the_space_errors_and_a_bare_space_flag_say_space() {
+        let none = accounts(None, &[]);
+        assert_eq!(
+            none.account(None).err().unwrap(),
+            "no space yet; run p99 setup"
+        );
+        let two = accounts(None, &["a", "b"]);
+        assert_eq!(
+            two.account(None).err().unwrap(),
+            "several spaces; name one with --space"
+        );
+        assert_eq!(
+            two.account(Some("c")).err().unwrap(),
+            "no space is called c"
+        );
+        assert_eq!(
+            two.account(Some(WHOLE)).err().unwrap(),
+            "--space names a space here; p99 spaces lists them"
+        );
+        assert_eq!(two.bases("c", None).err().unwrap(), "no space is called c");
+    }
+
+    #[test]
+    fn p99_key_space_is_read_before_p99_key_account() {
+        let name = |v: &str| Some(std::ffi::OsString::from(v));
+        assert_eq!(bound_space(name("a"), name("b")), name("a"));
+        assert_eq!(bound_space(None, name("b")), name("b"));
+        assert_eq!(bound_space(name("a"), None), name("a"));
+        assert_eq!(bound_space(None, None), None);
+        let two = accounts(Some("main"), &["main", "other"]);
+        assert_eq!(
+            holder_from(
+                Some("k".into()),
+                bound_space(name("other"), name("main")),
+                &two
+            )
+            .unwrap()
+            .as_deref(),
+            Some("other")
+        );
+    }
 }

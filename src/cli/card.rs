@@ -792,4 +792,45 @@ mod tests {
         assert!(key("../x").is_err());
         assert!(key("FE AT-1").is_err());
     }
+
+    #[test]
+    fn a_thread_of_a_card_with_no_host_says_who_filed_it_and_when_only() {
+        let mut t = thread();
+        t.card.card.host = String::new();
+        assert_eq!(
+            thread_lines(&t, NOW)[2],
+            "filed by Ada Lovelace  2026-10-22 08:00"
+        );
+    }
+
+    #[test]
+    fn the_projects_table_lines_up_hosts_and_counts() {
+        let view: SpaceView = serde_json::from_value(json!({
+            "space": {"slug": "pito", "name": "PITO MD"},
+            "projects": [
+                {"name": "Alfred", "hosts": ["license.example.com", "dev.example.com"], "open": 2, "closed": 15},
+                {"name": "Docs", "hosts": [], "open": 0, "closed": 0},
+            ],
+        }))
+        .unwrap();
+        assert_eq!(
+            project_lines(&view),
+            [
+                format!(
+                    "{:<7}  {:<36}  {:>4}  {:>6}",
+                    "PROJECT", "HOSTS", "OPEN", "CLOSED"
+                ),
+                format!(
+                    "{:<7}  {:<36}  {:>4}  {:>6}",
+                    "Alfred", "license.example.com, dev.example.com", 2, 15
+                ),
+                format!("{:<7}  {:<36}  {:>4}  {:>6}", "Docs", "-", 0, 0),
+            ]
+        );
+        let none = SpaceView::default();
+        assert_eq!(
+            project_lines(&none),
+            ["no projects yet; p99 projects add <name>"]
+        );
+    }
 }
