@@ -1,4 +1,5 @@
 import { roleOf } from "./roles.js";
+import { codeReachSql } from "./grants.js";
 
 export const RESERVED = ["admin", "p99", "root", "support", "manager", "system", "null", "me", "everyone", "here", "channel"];
 
@@ -54,9 +55,9 @@ export function usernameOf(raw) {
   return username;
 }
 
-export function memberClause(email, host, managers) {
+export function memberClause(email, project, managers) {
   return `(EXISTS (SELECT 1 FROM codes k WHERE lower(k.email) = ${email} AND k.revoked_at IS NULL
-      AND EXISTS (SELECT 1 FROM json_each(k.hosts_json) WHERE value = ${host}))
+      AND ${codeReachSql("k", project)})
     OR ${email} IN (SELECT value FROM json_each(${managers})))`;
 }
 
@@ -113,9 +114,9 @@ export async function assigneeEmail(c, row, raw) {
   const found = await c.env.DB.prepare(
     `SELECT email FROM people p WHERE username = ?1 AND ${memberClause("p.email", "?2", "?3")}`,
   )
-    .bind(asked, row.host, JSON.stringify(K.managersOf(c.env)))
+    .bind(asked, row.project_id ?? null, JSON.stringify(K.managersOf(c.env)))
     .first();
-  if (!found) K.fail(400, `@${asked} is not a member of ${row.host}`);
+  if (!found) K.fail(400, `@${asked} is not a member of ${c.dir.projects.get(row.project_id)?.name ?? row.host ?? "this item's project"}`);
   return found.email;
 }
 
@@ -123,12 +124,13 @@ async function listPeople(c) {
   K.requireEmptyBody(c);
   K.requireManager(c);
   const all = c.scope.all;
+  const project = all ? null : (c.dir.hosts.get(c.scope.host)?.project_id ?? null);
   const { results } = await c.env.DB.prepare(
     `SELECT lower(email) AS email, name, MAX(manager) AS manager FROM codes
-      WHERE revoked_at IS NULL AND (?2 OR EXISTS (SELECT 1 FROM json_each(codes.hosts_json) WHERE value = ?1))
+      WHERE revoked_at IS NULL AND (?2 OR ${codeReachSql("codes", "?1")})
       GROUP BY lower(email)`,
   )
-    .bind(all ? null : c.scope.host, all ? 1 : 0)
+    .bind(project, all ? 1 : 0)
     .all();
   const people = new Map(results.map((r) => [r.email, { email: r.email, name: r.name, manager: Boolean(r.manager) }]));
   for (const email of K.managersOf(c.env)) {
@@ -139,7 +141,7 @@ async function listPeople(c) {
   const names = await peopleOf(c.env.DB, [...people.values()], c.now);
   const list = [...people.values()]
     .filter((p) => names.has(p.email))
-    .map((p) => ({ username: names.get(p.email), manager: p.manager, role: roleOf(p.manager) }))
+    .map((p) => ({ username: names.get(p.email), role: roleOf(p.manager) }))
     .sort((a, b) => (a.username < b.username ? -1 : 1));
   return K.json(200, { people: list });
 }

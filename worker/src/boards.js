@@ -1,4 +1,5 @@
 import { LANES } from "./cards.js";
+import { EVERYWHERE, reachesHost, reachesItem } from "./grants.js";
 import { moveByLane } from "./one-board.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
@@ -36,10 +37,12 @@ export function useKit(kit) {
 }
 
 export function boardView(c) {
-  if (!c.browser) return c.scope;
-  const hosts = c.code ? c.code.hosts : [];
-  const every = c.dir.hosts.size > 0 && [...c.dir.hosts.keys()].every((h) => hosts.includes(h));
-  return every ? { all: true, host: null } : { all: false, host: c.scope.host };
+  if (!c.browser) return { all: c.scope.all, host: c.scope.host, projects: null };
+  return c.reach.all ? { all: true, host: null, projects: null } : { all: false, host: null, projects: c.reach.projects, hosts: c.reach.hosts };
+}
+
+export function inView(v, row) {
+  return reachesItem(v.all || !v.projects ? EVERYWHERE : { all: false, projects: v.projects, hosts: v.hosts ?? [] }, row) && (!v.host || row.host === v.host);
 }
 
 export function stageOf(row) {
@@ -109,7 +112,7 @@ export async function patchLabel(c, rawId) {
   if (!label) K.fail(404, "no such lane");
   const name = labelName(body.name);
   if (name === label.name) return K.json(200, { id: label.id, name, closes: Boolean(label.closes) });
-  if (!v.all) K.fail(403, "the lanes are the account's; rename one from the CLI, without --host");
+  if (!v.all) K.fail(403, "the lanes are the space's; rename one from the CLI, without --host");
   try {
     await DB.prepare("UPDATE labels SET name = ?2 WHERE id = ?1").bind(label.id, name).run();
   } catch (error) {
@@ -177,6 +180,7 @@ function labelStatements(c, row, to, opts = {}) {
         type: "label",
         key,
         host: row.host,
+        projects: row.project_id === null || row.project_id === undefined ? [] : [row.project_id],
         title: row.title,
         from: row.label_name,
         to: to.name,
@@ -252,10 +256,10 @@ export async function postStreamTicket(c) {
   K.requireManager(c);
   if (!c.env.HUB) K.fail(404, "this Worker has no push yet; run p99 deploy");
   const v = boardView(c);
-  const hosts = v.all ? null : c.code ? c.code.hosts.filter((h) => c.dir.hosts.has(h)) : [v.host];
+  const hosts = v.all ? null : [...c.dir.hosts.keys()].filter((h) => reachesHost(c.reach, c.dir, h));
   const ticket = K.hex(crypto.getRandomValues(new Uint8Array(24)));
   const ttl = Math.min(TICKET_TTL_MS, Number(c.env.TICKET_TTL_MS) || TICKET_TTL_MS);
-  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, code: c.code ? c.code.id : null, until: Date.now() + ttl });
+  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, projects: v.all ? null : v.projects, code: c.code ? c.code.id : null, until: Date.now() + ttl });
   return K.json(201, { ticket, expires_in: Math.ceil(ttl / 1000) });
 }
 
@@ -277,7 +281,10 @@ export async function liveCodes(DB, ids) {
   const wanted = [...new Set(ids.filter((id) => id !== null && id !== undefined))];
   if (wanted.length === 0) return new Set();
   try {
-    const { results } = await DB.prepare("SELECT id FROM codes WHERE id IN (SELECT value FROM json_each(?1)) AND revoked_at IS NULL")
+    const { results } = await DB.prepare(
+      `SELECT id FROM codes WHERE id IN (SELECT value FROM json_each(?1)) AND revoked_at IS NULL
+         AND (grant_json IS NULL OR json_extract(grant_json, '$.space') IS 1 OR json_array_length(grant_json, '$.projects') > 0)`,
+    )
       .bind(JSON.stringify(wanted))
       .all();
     return new Set(results.map((r) => r.id));
@@ -301,11 +308,14 @@ export async function liveSockets(DB, sockets) {
 }
 
 export async function fanOut(DB, sockets, events) {
-  const lines = events.map(({ hosts, ...event }) => [hosts ?? [event.host ?? null], event.type === "labels" && !hosts, JSON.stringify(event)]);
+  const lines = events.map(({ hosts, projects, ...event }) => [hosts ?? [event.host ?? null], projects ?? [], event.type === "labels" && !hosts, JSON.stringify(event)]);
   for (const [socket, seen] of await liveSockets(DB, sockets)) {
     const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
-    for (const [hosts, every, line] of lines) {
-      if (wanted !== null && !every && !hosts.some((h) => wanted.includes(h))) continue;
+    const reached = Array.isArray(seen.projects) ? seen.projects : null;
+    for (const [hosts, projects, every, line] of lines) {
+      const byProject = reached !== null && projects.some((p) => reached.includes(p));
+      const byHost = wanted === null || hosts.some((h) => wanted.includes(h));
+      if (!every && !byProject && !(byHost && (reached === null || wanted !== null))) continue;
       try {
         socket.send(line);
       } catch {}
@@ -332,7 +342,7 @@ export async function redeemTicket(storage, url, DB) {
   if (entry.hosts !== null && !entry.hosts.includes(origin)) return null;
   const code = entry.code ?? null;
   if (code !== null && !(await liveCodes(DB, [code]))?.has(code)) return null;
-  return { hosts: entry.hosts, code };
+  return { hosts: entry.hosts, projects: entry.projects ?? null, code };
 }
 
 export async function storeTicket(storage, hash, entry) {

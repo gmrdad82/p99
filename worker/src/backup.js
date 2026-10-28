@@ -3,6 +3,7 @@ export const BACKUP_TABLES = [
   { name: "labels", size: "length(name) + 100", lane: true },
   { name: "boards", size: "length(name) + 200", lane: true },
   { name: "board_columns", size: "50", refs: { board_id: "boards", label_id: "labels" } },
+  { name: "projects", size: "length(name) + 100", cut: true },
   {
     name: "items",
     size: "length(title) + length(body) + length(context_json) + length(marks_json) + length(reporter_json) + length(page_url) + 500",
@@ -25,10 +26,10 @@ export const BACKUP_TABLES = [
   { name: "hooks", size: "length(url_sealed) + length(events_json) + 200", cut: true },
   { name: "github", size: "length(repo) + 200", cut: true },
   { name: "github_links", size: "length(repo) + coalesce(length(url), 0) + 200", cut: true, item: true },
-  { name: "item_labels", size: "50", cut: true, item: true, refs: { label_id: "labels" } },
   { name: "mail", size: "length(COALESCE(sender, '')) + length(COALESCE(note, '')) + 100", cut: true },
   { name: "mail_optouts", size: "length(email) + 100", cut: true, item: true },
-  { name: "people", size: "length(email) + length(username) + 100", cut: true },
+  { name: "people", size: "length(email) + length(username) + coalesce(length(avatar), 0) + 100", cut: true },
+  { name: "settings", size: "length(value) + 100", cut: true },
   { name: "deletions", size: "length(r2_key) + 100", cut: true },
   { name: "sqlite_sequence", size: "length(name) + 50" },
 ];

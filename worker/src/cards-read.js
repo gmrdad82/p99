@@ -1,4 +1,5 @@
-import { boardView } from "./boards.js";
+import { boardView, inView } from "./boards.js";
+import { projectFilterSql } from "./grants.js";
 import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
 import { peopleOf } from "./people.js";
 
@@ -107,8 +108,16 @@ function linksSql() {
 
 function scopeOf(v, q) {
   if (v.all) return () => "1";
-  const host = q.bind(v.host);
-  return (item) => `${item}.host = ${host}`;
+  const project = v.projects ? q.bind(JSON.stringify(v.projects)) : null;
+  const reached = v.projects ? q.bind(JSON.stringify(v.hosts ?? [])) : null;
+  const host = v.host ? q.bind(v.host) : null;
+  return (item) =>
+    [
+      project ? `(${item}.project_id IN (SELECT value FROM json_each(${project})) OR ${item}.host IN (SELECT value FROM json_each(${reached})))` : null,
+      host ? `${item}.host = ${host}` : null,
+    ]
+      .filter(Boolean)
+      .join(" AND ") || "1";
 }
 
 function shownKey(raw) {
@@ -228,12 +237,12 @@ async function cardRow(c, raw, body = false) {
   const { DB } = c.env;
   const [card, plain] = await DB.batch([
     DB.prepare(oneSql(scope, q.bind(id), body)).bind(...q.binds),
-    DB.prepare("SELECT id, kind, host FROM items WHERE id = ?1").bind(id),
+    DB.prepare("SELECT id, kind, host, project_id FROM items WHERE id = ?1").bind(id),
   ]);
   const row = card.results[0];
   if (row) return row;
   const item = plain.results[0];
-  if (!item || !(v.all || item.host === v.host)) K.fail(404, `no item ${shownKey(raw)}`);
+  if (!item || !inView(v, item)) K.fail(404, `no item ${shownKey(raw)}`);
   K.fail(409, notCard(K.keyOf(item.kind, item.id)));
 }
 
@@ -306,7 +315,7 @@ export async function listCards(c) {
   const scope = scopeOf(v, q);
   const outer = [];
   const projects = params.getAll("project").map(projectName);
-  if (projects.length > 0) outer.push(`i.project COLLATE NOCASE IN (${projects.map((p) => q.bind(p)).join(", ")})`);
+  if (projects.length > 0) outer.push(projectFilterSql(projects, (p) => q.bind(p)));
   const statuses = params.getAll("status").map((word) => {
     const at = laneIndex(word);
     if (at < 0) K.fail(400, `status must be one of ${LANES.join(", ")}`);
@@ -385,10 +394,10 @@ export async function listProjects(c) {
   const v = boardView(c);
   const q = K.query();
   const { results } = await c.env.DB.prepare(
-    `SELECT f.project AS name, g.open, g.done FROM
-       (SELECT min(i.id) AS first, sum(i.open) AS open, sum(1 - i.open) AS done FROM items i
-        WHERE i.project IS NOT NULL AND ${scopeOf(v, q)("i")} GROUP BY i.project) g
-     JOIN items f ON f.id = g.first ORDER BY f.project COLLATE NOCASE, f.project`,
+    `SELECT p.name, g.open, g.done FROM
+       (SELECT i.project_id AS id, sum(i.open) AS open, sum(1 - i.open) AS done FROM items i
+        WHERE i.project IS NOT NULL AND ${scopeOf(v, q)("i")} GROUP BY i.project_id) g
+     JOIN projects p ON p.id = g.id ORDER BY p.name COLLATE NOCASE, p.name`,
   )
     .bind(...q.binds)
     .all();

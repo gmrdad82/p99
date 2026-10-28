@@ -136,8 +136,16 @@ function d1(db, seam = async () => {}) {
   };
 }
 
+const DIR = {
+  hosts: new Map([[HOST, { host: HOST, env: "production", config: {}, project_id: 2 }]]),
+  projects: new Map([
+    [1, { id: 1, name: "Paper" }],
+    [2, { id: 2, name: "Splicer" }],
+  ]),
+};
+
 function context(DB, body) {
-  return { env: { DB }, actor: ADA, manager: true, browser: false, scope: { all: true, host: null }, now: NOW, pushes: [], body };
+  return { env: { DB }, actor: ADA, manager: true, browser: false, scope: { all: true, host: null }, reach: { all: true, projects: null }, dir: DIR, now: NOW, pushes: [], body };
 }
 
 async function world() {

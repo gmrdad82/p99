@@ -140,7 +140,7 @@ function comment(db, item, uid) {
 }
 
 function deleteItem(db, id) {
-  for (const table of ["events", "comments", "board_positions", "item_labels"]) db.prepare(`DELETE FROM ${table} WHERE item_id = ?`).run(id);
+  for (const table of ["events", "comments", "board_positions"]) db.prepare(`DELETE FROM ${table} WHERE item_id = ?`).run(id);
   db.prepare("DELETE FROM items WHERE id = ?").run(id);
 }
 
@@ -241,7 +241,8 @@ export async function backupChecks({ check, root }) {
       ["board_columns", "boards"],
       ["board_columns", "labels"],
       ["board_positions", "boards"],
-      ["item_labels", "labels"],
+      ["items", "projects"],
+      ["hosts", "projects"],
     ]) {
       assert.ok(indexOf(parent) < indexOf(child), `${child} -> ${parent}`);
     }
@@ -249,7 +250,6 @@ export async function backupChecks({ check, root }) {
       ["board_columns", ["boards", "labels"]],
       ["items", ["labels"]],
       ["board_positions", ["boards", "labels"]],
-      ["item_labels", ["labels"]],
     ]) {
       assert.deepEqual(Object.values(BACKUP_TABLES[indexOf(name)].refs).sort(), refs, name);
     }

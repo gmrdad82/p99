@@ -145,8 +145,8 @@ export async function safetyStories({ base, call, browse, mint, check, red, issu
   const panel = panelSender(port);
   const attach = fileSender(port);
   const later = [];
-  const person = async (name, email, hosts, manager = false) => {
-    const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, manager, totp: true } });
+  const person = async (name, email, hosts, owner = false) => {
+    const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, role: owner ? "owner" : "user", totp: true, mail: false } });
     assert.equal(minted.status, 201, JSON.stringify(minted.json));
     return minted.json;
   };
@@ -732,11 +732,12 @@ async function backupStories({ check, issueBody, keys, root, wrangler, work, lat
   try {
     assert.equal((await signed("PUT", "/_p99/v1/envs/production", { body: { kind: "release", position: 0 } })).status, 200);
     for (const host of [NEAR, FAR]) {
-      const put = await signed("PUT", `/_p99/v1/hosts/${host}`, { body: { env: "production", config: {} } });
+      assert.equal((await signed("POST", "/_p99/v1/projects", { body: { name: host } })).status, 201);
+      const put = await signed("PUT", `/_p99/v1/hosts/${host}`, { body: { env: "production", config: {}, project: host } });
       assert.equal(put.status, 200, put.text);
     }
     const code = async (name, email, hosts, extra = {}) => {
-      const minted = await signed("POST", "/_p99/v1/codes", { body: { name, email, hosts, manager: false, ...extra } });
+      const minted = await signed("POST", "/_p99/v1/codes", { body: { name, email, hosts, role: "user", mail: false, ...extra } });
       assert.equal(minted.status, 201, minted.text);
       return minted.json;
     };

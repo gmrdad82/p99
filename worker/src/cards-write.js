@@ -1,6 +1,7 @@
 import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
+import { projectNamed, reachesItem } from "./grants.js";
 
 export const CARDS_BOARD = "Cards";
 const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e0823d", "#e5534b", "#39a5a0"];
@@ -97,8 +98,10 @@ function projectEvent(c, itemId, detail) {
   ).bind(itemId, c.actor.email, JSON.stringify(detail), c.now, agentOf(c), viaOf(c));
 }
 
-function projectStatement(c, itemId, from, name) {
-  return c.env.DB.prepare("UPDATE items SET project = ?3, updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2").bind(itemId, from, name, c.now);
+function projectStatement(c, itemId, from, project) {
+  return c.env.DB.prepare(
+    "UPDATE items SET project = ?3, project_id = COALESCE(?5, project_id), updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2",
+  ).bind(itemId, from, project ? project.name : null, c.now, project ? project.id : null);
 }
 
 function usernameStatement(c) {
@@ -143,15 +146,30 @@ async function cardRow(c, rawKey) {
   return row;
 }
 
-async function spelling(c, name) {
-  const used = await c.env.DB.prepare("SELECT project FROM items WHERE project = ?1 ORDER BY id LIMIT 1").bind(name).first();
-  return used ? used.project : name;
+const PROJECT_BY_NAME = "SELECT id, name FROM projects WHERE name = ?1";
+
+export async function knownProject(c, raw, host = null) {
+  const name = projectName(raw);
+  const { DB } = c.env;
+  let project = projectNamed(c.dir, name) ?? (await DB.prepare(PROJECT_BY_NAME).bind(name).first());
+  if (!project) {
+    if (!c.reach.all) K.fail(404, `no project is called ${name}`);
+    const [, made] = await DB.batch([
+      DB.prepare("INSERT INTO projects (name, created_at) VALUES (?1, ?2) ON CONFLICT DO NOTHING").bind(name, c.now),
+      DB.prepare(PROJECT_BY_NAME).bind(name),
+    ]);
+    project = made.results[0];
+    K.forgetDirectory();
+  }
+  if (!reachesItem(c.reach, { project_id: project.id, host })) K.fail(404, `no project is called ${name}`);
+  return { id: project.id, name: project.name };
 }
 
 function targetHost(c, body) {
   if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env };
-  const name = c.scope.all ? body.host : c.scope.host;
-  const host = typeof name === "string" ? c.dir.hosts.get(name) : null;
+  const name = c.scope.all ? (body.host ?? null) : c.scope.host;
+  if (name === null) return { host: null, env: "" };
+  const host = typeof name === "string" ? c.dir.hosts.get(name.toLowerCase()) : null;
   if (!host) K.fail(400, "host must name a listed host");
   return { host: host.host, env: host.env };
 }
@@ -183,7 +201,7 @@ export async function postCard(c) {
     if (existing.reporter_email !== c.actor.email || existing.project === null) K.fail(409, "client_uid is already used");
     return replay(existing.id);
   }
-  const project = await spelling(c, projectName(body.project));
+  const project = await knownProject(c, body.project, c.browser ? c.hostRow.host : null);
   const kind = body.kind === undefined || body.kind === null ? "feature" : body.kind;
   if (typeof kind !== "string" || !Object.hasOwn(K.KIND_PREFIXES, kind)) K.fail(400, "kind must be bug, feature, improvement, question or task");
   const title = K.validTitle(body.title);
@@ -203,8 +221,8 @@ export async function postCard(c) {
       DB.prepare(
         `INSERT INTO items (client_uid, kind, label_id, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
-           created_at, updated_at, host, reporter_agent, search_text, project, reporter_via)
-         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, '/', ?4, ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16)
+           created_at, updated_at, host, reporter_agent, search_text, project, reporter_via, project_id)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, '/', ?4, ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          RETURNING id`,
       ).bind(
         uid,
@@ -213,7 +231,7 @@ export async function postCard(c) {
         title,
         text,
         target.env,
-        `https://${target.host}/`,
+        target.host ? `https://${target.host}/` : "",
         c.actor.email,
         c.actor.name,
         reporter,
@@ -221,8 +239,9 @@ export async function postCard(c) {
         target.host,
         agentOf(c),
         K.searchText(title, text),
-        project,
+        project.name,
         viaOf(c),
+        project.id,
       ),
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
@@ -241,7 +260,7 @@ export async function postCard(c) {
     return replay(raced.id);
   }
   const id = results[0].results[0].id;
-  K.push(c, "item", { id, kind, host: target.host, title }, { label: lane.name, project });
+  K.push(c, "item", { id, kind, host: target.host, title, project_id: project.id }, { label: lane.name, project: project.name });
   return K.json(201, { card: await loadCard(c, String(id)) });
 }
 
@@ -349,11 +368,12 @@ export async function patchProject(c, row, body) {
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
   refuseAgentUncard(c, row, body);
   const from = row.project ?? null;
-  const name = body.project === null ? null : await spelling(c, projectName(body.project));
+  const project = body.project === null ? null : await knownProject(c, body.project, row.host ?? null);
+  const name = project ? project.name : null;
   const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
   if (from === name) return answer();
   const { DB } = c.env;
-  const results = await DB.batch([projectStatement(c, row.id, from, name), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
+  const results = await DB.batch([projectStatement(c, row.id, from, project), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
   if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
   K.push(c, "change", row, { what: ["project"] });
   return answer();

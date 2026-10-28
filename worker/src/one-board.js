@@ -1,19 +1,18 @@
 import { K, LANES, personOf, projectName } from "./cards.js";
-import { LABEL_COLUMNS, LABEL_JOIN, MOVED, RESOLUTIONS, boardView, labelChangeStatements, placeIn, pushOf } from "./boards.js";
+import { LABEL_COLUMNS, LABEL_JOIN, MOVED, RESOLUTIONS, boardView, inView, labelChangeStatements, placeIn, pushOf } from "./boards.js";
 import { cardsBoard } from "./cards-write.js";
 import { peopleOf } from "./people.js";
 import { namedBy, sameFolded } from "./text.js";
+import { viewSql } from "./grants.js";
 
-export const BOARDS_GONE = "boards are one per account; see p99 board";
-export const BOARDS_DEPRECATED = "one board per account since 1.11; read /board";
-export const NO_BOARD = "no such board; there is one board per account, read /board";
+export const BOARDS_GONE = "boards are one per space; see p99 board";
 
 const DONE = LANES.length - 1;
 const SOURCES = { human: 0, agent: 1 };
 const MAX_KEY_CHARS = 40;
 export const LANES_SQL = `SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN board_columns bc ON bc.board_id = b.id
   JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 ORDER BY bc.position`;
-const LANE_ROWS = `SELECT i.id, i.host, bp.key FROM items i
+const LANE_ROWS = `SELECT i.id, i.host, i.project_id, bp.key FROM items i
   LEFT JOIN board_positions bp ON bp.board_id = ?1 AND bp.item_id = i.id AND bp.label_id = i.label_id
   WHERE i.label_id = ?2 ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`;
 const CHANGED_EMAIL = "COALESCE(e.actor_email, i.reporter_email)";
@@ -44,9 +43,9 @@ export function oneBoardSql(v, filter) {
     binds.push(value);
     return `?${binds.length}`;
   };
-  const scope = v.all ? "1" : `i.host = ${bind(v.host)}`;
+  const scope = viewSql(v, bind);
   const outer = [];
-  if (filter.projects.length > 0) outer.push(`i.project COLLATE NOCASE IN (${filter.projects.map(bind).join(", ")})`);
+  if (filter.projects.length > 0) outer.push(`i.project_id IN (SELECT id FROM projects WHERE name IN (${filter.projects.map(bind).join(", ")}))`);
   if (filter.hosts.length > 0) outer.push(`i.host IN (${filter.hosts.map(bind).join(", ")})`);
   if (filter.source !== null) outer.push(`${CHANGED_AGENT} = ${bind(filter.source)}`);
   if (filter.statuses.length > 0) outer.push(`r.lane IN (${filter.statuses.map(bind).join(", ")})`);
@@ -126,19 +125,6 @@ export async function getOneBoard(c) {
   return K.json(200, await oneBoard(c));
 }
 
-export async function getBoardsDeprecated(c) {
-  K.requireEmptyBody(c);
-  K.requireManager(c);
-  const one = await oneBoard(c);
-  return K.json(200, { deprecated: BOARDS_DEPRECATED, ...one });
-}
-
-export async function getGoneBoard(c) {
-  K.requireEmptyBody(c);
-  K.requireManager(c);
-  K.fail(404, NO_BOARD);
-}
-
 export async function goneBoards(c) {
   K.requireManager(c);
   K.fail(410, BOARDS_GONE);
@@ -168,18 +154,18 @@ export async function moveByLane(c, body) {
   const v = boardView(c);
   const { DB } = c.env;
   const one = await cardsBoard(c);
-  if (!one || one.lanes.length !== LANES.length) K.fail(409, "this account's board has no seven lanes yet; run p99 deploy");
+  if (!one || one.lanes.length !== LANES.length) K.fail(409, "this space's board has no seven lanes yet; run p99 deploy");
   const target = laneOf(one.lanes, body.to);
   if (!target && namedBy(one.lanes, body.to, (l) => l.name).length > 1) K.fail(400, `${body.to} names more than one lane; give its exact name`);
   if (!target) K.fail(400, `${body.to} is not a lane; give ${LANES.join(", ")} or a lane's name`);
   const row = await DB.prepare(
     `SELECT i.*, ${LABEL_COLUMNS}, (SELECT username FROM people WHERE email = i.assignee) AS assignee_username,
-       (SELECT key FROM board_positions WHERE board_id = ?4 AND item_id = i.id AND label_id = i.label_id) AS seen_key
-     FROM items i ${LABEL_JOIN} WHERE i.id = ?1 AND (?2 OR i.host = ?3)`,
+       (SELECT key FROM board_positions WHERE board_id = ?2 AND item_id = i.id AND label_id = i.label_id) AS seen_key
+     FROM items i ${LABEL_JOIN} WHERE i.id = ?1`,
   )
-    .bind(id, v.all ? 1 : 0, v.host, one.board)
+    .bind(id, one.board)
     .first();
-  if (!row) K.fail(404, `no item ${body.key}`);
+  if (!row || !inView(v, row)) K.fail(404, `no item ${body.key}`);
   if (!sawLane(one.lanes, row, body.from)) K.fail(409, MOVED, "moved");
   const to = { id: target.id, name: target.name, role: target.role, closes: target.closes };
   const resolution = body.resolution ?? null;
@@ -189,7 +175,7 @@ export async function moveByLane(c, body) {
   let place = null;
   if (anchor !== null || (row.label_id !== to.id && !to.closes)) {
     const { results } = await DB.prepare(LANE_ROWS).bind(one.board, to.id).all();
-    if (anchor !== null && !results.some((r) => r.id === anchor.id && r.id !== row.id && (v.all || r.host === v.host))) {
+    if (anchor !== null && !results.some((r) => r.id === anchor.id && r.id !== row.id && inView(v, r))) {
       K.fail(400, `${anchor.raw} is not in that lane`);
     }
     place = placeIn(results, row.id, anchor, anchor?.id ?? null);
@@ -224,9 +210,9 @@ export async function moveByLane(c, body) {
 
 export const ONE_BOARD_ROUTES = [
   ["GET", /^\/board$/, getOneBoard],
-  ["GET", /^\/boards$/, getBoardsDeprecated],
+  ["GET", /^\/boards$/, goneBoards],
   ["POST", /^\/boards$/, goneBoards],
-  ["GET", /^\/boards\/([^/]+)$/, getGoneBoard],
+  ["GET", /^\/boards\/([^/]+)$/, goneBoards],
   ["PUT", /^\/boards\/([^/]+)$/, goneBoards],
   ["DELETE", /^\/boards\/([^/]+)$/, goneBoards],
 ];

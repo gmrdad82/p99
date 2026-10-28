@@ -2,7 +2,7 @@ import { ROBOT } from "./cards.js";
 
 const R2_BATCH = 1000;
 const UPLOAD_GRACE_MS = 15 * 60 * 1000;
-const ITEM_TABLES = ["attachments", "comments", "events", "reads", "item_labels", "board_positions", "github_links", "mail_optouts", "build_items", "landings"];
+const ITEM_TABLES = ["attachments", "comments", "events", "reads", "board_positions", "github_links", "mail_optouts", "build_items", "landings"];
 
 let K = null;
 

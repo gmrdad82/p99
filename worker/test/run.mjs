@@ -35,6 +35,8 @@ import { codeChecks } from "./codes.mjs";
 import { githubChecks, githubStub, githubVars } from "./github.mjs";
 import { placementChecks } from "./placement.mjs";
 import { importChecks } from "./imports.mjs";
+import { LICENCE_TEST_KEY, spaceChecks, spaceUnitChecks } from "./spaces.mjs";
+import { spaceStories } from "./stories/spaces.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -241,8 +243,8 @@ function issueBody(overrides = {}) {
   };
 }
 
-async function mint(name, email, hosts, manager = false) {
-  const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, manager } });
+async function mint(name, email, hosts, owner = false) {
+  const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, role: owner ? "owner" : "user", mail: false } });
   assert.equal(minted.status, 201, JSON.stringify(minted.json));
   return minted.json;
 }
@@ -352,7 +354,7 @@ async function main() {
   writeFileSync(seed, SEED_SQL);
   wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--file", seed]);
   const vars = Object.entries(keys).map(([id, secret]) => `KEY_${id.toUpperCase()}:${secret}`);
-  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`, `LICENSE_STATE:${LICENSE_STATE}`);
+  vars.push("CODE_PEPPER:test-pepper", "TICKET_TTL_MS:1500", `APP_HOST:${APP_HOST}`, `LICENSE_STATE:${LICENSE_STATE}`, `LICENSE_TEST_KEY:${LICENCE_TEST_KEY}`);
   const stub = await hookStub();
   vars.push(`HOOKS_TEST_ORIGIN:http://127.0.0.1:${stub.address().port}`);
   for (const host of ["127.0.0.1", "localhost"]) {
@@ -503,9 +505,10 @@ async function run() {
 
   assert.equal((await call("PUT", "/_p99/v1/envs/dev", { body: { kind: "development", position: 0 } })).status, 200);
   assert.equal((await call("PUT", "/_p99/v1/envs/production", { body: { kind: "release", position: 1, notify: true } })).status, 200);
-  const putLocal = await call("PUT", "/_p99/v1/hosts/127.0.0.1", { body: { env: "production", config: PLACEMENT } });
+  for (const name of ["Shop", "Dev site"]) assert.equal((await call("POST", "/_p99/v1/projects", { body: { name } })).status, 201);
+  const putLocal = await call("PUT", "/_p99/v1/hosts/127.0.0.1", { body: { env: "production", config: PLACEMENT, project: "Shop" } });
   assert.equal(putLocal.status, 200, JSON.stringify(putLocal.json));
-  assert.equal((await call("PUT", "/_p99/v1/hosts/localhost", { body: { env: "dev", config: PLACEMENT } })).status, 200);
+  assert.equal((await call("PUT", "/_p99/v1/hosts/localhost", { body: { env: "dev", config: PLACEMENT, project: "Dev site" } })).status, 200);
 
   const both = await mint("Ada Lovelace", "ada@example.com", ["127.0.0.1", "localhost"]);
   const me = await browse("GET", "/me?path=%2Forders", both.secret);
@@ -1035,7 +1038,7 @@ async function run() {
     wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `DELETE FROM board_columns WHERE board_id = ${cards} AND label_id = ${needs.id}`]);
     try {
       const short = await move({ key, from: "New", to: "planned" });
-      assert.deepEqual([short.status, short.json.message], [409, "this account's board has no seven lanes yet; run p99 deploy"]);
+      assert.deepEqual([short.status, short.json.message], [409, "this space's board has no seven lanes yet; run p99 deploy"]);
     } finally {
       wranglerSync([
         "d1", "execute", "DB", "--local", "--persist-to", state, "--command",
@@ -1165,6 +1168,9 @@ async function run() {
   await needsChecks({ call, browse, mint, check, issueBody, here, there, d1count });
   await markChecks({ base, call, browse, mint, check, issueBody, here, there, keys, sent, listen, hookHits });
   await codeChecks({ call, browse, mint, check, issueBody, here, there, state, wrangler, root });
+  await spaceUnitChecks(check);
+  await spaceChecks({ base, call, browse, mint, check, issueBody, here, there, sent });
+  await spaceStories({ base, call, browse, check, issueBody, here, sent });
   await placementChecks({ base, call, browse, mint, check, here, placement: PLACEMENT });
   await githubChecks({ base, call, check, issueBody, here, there });
   await importChecks({ call, check, here, there });

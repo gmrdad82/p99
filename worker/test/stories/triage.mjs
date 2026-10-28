@@ -44,7 +44,8 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
   };
   const labelEvents = (thread) => thread.events.filter((e) => e.kind === "label");
 
-  const put = await call("PUT", `/_p99/v1/hosts/${HOST}`, { body: { env: "production", config: {} } });
+  assert.equal((await call("POST", "/_p99/v1/projects", { body: { name: "Triage" } })).status, 201);
+  const put = await call("PUT", `/_p99/v1/hosts/${HOST}`, { body: { env: "production", config: {}, project: "Triage" } });
   assert.equal(put.status, 200, JSON.stringify(put.json));
   const lanes = (await ada.board()).json.board.lanes;
   assert.equal(lanes.length, 7, JSON.stringify(lanes));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, PERSON_CLOSES } from "../src/cards.js";
-import { BOARDS_DEPRECATED, BOARDS_GONE, NO_BOARD } from "../src/one-board.js";
+import { BOARDS_GONE } from "../src/one-board.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const adaBot = { email: "ada@example.com", name: "Ada Lovelace", agent: true, via: "pci·board" };
@@ -155,32 +155,22 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.ok(signed.every((cd) => cd.host === here));
   });
 
-  await check("[board] GET /boards is deprecated: the one board and nothing archived; every old board is deleted and answers 404", async () => {
-    const old = await call("GET", "/_p99/v1/boards", { actor: ada });
-    assert.equal(old.status, 200, JSON.stringify(old.json));
-    assert.equal(old.json.deprecated, BOARDS_DEPRECATED);
-    assert.deepEqual(Object.keys(old.json).sort(), ["board", "cards", "deprecated"]);
-    assert.deepEqual(old.json.board.lanes.map((l) => l.word), LANES);
-    assert.ok(Array.isArray(old.json.cards) && old.json.cards.length > 0);
+  await check("[board] GET /boards and GET /boards/{id} are gone: 410, the one board lives at /board, and every old board is deleted", async () => {
+    for (const path of ["/_p99/v1/boards", "/_p99/v1/boards/950", `/_p99/v1/boards/${cardsBoardId}`, "/_p99/v1/boards/nope"]) {
+      const gone = await call("GET", path, { actor: ada });
+      assert.equal(gone.status, 410, path);
+      assert.equal(gone.json.message, BOARDS_GONE);
+    }
+    for (const path of ["/boards", "/boards/950"]) assert.equal((await browse("GET", path, owner.secret)).status, 410, path);
+    const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
+    assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
+    assert.ok(thread.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
     const now = await board();
-    assert.deepEqual(old.json.cards.map((cd) => cd.key), now.json.cards.map((cd) => cd.key));
     assert.equal(d1count("SELECT count(*) AS n FROM boards WHERE cards = 0"), 0);
     assert.equal(d1count("SELECT count(*) AS n FROM board_columns WHERE board_id IN (950, 951)"), 0);
     assert.equal(d1count("SELECT count(*) AS n FROM board_positions WHERE board_id <> (SELECT id FROM boards WHERE cards = 1)"), 0);
     const kept = ["BUG-951", "BUG-952", "BUG-953", "BUG-954", "BUG-955", "BUG-956", "BUG-957"];
     assert.deepEqual(kept.filter((key) => now.json.cards.some((cd) => cd.key === key)), kept);
-    const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
-    assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
-    assert.ok(thread.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
-    for (const id of ["950", "951", String(cardsBoardId), "nope", "99999999"]) {
-      const gone = await call("GET", `/_p99/v1/boards/${id}`, { actor: ada });
-      assert.equal(gone.status, 404, id);
-      assert.equal(gone.json.message, NO_BOARD, id);
-    }
-    assert.equal((await browse("GET", "/boards/950", owner.secret)).status, 404);
-    const browser = await browse("GET", "/boards", owner.secret);
-    assert.equal(browser.status, 200);
-    assert.equal(browser.json.archived, undefined);
   });
 
   await check("[board] creating, changing or deleting a board answers 410 and changes nothing", async () => {

@@ -1,5 +1,6 @@
 import { escapeHtml, palette } from "./mail.js";
 import { mailer, mailSettings } from "./mailer.js";
+import { grantOf, hostsOf } from "./grants.js";
 
 let K = null;
 
@@ -56,7 +57,8 @@ export async function mailLink(c, row, secret, renewed) {
   if (!provider) return "off";
   const to = String(row.email).toLowerCase();
   if (to.endsWith(".invalid")) return "skipped";
-  const hosts = K.parseJson(row.hosts_json, []);
+  const hosts = hostsOf(grantOf(row, c.dir), c.dir);
+  if (hosts.length === 0) return "skipped";
   const theme = c.dir.hosts.get(hosts[0])?.config.theme;
   const replyTo = c.actor && K.isEmail(c.actor.email) && !c.actor.email.endsWith(".invalid") ? c.actor.email : null;
   const message = {
@@ -87,7 +89,7 @@ export async function relinkCode(c, rawId) {
   if (uid !== null) {
     const row = await DB.prepare("SELECT * FROM codes WHERE client_uid = ?1").bind(uid).first();
     if (row && row.created_by !== c.actor.email) K.fail(409, "client_uid is already used");
-    if (row) return K.json(200, { code: K.codeOf(row) });
+    if (row) return K.json(200, { code: K.codeOf(row, c.dir) });
   }
   const secret = K.newSecret();
   const hash = await K.codeHash(c.env, secret);
@@ -96,8 +98,8 @@ export async function relinkCode(c, rawId) {
   const [, inserted, , old] = await DB.batch([
     DB.prepare("UPDATE codes SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL").bind(id, c.now),
     DB.prepare(
-      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret, totp_step, totp_fails, sealed_code)
-       SELECT ?2, ?3, name, email, hosts_json, manager, ?4, ?5, ?6, COALESCE(?7, totp_secret), CASE WHEN ?7 IS NULL THEN totp_step ELSE 0 END, 0, ?8
+      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret, totp_step, totp_fails, sealed_code, grant_json)
+       SELECT ?2, ?3, name, email, hosts_json, manager, ?4, ?5, ?6, COALESCE(?7, totp_secret), CASE WHEN ?7 IS NULL THEN totp_step ELSE 0 END, 0, ?8, grant_json
        FROM codes WHERE id = ?1 AND changes() > 0
        RETURNING *`,
     ).bind(id, hash, secret.slice(-4), c.now, c.actor.email, uid, totp && totp.sealed, sealed),
@@ -108,15 +110,15 @@ export async function relinkCode(c, rawId) {
   const row = inserted.results[0];
   if (!row) K.fail(404, "no such code, or it is revoked");
   await K.codesRevoked(c.env);
-  const hosts = K.parseJson(row.hosts_json, []);
+  const hosts = hostsOf(grantOf(row, c.dir), c.dir);
   const mail = wantsMail ? await mailLink(c, row, secret, true) : null;
   return K.json(201, {
-    code: K.codeOf(row),
+    code: K.codeOf(row, c.dir),
     secret,
     links: hosts.map((host) => accessLink(host, secret)),
     ...(totp ? { totp_key: totp.key } : {}),
     ...(row.totp_secret ? { totp: totp ? "new" : "carried" } : {}),
     ...(mail ? { mail } : {}),
-    revoked: K.codeOf(old.results[0]),
+    revoked: K.codeOf(old.results[0], c.dir),
   });
 }

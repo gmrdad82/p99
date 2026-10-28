@@ -2,7 +2,8 @@ import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
-import { licenseState } from "./license.js";
+import { grantOf, parked, reachOf, reachesHost, reachesProject } from "./grants.js";
+import { spaceOf } from "./spaces.js";
 import { roleOf } from "./roles.js";
 
 let K = null;
@@ -205,7 +206,7 @@ async function liveCodes(request, env, now) {
     .bind(await tokenHash(env, token), now)
     .all();
   if (results.length === 0) return null;
-  return results.map((row) => ({ ...row, hosts: K.parseJson(row.hosts_json, []), trusted: true }));
+  return results.map((row) => ({ ...row, trusted: true }));
 }
 
 async function signedIn(request, env, url, now) {
@@ -221,8 +222,10 @@ async function api(request, env, ctx, url, path) {
   if (path === "/verify") K.fail(404, "no such route");
   const dir = await K.loadDirectory(env);
   const host = (url.searchParams.get("host") || "").toLowerCase();
-  const hostRow = dir.hosts.get(host);
-  const code = hostRow ? codes.find((c) => c.hosts.includes(host)) : null;
+  const admitted = codes.map((c) => ({ ...c, grant: grantOf(c, dir) })).filter((c) => !parked(c.grant));
+  for (const c of admitted) c.reach = reachOf(c.grant, dir);
+  const hostRow = host ? dir.hosts.get(host) : [...dir.hosts.values()].find((h) => admitted.some((c) => reachesProject(c.reach, h.project_id)));
+  const code = hostRow ? admitted.find((c) => reachesProject(c.reach, hostRow.project_id)) : null;
   if (!code) K.fail(404, "no such space");
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
@@ -329,9 +332,12 @@ async function spaces(request, env, url) {
   const email = codes[0].email.toLowerCase();
   const managers = K.managersOf(env);
   const seen = new Map();
+  const reached = new Set();
   for (const code of codes) {
-    for (const host of code.hosts) {
-      if (seen.has(host) || !dir.hosts.has(host)) continue;
+    const reach = reachOf(grantOf(code, dir), dir);
+    for (const p of dir.projects.values()) if (reachesProject(reach, p.id)) reached.add(p.name);
+    for (const host of dir.hosts.keys()) {
+      if (seen.has(host) || !reachesHost(reach, dir, host)) continue;
       seen.set(host, Boolean(code.manager) || managers.includes(email));
     }
   }
@@ -349,7 +355,9 @@ async function spaces(request, env, url) {
       : [];
   return K.json(200, {
     name: codes[0].name,
-    license: licenseState(env),
-    spaces: hosts.map((host, i) => ({ host, open: counts[i].results[0].n, manager: seen.get(host), role: roleOf(seen.get(host)) })),
+    license: dir.licence.state,
+    space: spaceOf(env),
+    projects: [...reached],
+    spaces: hosts.map((host, i) => ({ host, project: dir.projects.get(dir.hosts.get(host).project_id)?.name ?? null, open: counts[i].results[0].n, role: roleOf(seen.get(host)) })),
   });
 }

@@ -20,7 +20,11 @@ import {
   useKit,
 } from "./boards.js";
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
-import { licenseState, linkShown } from "./license.js";
+import { LICENCE_ROUTES, licenceOf, licensed, linkShown, settingStatement, useLicenceKit } from "./license.js";
+import { EVERYWHERE, PARKED, projectFilterSql, grantFromBody, grantFromHosts, grantJson, grantOf, hostsOf, parked, projectNamed, projectNames, reachOf, reachesItem, reachesProject, storedGrant, viewSql } from "./grants.js";
+import { PROJECT_ROUTES, SIGNED_SPACE_ROUTES, SPACE_ROUTES, spaceOf, useSpaceKit } from "./spaces.js";
+import { AVATAR_READS, AVATAR_ROUTES, avatarUrl, useAvatarKit } from "./avatars.js";
+import { maskRefusal } from "./selectors.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
@@ -31,7 +35,7 @@ import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, sign
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
 import { chars, fold, isChars, searchMatch } from "./text.js";
-import { ROBOT, actorVia, useKit as useCardKit } from "./cards.js";
+import { ROBOT, actorVia, projectName, useKit as useCardKit } from "./cards.js";
 import { CARD_READS, cardFilters } from "./cards-read.js";
 import { CARD_WRITES, patchProject, refuseAgentClose } from "./cards-write.js";
 import { ONE_BOARD_ROUTES } from "./one-board.js";
@@ -111,6 +115,8 @@ const REPORTERS_TOKEN = Symbol("reporters");
 const MAX_MERGE_ITEMS = 50;
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
+const CAPTURE_ROLES = ["screenshot", "page", "region"];
+const CAPTURE_OFF = "this site takes no screenshots; the report is filed without one";
 const IMAGE_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 const BLOCKED_NAMES = /\.(html?|xhtml|svg|xml|js|mjs|cjs|jar|exe|msi|dll|com|scr|bat|cmd|ps1|vbs|hta|lnk|sh|dmg|app|url|webloc)[.\s]*$/i;
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
@@ -400,16 +406,21 @@ let directory = null;
 
 async function loadDirectory(env) {
   if (directory && Date.now() - directory.at < DIRECTORY_TTL_MS) return directory;
-  const [hosts, envs, mail] = await env.DB.batch([
-    env.DB.prepare("SELECT host, env, config_json, created_at FROM hosts ORDER BY host"),
+  const [hosts, envs, mail, projects, setting] = await env.DB.batch([
+    env.DB.prepare(HOSTS_SQL),
     env.DB.prepare("SELECT name, kind, position, notify FROM envs ORDER BY position, name"),
     env.DB.prepare("SELECT provider, sender FROM mail WHERE id = 1"),
+    env.DB.prepare("SELECT id, name, created_at FROM projects ORDER BY name COLLATE NOCASE, id"),
+    settingStatement(env.DB),
   ]);
+  const at = Date.now();
   directory = {
-    at: Date.now(),
+    at,
     hosts: new Map(hosts.results.map((r) => [r.host, hostOf(r)])),
     envs: new Map(envs.results.map((r) => [r.name, envOf(r)])),
     mail: mail.results[0] ?? null,
+    projects: new Map(projects.results.map((r) => [r.id, { id: r.id, name: r.name, created_at: r.created_at }])),
+    licence: await licenceOf(env, setting.results[0]?.value ?? null, new Date(at).toISOString()),
   };
   return directory;
 }
@@ -426,8 +437,16 @@ function parseJson(text, fallback) {
   }
 }
 
+const HOSTS_SQL = "SELECT host, env, config_json, created_at, project_id FROM hosts ORDER BY host";
+
 function hostOf(row) {
-  return { host: row.host, env: row.env, config: parseJson(row.config_json, {}), created_at: row.created_at };
+  return { host: row.host, env: row.env, config: parseJson(row.config_json, {}), created_at: row.created_at, project_id: row.project_id ?? null };
+}
+
+function hostJson(row, dir, project) {
+  const h = hostOf(row);
+  const named = project ?? (h.project_id === null ? null : dir.projects.get(h.project_id));
+  return { host: h.host, env: h.env, config: h.config, project: named ? named.name : null, created_at: h.created_at };
 }
 
 function envOf(row) {
@@ -520,12 +539,20 @@ async function trustedDevice(env, code, device) {
   return Boolean(row) && row.code_id === code.id;
 }
 
-async function authoriseCode(env, ctx, request, header, host, now) {
+function admitCode(code, dir, hostRow) {
+  if (!code || code.revoked_at) fail(401, "this code is not valid here");
+  code.grant = grantOf(code, dir);
+  code.reach = reachOf(code.grant, dir);
+  if (parked(code.grant)) fail(403, PARKED);
+  if (!reachesProject(code.reach, hostRow.project_id)) fail(401, "this code is not valid here");
+  return code;
+}
+
+async function authoriseCode(env, ctx, request, header, dir, hostRow, now) {
   const [part, device] = typeof header === "string" ? header.split(".", 2) : [];
   const secret = normaliseCode(part);
   if (!secret) fail(401, "a valid X-P99-Code is required");
-  const code = await findCode(env, request, await codeHash(env, secret));
-  if (!code || code.revoked_at || !code.hosts.includes(host)) fail(401, "this code is not valid here");
+  const code = admitCode(await findCode(env, request, await codeHash(env, secret)), dir, hostRow);
   if (!code.sealed_code) {
     code.sealed_code = "sealing";
     ctx.waitUntil(
@@ -615,11 +642,12 @@ function query(firstBinds = []) {
 }
 
 function scopeClause(c, q, alias = "i") {
-  return c.scope.all ? null : `${alias}.host = ${q.bind(c.scope.host)}`;
+  const sql = viewSql({ all: c.reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts }, (v) => q.bind(v), alias);
+  return sql === "1" ? null : sql;
 }
 
 function inScope(c, row) {
-  return c.scope.all || row.host === c.scope.host;
+  return reachesItem(c.reach, row) && (c.browser || c.scope.all || row.host === c.scope.host);
 }
 
 function usageQuery(c, field) {
@@ -857,7 +885,6 @@ function commentOf(row, c, attachmentIds = []) {
     author: {
       email: c.manager || row.author_email === c.actor.email ? row.author_email : null,
       name: row.author_name,
-      manager: Boolean(row.author_manager),
       role: roleOf(row.author_manager),
       agent: Boolean(row.author_agent),
       via: row.author_agent ? (row.author_via ?? null) : null,
@@ -905,14 +932,16 @@ function eventOf(row, c, names, handles) {
   };
 }
 
-function codeOf(row) {
+function codeOf(row, dir) {
+  const grant = grantOf(row, dir);
   return {
     id: row.id,
     name: row.name,
     email: row.email,
-    hosts: parseJson(row.hosts_json, []),
-    manager: Boolean(row.manager),
+    hosts: hostsOf(grant, dir),
+    grant: grantJson(grant, dir),
     role: roleOf(row.manager),
+    manager: Boolean(row.manager),
     hint: row.hint,
     created_at: row.created_at,
     created_by: row.created_by,
@@ -961,6 +990,7 @@ function sendMail(c, row, recipients, data) {
   c.outbox.push({
     item_id: row.id,
     host: row.host ?? null,
+    project: row.project_id ?? null,
     path: row.page_path,
     link: pageLink(row),
     to: recipients,
@@ -974,14 +1004,21 @@ function hubOf(env) {
   return env.HUB.get(env.HUB.idFromName(HUB_NAME));
 }
 
+function projectsOf(c, row, host) {
+  const id = row ? (row.project_id ?? null) : (c.dir.hosts.get(host)?.project_id ?? null);
+  return id === null ? [] : [id];
+}
+
 function push(c, type, row, extra = {}) {
+  const host = row ? (row.host ?? null) : (extra.host ?? c.scope.host ?? null);
   const event = {
     type,
     key: row ? keyOf(row.kind, row.id) : null,
-    host: row ? (row.host ?? null) : (c.scope.host ?? null),
+    host,
     title: row ? row.title : null,
     by: c.actor ? { name: c.actor.name, agent: Boolean(c.actor.agent), via: viaOf(c) } : null,
     at: c.now,
+    projects: projectsOf(c, row, host),
     ...extra,
   };
   noteHook(c, event);
@@ -1027,16 +1064,18 @@ export class P99Hub extends DurableObject {
     const url = new URL(request.url);
     let hosts = url.searchParams.has("host") ? [url.searchParams.get("host")] : null;
     let code = null;
+    let projects = null;
     if (url.searchParams.has("ticket")) {
       const redeemed = await redeemTicket(this.ctx.storage, url, this.env.DB);
       if (!redeemed) return errorResponse(401, "the stream ticket is unknown, used or expired");
       hosts = redeemed.hosts;
+      projects = redeemed.projects;
       code = redeemed.code;
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ hosts, code });
+    server.serializeAttachment({ hosts, projects, code });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -1108,12 +1147,12 @@ async function flushMail(c) {
       if (targets === MANAGERS_TOKEN) {
         if (!codeManagers) {
           codeManagers = (
-            await env.DB.prepare("SELECT email, hosts_json FROM codes WHERE manager = 1 AND revoked_at IS NULL").all()
-          ).results;
+            await env.DB.prepare("SELECT email, hosts_json, grant_json FROM codes WHERE manager = 1 AND revoked_at IS NULL").all()
+          ).results.map((r) => ({ email: r.email, reach: reachOf(grantOf(r, c.dir), c.dir) }));
         }
         targets = [
           ...managersOf(env),
-          ...codeManagers.filter((r) => parseJson(r.hosts_json, []).includes(mail.host)).map((r) => r.email.toLowerCase()),
+          ...codeManagers.filter((r) => reachesProject(r.reach, mail.project)).map((r) => r.email.toLowerCase()),
         ];
       }
       for (const to of new Set(targets)) if (mailable(to, c)) mails.push({ ...mail, to });
@@ -1128,7 +1167,7 @@ async function flushMail(c) {
     const live = mails.map((m, i) => i).filter((i) => !skipped.has(`${mails[i].item_id} ${mails[i].to}`));
     const sending = live.slice(0, Math.min(MAIL_CAP, provider.batch));
     const reporting = sending.map((i) => mails[i]).filter((m) => REPORTER_TEMPLATES.has(m.template) && hostLink(m.host));
-    const codes = await reporterCodes(env, reporting);
+    const codes = await reporterCodes(env, reporting, c.dir);
     const messages = [];
     for (const i of sending) {
       const m = mails[i];
@@ -1297,6 +1336,15 @@ function validConfig(value) {
   if (value.link !== undefined && value.link !== null) {
     if (typeof value.link !== "boolean") return null;
     if (!value.link) out.link = false;
+  }
+  if (value.mask !== undefined && value.mask !== null) {
+    const refusal = maskRefusal(value.mask);
+    if (refusal) fail(400, refusal);
+    if (value.mask.length > 0) out.mask = value.mask.map((s) => s.trim());
+  }
+  if (value.capture !== undefined && value.capture !== null) {
+    if (value.capture !== "on" && value.capture !== "off") fail(400, "capture must be on or off");
+    if (value.capture === "off") out.capture = "off";
   }
   if (utf8Bytes(JSON.stringify(out)) > MAX_CONFIG_BYTES) return null;
   return out;
@@ -1533,21 +1581,31 @@ async function getCounts(c) {
 
 async function getMe(c) {
   const [counts, username, waiting] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c), waitingCount(c)]);
+  const avatar = await c.env.DB.prepare("SELECT avatar FROM people WHERE email = ?1").bind(c.actor.email).first();
   const config = c.hostRow.config;
+  const licence = c.dir.licence;
   return json(200, {
     name: c.actor.name,
     email: c.actor.email,
     username,
-    manager: c.manager,
     role: roleOf(c.manager),
+    manager: Boolean(c.manager),
     host: c.hostRow.host,
     env: c.hostRow.env,
     version: c.env.VERSION || "dev",
     counts: { ...counts, waiting },
     theme: config.theme || {},
     strings: config.strings || {},
-    link: linkShown(c.env, config),
-    license: licenseState(c.env),
+    mask: config.mask || [],
+    capture: config.capture === "off" ? "off" : "on",
+    link: linkShown(licence, config),
+    license: licence.state,
+    licensed: licensed(licence),
+    licence: { state: licence.state, link: licence.link },
+    space: spaceOf(c.env),
+    projects: projectNames(c.reach, c.dir),
+    project: c.dir.projects.get(c.hostRow.project_id)?.name ?? null,
+    avatar: avatarUrl(username, avatar ? avatar.avatar : null),
   });
 }
 
@@ -1573,6 +1631,11 @@ async function listIssues(c) {
   if (hostScope) where.push(hostScope);
   await labelFilters(c, params, q, where);
   cardFilters(c, params, q, where);
+  const projects = params.getAll("project");
+  if (projects.length > 0) {
+    requireManager(c);
+    where.push(projectFilterSql(projects.map(projectName), (v) => q.bind(v)));
+  }
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
   if (status === "open") where.push("i.open = 1");
@@ -1634,11 +1697,11 @@ async function listIssues(c) {
 }
 
 function creationTarget(c, body) {
-  if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env };
+  if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env, project_id: c.hostRow.project_id };
   const name = (c.scope.all ? null : c.scope.host) ?? body.host;
   const host = typeof name === "string" ? c.dir.hosts.get(name) : null;
   if (!host) fail(400, "host must name a listed host");
-  return { host: host.host, env: host.env };
+  return { host: host.host, env: host.env, project_id: host.project_id };
 }
 
 function reporterJson(c) {
@@ -1682,8 +1745,8 @@ async function createIssue(c) {
       DB.prepare(
         `INSERT INTO items (client_uid, kind, label_id, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
-           created_at, updated_at, host, reporter_agent, search_text, reporter_via)
-         VALUES (?1, ?2, ${START_LABEL}, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17, ?18)
+           created_at, updated_at, host, reporter_agent, search_text, reporter_via, project_id)
+         VALUES (?1, ?2, ${START_LABEL}, 1, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14, ?14, ?14, ?15, ?16, ?17, ?18, ?19)
          RETURNING id, (SELECT name FROM labels WHERE role = 'inbox') AS label_name`,
       ).bind(
         body.client_uid,
@@ -1704,6 +1767,7 @@ async function createIssue(c) {
         agentOf(c),
         searchText(title, text),
         viaOf(c),
+        target.project_id ?? null,
       ),
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
@@ -1733,6 +1797,7 @@ async function createIssue(c) {
     title,
     body: text,
     host: target.host,
+    project_id: target.project_id ?? null,
     origin_env: target.env,
     page_url: page.url,
     page_path: page.path,
@@ -1780,11 +1845,7 @@ async function getIssue(c, rawKey) {
     ...landing.map((statement, at) => [`landing${at}`, statement]),
     [
       "read",
-      DB.prepare(
-        `INSERT INTO reads (actor_email, item_id, read_at)
-         SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND (?4 OR host = ?5) AND (?6 OR ${mineClause("?1", "items")})
-         ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
-      ).bind(c.actor.email, id, c.now, c.scope.all ? 1 : 0, c.scope.host, c.manager ? 1 : 0),
+      readMark(c, id),
     ],
     ["merged", mergedStatement(c, id)],
     ...(c.manager ? [["github", githubLinksStatement(c, id)]] : []),
@@ -1821,6 +1882,17 @@ async function getIssue(c, rawKey) {
     attachments: attachments.map(attachmentOf),
     events: events.map((ev) => eventOf(ev, c, names, handles)),
   });
+}
+
+function readMark(c, id) {
+  const q = query([c.actor.email, id, c.now]);
+  const v = { all: c.reach.all && (c.browser || c.scope.all), host: c.browser || c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts };
+  const seen = viewSql(v, (value) => q.bind(value), "items");
+  return c.env.DB.prepare(
+    `INSERT INTO reads (actor_email, item_id, read_at)
+     SELECT ?1, id, ?3 FROM items WHERE id = ?2 AND ${seen} AND (${c.manager ? "1" : mineClause("?1", "items")})
+     ON CONFLICT (actor_email, item_id) DO UPDATE SET read_at = excluded.read_at`,
+  ).bind(...q.binds);
 }
 
 function mergedStatement(c, id) {
@@ -1949,7 +2021,7 @@ async function patchIssue(c, rawKey) {
     } else {
       const target = parseKey(body.duplicate_of);
       if (target === null || target === row.id) fail(400, "duplicate_of must name another item");
-      const exists = await c.env.DB.prepare("SELECT id, host, origin_env FROM items WHERE id = ?1").bind(target).first();
+      const exists = await c.env.DB.prepare("SELECT id, host, origin_env, project_id FROM items WHERE id = ?1").bind(target).first();
       if (!exists || !inScope(c, exists)) fail(400, "duplicate_of names no item");
       duplicateOf = target;
     }
@@ -2203,6 +2275,10 @@ async function putAttachment(c, rawKey, rawUid) {
   }
   const role = params.get("role") || "file";
   if (!ATTACHMENT_ROLES.includes(role)) fail(400, "role must be screenshot, page, region or file");
+  if (CAPTURE_ROLES.includes(role) && captureOff(c, row)) {
+    if (c.request.body) await c.request.body.cancel().catch(() => {});
+    fail(403, CAPTURE_OFF);
+  }
   const markText = params.get("mark");
   let mark = null;
   if (role === "region") {
@@ -2315,6 +2391,11 @@ async function putAttachment(c, rawKey, rawUid) {
   return json(results[0].meta.changes === 1 ? 201 : 200, attachmentOf({ ...reserved, sha256 }));
 }
 
+function captureOff(c, row) {
+  const host = row.host ? c.dir.hosts.get(row.host) : null;
+  return Boolean(host) && host.config.capture === "off";
+}
+
 function decodeURIComponentSafe(text) {
   try {
     return decodeURIComponent(text);
@@ -2332,7 +2413,7 @@ function contentDisposition(name) {
 async function getFile(c, rawId) {
   requireEmptyBody(c);
   const row = await c.env.DB.prepare(
-    `SELECT a.*, i.reporter_email, i.host,
+    `SELECT a.*, i.reporter_email, i.host, i.project_id,
        EXISTS (SELECT 1 FROM items d WHERE d.duplicate_of = i.id AND d.reporter_email = ?2) AS follows
      FROM attachments a JOIN items i ON i.id = a.item_id
      WHERE a.id = ?1 AND a.stored_at IS NOT NULL`,
@@ -2361,8 +2442,8 @@ async function getFile(c, rawId) {
 async function listHosts(c) {
   requireEmptyBody(c);
   requireManager(c);
-  const { results } = await c.env.DB.prepare("SELECT host, env, config_json, created_at FROM hosts ORDER BY host").all();
-  return json(200, { hosts: results.map(hostOf) });
+  const { results } = await c.env.DB.prepare(HOSTS_SQL).all();
+  return json(200, { hosts: results.map((r) => hostJson(r, c.dir)) });
 }
 
 async function putHost(c, rawHost) {
@@ -2372,17 +2453,36 @@ async function putHost(c, rawHost) {
   if (!isEnvName(body.env)) fail(400, "env must be 1 to 32 lowercase letters, digits, dashes or underscores");
   const config = validConfig(body.config);
   if (config === null) fail(400, "config is not valid");
+  let project = null;
+  if (body.project !== undefined && body.project !== null) {
+    if (typeof body.project !== "string") fail(400, "project must name a project");
+    project = projectNamed(c.dir, body.project.trim());
+    if (!project) fail(400, `no project is called ${body.project.slice(0, 40)}; p99 projects add makes one`);
+  }
   const { DB } = c.env;
-  const [put] = await DB.batch([
+  const existing = await DB.prepare("SELECT project_id FROM hosts WHERE host = ?1").bind(host).first();
+  if (!existing && !project) fail(400, `a new host needs a project: p99 hosts add ${host} --project <name>`);
+  const moving = Boolean(existing) && project !== null && existing.project_id !== project.id;
+  const statements = [
     DB.prepare(
-      `INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, ?4)
-       ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json
-       RETURNING host, env, config_json, created_at`,
-    ).bind(host, body.env, JSON.stringify(config), c.now),
-  ]);
+      `INSERT INTO hosts (host, env, config_json, created_at, project_id) VALUES (?1, ?2, ?3, ?4, ?5)
+       ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json,
+         project_id = COALESCE(excluded.project_id, hosts.project_id)
+       RETURNING host, env, config_json, created_at, project_id`,
+    ).bind(host, body.env, JSON.stringify(config), c.now, project ? project.id : null),
+  ];
+  if (moving) {
+    statements.push(
+      DB.prepare(
+        `UPDATE items SET project_id = ?2, project = CASE WHEN project IS NULL THEN NULL ELSE ?3 END
+         WHERE host = ?1 AND project_id IS ?4`,
+      ).bind(host, project.id, project.name, existing.project_id ?? null),
+    );
+  }
+  const [put] = await DB.batch(statements);
   const row = put.results[0];
   forgetDirectory();
-  return json(200, hostOf(row));
+  return json(200, hostJson(row, c.dir, project));
 }
 
 async function deleteHost(c, rawHost) {
@@ -2424,14 +2524,11 @@ async function putEnv(c, rawName) {
 async function listCodes(c) {
   requireEmptyBody(c);
   const host = c.url.searchParams.get("host");
-  const statement =
-    host && host !== "*"
-      ? c.env.DB.prepare(
-          "SELECT * FROM codes WHERE EXISTS (SELECT 1 FROM json_each(codes.hosts_json) WHERE value = ?1) ORDER BY id DESC",
-        ).bind(host)
-      : c.env.DB.prepare("SELECT * FROM codes ORDER BY id DESC");
-  const { results } = await statement.all();
-  return json(200, { codes: results.map(codeOf) });
+  const { results } = await c.env.DB.prepare("SELECT * FROM codes ORDER BY id DESC").all();
+  const wanted = host && host !== "*" ? c.dir.hosts.get(host.toLowerCase()) : null;
+  if (host && host !== "*" && !wanted) return json(200, { codes: [] });
+  const kept = wanted ? results.filter((r) => reachesProject(reachOf(grantOf(r, c.dir), c.dir), wanted.project_id)) : results;
+  return json(200, { codes: kept.map((r) => codeOf(r, c.dir)) });
 }
 
 async function postCode(c) {
@@ -2442,7 +2539,7 @@ async function postCode(c) {
   const minted = async () => {
     const row = await DB.prepare("SELECT * FROM codes WHERE client_uid = ?1").bind(uid).first();
     if (row && row.created_by !== c.actor.email) fail(409, "client_uid is already used");
-    return row && json(200, { code: codeOf(row) });
+    return row && json(200, { code: codeOf(row, c.dir) });
   };
   if (uid !== null) {
     const done = await minted();
@@ -2451,16 +2548,11 @@ async function postCode(c) {
   const name = clean(body.name);
   if (!isText(name, 1, 200) || name.trim().length === 0) fail(400, "name must be 1 to 200 characters");
   if (!isEmail(body.email)) fail(400, "email must be an e-mail address");
-  if (!Array.isArray(body.hosts) || body.hosts.length === 0 || body.hosts.length > MAX_CODE_HOSTS) {
-    fail(400, `hosts must list 1 to ${MAX_CODE_HOSTS} hosts`);
-  }
-  const hosts = [...new Set(body.hosts.map((h) => String(h).toLowerCase()))];
-  for (const host of hosts) if (!c.dir.hosts.has(host)) fail(400, `${host} is not a listed host`);
-  if (body.manager !== undefined && body.manager !== null && typeof body.manager !== "boolean") fail(400, "manager must be a boolean");
+  const grant = codeGrant(c, body);
   const manager = managerOf(body);
   const wantsTotp = body.totp ?? false;
   if (typeof wantsTotp !== "boolean") fail(400, "totp must be a boolean");
-  const wantsMail = body.mail ?? false;
+  const wantsMail = body.mail ?? true;
   if (typeof wantsMail !== "boolean") fail(400, "mail must be a boolean");
   const totp = wantsTotp ? await newTotp(c.env) : null;
   const secret = newSecret();
@@ -2469,11 +2561,11 @@ async function postCode(c) {
   let row;
   try {
     row = await DB.prepare(
-      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret, sealed_code)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+      `INSERT INTO codes (hash, hint, name, email, hosts_json, manager, created_at, created_by, client_uid, totp_secret, sealed_code, grant_json)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
        RETURNING *`,
     )
-      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hosts), manager ? 1 : 0, c.now, c.actor.email, uid, totp && totp.sealed, sealed)
+      .bind(hash, secret.slice(-4), name.trim(), body.email.toLowerCase(), JSON.stringify(hostsOf(grant, c.dir)), manager ? 1 : 0, c.now, c.actor.email, uid, totp && totp.sealed, sealed, storedGrant(grant))
       .first();
   } catch (error) {
     if (uid === null || !isUniqueViolation(error)) throw error;
@@ -2485,12 +2577,32 @@ async function postCode(c) {
   await peopleOf(DB, [row], c.now);
   const mail = wantsMail ? await mailLink(c, row, secret, false) : null;
   return json(201, {
-    code: codeOf(row),
+    code: codeOf(row, c.dir),
     secret,
-    links: hosts.map((host) => accessLink(host, secret)),
+    links: hostsOf(grant, c.dir).map((host) => accessLink(host, secret)),
     ...(totp ? { totp_key: totp.key } : {}),
     ...(mail ? { mail } : {}),
   });
+}
+
+function codeGrant(c, body) {
+  const given = body.grant !== undefined && body.grant !== null;
+  const legacy = body.hosts !== undefined && body.hosts !== null;
+  if (given && legacy) fail(400, "give grant or hosts, not both");
+  if (!given && !legacy) fail(400, 'grant must be {"space":true} or {"projects":[name, …]}');
+  if (given) {
+    const grant = grantFromBody(body.grant, c.dir, fail);
+    if (parked(grant)) fail(400, "a new code needs the space or a project");
+    return grant;
+  }
+  if (!Array.isArray(body.hosts) || body.hosts.length === 0 || body.hosts.length > MAX_CODE_HOSTS) {
+    fail(400, `hosts must list 1 to ${MAX_CODE_HOSTS} hosts`);
+  }
+  const hosts = [...new Set(body.hosts.map((h) => String(h).toLowerCase()))];
+  for (const host of hosts) if (!c.dir.hosts.has(host)) fail(400, `${host} is not a listed host`);
+  const grant = grantFromHosts(hosts, c.dir);
+  if (parked(grant)) fail(400, "those hosts are in no project; give each one a project first");
+  return grant;
 }
 
 async function renamePerson(c) {
@@ -2537,7 +2649,7 @@ async function postCodeTotp(c, rawId) {
   codeCache.clear();
   deviceCache.clear();
   if (!row) fail(404, "no such code, or it is revoked");
-  return json(200, { code: codeOf(row), totp_key: totp.key });
+  return json(200, { code: codeOf(row, c.dir), totp_key: totp.key });
 }
 
 async function postVerify(c) {
@@ -2581,7 +2693,7 @@ async function revokeCode(c, rawId) {
   codeCache.clear();
   if (!row) fail(404, "no such code");
   await codesRevoked(c.env);
-  return json(200, codeOf(row));
+  return json(200, codeOf(row, c.dir));
 }
 
 async function backupStatus(c) {
@@ -2605,7 +2717,7 @@ async function backupStatus(c) {
 const IMPORT_TYPES = ["item", "comment", "attachment", "event", "landing", "read", "manager"];
 
 function importHost(c) {
-  if (c.keyId !== "p99") fail(403, "only the account's key imports");
+  if (c.keyId !== "p99") fail(403, "only the space's key imports");
   const name = c.url.searchParams.get("host");
   const host = name ? c.dir.hosts.get(name.toLowerCase()) : null;
   if (!host) fail(400, "host must name a listed host");
@@ -3165,6 +3277,11 @@ const BROWSER_ROUTES = [
   ...CARD_ROUTES,
   ["POST", /^\/stream-ticket$/, postStreamTicket],
   ...peopleRoutes(),
+  ...SPACE_ROUTES,
+  ...PROJECT_ROUTES,
+  ...LICENCE_ROUTES,
+  ...AVATAR_ROUTES,
+  ...AVATAR_READS,
 ];
 
 const HOOK_KIT = {
@@ -3190,6 +3307,11 @@ const SIGNED_ROUTES = [
   ...ONE_BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...BOARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
   ...CARD_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, { listed: true }]),
+  ...SPACE_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
+  ...PROJECT_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
+  ...LICENCE_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
+  ...AVATAR_READS.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
+  ...SIGNED_SPACE_ROUTES.map(([method, pattern, handler]) => [method, pattern, handler, {}]),
   ["GET", /^\/hosts$/, listHosts, {}],
   ["PUT", /^\/hosts\/([^/]+)$/, putHost, {}],
   ["DELETE", /^\/hosts\/([^/]+)$/, deleteHost, {}],
@@ -3256,7 +3378,9 @@ useCardKit({
   issueResponse,
   json,
   keyOf,
+  forgetDirectory,
   loadItem,
+  mineClause,
   parseKey,
   postComment,
   push,
@@ -3293,6 +3417,12 @@ useGithubKit({
 });
 
 usePeopleKit({ fail, json, managersOf, isUniqueViolation, readJson, requireEmptyBody, requireManager, maxJson: MAX_JSON_BYTES });
+
+useSpaceKit({ codeOf, codesRevoked, decodeURIComponentSafe, forgetCodes: () => codeCache.clear(), forgetDirectory, hostJson });
+
+useLicenceKit({ fail, forgetDirectory, json, readJson, requireEmptyBody, maxJson: MAX_JSON_BYTES });
+
+useAvatarKit({ fail, json, readBody, requireEmptyBody, sha256Hex, usernameFor, looksLike: (type, head) => Boolean(FILE_SIGNATURES[type]) && FILE_SIGNATURES[type](head) });
 
 useDeleteKit({ fail, json, keyOf, loadItem, push, requireEmptyBody, requireManager });
 
@@ -3360,7 +3490,7 @@ async function browserRequest(request, env, ctx, url, path) {
   const hostRow = dir.hosts.get(url.hostname);
   if (!hostRow) fail(404, "no such host");
   const now = new Date().toISOString();
-  const code = await authoriseCode(env, ctx, request, request.headers.get("x-p99-code"), hostRow.host, now);
+  const code = await authoriseCode(env, ctx, request, request.headers.get("x-p99-code"), dir, hostRow, now);
   return browserRun(request, env, ctx, url, path, dir, hostRow, code, now);
 }
 
@@ -3382,6 +3512,7 @@ function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
     actor: { email: code.email.toLowerCase(), name: code.name, agent: false, via: null },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
     scope: { all: false, host: hostRow.host },
+    reach: code.reach ?? reachOf(grantOf(code, dir), dir),
     hostRow,
     actionEnv: hostRow.env,
     now,
@@ -3419,6 +3550,7 @@ async function signedRequest(request, env, ctx, url, path) {
     actor,
     manager: Boolean(actor),
     scope: { all, host: all ? null : host },
+    reach: EVERYWHERE,
     hostRow: null,
     actionEnv: null,
     now: new Date().toISOString(),

@@ -62,8 +62,8 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     });
   const signIn = (email, totp, token) => app("POST", "/_p99/app/signin", { body: { email, totp }, token });
   const tokenOf = (r) => /__Host-p99=([A-Za-z0-9_-]{43});/.exec((r.headers["set-cookie"] || [])[0] || "")?.[1];
-  const person = async (name, email, hosts, manager = false) => {
-    const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, manager, totp: true } });
+  const person = async (name, email, hosts, owner = false) => {
+    const minted = await call("POST", "/_p99/v1/codes", { body: { name, email, hosts, role: owner ? "owner" : "user", totp: true, mail: false } });
     assert.equal(minted.status, 201, JSON.stringify(minted.json));
     return minted.json;
   };
@@ -147,7 +147,7 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const spaces = await app("GET", "/_p99/app/spaces", { token: one });
     assert.equal(spaces.status, 200, spaces.text);
     assert.deepEqual(spaces.json.spaces.map((s) => s.host), [here]);
-    assert.equal(spaces.json.spaces[0].manager, false);
+    assert.equal(spaces.json.spaces[0].manager, undefined);
     assert.equal(spaces.json.spaces[0].role, "user");
     assert.equal(typeof spaces.json.spaces[0].open, "number");
     assert.equal(spaces.json.license, LICENSE_STATE);
@@ -190,9 +190,13 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const me = await app("GET", `/_p99/api/me?host=${here}&path=%2F`, { token });
     assert.equal(me.status, 200, me.text);
     assert.equal(me.json.email, "katherine.page@example.com");
+    assert.equal(me.json.role, "user");
     assert.equal(me.json.manager, false);
     assert.equal((await app("GET", `/_p99/api/me?host=${there}`, { token })).status, 404);
-    assert.equal((await app("GET", `/_p99/api/me`, { token })).status, 404);
+    const bare = await app("GET", `/_p99/api/me`, { token });
+    assert.equal(bare.status, 200, bare.text);
+    assert.equal(bare.json.host, here);
+    assert.equal((await app("GET", `/_p99/api/space`, { token })).json.projects.length, 1);
     assert.equal((await app("GET", `/_p99/api/issues?scope=all&host=${here}`, { token })).status, 403);
     const filed = await app("POST", `/_p99/api/issues?host=${here}`, { token, body: issueBody() });
     assert.equal(filed.status, 201, filed.text);
@@ -206,7 +210,9 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const all = await app("GET", `/_p99/api/issues?scope=all&host=${there}`, { token: bossToken });
     assert.equal(all.status, 200, all.text);
     const listed = await app("GET", "/_p99/app/spaces", { token: bossToken });
-    assert.deepEqual(listed.json.spaces.map((s) => [s.host, s.manager, s.role]), [[here, true, "owner"], [there, true, "owner"]].sort());
+    assert.deepEqual(listed.json.spaces.map((s) => [s.host, s.role]), [[here, "owner"], [there, "owner"]].sort());
+    assert.ok(listed.json.projects.length >= 2, JSON.stringify(listed.json.projects));
+    assert.ok("space" in listed.json);
     assert.equal(JSON.stringify(listed.json).includes(boss.secret), false);
     assert.equal((await app("GET", `/_p99/api/issues/${filed.json.key}?host=${here}`, { token: bossToken })).status, 200);
     const stored = await call("PUT", `/_p99/v1/issues/${filed.json.key}/attachments/${randomUUID()}?host=${here}&name=trace.txt`, {

@@ -220,13 +220,14 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
       { name: "Ada Lovelace", email: "ada", hosts: [here] },
       { name: "Ada Lovelace", email: "ada@example.com", hosts: [] },
       { name: "Ada Lovelace", email: "ada@example.com", hosts: ["unlisted.example.com"] },
-      { name: "Ada Lovelace", email: "ada@example.com", hosts: [here], manager: "yes" },
+      { name: "Ada Lovelace", email: "ada@example.com", hosts: [here], role: "boss" },
+      { name: "Ada Lovelace", email: "ada@example.com", hosts: [here], manager: true },
       { name: "Ada Lovelace", email: "ada@example.com", hosts: [here], totp: 1 },
       { name: "Ada Lovelace", email: "ada@example.com", hosts: [here], client_uid: "bad uid!" },
     ];
     for (const body of bad) assert.equal((await call("POST", "/_p99/v1/codes", { body })).status, 400, JSON.stringify(body));
     const uid = randomUUID();
-    const body = { name: "Ada Lovelace", email: "Ada@Example.com", hosts: [here, here.toUpperCase()], client_uid: uid };
+    const body = { name: "Ada Lovelace", email: "Ada@Example.com", hosts: [here, here.toUpperCase()], client_uid: uid, mail: false };
     const first = await call("POST", "/_p99/v1/codes", { body });
     assert.equal(first.status, 201, JSON.stringify(first.json));
     assert.match(first.json.secret, /^[0-9a-z]{12}$/);
@@ -237,7 +238,7 @@ export async function criticalChecks({ base, call, browse, mint, check, issueBod
     assert.equal(replay.status, 200);
     assert.equal(replay.json.code.id, first.json.code.id);
     assert.equal(replay.json.secret, undefined);
-    const changed = await call("POST", "/_p99/v1/codes", { body: { name: "Grace Hopper", email: "grace@example.com", hosts: ["unlisted.example.com"], manager: true, client_uid: uid } });
+    const changed = await call("POST", "/_p99/v1/codes", { body: { name: "Grace Hopper", email: "grace@example.com", hosts: ["unlisted.example.com"], role: "owner", client_uid: uid } });
     assert.equal(changed.status, 200, JSON.stringify(changed.json));
     assert.equal(changed.json.code.id, first.json.code.id);
     assert.equal(changed.json.code.name, "Ada Lovelace");

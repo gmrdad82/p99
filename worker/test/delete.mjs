@@ -52,7 +52,6 @@ export async function deleteChecks({ base, call, browse, mint, check, issueBody,
     type: "text/plain",
   });
   assert.equal(trace.status, 201, JSON.stringify(trace.json));
-  d1(`INSERT INTO labels (name, color, created_at) VALUES ('doomed', '#57ab5a', '2026-01-01'); INSERT INTO item_labels (item_id, label_id) SELECT ${id}, id FROM labels WHERE name = 'doomed';`);
   const follower = await browse("POST", "/issues", ina.secret, issueBody({ title: "Same thing again" }));
   assert.equal(follower.status, 201);
   const merged = await call("POST", `/_p99/v1/merge?host=${here}`, { body: { items: [follower.json.key], into: key } });
@@ -78,7 +77,6 @@ export async function deleteChecks({ base, call, browse, mint, check, issueBody,
     assert.equal(kept.status, 200);
     assert.equal(kept.json.comments.length, 2);
     assert.equal(kept.json.attachments.length, 3);
-    assert.equal(d1(`SELECT count(*) AS n FROM item_labels WHERE item_id = ${id}`)[0].n, 1);
     assert.equal(kept.json.issue.merged.length, 1);
     assert.equal((await call("GET", `/_p99/v1/issues/${follower.json.key}?host=${here}`)).json.issue.duplicate_of, key);
     assert.equal(d1(`SELECT count(*) AS n FROM deletions WHERE item_id = ${id}`)[0].n, 0);
@@ -90,7 +88,7 @@ export async function deleteChecks({ base, call, browse, mint, check, issueBody,
     assert.equal(gone.status, 200, JSON.stringify(gone.json));
     assert.deepEqual(gone.json, { key, comments: 2, files: 3, retrying: 0, unlinked: [follower.json.key] });
     assert.deepEqual(objects(id), []);
-    const tables = ["items WHERE id", "comments WHERE item_id", "attachments WHERE item_id", "events WHERE item_id", "reads WHERE item_id", "item_labels WHERE item_id", "deletions WHERE item_id"];
+    const tables = ["items WHERE id", "comments WHERE item_id", "attachments WHERE item_id", "events WHERE item_id", "reads WHERE item_id", "deletions WHERE item_id"];
     const left = d1(`SELECT ${tables.map((t) => `(SELECT count(*) FROM ${t} = ${id})`).join(" + ")} AS n`);
     assert.equal(left[0].n, 0);
     assert.equal((await call("GET", `/_p99/v1/issues/${key}?host=${here}`)).status, 404);

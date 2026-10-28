@@ -95,7 +95,7 @@ export async function ticketChecks({ check }) {
     const storage = fakeStorage();
     await storeTicket(storage, "a1", { hosts: ["example.com"], code: 7, until: Date.now() + 60000 });
     const DB = fakeDB({ live: [7] });
-    assert.deepEqual(await redeemTicket(storage, ticketUrl("a1"), DB), { hosts: ["example.com"], code: 7 });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("a1"), DB), { hosts: ["example.com"], projects: null, code: 7 });
     assert.equal(await redeemTicket(storage, ticketUrl("a1"), DB), null, "a ticket opened twice");
   });
 
@@ -118,8 +118,8 @@ export async function ticketChecks({ check }) {
     await storeTicket(storage, "d4", { hosts: null, code: null, until: Date.now() + 60000 });
     await storeTicket(storage, "e5", { hosts: ["example.com"], until: Date.now() + 60000 });
     const DB = fakeDB({ broken: true });
-    assert.deepEqual(await redeemTicket(storage, ticketUrl("d4"), DB), { hosts: null, code: null });
-    assert.deepEqual(await redeemTicket(storage, ticketUrl("e5"), DB), { hosts: ["example.com"], code: null });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("d4"), DB), { hosts: null, projects: null, code: null });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("e5"), DB), { hosts: ["example.com"], projects: null, code: null });
     assert.equal(DB.queries.length, 0);
   });
 
@@ -137,7 +137,7 @@ export async function ticketChecks({ check }) {
   await check("[tickets] liveSockets closes only revoked codes' sockets with 4001", async () => {
     const revoked = fakeSocket({ hosts: null, code: 2 });
     const live = fakeSocket({ hosts: null, code: 3 });
-    const key = fakeSocket({ hosts: ["example.com"], code: null });
+    const key = fakeSocket({ hosts: ["example.com"], projects: null, code: null });
     const legacy = fakeSocket({ host: "example.com" });
     const kept = await liveSockets(fakeDB({ live: [3] }), pairs(revoked, live, key, legacy));
     assert.deepEqual(kept.map(([socket]) => socket), [live, key, legacy]);
@@ -149,7 +149,7 @@ export async function ticketChecks({ check }) {
 
   await check("[tickets] on a D1 error liveSockets holds code sockets back without closing them", silent(async () => {
     const board = fakeSocket({ hosts: null, code: 3 });
-    const key = fakeSocket({ hosts: null, code: null });
+    const key = fakeSocket({ hosts: null, projects: null, code: null });
     const kept = await liveSockets(fakeDB({ broken: true }), pairs(board, key));
     assert.deepEqual(kept.map(([socket]) => socket), [key]);
     assert.equal(board.closed, null, "a D1 error closed a board as revoked");
@@ -158,7 +158,7 @@ export async function ticketChecks({ check }) {
   await check("[tickets] a publish never reaches a revoked code's socket even without a revoke call", async () => {
     const revoked = fakeSocket({ hosts: null, code: 2 });
     const live = fakeSocket({ hosts: null, code: 3 });
-    const key = fakeSocket({ hosts: ["example.com"], code: null });
+    const key = fakeSocket({ hosts: ["example.com"], projects: null, code: null });
     await fanOut(fakeDB({ live: [3] }), pairs(revoked, live, key), [{ type: "item", host: "example.com", key: "P-1" }]);
     assert.deepEqual(revoked.sent, []);
     assert.equal(revoked.closed?.code, 4001);
@@ -168,7 +168,7 @@ export async function ticketChecks({ check }) {
 
   await check("[tickets] a publish during a D1 error reaches key streams only, and keeps boards open", silent(async () => {
     const board = fakeSocket({ hosts: null, code: 3 });
-    const key = fakeSocket({ hosts: null, code: null });
+    const key = fakeSocket({ hosts: null, projects: null, code: null });
     await fanOut(fakeDB({ broken: true }), pairs(board, key), [{ type: "item", host: "example.com", key: "P-2" }]);
     assert.deepEqual(board.sent, []);
     assert.equal(board.closed, null);
@@ -176,9 +176,9 @@ export async function ticketChecks({ check }) {
   }));
 
   await check("[tickets] a publish keeps each socket to its hosts and sends unhosted labels to all", async () => {
-    const here = fakeSocket({ hosts: ["example.com"], code: null });
+    const here = fakeSocket({ hosts: ["example.com"], projects: null, code: null });
     const there = fakeSocket({ hosts: ["shop.example.com"], code: null });
-    const all = fakeSocket({ hosts: null, code: null });
+    const all = fakeSocket({ hosts: null, projects: null, code: null });
     await fanOut(fakeDB(), pairs(here, there, all), [
       { type: "item", host: "example.com", key: "P-3" },
       { type: "item", hosts: ["shop.example.com"], key: "P-4" },
@@ -188,6 +188,21 @@ export async function ticketChecks({ check }) {
     assert.deepEqual(there.sent.map((e) => e.key ?? e.type), ["P-4", "labels"]);
     assert.deepEqual(all.sent.map((e) => e.key ?? e.type), ["P-3", "P-4", "labels"]);
     assert.equal(all.sent[1].hosts, undefined, "the hosts list leaked into the event");
+  });
+
+  await check("[tickets] a project grant's socket hears its projects' events and its hosts' events, never another project's, and never the projects list", async () => {
+    const granted = fakeSocket({ hosts: ["example.com"], projects: [2], code: null });
+    const all = fakeSocket({ hosts: null, projects: null, code: null });
+    await fanOut(fakeDB(), pairs(granted, all), [
+      { type: "item", host: null, projects: [2], key: "P-5" },
+      { type: "item", host: "example.com", projects: [9], key: "P-6" },
+      { type: "item", host: "shop.example.com", projects: [9], key: "P-7" },
+      { type: "item", host: null, projects: [], key: "P-8" },
+      { type: "labels" },
+    ]);
+    assert.deepEqual(granted.sent.map((e) => e.key ?? e.type), ["P-5", "P-6", "labels"]);
+    assert.deepEqual(all.sent.map((e) => e.key ?? e.type), ["P-5", "P-6", "P-7", "P-8", "labels"]);
+    assert.ok(all.sent.every((e) => e.projects === undefined), "the projects list leaked into the event");
   });
 
   await check("[tickets] publishes reach every socket in call order even when the first one's D1 read answers last", async () => {
@@ -226,7 +241,7 @@ export async function ticketChecks({ check }) {
   });
 
   await check("[tickets] a publish that fails never stalls the ones after it", async () => {
-    const key = fakeSocket({ hosts: null, code: null });
+    const key = fakeSocket({ hosts: null, projects: null, code: null });
     let broken = true;
     const publish = publisher(fakeDB(), () => {
       if (broken) {
