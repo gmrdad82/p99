@@ -15,7 +15,7 @@ const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const ROBOT = "🤖";
 const PICK_KEY = "p99:pick";
-const VIEWS = ["site", "projects", "needs", "landed"];
+const VIEWS = ["project", "projects", "needs", "landed"];
 const CARD_VIEWS = ["projects", "needs", "landed"];
 const WAITING = ["needs-you", "stuck", "landed"];
 const LANE_NAMES = ["new", "planned", "in progress", "needs you", "stuck", "landed", "done"];
@@ -64,7 +64,7 @@ const WORDS = {
   only_branch: "The fix is written but isn't in a build yet.",
   list_title: "Items",
   view_label: "Show",
-  view_site: "Only this website",
+  view_project: "This project",
   view_projects: "Projects",
   view_needs: "Needs you",
   view_landed: "Landed, waiting for your check",
@@ -106,6 +106,8 @@ const WORDS = {
   attach_regions: "Attach the marked areas",
   new_files: "Files",
   new_files_hint: "Add files: pick them, drop them here or paste them",
+  no_capture: "This site doesn't send screenshots, so your report goes without one.",
+  new_privacy_text: "The page's address, your browser, your screen and the page's last script errors go with it, so we see what happened.",
   new_privacy: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords and the fields this site marks as private are blanked.",
   send: "Send",
   cancel: "Cancel",
@@ -220,6 +222,10 @@ export function open(opts) {
     if (S.verify) verify(go);
     else go();
   }).catch((e) => { if (opts.space) throw e; });
+}
+
+export function shut() {
+  if (S.open) close(true);
 }
 
 function say(key, args, n) {
@@ -417,19 +423,25 @@ function reask() {
     throw e;
   });
 }
+function paint(k, v) {
+  return k !== "accent" && /^\s*(#|rgba?\(|hsla?\(|hwb\(|lab\(|lch\(|oklab\(|oklch\(|color(-mix)?\()/i.test(String(v));
+}
 function theme(t) {
   if (!t || typeof t !== "object") return "";
-  const rules = (obj) => {
+  const rules = (obj, keep) => {
     let out = "";
     for (const k in obj) {
       const v = obj[k];
       if (typeof v !== "string" && typeof v !== "number") continue;
       if (!/^[a-z0-9-]{1,40}$/.test(k) || /[;{}<>\\]/.test(String(v))) continue;
+      if (keep && !keep(k, v)) continue;
       out += "--p99-" + k + ":" + v + ";";
     }
     return out;
   };
-  let css = ":host{" + rules(t) + "}";
+  let css = ":host{" + rules(t, (k, v) => !paint(k, v)) + "}";
+  const light = rules(t, paint);
+  if (light) css += "@media not (prefers-color-scheme: dark){:host{" + light + "}}";
   if (t.dark && typeof t.dark === "object") css += "@media (prefers-color-scheme: dark){:host{" + rules(t.dark) + "}}";
   return css;
 }
@@ -448,12 +460,13 @@ function chrome() {
   dark.addEventListener("change", legible);
 }
 function brand() {
-  const by = me && me.link === false ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
-  const lockup = h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
+  const plain = !o.space && !!me && me.licensed === true;
+  const by = plain || (me && me.link === false) ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
+  const lockup = plain ? null : h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
   const state = me && Object.hasOwn(BADGES, me.license) ? me.license : "free";
   const badge = me ? h("img", { class: "p99-badge", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 47 }) : null;
   const tags = badge || by ? h("div", { class: "p99-tags" }, badge, by) : null;
-  return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.space }) : null, tags);
+  return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.title || o.space }) : null, tags);
 }
 function boardOpen() {
   return owner() ? h("button", { type: "button", class: "p99-board-open", text: say("board"), onclick: openBoard, onpointerenter: boardModule, onfocus: boardModule }) : null;
@@ -473,15 +486,31 @@ function boardModule() {
   return S.board;
 }
 function openBoard() {
+  if (o.space) return close();
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
   const p = picked();
-  boardModule().then((m) => m.open({ root, call, me, h, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  Promise.all([boardModule(), home()]).then(([m]) => m.open({ root, call, me, h, blob, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+}
+function home() {
+  if (o.space) return Promise.resolve(null);
+  if (!S.home) {
+    const said = me && typeof me.project === "string" && me.project ? Promise.resolve(me.project) : call("GET", "/space").then((r) => {
+      const at = siteHost().toLowerCase();
+      const p = ((r && r.projects) || []).find((x) => x && Array.isArray(x.hosts) && x.hosts.some((n) => String(n).toLowerCase() === at));
+      return p && typeof p.name === "string" ? p.name : null;
+    });
+    S.home = said.then((n) => (S.homeName = n), () => (S.homeName = null));
+  }
+  return S.home;
+}
+function blob(path) {
+  return fetch(api(path), { headers: auth(), credentials: "same-origin" }).then((r) => (r.ok ? r.blob() : null));
 }
 function pickWord() {
   const p = picked();
   const words = [];
-  if (p.view !== "site") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
+  if (p.view !== "project") words.push(p.view === "projects" && p.projects.length ? p.projects.join(", ") : say("view_" + p.view));
   if (p.source) words.push(say("source_" + p.source));
   return words.join(" · ");
 }
@@ -543,7 +572,7 @@ function gone() {
   const bar = o.bar;
   if (!bar || bar.querySelector(".p99-gone")) return;
   const sheet = new CSSStyleSheet();
-  sheet.replaceSync(".p99-gone{display:flex;align-items:center;gap:4px;max-width:min(340px,calc(100vw - 32px));margin:0;padding:6px 4px 6px 12px;border-radius:12px;background:#0c1a2b;color:#fff;font:500 13px/1.35 system-ui;box-shadow:0 4px 14px #0005;animation:p99-gone .3s cubic-bezier(.2,.7,.2,1)}.p99-gone button{all:unset;flex:none;cursor:pointer;width:32px;height:32px;border-radius:50%;text-align:center;font:700 18px/32px system-ui}.p99-gone button:focus-visible{outline:2px solid #fff}@keyframes p99-gone{from{opacity:0;transform:translateY(8px)}}@media (prefers-reduced-motion:reduce){.p99-gone{animation:none}}");
+  sheet.replaceSync(".p99-gone{display:flex;align-items:center;gap:4px;max-width:min(340px,calc(100vw - 32px));margin:0;padding:6px 4px 6px 12px;border-radius:12px;background:#0c1a2b;color:#fff;font:500 13px/1.35 system-ui;box-shadow:0 4px 14px #0005;animation:p99-gone .3s cubic-bezier(.2,.7,.2,1)}.p99-gone button{all:unset;flex:none;cursor:pointer;width:38px;height:38px;border:1px solid #fff6;border-radius:50%;text-align:center;font:500 22px/38px system-ui}.p99-gone button:focus-visible{outline:2px solid #fff}@keyframes p99-gone{from{opacity:0;transform:translateY(8px)}}@media (prefers-reduced-motion:reduce){.p99-gone{animation:none}}");
   o.root.adoptedStyleSheets = o.root.adoptedStyleSheets.concat([sheet]);
   for (const b of bar.querySelectorAll("button")) b.hidden = true;
   bar.append(h("p", { class: "p99-gone", role: "alert" }, h("span", { text: say("gone") }), h("button", { type: "button", "aria-label": say("close"), title: say("close"), text: "×", onclick: () => o.forget() })));
@@ -786,7 +815,7 @@ function pickOf(raw) {
   const p = raw && typeof raw === "object" ? raw : {};
   const names = Array.isArray(p.projects) ? p.projects.filter((n) => typeof n === "string" && n.length > 0 && n.length <= 40) : [];
   return {
-    view: VIEWS.includes(p.view) ? p.view : "site",
+    view: VIEWS.includes(p.view) ? p.view : "project",
     projects: names.slice(0, MAX_PICKED),
     source: SOURCES.includes(p.source) ? p.source : ""
   };
@@ -811,7 +840,8 @@ function siteHost() { return o.space || location.hostname; }
 function carded(p) { return CARD_VIEWS.includes(p.view); }
 function boardQuery(p) {
   const q = new URLSearchParams();
-  if (p.view === "site" && !o.space) q.set("host", siteHost());
+  if (p.view === "project" && S.homeName) q.append("project", S.homeName);
+  else if (p.view === "project" && !o.space) q.set("host", siteHost());
   if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
   if (p.view === "needs") WAITING.forEach((w) => q.append("status", w));
   if (p.view === "landed") q.set("status", "landed");
@@ -865,6 +895,7 @@ function listQuery(f, cursor) {
   const q = new URLSearchParams({ scope: f.scope, status: f.status || "open" });
   const p = picked();
   if (p.source) q.set("source", p.source);
+  if (p.view === "project" && S.homeName && f.scope === "all") q.append("project", S.homeName);
   if (f.scope === "page") q.set("path", location.pathname);
   if (f.kind) q.set("kind", f.kind);
   if (f.q) q.set("q", f.q);
@@ -904,7 +935,8 @@ function list(f) {
     rows: ((res && (cards ? res.cards : res.issues)) || []).filter(p.view === "needs" ? bySource(p) : () => true).map(cards ? cardRow : row),
     next: res && res.next_cursor
   }));
-  page(null, ask.signal).then(({ rows, next }) => {
+  const ready = !cards && p.view === "project" && owner() ? home() : Promise.resolve();
+  ready.then(() => page(null, ask.signal)).then(({ rows, next }) => {
     if (seq !== S.seq) return;
     const items = h("ol", { class: "p99-items" });
     items.append(...rows);
@@ -1038,7 +1070,7 @@ function thread(t) {
   const meta = [say("filed_by", { who: who(i.reporter), when: when(i.created_at) }), " · ", say("updated", { when: when(i.updated_at) })];
   if (manager && i.reporter && i.reporter.email) meta.push(" · ", h("span", { text: i.reporter.email }));
   if (manager && i.env) meta.push(" · ", h("span", { text: i.env }));
-  if (i.assignee) meta.push(" · ", h("span", { class: "p99-person" }, disc(i.assignee.username, 16), say("assigned_to", { who: handle(i.assignee) })));
+  if (i.assignee) meta.push(" · ", h("span", { class: "p99-person" }, disc(i.assignee, 16), say("assigned_to", { who: handle(i.assignee) })));
   if (i.duplicate_of) meta.push(" · ", h("a", { href: "#p99=" + enc(i.duplicate_of), text: say("duplicate_of", { n: i.duplicate_of }), onclick: (e) => { e.preventDefault(); item(i.duplicate_of); } }));
   const page = i.page || {};
   const dest = pageUrl(page.path);
@@ -1283,13 +1315,17 @@ function pickOne(label, name, now, find) {
   });
   return h("div", { class: "p99-picker" }, h("label", { for: c.input.id, text: label }), c.box, keep);
 }
-function disc(username, size) {
+function disc(p, size) {
+  const person = typeof p === "string" ? { username: p } : p || {};
   const img = h("img", { class: "p99-disc", alt: "", width: size, height: size, src: BLANK });
   if (!S.avatar) {
     S.avatar = import("/_p99/avatar.js?v=" + V);
     S.avatar.catch(() => { S.avatar = null; });
   }
-  S.avatar.then((m) => { img.src = m.avatarSrc(username, size); }, () => {});
+  S.avatar.then((m) => {
+    img.src = m.avatarSrc(person.username, size);
+    return m.picture && m.picture(person, blob);
+  }).then((u) => { if (u) img.src = u; }, () => {});
   return img;
 }
 function handle(p) {
@@ -1297,7 +1333,7 @@ function handle(p) {
 }
 function assigneePick(i) {
   const none = { value: "", text: say("nobody") };
-  const of = (p) => ({ value: p.username, text: handle(p), el: h("span", { class: "p99-person" }, disc(p.username, 20), handle(p)) });
+  const of = (p) => ({ value: p.username, text: handle(p), el: h("span", { class: "p99-person" }, disc(p, 20), handle(p)) });
   const now = i.assignee && i.assignee.username ? { value: i.assignee.username, text: handle(i.assignee) } : { ...none };
   let people = null;
   const load = () => people || (people = call("GET", "/people").then((r) => {
@@ -1515,9 +1551,25 @@ function lib() {
   }
   return S.lib;
 }
+function shotsOff() { return !!me && (me.capture === "off" || me.capture === false); }
+function shield() {
+  o.mask = me && Array.isArray(me.mask) ? me.mask : [];
+  o.fill = solid(accent());
+  return o;
+}
+function solid(color) {
+  const probe = h("i", { hidden: true });
+  probe.style.color = color;
+  if (!probe.style.color || !panel) return "#3b7dd8";
+  panel.append(probe);
+  const c = getComputedStyle(probe).color;
+  probe.remove();
+  return /^rgb/.test(c) ? c : "#3b7dd8";
+}
 function capture(full) {
   const since = Date.now();
-  return lib().then((m) => m.capture(o, full, since));
+  if (shotsOff()) return Promise.reject(new Error("capture off"));
+  return lib().then((m) => m.capture(shield(), full, since));
 }
 function encode(canvas, q) {
   return new Promise((r) => canvas.toBlob(r, "image/webp", q)).then((b) => (b && b.type === "image/webp" ? b : new Promise((r) => canvas.toBlob(r, "image/jpeg", q))));
@@ -1603,8 +1655,8 @@ function crop(shot, rect) {
   return c;
 }
 
-function newDraft() {
-  const d = { at: here(), uid: uid(), shot: null, shotErr: false, page: null, pageReady: null, marks: [], files: [], key: null, uploads: null, started: false };
+function newDraft(off) {
+  const d = { at: here(), uid: uid(), shot: null, shotErr: false, page: null, pageReady: null, marks: [], files: [], key: null, uploads: null, started: !!off, off: !!off };
   d.dispose = () => {
     if (d.shot) release(d.shot.canvas);
     if (d.page) release(d.page.canvas);
@@ -1612,7 +1664,7 @@ function newDraft() {
     d.shot = d.page = null;
     d.marks = [];
   };
-  d.shotReady = new Promise((resolve) => {
+  d.shotReady = off ? Promise.resolve(null) : new Promise((resolve) => {
     d.startShot = () => {
       if (d.started) return;
       d.started = true;
@@ -1626,12 +1678,12 @@ function fileFlow() {
   if (form) return form.elements.title.focus();
   clearOutlines();
   if (S.draft) S.draft.dispose();
-  const d = (S.draft = newDraft());
+  const d = (S.draft = newDraft(shotsOff()));
   S.view = "new";
   S.seq++;
   const f = newForm(d);
   mount(f, f.elements.title);
-  requestAnimationFrame(() => setTimeout(d.startShot, 0));
+  if (!d.off) requestAnimationFrame(() => setTimeout(d.startShot, 0));
 }
 function newForm(d) {
   const kinds = KINDS.filter((k) => k !== "task" || owner());
@@ -1645,7 +1697,7 @@ function newForm(d) {
       h("label", null, h("input", { type: "radio", name: "kind", value: k, checked: i === 0 }), " ", h("span", { text: say("kind_" + k) })))),
     h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "400", required: true, autocomplete: "off", placeholder: say("new_title_hint") })),
     h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "5", placeholder: say("new_body_hint") })),
-    h("section", { class: "p99-capture", "aria-label": say("new_capture") },
+    d.off ? h("p", { class: "p99-note p99-no-shot", role: "note", text: say("no_capture") }) : h("section", { class: "p99-capture", "aria-label": say("new_capture") },
       h("fieldset", { class: "p99-shots-pick" }, h("legend", { text: say("new_capture") }),
         pick("screenshot", true, false, say("attach_screen"), h("figure", { class: "p99-shot", "data-role": "screenshot" })),
         pick("page", false, false, say("attach_page"), h("figure", { class: "p99-shot", "data-role": "page" })),
@@ -1653,7 +1705,7 @@ function newForm(d) {
       h("div", { class: "p99-capture-actions" }, h("button", { type: "button", class: "p99-mark-start", text: say("new_mark"), onclick: () => startMarking(form) })),
       h("ol", { class: "p99-marks" })),
     h("section", { class: "p99-attach", "aria-label": say("new_files") }, drop, h("ul", { class: "p99-file-list" })),
-    h("p", { class: "p99-note", text: say("new_privacy") }),
+    h("p", { class: "p99-note", text: say(d.off ? "new_privacy_text" : "new_privacy") }),
     statusLine(),
     h("div", { class: "p99-actions" }, h("button", { type: "button", text: say("cancel"), onclick: () => close() }), h("button", { type: "submit", text: say("send") })));
   input.addEventListener("change", () => { addFiles(form, input.files); input.value = ""; });
@@ -1678,15 +1730,17 @@ function newForm(d) {
     if (t.value === "region") paintMarks(form);
   });
   form.addEventListener("submit", (e) => { e.preventDefault(); submitNew(form); });
-  paintShot(form, d);
-  d.shotReady.then(() => { if (S.draft === d) paintShot(form); });
+  if (!d.off) {
+    paintShot(form, d);
+    d.shotReady.then(() => { if (S.draft === d) paintShot(form); });
+  }
   return form;
 }
 function box(form, role) { return form.querySelector("input[name=attach][value=" + role + "]"); }
 function figure(form, role) { return form.querySelector(".p99-shot[data-role=" + role + "], .p99-regions[data-role=" + role + "]"); }
 function paintShot(form, draft) {
   const d = draft || S.draft;
-  if (!d) return;
+  if (!d || d.off || !figure(form, "screenshot")) return;
   const fig = figure(form, "screenshot"), cb = box(form, "screenshot");
   clear(fig);
   if (d.shot) fig.append(marked(d, false));
@@ -1731,10 +1785,11 @@ function paintMarks(form) {
   });
 }
 function planned(d, form) {
+  const on = (role) => { const b = box(form, role); return !!b && b.checked; };
   let n = d.files.length;
-  if (box(form, "screenshot").checked && d.shot) n++;
-  if (box(form, "page").checked && d.page) n++;
-  if (box(form, "region").checked) n += d.marks.filter((m) => m.crop).length;
+  if (on("screenshot") && d.shot) n++;
+  if (on("page") && d.page) n++;
+  if (on("region")) n += d.marks.filter((m) => m.crop).length;
   return n;
 }
 function addFiles(form, files) {
@@ -1804,7 +1859,7 @@ function marking(form, d, lib) {
     }
     layer.style.pointerEvents = "none";
     bar.style.pointerEvents = "none";
-    const elements = lib.elementsAt(o, q);
+    const elements = lib.elementsAt(shield(), q);
     layer.style.pointerEvents = "";
     bar.style.pointerEvents = "";
     rect.setAttribute("data-n", String(d.marks.length + fresh.length + 1));
