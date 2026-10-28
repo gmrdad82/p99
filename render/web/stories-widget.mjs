@@ -1446,6 +1446,87 @@ try {
     });
   }
 
+  const loaderPage = async ({ scheme = "light", stored, hash = "", route } = {}) => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", colorScheme: scheme });
+    await ctx.addInitScript(openShadow);
+    if (stored) await ctx.addInitScript((c) => { try { localStorage["p99:code"] = c; } catch {} }, stored);
+    if (route) await ctx.route((u) => u.pathname === "/_p99/api/me", route);
+    const p = await ctx.newPage();
+    const panels = [];
+    const errors = [];
+    p.on("request", (r) => new URL(r.url()).pathname === "/_p99/panel.js" && panels.push(r.url()));
+    p.on("pageerror", (e) => errors.push(String(e && e.message)));
+    await p.goto(PAGE + hash);
+    return { ctx, p, panels, errors };
+  };
+  const rootState = (p) => p.evaluate(() => ({ root: !!document.querySelector("p99-root"), hash: location.hash, code: (() => { try { return localStorage["p99:code"] || ""; } catch { return ""; } })() }));
+
+  await story("the loader fetches the panel only when the visitor reaches for the +, not on page load", async () => {
+    const { ctx, p, panels, errors } = await loaderPage({ hash: `#p99=${code}` });
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the bar's counts", () => p.evaluate(() => Boolean(sessionStorage["p99:code"])));
+    await frames(p);
+    await frames(p);
+    check(`panel.js is not requested while the page sits (${panels.length})`, panels.length === 0);
+    await p.locator("p99-root >> .w .f").hover();
+    await until("panel.js on hover", () => panels.length >= 1);
+    check(`one hover loads it once (${panels.length})`, panels.length === 1);
+    await openForm(p);
+    check(`a click after the hover loads nothing more (${panels.length})`, panels.length === 1);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a stored code the Worker refuses opens the panel on that refusal and loads the module once", async () => {
+    const refuse = (route) => route.fulfill({ status: 401, contentType: "application/json", body: JSON.stringify({ error: "unauthorized", message: "that code is not valid" }) });
+    const { ctx, p, panels, errors } = await loaderPage({ stored: "p99-revoked-0000", route: refuse });
+    await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    await until("the panel the refusal loads", () => panels.length >= 1);
+    await frames(p);
+    check(`the module is requested once (${panels.length})`, panels.length === 1);
+    check(`no script error escaped the widget (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a page with no code link and no stored code shows nothing and loads nothing", async () => {
+    const { ctx, p, panels, errors } = await loaderPage();
+    await frames(p);
+    await frames(p);
+    const state = await rootState(p);
+    check(`no widget is added (${JSON.stringify(state)})`, state.root === false);
+    check(`nothing is loaded (${panels.length})`, panels.length === 0);
+    check(`no script error escaped the page (${errors.join(" | ")})`, errors.length === 0);
+    await ctx.close();
+  });
+
+  await story("a code link is taken out of the address bar and kept, and an empty #p99= is ignored", async () => {
+    const good = await loaderPage({ hash: `#p99=${code}` });
+    await good.p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+    const kept = await rootState(good.p);
+    check(`the hash leaves the address (${kept.hash})`, kept.hash === "");
+    check("the code is kept for the next visit", kept.code === code);
+    await good.ctx.close();
+    const noise = await loaderPage({ hash: "#p99=" });
+    await frames(noise.p);
+    const state = await rootState(noise.p);
+    check(`an empty #p99= adds no widget (${JSON.stringify(state)})`, state.root === false && state.code === "");
+    await noise.ctx.close();
+  });
+
+  for (const scheme of ["light", "dark"]) {
+    await story(`in ${scheme} mode the + takes the ${scheme} colours of the page's colour scheme`, async () => {
+      const { ctx, p } = await loaderPage({ scheme, hash: `#p99=${code}` });
+      await p.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
+      const look = await p.evaluate(() => {
+        const s = getComputedStyle(document.querySelector("p99-root").shadowRoot.querySelector(".w .b"));
+        return { bg: s.backgroundColor, color: s.color, border: s.borderTopColor };
+      });
+      const want = scheme === "dark" ? { bg: "rgb(42, 59, 80)", color: "rgb(233, 240, 247)", border: "rgb(15, 24, 37)" } : { bg: "rgb(238, 243, 248)", color: "rgb(12, 26, 43)", border: "rgb(79, 107, 140)" };
+      check(`the + is drawn in ${scheme} colours (${JSON.stringify(look)})`, look.bg === want.bg && look.color === want.color && look.border === want.border);
+      await ctx.close();
+    });
+  }
+
   await story("on a site themed only for light, dark mode keeps the + and the panel legible, and light mode keeps the site's colours", async () => {
     const theme = { accent: "#1d2b6b", raised: "#ffffff", base: "#fafafa", ink: "#111111" };
     for (const scheme of ["dark", "light"]) {

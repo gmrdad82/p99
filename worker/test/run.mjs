@@ -167,7 +167,17 @@ function sign({ secret, ts, method, path, actor, hash }) {
   return `v1 ts=${ts},sig=${sig}`;
 }
 
-async function call(method, path, options = {}, again = method === "GET") {
+async function steady(url, init) {
+  try {
+    return await fetch(url, init);
+  } catch (e) {
+    if (e?.cause?.code !== "UND_ERR_SOCKET") throw e;
+    console.error(`retried: ${init?.method ?? "GET"} ${url} lost its socket once`);
+    return fetch(url, init);
+  }
+}
+
+async function call(method, path, options = {}) {
   const { actor = grace, body, raw, type, keyId = "p99", tamper } = options;
   const bytes = raw ?? (body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body)));
   const hash = sha256(bytes);
@@ -179,14 +189,7 @@ async function call(method, path, options = {}, again = method === "GET") {
   if (actorText) headers["x-p99-actor"] = actorText;
   const sent = bytes.length > 0 || type !== undefined;
   if (sent) headers["content-type"] = type ?? "application/json";
-  let response;
-  try {
-    response = await fetch(base + path, { method, headers, body: sent ? bytes : undefined });
-  } catch (e) {
-    if (!again || e?.cause?.code !== "UND_ERR_SOCKET") throw e;
-    console.error(`retried: ${method} ${path} lost its socket once`);
-    return call(method, path, options, false);
-  }
+  const response = await steady(base + path, { method, headers, body: sent ? bytes : undefined });
   return { status: response.status, json: await jsonOf(response), response };
 }
 
@@ -218,7 +221,7 @@ async function browse(method, path, code, body) {
   const headers = {};
   if (code !== undefined) headers["x-p99-code"] = code;
   if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await fetch(`${base}/_p99/api${path}`, {
+  const response = await steady(`${base}/_p99/api${path}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),

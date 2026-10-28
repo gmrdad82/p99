@@ -472,7 +472,7 @@ function find(dir, test) {
 function gif() {
   const web = join(work, "web.mp4");
   rmSync(web, { force: true });
-  execFileSync("pcod", ["frames", join(work, "frames"), web, "--fps", String(FPS), "--route", "cpu", "--crf", "0"], { stdio: "inherit" });
+  execFileSync("pcod", ["frames", join(work, "frames"), web, "--fps", String(FPS), "--route", "cpu", "--crf", "0", "--force"], { stdio: "inherit" });
   const term = find(join(work, "renders"), (n) => n.endsWith(".mp4"));
   if (!term) throw new Error("pitomd: run the tui step first");
   const joined = join(work, "pitomd.mp4");

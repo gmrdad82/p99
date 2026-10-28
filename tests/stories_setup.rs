@@ -1967,3 +1967,101 @@ mod sources {
         assert!(!h.config().contains(TOKEN));
     }
 }
+
+#[test]
+fn the_interactive_walk_asks_name_email_mail_and_host_in_order_and_takes_each_default() {
+    let (h, _cf) = blank("setup-walk", fresh());
+    let out = h.run(
+        &["setup", "--no-vault"],
+        &[("P99_TOKEN", TOKEN)],
+        Some("Ada Lovelace\nada@example.com\nn\nshop.example.com\n\n\n"),
+    );
+    out.ok();
+    let order: Vec<usize> = [
+        "Your name, as P99 shows it: ",
+        "Your e-mail (it becomes the space's first Owner): ",
+        "Turn mail on through Resend? [y/N]: ",
+        "Hosts this space serves, comma separated: ",
+        "Environment of shop.example.com [production]: ",
+        "Kind of production: release or development [release]: ",
+    ]
+    .iter()
+    .map(|asked| {
+        out.stdout
+            .find(asked)
+            .unwrap_or_else(|| panic!("{asked}:\n{}", out.stdout))
+    })
+    .collect();
+    assert!(order.windows(2).all(|w| w[0] < w[1]), "{order:?}");
+    let config = h.toml();
+    assert_eq!(config["me"]["name"].as_str(), Some("Ada Lovelace"));
+    assert_eq!(config["me"]["email"].as_str(), Some("ada@example.com"));
+    assert_eq!(
+        config["hosts"]["shop.example.com"]["env"].as_str(),
+        Some("production")
+    );
+    assert!(!h.config().contains("resend"), "{}", h.config());
+}
+
+#[test]
+fn the_interactive_walk_asks_again_for_a_blank_name_a_bad_email_and_a_mistyped_yes_or_no() {
+    let (h, _cf) = blank("setup-walk-again", fresh());
+    let out = h.run(
+        &["setup", "--no-vault", "--host", "shop.example.com"],
+        &[("P99_TOKEN", TOKEN)],
+        Some("\nAda Lovelace\nada\nada@example.com\nmaybe\nn\n"),
+    );
+    out.ok();
+    assert_eq!(
+        out.stdout.matches("Your name, as P99 shows it: ").count(),
+        2,
+        "{}",
+        out.stdout
+    );
+    assert_eq!(
+        out.stdout
+            .matches("Your e-mail (it becomes the space's first Owner): ")
+            .count(),
+        2,
+        "{}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("  Answer y or n."), "{}", out.stdout);
+    assert_eq!(
+        out.stdout
+            .matches("Turn mail on through Resend? [y/N]: ")
+            .count(),
+        2,
+        "{}",
+        out.stdout
+    );
+    assert_eq!(h.toml()["me"]["email"].as_str(), Some("ada@example.com"));
+}
+
+#[test]
+fn the_interactive_walk_stops_with_the_flag_to_use_when_the_input_ends_early() {
+    let (h, cf) = blank("setup-walk-eof", fresh());
+    let out = h.run(
+        &["setup", "--no-vault"],
+        &[("P99_TOKEN", TOKEN)],
+        Some("Ada Lovelace\n"),
+    );
+    out.refused(
+        "Your e-mail (it becomes the space's first Owner): no answer (give it with --email)",
+    );
+    assert!(!cf.lock().unwrap().worker);
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn the_interactive_walk_refuses_a_host_that_is_not_a_hostname() {
+    let (h, cf) = blank("setup-walk-host", fresh());
+    let out = h.run(
+        &["setup", "--no-vault", "--no-mail"],
+        &[("P99_TOKEN", TOKEN)],
+        Some("Ada Lovelace\nada@example.com\n-bad\n"),
+    );
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(out.stderr.contains("is not a hostname"), "{}", out.stderr);
+    assert!(cf.lock().unwrap().routes.is_empty());
+}
