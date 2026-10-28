@@ -5,13 +5,14 @@ use serde_json::{Value, json};
 
 use crate::card::{
     Card, CardEvent, CardList, CardQuery, CardReply, CardThread, CommentReply, Lane, LinkReply,
-    NewCard, NewComment, NewLink, Person, ProjectChange, ProjectList, Source, StatusChange, ago,
-    refusal, who,
+    NewCard, NewComment, NewLink, Person, ProjectChange, Source, StatusChange, ago, refusal, who,
 };
-use crate::cli::{EditArgs, Global, client_for, key_of, print_json, text_arg};
+use crate::cli::{
+    EditArgs, Global, ProjectsAction, ProjectsArgs, client_for, key_of, print_json, text_arg,
+};
 use crate::client::{Client, segment, uid};
 use crate::config::Config;
-use crate::wire::{KINDS, out};
+use crate::wire::{KINDS, SpaceView, out};
 
 #[derive(Debug, clap::Args)]
 pub struct CardsArgs {
@@ -104,10 +105,7 @@ pub struct CardNewArgs {
     pub body: Option<String>,
     #[arg(long, value_parser = KINDS, default_value = "feature", help = "what it is")]
     pub kind: String,
-    #[arg(
-        long,
-        help = "the host it sits on for the panel (the account's oldest by default)"
-    )]
+    #[arg(long, help = "the host it sits on for the panel; a card needs none")]
     pub host: Option<String>,
 }
 
@@ -277,12 +275,20 @@ pub fn thread_lines(thread: &CardThread, now: i64) -> Vec<String> {
             place
         ),
         card.title.clone(),
-        format!(
-            "filed by {} on {}  {}",
-            who(&card.reporter),
-            card.host,
-            crate::cli::when(&card.created_at)
-        ),
+        if card.host.is_empty() {
+            format!(
+                "filed by {}  {}",
+                who(&card.reporter),
+                crate::cli::when(&card.created_at)
+            )
+        } else {
+            format!(
+                "filed by {} on {}  {}",
+                who(&card.reporter),
+                card.host,
+                crate::cli::when(&card.created_at)
+            )
+        },
         format!("changed by {} {}", changer(&card.changed_by), {
             match ago(&card.changed_at, now).as_str() {
                 "now" => "just now".to_owned(),
@@ -363,25 +369,11 @@ fn event_line(event: &CardEvent) -> String {
     format!("{}  {what}  {by}", crate::cli::when(&event.at))
 }
 
-fn oldest_host(client: &Client, account: &str) -> Result<String, String> {
-    let mut hosts = client.hosts()?;
-    hosts.sort_by(|a, b| (&a.created_at, &a.host).cmp(&(&b.created_at, &b.host)));
-    hosts
-        .into_iter()
-        .next()
-        .map(|h| h.host)
-        .ok_or_else(|| format!("the account {account} has no host yet; p99 hosts add"))
-}
-
 fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), String> {
     let project = crate::card::project(&args.project)?;
-    let wanted = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let body = optional_text(&args.body)?.unwrap_or_default();
-    let (client, account) = client_for(config, global, wanted.as_deref())?;
-    let host = match wanted {
-        Some(host) => host,
-        None => oldest_host(&client, &account)?,
-    };
+    let (client, account) = client_for(config, global, host.as_deref())?;
     let request = NewCard {
         client_uid: uid(),
         project,
@@ -392,15 +384,27 @@ fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), Strin
     };
     let reply: CardReply = ask(&client, "POST", "/v1/cards", Some(body_of(&request)?))?;
     if global.json {
-        return print_json(&json!({"card": reply.card}));
+        return print_json(&json!({
+            "card": reply.card,
+            "space": super::space_ref(config, &account),
+        }));
     }
-    out!(
-        "{} filed in {} on {}: {}",
-        reply.card.key,
-        reply.card.project,
-        reply.card.host,
-        reply.card.title
-    );
+    if reply.card.host.is_empty() {
+        out!(
+            "{} filed in {}: {}",
+            reply.card.key,
+            reply.card.project,
+            reply.card.title
+        );
+    } else {
+        out!(
+            "{} filed in {} on {}: {}",
+            reply.card.key,
+            reply.card.project,
+            reply.card.host,
+            reply.card.title
+        );
+    }
     Ok(())
 }
 
@@ -492,32 +496,141 @@ fn link(config: &Config, global: &Global, args: &CardLinkArgs) -> Result<(), Str
     Ok(())
 }
 
-pub fn projects(config: &Config, global: &Global) -> Result<(), String> {
-    let (client, _) = client_for(config, global, None)?;
-    let list: ProjectList = ask(&client, "GET", "/v1/projects", None)?;
-    if global.json {
-        return print_json(&list);
+pub fn projects(config: &mut Config, global: &Global, args: &ProjectsArgs) -> Result<(), String> {
+    match &args.action {
+        None => project_list(config, global),
+        Some(ProjectsAction::Add { name }) => project_add(config, global, name),
+        Some(ProjectsAction::Rename { old, new }) => project_rename(config, global, old, new),
     }
-    if list.projects.is_empty() {
-        println!("no projects yet; p99 card new --project <name> --title <text>");
-        return Ok(());
+}
+
+fn spaces_in_scope(config: &Config, global: &Global) -> Result<Vec<String>, String> {
+    match config.account(global.account.as_deref()) {
+        Ok((slug, _)) => Ok(vec![slug.to_owned()]),
+        Err(_) if global.account.is_none() && config.accounts.len() > 1 => {
+            Ok(config.accounts.keys().cloned().collect())
+        }
+        Err(why) => Err(why),
     }
-    let width = list
+}
+
+pub fn project_lines(view: &SpaceView) -> Vec<String> {
+    if view.projects.is_empty() {
+        return vec!["no projects yet; p99 projects add <name>".to_owned()];
+    }
+    let names = view
         .projects
         .iter()
         .map(|p| p.name.chars().count())
         .max()
         .unwrap_or(7)
         .max(7);
-    println!("{:<width$}  OPEN  DONE", "PROJECT");
-    for project in &list.projects {
-        out!(
-            "{:<width$}  {:>4}  {:>4}",
-            project.name,
-            project.open,
-            project.done
-        );
+    let hosts: Vec<String> = view
+        .projects
+        .iter()
+        .map(|p| {
+            if p.hosts.is_empty() {
+                "-".to_owned()
+            } else {
+                p.hosts.join(", ")
+            }
+        })
+        .collect();
+    let wide = hosts
+        .iter()
+        .map(|h| h.chars().count())
+        .max()
+        .unwrap_or(5)
+        .max(5);
+    let mut lines = vec![format!(
+        "{:<names$}  {:<wide$}  OPEN  CLOSED",
+        "PROJECT", "HOSTS"
+    )];
+    for (project, hosts) in view.projects.iter().zip(&hosts) {
+        lines.push(format!(
+            "{:<names$}  {hosts:<wide$}  {:>4}  {:>6}",
+            project.name, project.open, project.closed
+        ));
     }
+    lines
+}
+
+fn project_list(config: &Config, global: &Global) -> Result<(), String> {
+    let slugs = spaces_in_scope(config, global)?;
+    let mut views: Vec<SpaceView> = Vec::new();
+    for slug in &slugs {
+        let client = Client::for_account(config, slug, &global.agent)?;
+        let mut view: SpaceView = client.space().map_err(refusal)?;
+        if view.space.slug.is_empty() {
+            view.space.slug = slug.clone();
+        }
+        views.push(view);
+    }
+    if global.json {
+        return match views.as_slice() {
+            [one] => print_json(one),
+            _ => print_json(&json!({"spaces": views})),
+        };
+    }
+    let several = views.len() > 1;
+    for view in &views {
+        if several {
+            out!("{} ({})", view.space.name, view.space.slug);
+        }
+        for line in project_lines(view) {
+            out!("{line}");
+        }
+    }
+    Ok(())
+}
+
+fn project_add(config: &mut Config, global: &Global, raw: &str) -> Result<(), String> {
+    let name = crate::card::project(raw)?;
+    let (client, account) = client_for(config, global, None)?;
+    let reply = client.add_project(&name).map_err(refusal)?;
+    let made = reply["project"]["name"]
+        .as_str()
+        .or(reply["project"].as_str())
+        .unwrap_or(&name)
+        .to_owned();
+    if let Some(space) = config.accounts.get_mut(&account)
+        && space.project_named(&made).is_none()
+    {
+        space.projects.insert(made.clone(), Vec::new());
+        config.save()?;
+    }
+    if global.json {
+        return print_json(&json!({
+            "project": reply["project"],
+            "space": super::space_ref(config, &account),
+        }));
+    }
+    out!("added the project {made} to {account}");
+    Ok(())
+}
+
+fn project_rename(
+    config: &mut Config,
+    global: &Global,
+    old: &str,
+    new: &str,
+) -> Result<(), String> {
+    let old = crate::card::project(old)?;
+    let new = crate::card::project(new)?;
+    let (client, account) = client_for(config, global, None)?;
+    let reply = client.rename_project(&old, &new).map_err(refusal)?;
+    if let Some(space) = config.accounts.get_mut(&account) {
+        space.rename_project(&old, &new);
+        config.save()?;
+    }
+    if global.json {
+        return print_json(&json!({
+            "project": reply["project"],
+            "renamed": {"from": old, "to": new},
+            "space": super::space_ref(config, &account),
+        }));
+    }
+    out!("renamed the project {old} to {new} in {account}; its cards and hosts stay with it");
     Ok(())
 }
 

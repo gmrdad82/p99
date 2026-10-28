@@ -39,7 +39,7 @@ pub struct MoveArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct BoardsArgs {
-    #[arg(long, help = "the account of this host")]
+    #[arg(long, help = "the space of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<BoardsAction>,
@@ -48,7 +48,7 @@ pub struct BoardsArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum BoardsAction {
     #[allow(dead_code)]
-    #[command(about = "gone: boards are one per account; p99 board prints it")]
+    #[command(about = "gone: boards are one per space; p99 board prints it")]
     Set {
         #[arg(help = "the board's name")]
         name: String,
@@ -81,7 +81,7 @@ pub struct BoardArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct LabelsArgs {
-    #[arg(long, help = "the account of this host")]
+    #[arg(long, help = "the space of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<LabelsAction>,
@@ -110,7 +110,7 @@ fn key(raw: &str) -> Result<String, String> {
     crate::cli::key_of(raw)
 }
 
-pub const GONE: &str = "boards are one per account; see p99 board";
+pub const GONE: &str = "boards are one per space; see p99 board";
 
 fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()

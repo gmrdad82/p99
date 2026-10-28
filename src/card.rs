@@ -10,6 +10,18 @@ pub const NOT_YET: &str = "this Worker has no cards yet; run p99 deploy";
 pub const PROJECT_RULE: &str = "a project name has 1 to 40 characters";
 pub const SINCE_RULE: &str = "--since takes a time like 2026-10-22T08:00:00Z or an age like 6h";
 
+fn host_in<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn host_out<S: serde::Serializer>(host: &str, serializer: S) -> Result<S::Ok, S::Error> {
+    if host.is_empty() {
+        serializer.serialize_none()
+    } else {
+        serializer.serialize_str(host)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum Lane {
@@ -85,6 +97,7 @@ pub struct Card {
     pub label: String,
     pub lane: Option<u32>,
     pub title: String,
+    #[serde(default, deserialize_with = "host_in", serialize_with = "host_out")]
     pub host: String,
     pub reporter: Person,
     pub created_at: String,
@@ -170,7 +183,8 @@ pub struct NewCard {
     pub title: String,
     pub body: String,
     pub kind: String,
-    pub host: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

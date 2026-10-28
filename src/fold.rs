@@ -171,7 +171,7 @@ pub fn render(out: &mut String, plan: &Value) {
     let Some(fold) = plan.get("one_board") else {
         return;
     };
-    out.push_str("\nOne board per account (0016)\n");
+    out.push_str("\nOne board per space (0016)\n");
     if let Some(after) = fold["after"].as_array() {
         let names: Vec<&str> = after.iter().filter_map(Value::as_str).collect();
         out.push_str(&format!(
@@ -518,7 +518,7 @@ mod tests {
         let (fold, _) = two_owners();
         let mut out = String::new();
         render(&mut out, &json!({"one_board": fold}));
-        assert!(out.starts_with("\nOne board per account (0016)\n"), "{out}");
+        assert!(out.starts_with("\nOne board per space (0016)\n"), "{out}");
         assert!(out.contains("  the Cards board gets Needs you as lane 4; its cards stay where they are: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{out}");
         assert!(
             out.contains(&format!("  {:<20} 2 open -> in-progress\n", "Doing")),

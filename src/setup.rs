@@ -1400,6 +1400,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         access_client_secret: None,
         code: None,
         me: AccountMe::default(),
+        ..Account::default()
     });
     account.me = me;
     if account.account_id != cf_account.id {

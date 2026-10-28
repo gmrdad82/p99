@@ -7,17 +7,96 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Serialize, Deserialize)]
+#[serde(try_from = "RawConfig")]
 pub struct Config {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "default_space",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub default_account: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub license: Option<String>,
     #[serde(default)]
     pub me: Me,
-    #[serde(default)]
+    #[serde(default, rename = "spaces")]
     pub accounts: BTreeMap<String, Account>,
     #[serde(default)]
     pub hosts: BTreeMap<String, Host>,
+    #[serde(skip)]
+    pub renamed: bool,
+}
+
+#[derive(Deserialize)]
+struct RawConfig {
+    #[serde(default)]
+    default_space: Option<String>,
+    #[serde(default)]
+    default_account: Option<String>,
+    #[serde(default)]
+    license: Option<String>,
+    #[serde(default)]
+    me: Me,
+    #[serde(default)]
+    spaces: BTreeMap<String, Account>,
+    #[serde(default)]
+    accounts: BTreeMap<String, Account>,
+    #[serde(default)]
+    hosts: BTreeMap<String, Host>,
+}
+
+impl TryFrom<RawConfig> for Config {
+    type Error = String;
+
+    fn try_from(raw: RawConfig) -> Result<Config, String> {
+        let mut renamed = raw.default_account.is_some() || !raw.accounts.is_empty();
+        let mut spaces = raw.spaces;
+        for (slug, space) in raw.accounts {
+            if spaces.insert(slug.clone(), space).is_some() {
+                return Err(format!(
+                    "the space {slug} is in both [spaces.{slug}] and [accounts.{slug}]; keep [spaces.{slug}]"
+                ));
+            }
+        }
+        let mut hosts = raw.hosts;
+        for (host, entry) in &mut hosts {
+            match (entry.legacy.take(), entry.account.is_empty()) {
+                (Some(old), true) => {
+                    entry.account = old;
+                    renamed = true;
+                }
+                (Some(_), false) => {
+                    return Err(format!(
+                        "the host {host} has both space and account; keep space"
+                    ));
+                }
+                (None, true) => return Err(format!("the host {host} names no space")),
+                (None, false) => {}
+            }
+        }
+        Ok(Config {
+            default_account: raw.default_space.or(raw.default_account),
+            license: raw.license,
+            me: raw.me,
+            accounts: spaces,
+            hosts,
+            renamed,
+        })
+    }
+}
+
+pub const RENAMED: &str = "the config uses the old name account where P99 now says space; rename [accounts.<name>] to [spaces.<name>], default_account to default_space and account = to space = under [hosts] (p99 writes the new names when it next saves the config)";
+pub const WHOLE: &str = "*";
+pub const FLAG_RENAMED: &str = "--account is now --space; --account works one more release";
+
+pub fn said_once(line: &str) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static CONFIG: AtomicBool = AtomicBool::new(false);
+    static FLAG: AtomicBool = AtomicBool::new(false);
+    let once = if line == FLAG_RENAMED { &FLAG } else { &CONFIG };
+    if !once.swap(true, Ordering::Relaxed) {
+        eprintln!("{}: {line}", crate::NAME);
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -36,6 +115,8 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Account {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub account_id: String,
     pub token: String,
     #[serde(default = "p99")]
@@ -64,6 +145,55 @@ pub struct Account {
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
     pub me: AccountMe,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, Vec<String>>,
+}
+
+impl Account {
+    pub fn title<'a>(&'a self, slug: &'a str) -> &'a str {
+        self.name
+            .as_deref()
+            .filter(|n| !n.is_empty())
+            .unwrap_or(slug)
+    }
+
+    pub fn project_of(&self, host: &str) -> Option<&str> {
+        self.projects
+            .iter()
+            .find(|(_, hosts)| hosts.iter().any(|h| h == host))
+            .map(|(name, _)| name.as_str())
+    }
+
+    pub fn project_named(&self, name: &str) -> Option<&str> {
+        self.projects
+            .keys()
+            .find(|known| known.eq_ignore_ascii_case(name))
+            .map(String::as_str)
+    }
+
+    pub fn place(&mut self, host: &str, project: &str) {
+        for hosts in self.projects.values_mut() {
+            hosts.retain(|h| h != host);
+        }
+        let name = self.project_named(project).unwrap_or(project).to_owned();
+        let hosts = self.projects.entry(name).or_default();
+        hosts.push(host.to_owned());
+        hosts.sort();
+    }
+
+    pub fn unplace(&mut self, host: &str) {
+        for hosts in self.projects.values_mut() {
+            hosts.retain(|h| h != host);
+        }
+    }
+
+    pub fn rename_project(&mut self, from: &str, to: &str) {
+        if let Some(old) = self.project_named(from).map(str::to_owned)
+            && let Some(hosts) = self.projects.remove(&old)
+        {
+            self.projects.insert(to.to_owned(), hosts);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,7 +214,10 @@ impl AccountMe {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Host {
+    #[serde(default, rename = "space")]
     pub account: String,
+    #[serde(default, rename = "account", skip_serializing)]
+    pub legacy: Option<String>,
     #[serde(default = "production")]
     pub env: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -103,6 +236,10 @@ pub struct Host {
     pub feed: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub link: Option<bool>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mask: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +276,12 @@ impl Host {
         if self.link == Some(false) {
             config.insert("link".into(), false.into());
         }
+        if !self.mask.is_empty() {
+            config.insert("mask".into(), serde_json::json!(self.mask));
+        }
+        if self.capture.as_deref() == Some("off") {
+            config.insert("capture".into(), "off".into());
+        }
         serde_json::Value::Object(config)
     }
 }
@@ -164,7 +307,11 @@ pub fn path() -> PathBuf {
 
 impl Config {
     pub fn load() -> Result<Config, String> {
-        Config::load_from(&path())
+        let config = Config::load_from(&path())?;
+        if config.renamed {
+            said_once(RENAMED);
+        }
+        Ok(config)
     }
 
     pub fn load_from(file: &Path) -> Result<Config, String> {
@@ -204,16 +351,24 @@ impl Config {
     }
 
     pub fn account(&self, name: Option<&str>) -> Result<(&str, &Account), String> {
+        if name == Some(WHOLE) {
+            return Err("--space names a space here; p99 spaces lists them".into());
+        }
         let name = match name.or(self.default_account.as_deref()) {
             Some(name) => name,
             None if self.accounts.len() == 1 => self.accounts.keys().next().unwrap(),
-            None if self.accounts.is_empty() => return Err("no account yet; run p99 setup".into()),
-            None => return Err("several accounts; name one with --account".into()),
+            None if self.accounts.is_empty() => return Err("no space yet; run p99 setup".into()),
+            None => return Err("several spaces; name one with --space".into()),
         };
         self.accounts
             .get_key_value(name)
             .map(|(k, v)| (k.as_str(), v))
-            .ok_or_else(|| format!("no account is called {name}"))
+            .ok_or_else(|| format!("no space is called {name}"))
+    }
+
+    pub fn project_of_host(&self, host: &str) -> Option<&str> {
+        let space = self.hosts.get(host).map(|h| h.account.as_str())?;
+        self.accounts.get(space)?.project_of(host)
     }
 
     pub fn hosts_of(&self, account: &str) -> Vec<&str> {
@@ -244,7 +399,7 @@ impl Config {
         let entry = self
             .accounts
             .get(account)
-            .ok_or_else(|| format!("no account is called {account}"))?;
+            .ok_or_else(|| format!("no space is called {account}"))?;
         if let Some(url) = &entry.url {
             return Ok(vec![url.trim_end_matches('/').to_owned()]);
         }
@@ -256,7 +411,7 @@ impl Config {
             .collect();
         if hosts.is_empty() {
             return Err(format!(
-                "the account {account} has no host yet; p99 hosts add"
+                "the space {account} has no host yet; p99 hosts add"
             ));
         }
         hosts.sort_by_key(|(name, h)| (Some(*name) != target, h.env != "production"));
@@ -292,11 +447,12 @@ const SECRET_KEYS: [&str; 6] = [
     "license",
 ];
 
-const KNOWN_KEYS: [&str; 34] = [
-    "default_account",
+const KNOWN_KEYS: [&str; 37] = [
+    "default_space",
     "license",
     "me",
-    "accounts",
+    "spaces",
+    "projects",
     "hosts",
     "name",
     "email",
@@ -315,7 +471,7 @@ const KNOWN_KEYS: [&str; 34] = [
     "access_client_id",
     "access_client_secret",
     "code",
-    "account",
+    "space",
     "env",
     "theme",
     "strings",
@@ -325,6 +481,8 @@ const KNOWN_KEYS: [&str; 34] = [
     "off",
     "feed",
     "link",
+    "mask",
+    "capture",
     "x",
     "y",
 ];
@@ -409,9 +567,16 @@ pub fn key(account: &Account, in_use: bool) -> Result<String, String> {
 pub fn key_holder(config: &Config) -> Result<Option<String>, String> {
     holder_from(
         env::var_os("P99_KEY"),
-        env::var_os("P99_KEY_ACCOUNT"),
+        bound_space(env::var_os("P99_KEY_SPACE"), env::var_os("P99_KEY_ACCOUNT")),
         config,
     )
+}
+
+fn bound_space(
+    space: Option<std::ffi::OsString>,
+    legacy: Option<std::ffi::OsString>,
+) -> Option<std::ffi::OsString> {
+    space.or(legacy)
 }
 
 fn holder_from(
@@ -692,7 +857,7 @@ mod tests {
         let Some(table) = value.as_table() else {
             return;
         };
-        let named = ["accounts", "hosts", "theme", "strings"].contains(&path);
+        let named = ["spaces", "projects", "hosts", "theme", "strings"].contains(&path);
         for (key, value) in table {
             if !named {
                 into.push(key.clone());
@@ -717,6 +882,8 @@ mod tests {
         config.accounts.insert(
             "main".into(),
             Account {
+                name: full("PITO MD"),
+                projects: [("PITO MD site".to_owned(), vec!["example.com".to_owned()])].into(),
                 account_id: "a".into(),
                 token: "t".into(),
                 worker: "w".into(),
@@ -742,6 +909,7 @@ mod tests {
             "example.com".into(),
             Host {
                 account: "main".into(),
+                legacy: None,
                 env: "production".into(),
                 theme: [("accent".to_owned(), "#000".to_owned())].into(),
                 strings: [("title".to_owned(), "Hi".to_owned())].into(),
@@ -751,6 +919,8 @@ mod tests {
                 off: vec!["/admin".into()],
                 feed: true,
                 link: Some(true),
+                mask: vec!["#card-number".into()],
+                capture: full("off"),
             },
         );
         let value: toml::Value = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();

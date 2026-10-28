@@ -55,18 +55,16 @@ enum Command {
     #[command(about = "open the inbox in the terminal, as `p99` alone does")]
     Tui(tui::Args),
     #[command(
-        about = "set up an account, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"
+        about = "set up a space, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"
     )]
     Setup(setup::SetupArgs),
-    #[command(about = "upload this version's Worker to an account")]
+    #[command(about = "upload this version's Worker to a space")]
     Deploy(setup::DeployArgs),
     #[command(
-        about = "show, read-only, what this version's data-changing migrations would do on an account"
+        about = "show, read-only, what this version's data-changing migrations would do on a space"
     )]
     Migrate(migrate::MigrateArgs),
-    #[command(
-        about = "print the address of the account's P99 page, which works when a site is down"
-    )]
+    #[command(about = "print the address of the space's P99 page, which works when a site is down")]
     App,
     #[command(about = "list the Worker build embedded in this binary, without touching Cloudflare")]
     Bundle,
@@ -77,7 +75,7 @@ enum Command {
     )]
     License(license::Args),
     #[command(
-        about = "turn mail on or off for an account, or show how it is set",
+        about = "turn mail on or off for a space, or show how it is set",
         arg_required_else_help = false
     )]
     Email(email::EmailArgs),
@@ -99,6 +97,7 @@ fn main() -> ExitCode {
     } else {
         P99::parse()
     };
+    cli::notices();
     let result = match p99.command {
         Command::Tui(args) => return tui::run(&args, &p99.global),
         Command::Setup(args) => setup::setup(&args, &p99.global),

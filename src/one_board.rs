@@ -4,7 +4,7 @@ use crate::card::{Card, Lane, Person, Source};
 use crate::wire::{LaneCard, Owner};
 
 pub const DEPRECATED: &str =
-    "p99 boards is deprecated: one board per account since 1.11; p99 board prints it";
+    "p99 boards is deprecated: one board per space since 1.11; p99 board prints it";
 pub const OLD_WORKER: &str =
     "this Worker still has a board per person; run p99 deploy for the one board";
 pub const NO_LANES: &str = "this board has no lanes yet; run p99 deploy";

@@ -71,10 +71,11 @@ impl Serialize for Member {
 
 impl Serialize for Code {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut out = serializer.serialize_struct("Code", 12)?;
+        let mut out = serializer.serialize_struct("Code", 13)?;
         out.serialize_field("id", &self.id)?;
         out.serialize_field("name", &self.name)?;
         out.serialize_field("email", &self.email)?;
+        out.serialize_field("grant", &self.grant)?;
         out.serialize_field("hosts", &self.hosts)?;
         out.serialize_field("manager", &self.manager)?;
         out.serialize_field("role", &Role::of(self.manager))?;
@@ -658,6 +659,8 @@ pub struct Change {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ListQuery {
+    #[serde(default, deserialize_with = "lenient")]
+    pub project: Vec<String>,
     #[serde(default = "mine")]
     pub scope: String,
     #[serde(default, deserialize_with = "lenient")]
@@ -734,7 +737,36 @@ pub struct HostEntry {
     #[serde(default, deserialize_with = "lenient")]
     pub config: Value,
     #[serde(default, deserialize_with = "lenient")]
+    pub project: Option<String>,
+    #[serde(default, deserialize_with = "lenient")]
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceRef {
+    #[serde(default, deserialize_with = "lenient")]
+    pub slug: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRow {
+    pub name: String,
+    #[serde(default, deserialize_with = "lenient")]
+    pub hosts: Vec<String>,
+    #[serde(default, deserialize_with = "lenient")]
+    pub open: u64,
+    #[serde(default, deserialize_with = "lenient")]
+    pub closed: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SpaceView {
+    #[serde(default, deserialize_with = "lenient")]
+    pub space: SpaceRef,
+    #[serde(default, deserialize_with = "lenient")]
+    pub projects: Vec<ProjectRow>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -758,6 +790,8 @@ pub struct Code {
     #[serde(default, deserialize_with = "lenient")]
     pub hosts: Vec<String>,
     #[serde(default, deserialize_with = "lenient")]
+    pub grant: Option<Grant>,
+    #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
     #[serde(default, deserialize_with = "lenient")]
     pub hint: String,
@@ -773,12 +807,102 @@ pub struct Code {
     pub totp: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Grant {
+    pub space: bool,
+    pub projects: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct GrantShape {
+    #[serde(default, deserialize_with = "lenient")]
+    space: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    projects: Vec<String>,
+}
+
+impl Serialize for Grant {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut out = serializer.serialize_struct("Grant", 1)?;
+        if self.space {
+            out.serialize_field("space", &true)?;
+        } else {
+            out.serialize_field("projects", &self.projects)?;
+        }
+        out.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Grant {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Grant, D::Error> {
+        let shape = GrantShape::deserialize(deserializer)?;
+        Ok(Grant {
+            space: shape.space,
+            projects: if shape.space {
+                Vec::new()
+            } else {
+                shape.projects
+            },
+        })
+    }
+}
+
+impl Grant {
+    pub fn whole() -> Grant {
+        Grant {
+            space: true,
+            projects: Vec::new(),
+        }
+    }
+
+    pub fn of(projects: Vec<String>) -> Grant {
+        Grant {
+            space: false,
+            projects,
+        }
+    }
+
+    pub fn parked(&self) -> bool {
+        !self.space && self.projects.is_empty()
+    }
+
+    pub fn words(&self) -> String {
+        if self.space {
+            "the whole space".to_owned()
+        } else if self.parked() {
+            "parked".to_owned()
+        } else {
+            format!("projects: {}", self.projects.join(", "))
+        }
+    }
+}
+
+impl Code {
+    pub fn reach(&self) -> String {
+        match &self.grant {
+            Some(grant) => grant.words(),
+            None => format!("hosts: {}", self.hosts.join(", ")),
+        }
+    }
+
+    pub fn reaches(&self, host: &str, project: Option<&str>) -> bool {
+        match &self.grant {
+            Some(grant) => {
+                grant.space
+                    || project
+                        .is_some_and(|p| grant.projects.iter().any(|g| g.eq_ignore_ascii_case(p)))
+            }
+            None => self.hosts.iter().any(|h| h == host),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct NewCode {
     pub client_uid: String,
     pub name: String,
     pub email: String,
-    pub hosts: Vec<String>,
+    pub grant: Grant,
     #[serde(default, deserialize_with = "lenient")]
     pub manager: bool,
     #[serde(

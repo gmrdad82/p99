@@ -69,11 +69,7 @@ pub fn report(minted: &Minted, owner: bool, asked: bool) -> Result<(), String> {
     }
     let sent = minted.mail.as_deref() == Some("sent");
     if sent {
-        out!(
-            "mailed the link for {} to {}",
-            code.hosts.join(", "),
-            code.email
-        );
+        out!("mailed the link to {} ({})", code.email, code.reach());
     }
     if !sent || owner {
         let Some(secret) = &minted.secret else {
@@ -103,7 +99,7 @@ pub fn report(minted: &Minted, owner: bool, asked: bool) -> Result<(), String> {
         }
         Some("sent") | None if !asked => "",
         Some("off") => {
-            "mail is off for this account, so nothing was mailed; send the link yourself (p99 email set turns mail on)"
+            "mail is off for this space, so nothing was mailed; send the link yourself (p99 email set turns mail on)"
         }
         Some("skipped") => "this e-mail takes no mail; send the link yourself",
         _ => "the mail didn't go out; send the link yourself",
@@ -119,11 +115,16 @@ fn active(code: &Code) -> bool {
     code.revoked_at.is_none()
 }
 
-fn pick(codes: Vec<Code>, email: &str, host: Option<&str>) -> Result<i64, String> {
+fn pick(
+    codes: Vec<Code>,
+    email: &str,
+    host: Option<&str>,
+    project: Option<&str>,
+) -> Result<i64, String> {
     let held: Vec<Code> = codes
         .into_iter()
         .filter(|c| active(c) && c.email.eq_ignore_ascii_case(email))
-        .filter(|c| host.is_none_or(|h| c.hosts.iter().any(|x| x == h)))
+        .filter(|c| host.is_none_or(|h| c.reaches(h, project)))
         .collect();
     let on = host.map(|h| format!(" on {h}")).unwrap_or_default();
     match held.as_slice() {
@@ -134,7 +135,7 @@ fn pick(codes: Vec<Code>, email: &str, host: Option<&str>) -> Result<i64, String
         many => Err(format!(
             "{email} holds several codes{on}: {}; name one by id or --host",
             many.iter()
-                .map(|c| format!("{} ({})", c.id, c.hosts.join(", ")))
+                .map(|c| format!("{} ({})", c.id, c.reach()))
                 .collect::<Vec<_>>()
                 .join(", ")
         )),
@@ -145,12 +146,18 @@ pub fn relink(config: &Config, global: &Global, args: &RelinkArgs) -> Result<(),
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let (client, account) = client_for(config, global, host.as_deref())?;
     let me = config.me_for(&account);
+    let project = host
+        .as_deref()
+        .and_then(|h| config.project_of_host(h))
+        .map(str::to_owned);
     let codes = client.codes(None)?;
     let id = match args.target.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()) => raw
             .parse::<i64>()
             .map_err(|_| format!("{raw} is not a code id"))?,
-        Some(email) if email.contains('@') => pick(codes.clone(), email, host.as_deref())?,
+        Some(email) if email.contains('@') => {
+            pick(codes.clone(), email, host.as_deref(), project.as_deref())?
+        }
         Some(raw) => {
             return Err(format!(
                 "{raw} is neither a code id nor an e-mail; p99 invites lists both"
@@ -161,7 +168,12 @@ pub fn relink(config: &Config, global: &Global, args: &RelinkArgs) -> Result<(),
                 "--self needs your e-mail in the config's [me]; p99 setup asks for it".into(),
             );
         }
-        None => pick(codes.clone(), &me.email, host.as_deref())?,
+        None => pick(
+            codes.clone(),
+            &me.email,
+            host.as_deref(),
+            project.as_deref(),
+        )?,
     };
     let mine = args.me
         || codes
@@ -186,10 +198,10 @@ fn code_of(config: &Config, account: &str) -> Result<String, String> {
     let entry = config
         .accounts
         .get(account)
-        .ok_or_else(|| format!("no account is called {account}"))?;
+        .ok_or_else(|| format!("no space is called {account}"))?;
     let Some(store) = entry.code.as_deref().filter(|s| !s.trim().is_empty()) else {
         return Err(format!(
-            "the account {account} keeps no code of yours; add code = \"<your code>\" under [accounts.{account}] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from {}",
+            "the space {account} keeps no code of yours; add code = \"<your code>\" under [spaces.{account}] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from {}",
             crate::config::path().display(),
             crate::vault::tool()
         ));
@@ -203,7 +215,7 @@ fn code_of(config: &Config, account: &str) -> Result<String, String> {
         .to_ascii_lowercase();
     if code.len() != 12 || !code.chars().all(|c| c.is_ascii_alphanumeric()) {
         return Err(format!(
-            "the code kept for the account {account} is not a 12-character P99 code"
+            "the code kept for the space {account} is not a 12-character P99 code"
         ));
     }
     Ok(code)
@@ -279,13 +291,13 @@ pub fn link(config: &Config, global: &Global, args: &LinkArgs) -> Result<(), Str
         Some(h) if hosts.contains(&h.as_str()) => h,
         Some(h) => {
             return Err(format!(
-                "{h} is not a host of the account {account}; p99 hosts lists them"
+                "{h} is not a host of the space {account}; p99 hosts lists them"
             ));
         }
         None => match hosts.as_slice() {
             [] => {
                 return Err(format!(
-                    "the account {account} has no host yet; p99 hosts add"
+                    "the space {account} has no host yet; p99 hosts add"
                 ));
             }
             [one] => (*one).to_owned(),
@@ -333,15 +345,15 @@ mod tests {
             ]
         };
         assert_eq!(
-            pick(codes(), "grace@example.com", Some("example.com")),
+            pick(codes(), "grace@example.com", Some("example.com"), None),
             Ok(2)
         );
         assert!(
-            pick(codes(), "grace@example.com", None)
+            pick(codes(), "grace@example.com", None, None)
                 .unwrap_err()
                 .contains("2 (example.com), 3 (shop.example.com)")
         );
-        assert!(pick(codes(), "linus@example.com", None).is_err());
+        assert!(pick(codes(), "linus@example.com", None, None).is_err());
     }
 
     #[test]
