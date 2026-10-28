@@ -135,7 +135,7 @@ function itemMail(c, row, closed, resolution, mergedInto) {
 }
 
 function labelStatements(c, row, to, opts = {}) {
-  K.refuseAgentClose(c, row, to);
+  K.refuseAgentClose(c, row, to, opts.resolution);
   const { DB } = c.env;
   const closes = Boolean(to.closes);
   const wasOpen = Boolean(row.open);
