@@ -784,6 +784,8 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
         "VERSION",
         "LICENSE_STATE",
         "LICENSE_LINK",
+        "SPACE",
+        "SPACE_NAME",
         "HUB",
         "RATE",
         "APP_HOST",

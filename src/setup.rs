@@ -947,6 +947,9 @@ fn our_bindings(
         json!({ "type": "plain_text", "name": "SPACE_NAME", "text": crate::spaces_plan::shown(space, account) }),
         json!({ "type": "durable_object_namespace", "name": "HUB", "class_name": HUB_CLASS }),
     ];
+    if let Some(date) = crate::license::BUILT {
+        ours.push(json!({ "type": "plain_text", "name": "BUILD_DATE", "text": date }));
+    }
     if let Some(host) = app {
         ours.push(json!({ "type": "plain_text", "name": "APP_HOST", "text": host }));
     }
@@ -2268,6 +2271,10 @@ mod tests {
         assert_eq!(
             find_binding(&ours, "plain_text", Some("SPACE_NAME")).unwrap()["text"],
             "PITO MD"
+        );
+        assert_eq!(
+            find_binding(&ours, "plain_text", Some("BUILD_DATE")).map(|b| b["text"].clone()),
+            crate::license::BUILT.map(|date| json!(date))
         );
         let bare = our_bindings("fepra", &Account::default(), None, None, State::Free);
         assert_eq!(
