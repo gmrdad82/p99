@@ -100,7 +100,7 @@ fn config_with(name: &str, url: &str, me: &str, account: &str) -> PathBuf {
     std::fs::write(
         &file,
         format!(
-            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[accounts.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\naccount = \"main\"\nenv = \"production\"\n"
+            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[spaces.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\nspace = \"main\"\nenv = \"production\"\n"
         ),
     )
     .unwrap();
@@ -245,7 +245,7 @@ fn the_board() -> Value {
 
 fn old_boards() -> Value {
     let mut all = the_board();
-    all["deprecated"] = json!("one board per account since 1.11; read /board");
+    all["deprecated"] = json!("one board per space since 1.11; read /board");
     all["archived"] = json!([
         {"id": 2, "name": "Web", "owner": {"username": "ada"}, "columns": [
             {"label": "Inbox", "closes": false}, {"label": "QA ready", "closes": false}, {"label": "Done", "closes": true}],
@@ -303,7 +303,7 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
         ("POST", "/v1/boards") | ("PUT", "/v1/boards/2") | ("DELETE", "/v1/boards/2") => {
             return (
                 410,
-                r#"{"message":"boards are one per account; see p99 board"}"#.into(),
+                r#"{"message":"boards are one per space; see p99 board"}"#.into(),
             );
         }
         ("GET", "/v1/issues/41") => {
@@ -510,7 +510,7 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     assert_eq!(
         out.stderr,
-        "p99: p99 boards is deprecated: one board per account since 1.11; p99 board prints it\n"
+        "p99: p99 boards is deprecated: one board per space since 1.11; p99 board prints it\n"
     );
     assert_eq!(
         out.stdout,
@@ -526,7 +526,7 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
     assert!(json.stderr.is_empty(), "{}", json.stderr);
     assert_eq!(
         doc["deprecated"],
-        "one board per account since 1.11; read /board"
+        "one board per space since 1.11; read /board"
     );
     assert_eq!(doc["board"]["lanes"], lanes());
     assert_eq!(doc["archived"][0]["name"], "Web");
@@ -553,7 +553,7 @@ fn boards_set_refuses_locally_and_never_asks_the_worker() {
             }
             refused(
                 &run(&worker, "boards_set", &args),
-                "boards are one per account; see p99 board",
+                "boards are one per space; see p99 board",
             );
         }
         refused(
@@ -570,7 +570,7 @@ fn boards_set_refuses_locally_and_never_asks_the_worker() {
                     "Shipped",
                 ],
             ),
-            "boards are one per account; see p99 board",
+            "boards are one per space; see p99 board",
         );
         assert!(
             worker.seen().is_empty(),

@@ -47,9 +47,10 @@ fn answer(req: &stub::Req) -> Reply {
                 "by": {"name": "Ada Lovelace", "username": "ada", "agent": false, "via": null},
                 "at": "2026-10-22T09:30:00.000Z"}}),
         ),
-        ("GET", "/_p99/v1/projects") => {
-            Reply::ok(json!({"projects": [{"name": "Splicer", "open": 1, "done": 0}]}))
-        }
+        ("GET", "/_p99/v1/space") => Reply::ok(json!({
+            "space": {"slug": "main", "name": "PITO MD"},
+            "projects": [{"name": "Splicer", "hosts": ["shop.example.com"], "open": 1, "closed": 0}],
+        })),
         _ => fake::any(req),
     }
 }
@@ -223,7 +224,7 @@ fn watch_does_not_announce_the_vault_when_p99_key_is_set() {
     let out = h.p99_env(&["watch"], &[("PATH", &path_with(&bin)), ("P99_KEY", "  ")]);
     out.refused(EMPTY);
     assert!(
-        !out.stderr.contains("reading the account key"),
+        !out.stderr.contains("reading the space key"),
         "{}",
         out.stderr
     );
@@ -281,7 +282,7 @@ fn two_accounts(name: &str, default: Option<&str>, main: &str, other: &str) -> (
     let first = Stub::new(guarded);
     let second = Stub::new(guarded_by(OTHER));
     let default = default
-        .map(|d| format!("default_account = \"{d}\"\n"))
+        .map(|d| format!("default_space = \"{d}\"\n"))
         .unwrap_or_default();
     let text = format!(
         r#"{default}
@@ -289,23 +290,23 @@ fn two_accounts(name: &str, default: Option<&str>, main: &str, other: &str) -> (
 name = "Ada Lovelace"
 email = "ada@example.com"
 
-[accounts.main]
+[spaces.main]
 account_id = "acc1"
 token = "cf-token"
 key = "{main}"
 url = "{}/_p99"
 
-[accounts.other]
+[spaces.other]
 account_id = "acc2"
 token = "cf-token"
 key = "{other}"
 url = "{}/_p99"
 
 [hosts."shop.example.com"]
-account = "main"
+space = "main"
 
 [hosts."other.example.org"]
-account = "other"
+space = "other"
 "#,
         first.base, second.base
     );
@@ -329,7 +330,7 @@ fn p99_key_signs_the_default_account_and_the_others_keep_their_own_key() {
         let bin = op_that_must_not_run(&h.dir);
         let path = path_with(&bin);
         let mut envs = vec![("PATH", path.as_str()), ("P99_KEY", KEY)];
-        envs.extend(bound.map(|b| ("P99_KEY_ACCOUNT", b)));
+        envs.extend(bound.map(|b| ("P99_KEY_SPACE", b)));
         for args in [
             &["list", "--json"][..],
             &["list", "shop.example.com", "--json"],
@@ -359,11 +360,11 @@ fn p99_key_signs_the_default_account_and_the_others_keep_their_own_key() {
 
 const NAMED_OTHER: [&[&str]; 6] = [
     &["list", "other.example.org", "--json"],
-    &["list", "--account", "other", "--json"],
-    &["list", "--all", "--account", "other", "--json"],
-    &["show", "12", "--account", "other", "--json"],
-    &["hosts", "--account", "other"],
-    &["tui", "--account", "other", "--dump", "120x30"],
+    &["list", "--space", "other", "--json"],
+    &["list", "--all", "--space", "other", "--json"],
+    &["show", "12", "--space", "other", "--json"],
+    &["hosts", "--space", "other"],
+    &["tui", "--space", "other", "--dump", "120x30"],
 ];
 
 #[test]
@@ -407,7 +408,7 @@ fn p99_key_account_moves_p99_key_to_the_account_it_names() {
     let envs = [
         ("PATH", path.as_str()),
         ("P99_KEY", OTHER),
-        ("P99_KEY_ACCOUNT", "other"),
+        ("P99_KEY_SPACE", "other"),
     ];
     for args in NAMED_OTHER {
         let out = h.p99_env(args, &envs);
@@ -419,7 +420,7 @@ fn p99_key_account_moves_p99_key_to_the_account_it_names() {
     assert!(worker_calls(&other).iter().all(|c| c.signed_by(OTHER)));
     for args in [
         &["list", "--json"][..],
-        &["list", "--account", "main", "--json"],
+        &["list", "--space", "main", "--json"],
         &["show", "12", "--json"],
         &["list", "--all", "--json"],
         &["hosts"],
@@ -455,7 +456,7 @@ fn an_empty_or_unknown_p99_key_account_never_uses_p99_key_and_says_nothing() {
         for args in [
             &["list", "--json"][..],
             &["list", "--all", "--json"],
-            &["list", "--account", "other", "--json"],
+            &["list", "--space", "other", "--json"],
             &["hosts"],
             &["tui", "--dump", "120x30"],
         ] {
@@ -464,7 +465,7 @@ fn an_empty_or_unknown_p99_key_account_never_uses_p99_key_and_says_nothing() {
                 &[
                     ("PATH", &path),
                     ("P99_KEY", WRONG),
-                    ("P99_KEY_ACCOUNT", bound),
+                    ("P99_KEY_SPACE", bound),
                 ],
             );
             out.ok();
@@ -492,7 +493,7 @@ fn p99_key_with_several_accounts_and_no_default_signs_only_the_named_one() {
     let path = path_with(&bin);
     for args in [
         &["list", "--all", "--json"][..],
-        &["list", "--account", "main", "--json"],
+        &["list", "--space", "main", "--json"],
         &["hosts"],
     ] {
         let out = h.p99_env(args, &[("PATH", &path), ("P99_KEY", WRONG)]);
@@ -538,7 +539,7 @@ fn watch_announces_the_vault_only_for_an_account_p99_key_does_not_belong_to() {
     );
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
-        out.stderr.contains("reading the account key"),
+        out.stderr.contains("reading the space key"),
         "{}",
         out.stderr
     );
@@ -553,7 +554,7 @@ fn watch_announces_the_vault_only_for_an_account_p99_key_does_not_belong_to() {
     );
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
-        !out.stderr.contains("reading the account key"),
+        !out.stderr.contains("reading the space key"),
         "{}",
         out.stderr
     );
@@ -575,14 +576,14 @@ const CARD_COMMANDS: [&[&str]; 6] = [
 fn card_calls(stub: &Stub) -> Vec<stub::Req> {
     worker_calls(stub)
         .into_iter()
-        .filter(|c| c.path.starts_with("/_p99/v1/cards") || c.path == "/_p99/v1/projects")
+        .filter(|c| c.path.starts_with("/_p99/v1/cards") || c.path == "/_p99/v1/space")
         .collect()
 }
 
 fn with_account<'a>(args: &[&'a str], account: Option<&'a str>) -> Vec<&'a str> {
     let mut all = args.to_vec();
     if let Some(account) = account {
-        all.extend(["--account", account]);
+        all.extend(["--space", account]);
     }
     all
 }
@@ -597,7 +598,7 @@ fn the_card_commands_sign_each_account_with_its_own_key_and_p99_key_only_its_own
         let bin = op_giving(&h.dir, OTHER_REF, OTHER);
         let path = path_with(&bin);
         let mut envs = vec![("PATH", path.as_str()), ("P99_KEY", KEY)];
-        envs.extend(bound.map(|b| ("P99_KEY_ACCOUNT", b)));
+        envs.extend(bound.map(|b| ("P99_KEY_SPACE", b)));
         for account in [None, Some("other")] {
             for args in CARD_COMMANDS {
                 let out = h.p99_env(&with_account(args, account), &envs);
@@ -639,7 +640,7 @@ fn p99_key_account_moves_the_card_commands_signature_to_the_account_it_names() {
     let envs = [
         ("PATH", path.as_str()),
         ("P99_KEY", OTHER),
-        ("P99_KEY_ACCOUNT", "other"),
+        ("P99_KEY_SPACE", "other"),
     ];
     for account in [None, Some("other")] {
         for args in CARD_COMMANDS {

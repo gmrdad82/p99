@@ -16,8 +16,22 @@ fn home(name: &str) -> Home {
     Home::new(name, fake::any)
 }
 
-fn host_row(host: &str, account: &str, env: &str, state: &str) -> String {
-    format!("{host:<16}  {account:<7}  {env:<10}  {state}")
+fn host_row(host: &str, project: &str, env: &str, masks: &str, state: &str) -> String {
+    format!(
+        "{host:<16}  {:<5}  {project:<7}  {env:<10}  {masks}  {state}",
+        "main"
+    )
+}
+
+fn host_head() -> String {
+    format!(
+        "{:<16}  {:<5}  {:<7}  {:<10}  MASKS  CAPTURE  STATE",
+        "HOST", "SPACE", "PROJECT", "ENV"
+    )
+}
+
+fn shown(host: &str, project: &str, env: &str, state: &str) -> String {
+    host_row(host, project, env, "    0  on     ", state)
 }
 
 #[test]
@@ -28,15 +42,15 @@ fn hosts_lists_the_config_beside_the_worker_and_names_each_state() {
     assert_eq!(
         out.lines(),
         [
-            host_row("HOST", "ACCOUNT", "ENV", "STATE"),
-            host_row(
+            host_head(),
+            shown(
                 "blog.example.com",
-                "main",
+                "Blog",
                 "production",
                 "only on the Worker"
             ),
-            host_row("dev.example.com", "main", "dev", "not on the Worker"),
-            host_row("shop.example.com", "main", "production", "ok"),
+            shown("dev.example.com", "Blog", "dev", "not on the Worker"),
+            shown("shop.example.com", "Shop", "production", "ok"),
         ]
     );
     assert!(h.stub.call("GET", "/_p99/v1/hosts").signed);
@@ -46,6 +60,10 @@ fn hosts_lists_the_config_beside_the_worker_and_names_each_state() {
     assert_eq!(hosts.len(), 3);
     assert_eq!(hosts[1]["host"], "dev.example.com");
     assert_eq!(hosts[1]["in_config"], true);
+    assert_eq!(hosts[1]["space"], "main");
+    assert_eq!(hosts[1]["project"], "Blog");
+    assert_eq!(hosts[1]["masks"], 0);
+    assert_eq!(hosts[1]["capture"], "on");
     assert_eq!(hosts[1]["worker"], Value::Null);
     assert_eq!(hosts[1]["config"], json!({"theme": {}, "strings": {}}));
     assert_eq!(hosts[0]["in_config"], false);
@@ -54,7 +72,7 @@ fn hosts_lists_the_config_beside_the_worker_and_names_each_state() {
 }
 
 #[test]
-fn hosts_says_a_host_differs_and_names_an_account_it_cannot_reach() {
+fn hosts_says_a_host_differs_and_names_a_space_it_cannot_reach() {
     let h = Home::new("hosts-differs", |req: &Req| {
         if req.is("GET", "/_p99/v1/hosts") {
             Reply::ok(json!({"hosts": [stub::host_entry("shop.example.com", "staging")]}))
@@ -77,8 +95,8 @@ fn hosts_says_a_host_differs_and_names_an_account_it_cannot_reach() {
     assert_eq!(
         out.lines()[1..],
         [
-            host_row("dev.example.com", "main", "dev", "unreachable"),
-            host_row("shop.example.com", "main", "production", "unreachable"),
+            shown("dev.example.com", "Blog", "dev", "unreachable"),
+            shown("shop.example.com", "Shop", "production", "unreachable"),
         ]
     );
     assert_eq!(out.stderr, "main: the Worker answered 500\n");
@@ -90,15 +108,15 @@ fn hosts_says_a_host_differs_and_names_an_account_it_cannot_reach() {
 fn hosts_with_no_host_anywhere_says_how_to_add_one() {
     let stub = Stub::new(fake::any);
     let text = format!(
-        "[accounts.main]\naccount_id = \"acc1\"\ntoken = \"t\"\nkey = \"{KEY}\"\n\n[accounts.other]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n",
+        "[spaces.main]\naccount_id = \"acc1\"\ntoken = \"t\"\nkey = \"{KEY}\"\n\n[spaces.other]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n",
         stub.base
     );
     let h = Home::with_config("hosts-none", stub, &text);
-    let out = h.p99(&["hosts", "--account", "main"]);
+    let out = h.p99(&["hosts", "--space", "main"]);
     out.ok();
     assert_eq!(
         out.stdout,
-        "no hosts yet; p99 hosts add <host> --env <env>\n"
+        "no hosts yet; p99 hosts add <host> --project <name> --env <env>\n"
     );
     assert!(h.stub.seen().is_empty());
 }
@@ -110,6 +128,8 @@ fn hosts_add_saves_the_host_routes_it_pushes_it_and_adds_its_new_environment() {
         "hosts",
         "add",
         " New.Example.com ",
+        "--project",
+        "shop",
         "--env",
         "staging",
         "--kind",
@@ -118,7 +138,7 @@ fn hosts_add_saves_the_host_routes_it_pushes_it_and_adds_its_new_environment() {
     out.ok();
     assert_eq!(
         out.stdout,
-        "added new.example.com to main, environment staging\n"
+        "added new.example.com to main, project Shop, environment staging\n"
     );
     assert_eq!(
         out.stderr,
@@ -134,7 +154,7 @@ fn hosts_add_saves_the_host_routes_it_pushes_it_and_adds_its_new_environment() {
     assert!(pushed.signed);
     assert_eq!(
         pushed.json(),
-        json!({"env": "staging", "config": {"theme": {}, "strings": {}}})
+        json!({"env": "staging", "config": {"theme": {}, "strings": {}}, "project": "Shop"})
     );
     assert_eq!(
         h.stub.call("PUT", "/_p99/v1/envs/staging").json(),
@@ -142,9 +162,15 @@ fn hosts_add_saves_the_host_routes_it_pushes_it_and_adds_its_new_environment() {
     );
     let config = h.toml();
     assert_eq!(
-        config["hosts"]["new.example.com"]["account"].as_str(),
+        config["hosts"]["new.example.com"]["space"].as_str(),
         Some("main")
     );
+    assert!(config["hosts"]["new.example.com"].get("account").is_none());
+    assert_eq!(
+        config["spaces"]["main"]["projects"]["Shop"],
+        toml::Value::try_from(vec!["new.example.com", "shop.example.com"]).unwrap()
+    );
+    assert!(config.get("accounts").is_none());
     assert_eq!(
         config["hosts"]["new.example.com"]["env"].as_str(),
         Some("staging")
@@ -160,16 +186,29 @@ fn hosts_add_saves_the_host_routes_it_pushes_it_and_adds_its_new_environment() {
 #[test]
 fn hosts_add_on_a_known_environment_keeps_it_unless_a_kind_is_given() {
     let h = home("hosts-add-env");
-    let out = h.p99(&["hosts", "add", "two.example.com", "--env", "dev", "--json"]);
+    let out = h.p99(&[
+        "hosts",
+        "add",
+        "two.example.com",
+        "--project",
+        "Blog",
+        "--env",
+        "dev",
+        "--json",
+    ]);
     out.ok();
     assert_eq!(out.json()["host"], "two.example.com");
     assert_eq!(out.json()["env"], "dev");
+    assert_eq!(out.json()["space"], "main");
+    assert_eq!(out.json()["project"], "Blog");
     assert!(h.stub.under("PUT", "/_p99/v1/envs/").is_empty());
     h.p99_env(
         &[
             "hosts",
             "add",
             "three.example.com",
+            "--project",
+            "Blog",
             "--env",
             "dev",
             "--kind",
@@ -200,8 +239,9 @@ fn hosts_add_names_what_already_serves_the_host() {
         "/cf/accounts/acc1/pages/projects" => Reply::cf_error(403, 10000, "Authentication error"),
         _ => fake::any(req),
     });
-    h.p99(&["hosts", "add", "new.example.com"]).ok();
-    let out = h.p99(&["hosts", "add", "new.example.com"]);
+    h.p99(&["hosts", "add", "new.example.com", "--project", "Shop"])
+        .ok();
+    let out = h.p99(&["hosts", "add", "new.example.com", "--project", "Shop"]);
     assert_eq!(
         out.stderr.lines().collect::<Vec<_>>(),
         [
@@ -224,7 +264,7 @@ fn hosts_add_names_what_already_serves_the_host() {
         }
         _ => fake::any(req),
     });
-    let out = pages.p99(&["hosts", "add", "new.example.com"]);
+    let out = pages.p99(&["hosts", "add", "new.example.com", "--project", "Shop"]);
     out.ok();
     let notes: Vec<&str> = out.stderr.lines().collect();
     assert_eq!(
@@ -246,22 +286,42 @@ fn hosts_add_refuses_a_bad_name_a_foreign_zone_and_a_route_another_worker_holds(
             fake::any(req)
         }
     });
-    h.p99(&["hosts", "add", "not a host"])
+    h.p99(&["hosts", "add", "not a host", "--project", "Shop"])
         .refused("not a host is not a host name; try example.com");
-    h.p99(&["hosts", "add", "localhost"])
+    h.p99(&["hosts", "add", "localhost", "--project", "Shop"])
         .refused("localhost is not a host name; try example.com");
     assert!(h.stub.seen().is_empty());
-    h.p99(&["hosts", "add", "new.example.org"]).refused(
+    h.p99(&["hosts", "add", "new.example.org", "--project", "Shop"]).refused(
         "new.example.org is on no zone this token reaches; add the zone to Cloudflare or to the token's Zone › Zone: Read",
     );
-    h.p99(&["hosts", "add", "held.example.com"]).refused(
+    h.p99(&["hosts", "add", "held.example.com", "--project", "Shop"]).refused(
         "the route held.example.com/_p99/* already runs the Worker other; P99 leaves it alone (remove it in the dashboard to give it to p99)",
     );
     assert!(h.stub.under("PUT", "/_p99/").is_empty());
-    h.p99(&["hosts", "add", "x.example.com", "--kind", "beta"])
-        .clap("invalid value 'beta' for '--kind <KIND>'");
+    h.p99(&[
+        "hosts",
+        "add",
+        "x.example.com",
+        "--project",
+        "Shop",
+        "--kind",
+        "beta",
+    ])
+    .clap("invalid value 'beta' for '--kind <KIND>'");
     h.p99(&["hosts", "add"])
         .clap("the following required arguments were not provided:");
+    h.p99(&["hosts", "add", "x.example.com"])
+        .clap("the following required arguments were not provided:");
+}
+
+#[test]
+fn hosts_add_into_a_project_the_space_lacks_says_how_to_make_it_and_changes_nothing() {
+    let h = home("hosts-add-no-project");
+    let before = h.config();
+    h.p99(&["hosts", "add", "new.example.com", "--project", "Docs"])
+        .refused("no project is called Docs in the space main; p99 projects add \"Docs\" makes it");
+    assert_eq!(h.config(), before);
+    assert!(h.stub.writes().is_empty());
 }
 
 #[test]
@@ -273,7 +333,7 @@ fn hosts_add_with_a_token_cloudflare_refuses_stops_before_the_worker() {
             fake::any(req)
         }
     });
-    h.p99(&["hosts", "add", "new.example.com"])
+    h.p99(&["hosts", "add", "new.example.com", "--project", "Shop"])
         .refused("Cloudflare /zones: Invalid access token (9109)");
     assert!(h.stub.under("PUT", "/_p99/").is_empty());
 }
@@ -298,7 +358,14 @@ fn hosts_remove_drops_the_host_from_the_worker_then_the_config() {
     let out = h.p99(&["hosts", "remove", "dev.example.com", "--json"]);
     assert_eq!(
         out.json(),
-        json!({"removed": "dev.example.com", "account": "main"})
+        json!({"removed": "dev.example.com", "space": "main"})
+    );
+    assert_eq!(
+        h.toml()["spaces"]["main"]["projects"]["Blog"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
     );
 }
 
@@ -439,10 +506,10 @@ fn feed_lists_turns_on_and_off_and_pushes_each_change() {
     assert!(h.toml()["hosts"]["shop.example.com"].get("feed").is_none());
     h.p99(&["feed", "on", "gone.example.com"])
         .refused("no host is called gone.example.com; p99 hosts lists them");
-    let other = h.p99(&["feed", "--account", "other"]);
+    let other = h.p99(&["feed", "--space", "other"]);
     assert_eq!(
         other.stdout,
-        "no hosts yet; p99 hosts add <host> --env <env>\n"
+        "no hosts yet; p99 hosts add <host> --project <name> --env <env>\n"
     );
 }
 
@@ -451,7 +518,8 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
     let h = home("invite");
     let out = h.p99(&[
         "invite",
-        "Shop.Example.com",
+        "--project",
+        "Shop",
         "--name",
         "Grace Hopper",
         "--email",
@@ -464,7 +532,7 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
         out.lines(),
         [
             "Grace Hopper <grace@example.com> (Owner)",
-            "mailed the link for shop.example.com to grace@example.com",
+            "mailed the link to grace@example.com (projects: Shop)",
             "key:    JBSWY3DPEHPK3PXP   (paste it as a one-time password or setup key; totp is the same as a link)",
             "totp:   otpauth://totp/P99:grace@example.com?secret=JBSWY3DPEHPK3PXP&issuer=P99&algorithm=SHA1&digits=6&period=30",
             "send these apart from the link; each browser asks for its 6-digit code once",
@@ -474,7 +542,8 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
     let sent = h.stub.call("POST", "/_p99/v1/codes");
     assert!(sent.signed);
     let body = sent.json();
-    assert_eq!(body["hosts"], json!(["shop.example.com"]));
+    assert_eq!(body["grant"], json!({"projects": ["Shop"]}));
+    assert!(body.get("hosts").is_none());
     assert_eq!(body["manager"], true);
     assert_eq!(body["totp"], true);
     assert_eq!(body["mail"], true);
@@ -482,7 +551,7 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
 }
 
 #[test]
-fn invite_without_mail_prints_the_secret_once() {
+fn invite_a_legacy_host_list_grants_the_projects_of_its_hosts_and_says_so() {
     let h = home("invite-nomail");
     let out = h.p99(&[
         "invite",
@@ -505,13 +574,112 @@ fn invite_without_mail_prints_the_secret_once() {
             "this is the only time the secret is shown",
         ]
     );
+    assert!(
+        out.stderr.contains(
+            "a code grants projects now; shop.example.com, dev.example.com became Shop, Blog"
+        ),
+        "{}",
+        out.stderr
+    );
     let body = h.stub.call("POST", "/_p99/v1/codes").json();
     assert!(body.get("mail").is_none());
     assert!(body.get("totp").is_none());
+    assert_eq!(body["grant"], json!({"projects": ["Shop", "Blog"]}));
+}
+
+#[test]
+fn invite_space_alone_grants_the_whole_space_and_project_grants_some() {
+    let h = home("invite-grants");
+    let out = h.p99(&[
+        "invite",
+        "--space",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--no-mail",
+    ]);
+    out.ok();
     assert_eq!(
-        body["hosts"],
-        json!(["shop.example.com", "dev.example.com"])
+        out.lines()[3],
+        "link:   https://blog.example.com/#p99=abcdefghjkmn"
     );
+    let named = h.p99(&[
+        "invite",
+        "--space",
+        "main",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--no-mail",
+    ]);
+    named.ok();
+    let sent = h.stub.calls("POST", "/_p99/v1/codes");
+    assert_eq!(sent[0].json()["grant"], json!({"space": true}));
+    assert_eq!(sent[1].json()["grant"], json!({"space": true}));
+    h.p99(&[
+        "invite",
+        "--project",
+        "Shop",
+        "--project",
+        "Blog",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--no-mail",
+        "--json",
+    ])
+    .ok();
+    let sent = h.stub.calls("POST", "/_p99/v1/codes");
+    assert_eq!(
+        sent[2].json()["grant"],
+        json!({"projects": ["Shop", "Blog"]})
+    );
+    let json = h
+        .p99(&[
+            "invite",
+            "--project",
+            "Shop",
+            "--name",
+            "G",
+            "--email",
+            "g@example.com",
+            "--no-mail",
+            "--json",
+        ])
+        .json();
+    assert_eq!(json["space"], json!({"slug": "main", "name": "PITO MD"}));
+    assert_eq!(json["code"]["grant"], json!({"projects": ["Shop"]}));
+}
+
+#[test]
+fn invite_refuses_a_host_list_with_projects_and_a_grant_that_is_missing() {
+    let h = home("invite-grant-bad");
+    h.p99(&[
+        "invite",
+        "shop.example.com",
+        "--project",
+        "Shop",
+        "--name",
+        "G",
+        "--email",
+        "g@example.com",
+    ])
+    .refused("a host list is the old way and cannot go with --project or a bare --space; name projects, or --space alone");
+    h.p99(&["invite", "--name", "G", "--email", "g@example.com"])
+        .refused("say what the code grants: --space for the whole space, or --project <name> (repeat it)");
+    h.p99(&[
+        "invite",
+        "gone.example.com",
+        "--name",
+        "G",
+        "--email",
+        "g@example.com",
+    ])
+    .refused("gone.example.com is in no project; p99 hosts set gone.example.com --project <name>");
+    assert!(h.stub.writes().is_empty());
 }
 
 #[test]
@@ -526,7 +694,12 @@ fn inviting_yourself_prints_your_own_link_and_mails_it_only_when_asked() {
         " ADA@example.com ",
     ]);
     out.ok();
-    assert!(h.stub.seen()[0].json().get("mail").is_none());
+    assert!(
+        h.stub.calls("POST", "/_p99/v1/codes")[0]
+            .json()
+            .get("mail")
+            .is_none()
+    );
     assert_eq!(
         out.lines()[3],
         "this is your own link: P99 keeps it nowhere, so save it in your password manager if you want it there"
@@ -541,10 +714,13 @@ fn inviting_yourself_prints_your_own_link_and_mails_it_only_when_asked() {
         "--mail-me",
     ]);
     out.ok();
-    assert_eq!(h.stub.seen()[1].json()["mail"], true);
+    assert_eq!(
+        h.stub.calls("POST", "/_p99/v1/codes")[1].json()["mail"],
+        true
+    );
     assert!(
         out.stdout
-            .contains("mailed the link for shop.example.com to ada@example.com")
+            .contains("mailed the link to ada@example.com (projects: Shop)")
     );
     assert!(out.stdout.contains("secret: abcd-efgh-jkmn"));
     h.p99(&[
@@ -584,7 +760,7 @@ fn invite_says_why_a_mail_did_not_go_out() {
     for (said, note) in [
         (
             "off",
-            "mail is off for this account, so nothing was mailed; send the link yourself (p99 email set turns mail on)",
+            "mail is off for this space, so nothing was mailed; send the link yourself (p99 email set turns mail on)",
         ),
         (
             "skipped",
@@ -631,8 +807,6 @@ fn invite_json_and_its_refusals() {
     assert_eq!(answer["mail"], "sent");
     h.p99(&["invite", "shop.example.com", "--email", "g@example.com"])
         .clap("the following required arguments were not provided:");
-    h.p99(&["invite", "--name", "G", "--email", "g@example.com"])
-        .clap("the following required arguments were not provided:");
     let replayed = Home::new("invite-replayed", |req: &Req| {
         if req.is("POST", "/_p99/v1/codes") {
             let mut made = minted(9, "G", "g@example.com", &["shop.example.com"], None);
@@ -655,10 +829,10 @@ fn invite_json_and_its_refusals() {
 }
 
 #[test]
-fn a_code_covers_one_account() {
+fn a_code_covers_one_space() {
     let stub = Stub::new(fake::any);
     let text = format!(
-        "{}\n[accounts.work]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n\n[hosts.\"work.example.org\"]\naccount = \"work\"\n",
+        "{}\n[spaces.work]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n\n[hosts.\"work.example.org\"]\nspace = \"work\"\n",
         home::config(&stub.base),
         stub.base
     );
@@ -672,13 +846,13 @@ fn a_code_covers_one_account() {
         "--email",
         "g@example.com",
     ])
-    .refused("work.example.org is in the account work, not main; a code covers one account");
+    .refused("work.example.org is in the space work, not main; a code covers one space");
     assert!(h.stub.seen().is_empty());
 }
 
-fn code_row(id: i64, state: &str, who: &str, role: &str, hosts: &str, last: &str) -> String {
+fn code_row(id: i64, state: &str, who: &str, role: &str, grant: &str, last: &str) -> String {
     format!(
-        "{id:>4}  {state}  {who}  {role}  ...k3x9  2026-10-01 09:30  hosts: {hosts}  last used: {last}"
+        "{id:>4}  {state}  {who}  {role}  ...k3x9  2026-10-01 09:30  grant: {grant}  last used: {last}"
     )
 }
 
@@ -709,7 +883,7 @@ fn invites_lists_each_code_with_its_role_state_and_last_use() {
                 "active",
                 "Grace Hopper <grace@example.com>",
                 "User",
-                "shop.example.com",
+                "projects: Shop",
                 "never"
             ),
             code_row(
@@ -717,7 +891,7 @@ fn invites_lists_each_code_with_its_role_state_and_last_use() {
                 "revoked",
                 "Linus <linus@example.com>",
                 "Owner, totp",
-                "dev.example.com",
+                "projects: Blog",
                 "2026-10-02 18:45"
             ),
         ]
@@ -960,11 +1134,11 @@ fn revoked_code_four(name: &'static str) -> impl Fn(&Req) -> Reply + Send + Sync
     }
 }
 
-fn two_accounts(name: &str) -> (Home, Stub) {
+fn two_spaces(name: &str) -> (Home, Stub) {
     let work = Stub::new(revoked_code_four("Grace Hopper"));
     let main = Stub::new(revoked_code_four("Ada Lovelace"));
     let text = format!(
-        "{}\n[accounts.work]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n\n[hosts.\"work.example.org\"]\naccount = \"work\"\n",
+        "{}\n[spaces.work]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n\n[hosts.\"work.example.org\"]\nspace = \"work\"\n",
         home::config(&main.base),
         work.base
     );
@@ -972,8 +1146,8 @@ fn two_accounts(name: &str) -> (Home, Stub) {
 }
 
 #[test]
-fn invites_delete_with_a_host_deletes_in_that_hosts_account_only() {
-    let (h, work) = two_accounts("invites-delete-host");
+fn invites_delete_with_a_host_deletes_in_that_hosts_space_only() {
+    let (h, work) = two_spaces("invites-delete-host");
     let out = h.p99(&[
         "invites",
         "--host",
@@ -995,8 +1169,8 @@ fn invites_delete_with_a_host_deletes_in_that_hosts_account_only() {
 }
 
 #[test]
-fn invites_totp_with_a_host_adds_the_authenticator_in_that_hosts_account() {
-    let (h, work) = two_accounts("invites-totp-host");
+fn invites_totp_with_a_host_adds_the_authenticator_in_that_hosts_space() {
+    let (h, work) = two_spaces("invites-totp-host");
     h.p99(&["invites", "--host", "work.example.org", "totp", "4"])
         .ok();
     assert_eq!(work.calls("POST", "/_p99/v1/codes/4/totp").len(), 1);
@@ -1055,7 +1229,7 @@ fn relink_by_id_or_email_mails_the_person_and_keeps_their_authenticator() {
     let expected = [
         "Grace Hopper <grace@example.com>",
         "code 14 replaces code 4, which no longer works",
-        "mailed the link for shop.example.com to grace@example.com",
+        "mailed the link to grace@example.com (projects: Shop)",
         "the authenticator carries over: the same app keeps giving the 6-digit codes",
     ];
     let out = h.p99(&["relink", "4"]);
@@ -1119,7 +1293,7 @@ fn relink_refuses_what_names_no_single_code() {
     h.p99(&["relink", "linus@example.com"])
         .refused("linus@example.com holds no active code; p99 invite mints one");
     h.p99(&["relink", "grace@example.com"]).refused(
-        "grace@example.com holds several codes: 4 (shop.example.com), 7 (dev.example.com); name one by id or --host",
+        "grace@example.com holds several codes: 4 (projects: Shop), 7 (projects: Blog); name one by id or --host",
     );
     h.p99(&["relink", "grace@example.com", "--host", "blog.example.com"])
         .refused(
@@ -1132,7 +1306,7 @@ fn relink_refuses_what_names_no_single_code() {
     assert!(h.stub.under("POST", "/_p99/").is_empty());
     let stub = Stub::new(fake::any);
     let text = format!(
-        "[accounts.main]\naccount_id = \"acc1\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n",
+        "[spaces.main]\naccount_id = \"acc1\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n",
         stub.base
     );
     let nobody = Home::with_config("relink-nobody", stub, &text);
@@ -1167,13 +1341,13 @@ fn link_refuses_a_missing_bad_or_ambiguous_choice() {
     h.p99(&["link", "--print"])
         .refused("several hosts: dev.example.com, shop.example.com; name one: p99 link <host>");
     h.p99(&["link", "blog.example.com"])
-        .refused("blog.example.com is not a host of the account main; p99 hosts lists them");
+        .refused("blog.example.com is not a host of the space main; p99 hosts lists them");
     h.p99(&["link", "shop.example.com", "--print"])
-        .refused("the code kept for the account main is not a 12-character P99 code");
+        .refused("the code kept for the space main is not a 12-character P99 code");
     let none = home("link-none");
     let out = none.p99(&["link", "shop.example.com", "--print"]);
     out.refused(&format!(
-        "the account main keeps no code of yours; add code = \"<your code>\" under [accounts.main] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from the 1Password CLI",
+        "the space main keeps no code of yours; add code = \"<your code>\" under [spaces.main] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from the 1Password CLI",
         none.file().display()
     ));
 }
@@ -1498,6 +1672,443 @@ fn the_harness_never_hands_p99_a_real_browser_or_display() {
     assert!(
         out.stderr
             .starts_with(&format!("p99: {}: ", browser.display())),
+        "{}",
+        out.stderr
+    );
+}
+
+#[test]
+fn spaces_lists_slug_name_worker_and_projects_without_calling_the_worker() {
+    let h = home("spaces");
+    let out = h.p99(&["spaces"]);
+    out.ok();
+    let w = h.stub.worker().len();
+    assert_eq!(
+        out.lines(),
+        [
+            format!("{:<5}  {:<7}  {:<w$}  PROJECTS", "SPACE", "NAME", "WORKER"),
+            format!(
+                "{:<5}  {:<7}  {:<w$}  Blog, Shop",
+                "main",
+                "PITO MD",
+                h.stub.worker()
+            ),
+        ]
+    );
+    let answer = h.p99(&["spaces", "--json"]).json();
+    let main = &answer["spaces"][0];
+    assert_eq!(main["slug"], "main");
+    assert_eq!(main["name"], "PITO MD");
+    assert_eq!(main["url"], h.stub.worker());
+    assert_eq!(main["default"], true);
+    assert_eq!(
+        main["projects"][0],
+        json!({"name": "Blog", "hosts": ["dev.example.com"]})
+    );
+    h.p99(&["spaces", "--space", "work"])
+        .refused("no space is called work; p99 spaces lists them");
+    assert!(h.stub.seen().is_empty());
+    std::fs::remove_file(h.file()).unwrap();
+    assert_eq!(h.p99(&["spaces"]).stdout, "no spaces yet; run p99 setup\n");
+}
+
+#[test]
+fn a_bare_space_flag_means_the_whole_space_only_where_a_grant_is_asked() {
+    let h = home("space-bare");
+    h.p99(&["list", "--space"])
+        .refused("--space names a space here; p99 spaces lists them");
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn hosts_set_project_moves_the_host_and_its_mapping() {
+    let h = home("hosts-set-project");
+    let out = h.p99(&["hosts", "set", "shop.example.com", "--project", "blog"]);
+    out.ok();
+    assert_eq!(
+        out.lines(),
+        [
+            "shop.example.com updated and pushed",
+            "shop.example.com is in the project Blog now; its items moved with it",
+        ]
+    );
+    let moved = h.stub.call("PATCH", "/_p99/v1/hosts/shop.example.com");
+    assert!(moved.signed);
+    assert_eq!(moved.json(), json!({"project": "Blog"}));
+    let pushed = h.stub.call("PUT", "/_p99/v1/hosts/shop.example.com").json();
+    assert!(pushed.get("project").is_none());
+    let saved = h.toml();
+    let projects = &saved["spaces"]["main"]["projects"];
+    assert_eq!(projects["Shop"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        projects["Blog"],
+        toml::Value::try_from(vec!["dev.example.com", "shop.example.com"]).unwrap()
+    );
+}
+
+#[test]
+fn hosts_set_into_a_project_the_space_lacks_changes_nothing() {
+    let h = home("hosts-set-project-missing");
+    let before = h.config();
+    h.p99(&["hosts", "set", "shop.example.com", "--project", "Docs"])
+        .refused("no project is called Docs in the space main; p99 projects add \"Docs\" makes it");
+    assert_eq!(h.config(), before);
+    assert!(h.stub.writes().is_empty());
+}
+
+fn pushed_config(h: &Home, at: usize) -> Value {
+    h.stub.calls("PUT", "/_p99/v1/hosts/shop.example.com")[at].json()["config"].clone()
+}
+
+#[test]
+fn hosts_set_mask_and_capture_are_pushed_saved_listed_and_cleared() {
+    let h = home("hosts-set-mask");
+    h.p99(&[
+        "hosts",
+        "set",
+        "shop.example.com",
+        "--mask",
+        "#card-number",
+        "--mask",
+        " .secret, .vault ",
+        "--mask",
+        "#card-number",
+        "--capture",
+        "off",
+    ])
+    .ok();
+    let config = pushed_config(&h, 0);
+    assert_eq!(config["mask"], json!(["#card-number", ".secret, .vault"]));
+    assert_eq!(config["capture"], "off");
+    let saved = h.toml();
+    let shop = &saved["hosts"]["shop.example.com"];
+    assert_eq!(shop["mask"].as_array().unwrap().len(), 2);
+    assert_eq!(shop["capture"].as_str(), Some("off"));
+    let out = h.p99(&["hosts"]);
+    out.ok();
+    assert_eq!(
+        out.lines()[3],
+        host_row(
+            "shop.example.com",
+            "Shop",
+            "production",
+            "    2  off    ",
+            "ok"
+        )
+    );
+    let answer = h.p99(&["hosts", "--json"]).json();
+    assert_eq!(answer["hosts"][2]["masks"], 2);
+    assert_eq!(answer["hosts"][2]["capture"], "off");
+    assert_eq!(answer["hosts"][0]["masks"], 0);
+    h.p99(&["hosts", "set", "shop.example.com", "--corner", "top-left"])
+        .ok();
+    assert_eq!(pushed_config(&h, 1)["mask"].as_array().unwrap().len(), 2);
+    h.p99(&[
+        "hosts",
+        "set",
+        "shop.example.com",
+        "--mask",
+        "none",
+        "--capture",
+        "on",
+    ])
+    .ok();
+    let cleared = pushed_config(&h, 2);
+    assert!(cleared.get("mask").is_none());
+    assert!(cleared.get("capture").is_none());
+    let saved = h.toml();
+    let shop = &saved["hosts"]["shop.example.com"];
+    assert!(shop.get("mask").is_none());
+    assert!(shop.get("capture").is_none());
+}
+
+#[test]
+fn hosts_set_refuses_a_bad_mask_list_before_saving_or_pushing() {
+    let h = home("hosts-set-mask-bad");
+    let before = h.config();
+    h.p99(&[
+        "hosts",
+        "set",
+        "shop.example.com",
+        "--mask",
+        "none",
+        "--mask",
+        "#a",
+    ])
+    .refused("--mask none clears the list and goes alone");
+    h.p99(&["hosts", "set", "shop.example.com", "--mask", "  "])
+        .refused("a --mask selector is empty; --mask none clears the list");
+    let long = "a".repeat(201);
+    let out = h.p99(&["hosts", "set", "shop.example.com", "--mask", &long]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr.starts_with(
+            "p99: a mask selector has at most 200 characters; aaaaaaaaaaaaaaaaaaaaaaaa... has 201"
+        ),
+        "{}",
+        out.stderr
+    );
+    let many: Vec<String> = (0..51).map(|n| format!(".m{n}")).collect();
+    let mut args = vec!["hosts", "set", "shop.example.com"];
+    for mask in &many {
+        args.extend(["--mask", mask]);
+    }
+    h.p99(&args)
+        .refused("a host takes at most 50 mask selectors");
+    h.p99(&["hosts", "set", "shop.example.com", "--capture", "maybe"])
+        .clap("invalid value 'maybe' for '--capture <CAPTURE>'");
+    assert_eq!(h.config(), before);
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn hosts_set_with_a_selector_the_worker_refuses_says_its_message_and_keeps_the_config() {
+    let h = Home::new("hosts-set-mask-refused", |req: &Req| {
+        if req.under("PUT", "/_p99/v1/hosts/") {
+            Reply::problem(400, "mask: '##' is not a CSS selector")
+        } else {
+            fake::any(req)
+        }
+    });
+    let before = h.config();
+    h.p99(&["hosts", "set", "shop.example.com", "--mask", "##"])
+        .refused("mask: '##' is not a CSS selector (400)");
+    assert_eq!(h.config(), before);
+}
+
+#[test]
+fn invites_set_changes_a_grant_and_never_mails() {
+    let h = home("invites-set");
+    let out = h.p99(&[
+        "invites",
+        "set",
+        "4",
+        "--project",
+        "shop",
+        "--project",
+        "Blog",
+    ]);
+    out.ok();
+    assert_eq!(
+        out.stdout,
+        "code 4 of Grace Hopper <grace@example.com> now grants projects: shop, Blog; no one was mailed\n"
+    );
+    let call = h.stub.call("PATCH", "/_p99/v1/codes/4");
+    assert!(call.signed);
+    assert_eq!(
+        call.json(),
+        json!({"grant": {"projects": ["shop", "Blog"]}})
+    );
+    let whole = h.p99(&["invites", "set", "4", "--space"]);
+    whole.ok();
+    assert!(
+        whole
+            .stdout
+            .contains("now grants the whole space; no one was mailed")
+    );
+    assert_eq!(
+        h.stub.calls("PATCH", "/_p99/v1/codes/4")[1].json(),
+        json!({"grant": {"space": true}})
+    );
+    let parked = h.p99(&["invites", "set", "4", "--park"]);
+    parked.ok();
+    assert_eq!(
+        parked.stdout,
+        "code 4 of Grace Hopper <grace@example.com> is parked: it opens nothing and is not revoked; no one was mailed\n"
+    );
+    assert_eq!(
+        h.stub.calls("PATCH", "/_p99/v1/codes/4")[2].json(),
+        json!({"grant": {"projects": []}})
+    );
+    let json = h
+        .p99(&["codes", "set", "4", "--project", "Shop", "--json"])
+        .json();
+    assert_eq!(json["grant"], json!({"projects": ["Shop"]}));
+    assert_eq!(json["space"], json!({"slug": "main", "name": "PITO MD"}));
+    assert_eq!(h.stub.writes().len(), 4);
+    assert!(h.stub.writes().iter().all(|r| r.path == "/_p99/v1/codes/4"));
+    assert!(
+        h.stub
+            .writes()
+            .iter()
+            .all(|r| r.json().get("mail").is_none())
+    );
+}
+
+#[test]
+fn invites_set_refuses_a_missing_or_clashing_grant_before_any_call() {
+    let h = home("invites-set-bad");
+    h.p99(&["invites", "set", "4"]).refused(
+        "say what the code grants: --space for the whole space, --project <name> for some, or --park for nothing",
+    );
+    h.p99(&["invites", "set", "4", "--park", "--project", "Shop"])
+        .clap("the argument '");
+    h.p99(&["invites", "set"])
+        .clap("the following required arguments were not provided:");
+    h.p99(&["invites", "set", "x", "--park"])
+        .clap("invalid value 'x' for '<ID>'");
+    assert!(h.stub.seen().is_empty());
+}
+
+#[test]
+fn invites_set_on_a_worker_without_grants_says_deploy() {
+    let h = Home::new("invites-set-old", |req: &Req| {
+        if req.under("PATCH", "/_p99/v1/codes/") {
+            Reply::problem(404, "no such route")
+        } else {
+            fake::any(req)
+        }
+    });
+    h.p99(&["invites", "set", "4", "--park"])
+        .refused("this Worker has no cards yet; run p99 deploy");
+}
+
+fn two_spaces_without_a_default() -> (Home, Stub) {
+    let main = Stub::new(fake::any);
+    let work = Stub::new(fake::any);
+    let text = format!(
+        "{}\n[spaces.work]\naccount_id = \"acc2\"\ntoken = \"t\"\nkey = \"{KEY}\"\nurl = \"{}/_p99\"\n\n[spaces.work.projects]\nDocs = [\"work.example.org\"]\n\n[hosts.\"work.example.org\"]\nspace = \"work\"\n",
+        home::config(&main.base).replace("default_space = \"main\"\n", ""),
+        work.base
+    );
+    (
+        Home::with_config("two-spaces-no-default", main, &text),
+        work,
+    )
+}
+
+#[test]
+fn invite_finds_the_space_that_holds_the_projects_when_several_are_configured() {
+    let (h, work) = two_spaces_without_a_default();
+    let out = h.p99(&[
+        "invite",
+        "--project",
+        "docs",
+        "--name",
+        "G",
+        "--email",
+        "g@example.com",
+        "--no-mail",
+        "--json",
+    ]);
+    out.ok();
+    assert_eq!(
+        work.call("POST", "/_p99/v1/codes").json()["grant"],
+        json!({"projects": ["docs"]})
+    );
+    assert!(h.stub.seen().is_empty());
+    assert_eq!(out.json()["space"], json!({"slug": "work", "name": "work"}));
+    h.p99(&[
+        "invite",
+        "--space",
+        "--name",
+        "G",
+        "--email",
+        "g@example.com",
+    ])
+    .refused("several spaces; name one with --space");
+    h.p99(&[
+        "invite",
+        "--project",
+        "Nowhere",
+        "--name",
+        "G",
+        "--email",
+        "g@example.com",
+    ])
+    .refused("several spaces; name one with --space");
+}
+
+const LEGACY: &str = r#"default_account = "main"
+
+[me]
+name = "Ada Lovelace"
+email = "ada@example.com"
+
+[accounts.main]
+account_id = "acc1"
+token = "cf-token"
+key = "test-secret"
+url = "BASE/_p99"
+
+[hosts."shop.example.com"]
+account = "main"
+"#;
+
+fn legacy_home(name: &str) -> Home {
+    let stub = Stub::new(fake::any);
+    let text = LEGACY.replace("BASE", &stub.base);
+    Home::with_config(name, stub, &text)
+}
+
+#[test]
+fn a_legacy_config_and_flag_work_say_to_rename_once_and_are_written_back_as_space() {
+    let h = legacy_home("legacy");
+    let out = h.p99(&["hosts", "--account", "main"]);
+    out.ok();
+    assert_eq!(out.stderr.lines().count(), 2, "{}", out.stderr);
+    assert_eq!(
+        out.stderr.matches("--account is now --space").count(),
+        1,
+        "{}",
+        out.stderr
+    );
+    assert!(
+        out.stderr.contains(
+            "[accounts.<name>] to [spaces.<name>], default_account to default_space and account = to space = under [hosts]"
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(out.stdout.contains("shop.example.com"), "{}", out.stdout);
+    let flagless = h.p99(&["hosts"]);
+    flagless.ok();
+    assert_eq!(flagless.stderr.lines().count(), 1, "{}", flagless.stderr);
+    assert!(!flagless.stderr.contains("--account"));
+    h.p99(&["hosts", "set", "shop.example.com", "--corner", "top-left"])
+        .ok();
+    let saved = h.toml();
+    assert!(saved.get("accounts").is_none());
+    assert!(saved.get("default_account").is_none());
+    assert_eq!(saved["default_space"].as_str(), Some("main"));
+    assert_eq!(saved["spaces"]["main"]["account_id"].as_str(), Some("acc1"));
+    assert_eq!(
+        saved["hosts"]["shop.example.com"]["space"].as_str(),
+        Some("main")
+    );
+    assert!(saved["hosts"]["shop.example.com"].get("account").is_none());
+    let again = h.p99(&["hosts"]);
+    again.ok();
+    assert!(again.stderr.is_empty(), "{}", again.stderr);
+}
+
+#[test]
+fn the_new_names_say_nothing_and_a_clashing_old_and_new_name_is_refused() {
+    let h = home("renamed-quiet");
+    let out = h.p99(&["hosts", "--space", "main"]);
+    out.ok();
+    assert!(out.stderr.is_empty(), "{}", out.stderr);
+    let plain = h.config();
+    h.write(&format!(
+        "{plain}\n[accounts.main]\naccount_id = \"acc1\"\ntoken = \"t\"\nkey = \"{KEY}\"\n"
+    ));
+    let out = h.p99(&["hosts"]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr.contains(
+            "the space main is in both [spaces.main] and [accounts.main]; keep [spaces.main]"
+        ),
+        "{}",
+        out.stderr
+    );
+    h.write(&format!(
+        "{plain}\n[hosts.\"nowhere.example.com\"]\nenv = \"production\"\n"
+    ));
+    let out = h.p99(&["hosts"]);
+    assert_eq!(out.code, Some(1), "{}", out.stderr);
+    assert!(
+        out.stderr
+            .contains("the host nowhere.example.com names no space"),
         "{}",
         out.stderr
     );

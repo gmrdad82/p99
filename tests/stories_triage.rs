@@ -863,11 +863,11 @@ impl Home {
         let mut text = String::from("[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n");
         for (account, url) in accounts {
             text.push_str(&format!(
-                "\n[accounts.{account}]\naccount_id = \"test\"\ntoken = \"\"\nkey = \"{key}\"\nurl = \"{url}\"\n"
+                "\n[spaces.{account}]\naccount_id = \"test\"\ntoken = \"\"\nkey = \"{key}\"\nurl = \"{url}\"\n"
             ));
         }
         text.push_str(&format!(
-            "\n[hosts.\"{HOST}\"]\naccount = \"{}\"\nenv = \"production\"\n",
+            "\n[hosts.\"{HOST}\"]\nspace = \"{}\"\nenv = \"production\"\n",
             accounts[0].0
         ));
         let config = dir.join("config.toml");

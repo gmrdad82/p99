@@ -281,7 +281,7 @@ fn watch_names_a_host_that_answers_as_something_else() {
         )
     });
     h.p99(&["watch"]).refused(
-        "every host of the account main is behind Cloudflare Access, which answered with its login; set `url` for the account to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
+        "every host of the space main is behind Cloudflare Access, which answered with its login; set `url` for the space to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
     );
 }
 
@@ -323,8 +323,8 @@ fn watch_without_a_reachable_worker_keeps_trying() {
 #[test]
 fn watch_refusals_before_any_call() {
     let h = streaming("watch-refusals", |_, _| Reply::problem(500, "never asked"));
-    h.p99(&["watch", "--account", "other"])
-        .refused("no account is called other");
+    h.p99(&["watch", "--space", "other"])
+        .refused("no space is called other");
     h.p99(&["watch", "--hots", "x"])
         .clap("unexpected argument '--hots' found");
     h.p99(&["watch", "--host"])

@@ -704,7 +704,7 @@ fn forged_owner() -> String {
 
 fn with_key(key: &str, url: &str) -> String {
     format!(
-        "license = \"{key}\"\n\n[accounts.acme]\naccount_id = \"{ACCOUNT_ID}\"\ntoken = \"\"\ndatabase_id = \"d1-acme\"\nurl = \"{url}/_p99\"\n\n[hosts.\"example.com\"]\naccount = \"acme\"\ncorner = \"bottom-right\"\n"
+        "license = \"{key}\"\n\n[spaces.acme]\naccount_id = \"{ACCOUNT_ID}\"\ntoken = \"\"\ndatabase_id = \"d1-acme\"\nurl = \"{url}/_p99\"\n\n[hosts.\"example.com\"]\nspace = \"acme\"\ncorner = \"bottom-right\"\n"
     )
 }
 
@@ -1061,7 +1061,7 @@ fn binding<'a>(bindings: &'a [Value], name: &str) -> Vec<&'a str> {
 fn deploy_config(key: Option<&str>) -> String {
     let license = key.map_or_else(String::new, |key| format!("license = \"{key}\"\n\n"));
     format!(
-        "{license}[accounts.acme]\naccount_id = \"{ACCOUNT_ID}\"\ntoken = \"\"\ndatabase_id = \"d1-acme\"\n"
+        "{license}[spaces.acme]\naccount_id = \"{ACCOUNT_ID}\"\ntoken = \"\"\ndatabase_id = \"d1-acme\"\n"
     )
 }
 

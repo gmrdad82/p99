@@ -113,24 +113,29 @@ impl Drop for Home {
 
 pub fn config(base: &str) -> String {
     format!(
-        r#"default_account = "main"
+        r#"default_space = "main"
 
 [me]
 name = "Ada Lovelace"
 email = "ada@example.com"
 
-[accounts.main]
+[spaces.main]
+name = "PITO MD"
 account_id = "acc1"
 token = "cf-token"
 database_id = "db1"
 key = "{KEY}"
 url = "{base}/_p99"
 
+[spaces.main.projects]
+Shop = ["shop.example.com"]
+Blog = ["dev.example.com"]
+
 [hosts."shop.example.com"]
-account = "main"
+space = "main"
 
 [hosts."dev.example.com"]
-account = "main"
+space = "main"
 env = "dev"
 "#
     )
@@ -208,6 +213,7 @@ impl Home {
             .env_remove("P99_TOKEN")
             .env_remove("P99_KEY")
             .env_remove("P99_KEY_ACCOUNT")
+            .env_remove("P99_KEY_SPACE")
             .env_remove("P99_AGENT")
             .env("P99_BROWSER", self.dir.join("no-browser-in-tests"))
             .env("XDG_RUNTIME_DIR", self.runtime())
