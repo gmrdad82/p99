@@ -5,7 +5,7 @@ import { peopleOf } from "./people.js";
 import { namedBy, sameFolded } from "./text.js";
 import { viewSql } from "./grants.js";
 
-export const BOARDS_GONE = "boards are one per account; see p99 board";
+export const BOARDS_GONE = "boards are one per space; see p99 board";
 export const NOT_ARCHIVED = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'board' AND a.id = b.id))";
 export const LIVE_LABEL = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'label' AND a.id = l.id))";
 
@@ -198,7 +198,7 @@ export async function moveByLane(c, body) {
   const v = boardView(c);
   const { DB } = c.env;
   const one = await cardsBoard(c);
-  if (!one || one.lanes.length !== LANES.length) K.fail(409, "this account's board has no seven lanes yet; run p99 deploy");
+  if (!one || one.lanes.length !== LANES.length) K.fail(409, "this space's board has no seven lanes yet; run p99 deploy");
   const target = laneOf(one.lanes, body.to);
   if (!target && namedBy(one.lanes, body.to, (l) => l.name).length > 1) K.fail(400, `${body.to} names more than one lane; give its exact name`);
   if (!target) K.fail(400, `${body.to} is not a lane; give ${LANES.join(", ")} or a lane's name`);

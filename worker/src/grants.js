@@ -27,7 +27,8 @@ export function reachOf(grant, dir) {
   if (grant.space) return EVERYWHERE;
   const projects = grant.projects;
   const every = dir.projects.size > 0 && [...dir.projects.keys()].every((id) => projects.includes(id));
-  return every ? EVERYWHERE : { all: false, projects };
+  if (every) return EVERYWHERE;
+  return { all: false, projects, hosts: [...dir.hosts.values()].filter((h) => projects.includes(h.project_id)).map((h) => h.host).sort() };
 }
 
 export function parked(grant) {
@@ -36,6 +37,10 @@ export function parked(grant) {
 
 export function reachesProject(reach, id) {
   return reach.all || (id !== null && id !== undefined && reach.projects.includes(id));
+}
+
+export function reachesItem(reach, row) {
+  return reachesProject(reach, row.project_id) || (!reach.all && Boolean(row.host) && (reach.hosts ?? []).includes(row.host));
 }
 
 export function reachesHost(reach, dir, host) {
@@ -61,9 +66,13 @@ export function storedGrant(grant) {
   return JSON.stringify(grant.space ? { space: true } : { projects: grant.projects });
 }
 
+function nocase(text) {
+  return String(text).replace(/[A-Z]/g, (ch) => ch.toLowerCase());
+}
+
 export function projectNamed(dir, name) {
-  const wanted = String(name).toLowerCase();
-  for (const p of dir.projects.values()) if (p.name.toLowerCase() === wanted) return p;
+  const wanted = nocase(name);
+  for (const p of dir.projects.values()) if (nocase(p.name) === wanted) return p;
   return null;
 }
 
@@ -89,14 +98,17 @@ export function grantFromHosts(hosts, dir) {
   return { projects: ids(hosts.map((h) => dir.hosts.get(h)?.project_id ?? null)) };
 }
 
-export function projectFilterSql(dir, names, bind, alias = "i") {
-  const found = [...new Set(names.map((name) => projectNamed(dir, String(name).trim())?.id).filter((id) => id !== undefined))];
-  return found.length > 0 ? `${alias}.project_id IN (SELECT value FROM json_each(${bind(JSON.stringify(found))}))` : "0";
+export function projectFilterSql(names, bind, alias = "i") {
+  return `${alias}.project_id IN (SELECT id FROM projects WHERE name IN (SELECT value FROM json_each(${bind(JSON.stringify(names))})))`;
 }
 
 export function viewSql(v, bind, alias = "i") {
   const parts = [];
-  if (!v.all && Array.isArray(v.projects)) parts.push(`${alias}.project_id IN (SELECT value FROM json_each(${bind(JSON.stringify(v.projects))}))`);
+  if (!v.all && Array.isArray(v.projects)) {
+    parts.push(
+      `(${alias}.project_id IN (SELECT value FROM json_each(${bind(JSON.stringify(v.projects))})) OR ${alias}.host IN (SELECT value FROM json_each(${bind(JSON.stringify(v.hosts ?? []))})))`,
+    );
+  }
   if (v.host) parts.push(`${alias}.host = ${bind(v.host)}`);
   return parts.length > 0 ? parts.join(" AND ") : "1";
 }

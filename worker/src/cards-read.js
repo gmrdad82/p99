@@ -1,5 +1,5 @@
 import { boardView, inView } from "./boards.js";
-import { projectFilterSql, reachesProject } from "./grants.js";
+import { projectFilterSql } from "./grants.js";
 import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
 import { peopleOf } from "./people.js";
 
@@ -109,9 +109,15 @@ function linksSql() {
 function scopeOf(v, q) {
   if (v.all) return () => "1";
   const project = v.projects ? q.bind(JSON.stringify(v.projects)) : null;
+  const reached = v.projects ? q.bind(JSON.stringify(v.hosts ?? [])) : null;
   const host = v.host ? q.bind(v.host) : null;
   return (item) =>
-    [project ? `${item}.project_id IN (SELECT value FROM json_each(${project}))` : null, host ? `${item}.host = ${host}` : null].filter(Boolean).join(" AND ") || "1";
+    [
+      project ? `(${item}.project_id IN (SELECT value FROM json_each(${project})) OR ${item}.host IN (SELECT value FROM json_each(${reached})))` : null,
+      host ? `${item}.host = ${host}` : null,
+    ]
+      .filter(Boolean)
+      .join(" AND ") || "1";
 }
 
 function shownKey(raw) {
@@ -309,7 +315,7 @@ export async function listCards(c) {
   const scope = scopeOf(v, q);
   const outer = [];
   const projects = params.getAll("project").map(projectName);
-  if (projects.length > 0) outer.push(projectFilterSql(c.dir, projects, (p) => q.bind(p)));
+  if (projects.length > 0) outer.push(projectFilterSql(projects, (p) => q.bind(p)));
   const statuses = params.getAll("status").map((word) => {
     const at = laneIndex(word);
     if (at < 0) K.fail(400, `status must be one of ${LANES.join(", ")}`);
@@ -388,17 +394,14 @@ export async function listProjects(c) {
   const v = boardView(c);
   const q = K.query();
   const { results } = await c.env.DB.prepare(
-    `SELECT i.project_id AS id, sum(i.open) AS open, sum(1 - i.open) AS done FROM items i
-     WHERE i.project IS NOT NULL AND ${scopeOf(v, q)("i")} GROUP BY i.project_id`,
+    `SELECT p.name, g.open, g.done FROM
+       (SELECT i.project_id AS id, sum(i.open) AS open, sum(1 - i.open) AS done FROM items i
+        WHERE i.project IS NOT NULL AND ${scopeOf(v, q)("i")} GROUP BY i.project_id) g
+     JOIN projects p ON p.id = g.id ORDER BY p.name COLLATE NOCASE, p.name`,
   )
     .bind(...q.binds)
     .all();
-  const counts = new Map(results.map((r) => [r.id, r]));
-  const hosts = (id) => [...c.dir.hosts.values()].filter((h) => h.project_id === id).map((h) => h.host).sort();
-  const shown = [...c.dir.projects.values()].filter((p) => (v.all || !v.projects || reachesProject({ all: false, projects: v.projects }, p.id)) && (!v.host || c.dir.hosts.get(v.host)?.project_id === p.id || counts.has(p.id)));
-  return K.json(200, {
-    projects: shown.map((p) => ({ name: p.name, hosts: hosts(p.id), open: counts.get(p.id)?.open ?? 0, done: counts.get(p.id)?.done ?? 0 })),
-  });
+  return K.json(200, { projects: results.map((r) => ({ name: r.name, open: r.open, done: r.done })) });
 }
 
 function waitingLanes(q, column) {

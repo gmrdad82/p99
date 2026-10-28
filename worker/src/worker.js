@@ -21,7 +21,7 @@ import {
 } from "./boards.js";
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import { LICENCE_ROUTES, licenceOf, licensed, linkShown, settingStatement, useLicenceKit } from "./license.js";
-import { EVERYWHERE, PARKED, projectFilterSql, grantFromBody, grantFromHosts, grantJson, grantOf, hostsOf, parked, projectNamed, projectNames, reachOf, reachesProject, storedGrant, viewSql } from "./grants.js";
+import { EVERYWHERE, PARKED, projectFilterSql, grantFromBody, grantFromHosts, grantJson, grantOf, hostsOf, parked, projectNamed, projectNames, reachOf, reachesItem, reachesProject, storedGrant, viewSql } from "./grants.js";
 import { PROJECT_ROUTES, SIGNED_SPACE_ROUTES, SPACE_ROUTES, spaceOf, useSpaceKit } from "./spaces.js";
 import { AVATAR_READS, AVATAR_ROUTES, avatarUrl, useAvatarKit } from "./avatars.js";
 import { maskRefusal } from "./selectors.js";
@@ -642,12 +642,12 @@ function query(firstBinds = []) {
 }
 
 function scopeClause(c, q, alias = "i") {
-  const sql = viewSql({ all: c.reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: c.reach.projects }, (v) => q.bind(v), alias);
+  const sql = viewSql({ all: c.reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts }, (v) => q.bind(v), alias);
   return sql === "1" ? null : sql;
 }
 
 function inScope(c, row) {
-  return reachesProject(c.reach, row.project_id) && (c.browser || c.scope.all || row.host === c.scope.host);
+  return reachesItem(c.reach, row) && (c.browser || c.scope.all || row.host === c.scope.host);
 }
 
 function usageQuery(c, field) {
@@ -1632,7 +1632,7 @@ async function listIssues(c) {
   const projects = params.getAll("project");
   if (projects.length > 0) {
     requireManager(c);
-    where.push(projectFilterSql(c.dir, projects.map(projectName), (v) => q.bind(v)));
+    where.push(projectFilterSql(projects.map(projectName), (v) => q.bind(v)));
   }
   const status = params.get("status") || "any";
   const asked = status === "open" || status === "closed" || status === "any" ? null : statusOf(status);
@@ -1884,7 +1884,7 @@ async function getIssue(c, rawKey) {
 
 function readMark(c, id) {
   const q = query([c.actor.email, id, c.now]);
-  const v = { all: c.reach.all && (c.browser || c.scope.all), host: c.browser || c.scope.all ? null : c.scope.host, projects: c.reach.projects };
+  const v = { all: c.reach.all && (c.browser || c.scope.all), host: c.browser || c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts };
   const seen = viewSql(v, (value) => q.bind(value), "items");
   return c.env.DB.prepare(
     `INSERT INTO reads (actor_email, item_id, read_at)
@@ -2723,7 +2723,7 @@ async function backupStatus(c) {
 const IMPORT_TYPES = ["item", "comment", "attachment", "event", "landing", "read", "manager"];
 
 function importHost(c) {
-  if (c.keyId !== "p99") fail(403, "only the account's key imports");
+  if (c.keyId !== "p99") fail(403, "only the space's key imports");
   const name = c.url.searchParams.get("host");
   const host = name ? c.dir.hosts.get(name.toLowerCase()) : null;
   if (!host) fail(400, "host must name a listed host");
@@ -3385,6 +3385,7 @@ useCardKit({
   issueResponse,
   json,
   keyOf,
+  forgetDirectory,
   loadItem,
   mineClause,
   parseKey,

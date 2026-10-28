@@ -1,7 +1,7 @@
 import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
-import { projectNamed, reachesProject } from "./grants.js";
+import { projectNamed, reachesItem } from "./grants.js";
 
 export const CARDS_BOARD = "Cards";
 const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e0823d", "#e5534b", "#39a5a0"];
@@ -146,20 +146,31 @@ async function cardRow(c, rawKey) {
   return row;
 }
 
-export function knownProject(c, raw) {
+const PROJECT_BY_NAME = "SELECT id, name FROM projects WHERE name = ?1";
+
+export async function knownProject(c, raw, host = null) {
   const name = projectName(raw);
-  const project = projectNamed(c.dir, name);
-  if (!project || !reachesProject(c.reach, project.id)) K.fail(404, `no project is called ${name}; p99 projects add makes one`);
-  return project;
+  const { DB } = c.env;
+  let project = projectNamed(c.dir, name) ?? (await DB.prepare(PROJECT_BY_NAME).bind(name).first());
+  if (!project) {
+    if (!c.reach.all) K.fail(404, `no project is called ${name}`);
+    const [, made] = await DB.batch([
+      DB.prepare("INSERT INTO projects (name, created_at) VALUES (?1, ?2) ON CONFLICT DO NOTHING").bind(name, c.now),
+      DB.prepare(PROJECT_BY_NAME).bind(name),
+    ]);
+    project = made.results[0];
+    K.forgetDirectory();
+  }
+  if (!reachesItem(c.reach, { project_id: project.id, host })) K.fail(404, `no project is called ${name}`);
+  return { id: project.id, name: project.name };
 }
 
-function targetHost(c, body, project) {
-  if (c.browser) return c.hostRow.project_id === project.id ? { host: c.hostRow.host, env: c.hostRow.env } : { host: null, env: c.hostRow.env };
+function targetHost(c, body) {
+  if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env };
   const name = c.scope.all ? (body.host ?? null) : c.scope.host;
   if (name === null) return { host: null, env: "" };
   const host = typeof name === "string" ? c.dir.hosts.get(name.toLowerCase()) : null;
   if (!host) K.fail(400, "host must name a listed host");
-  if (host.project_id !== project.id) K.fail(400, `${host.host} is in another project than ${project.name}`);
   return { host: host.host, env: host.env };
 }
 
@@ -190,14 +201,14 @@ export async function postCard(c) {
     if (existing.reporter_email !== c.actor.email || existing.project === null) K.fail(409, "client_uid is already used");
     return replay(existing.id);
   }
-  const project = knownProject(c, body.project);
+  const project = await knownProject(c, body.project, c.browser ? c.hostRow.host : null);
   const kind = body.kind === undefined || body.kind === null ? "feature" : body.kind;
   if (typeof kind !== "string" || !Object.hasOwn(K.KIND_PREFIXES, kind)) K.fail(400, "kind must be bug, feature, improvement, question or task");
   const title = K.validTitle(body.title);
   if (title === null) K.fail(400, `title must be 1 to ${K.MAX_TITLE_CHARS} characters`);
   const text = K.clean(body.body ?? "");
   if (!K.isChars(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
-  const target = targetHost(c, body, project);
+  const target = targetHost(c, body);
   const lanes = await cardsBoard(c);
   const lane = { ...laneAt(lanes, 0), closes: 0 };
   const place = await topOf(c, lanes.board, lane.id, 0);
@@ -357,7 +368,7 @@ export async function patchProject(c, row, body) {
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
   refuseAgentUncard(c, row, body);
   const from = row.project ?? null;
-  const project = body.project === null ? null : knownProject(c, body.project);
+  const project = body.project === null ? null : await knownProject(c, body.project, row.host ?? null);
   const name = project ? project.name : null;
   const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
   if (from === name) return answer();

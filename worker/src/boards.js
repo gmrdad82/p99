@@ -1,5 +1,5 @@
 import { LANES } from "./cards.js";
-import { EVERYWHERE, reachesHost, reachesProject } from "./grants.js";
+import { EVERYWHERE, reachesHost, reachesItem } from "./grants.js";
 import { moveByLane } from "./one-board.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
@@ -38,11 +38,11 @@ export function useKit(kit) {
 
 export function boardView(c) {
   if (!c.browser) return { all: c.scope.all, host: c.scope.host, projects: null };
-  return c.reach.all ? { all: true, host: null, projects: null } : { all: false, host: null, projects: c.reach.projects };
+  return c.reach.all ? { all: true, host: null, projects: null } : { all: false, host: null, projects: c.reach.projects, hosts: c.reach.hosts };
 }
 
 export function inView(v, row) {
-  return reachesProject(v.all || v.projects === null ? EVERYWHERE : { all: false, projects: v.projects }, row.project_id) && (!v.host || row.host === v.host);
+  return reachesItem(v.all || !v.projects ? EVERYWHERE : { all: false, projects: v.projects, hosts: v.hosts ?? [] }, row) && (!v.host || row.host === v.host);
 }
 
 export function stageOf(row) {
@@ -112,7 +112,7 @@ export async function patchLabel(c, rawId) {
   if (!label) K.fail(404, "no such lane");
   const name = labelName(body.name);
   if (name === label.name) return K.json(200, { id: label.id, name, closes: Boolean(label.closes) });
-  if (!v.all) K.fail(403, "the lanes are the account's; rename one from the CLI, without --host");
+  if (!v.all) K.fail(403, "the lanes are the space's; rename one from the CLI, without --host");
   try {
     await DB.prepare("UPDATE labels SET name = ?2 WHERE id = ?1").bind(label.id, name).run();
   } catch (error) {
@@ -316,8 +316,9 @@ export async function fanOut(DB, sockets, events) {
     const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
     const reached = Array.isArray(seen.projects) ? seen.projects : null;
     for (const [hosts, projects, every, line] of lines) {
-      if (!every && reached !== null && !projects.some((p) => reached.includes(p))) continue;
-      if (!every && reached === null && wanted !== null && !hosts.some((h) => wanted.includes(h))) continue;
+      const byProject = reached !== null && projects.some((p) => reached.includes(p));
+      const byHost = wanted === null || hosts.some((h) => wanted.includes(h));
+      if (!every && !byProject && !(byHost && (reached === null || wanted !== null))) continue;
       try {
         socket.send(line);
       } catch {}
