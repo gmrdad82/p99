@@ -351,6 +351,12 @@ fn old_worker(method: &str, path: &str, body: &Value) -> (u16, String) {
         ("GET", "/v1/issues/41") => {
             json!({"issue":{"id":41,"key":"FEAT-41","kind":"feature","title":"Export keeps every audio track","label":"Doing"},"comments":[],"events":[]})
         }
+        ("POST", "/v1/move") if body.get("before").is_some() || body.get("after").is_some() => {
+            return (
+                400,
+                r#"{"message":"before and after place a card on a board; give board too"}"#.into(),
+            );
+        }
         ("POST", "/v1/move") => {
             return (400, r#"{"message":"name a board to move on"}"#.into());
         }
@@ -686,7 +692,6 @@ fn move_on_an_old_worker_is_its_refusal_in_one_line() {
     for args in [
         vec!["move", "FEAT-41", "--to", "new"],
         vec!["move", "FEAT-41", "--to", "new", "--json"],
-        vec!["move", "FEAT-41", "--to", "new", "--after", "BUG-12"],
     ] {
         refused(&run(&old, "move_old", &args), "name a board to move on");
         let seen = old.last();
@@ -697,6 +702,28 @@ fn move_on_an_old_worker_is_its_refusal_in_one_line() {
         assert_eq!(seen.body["from"], "Doing");
         assert!(seen.body.get("board").is_none());
     }
+}
+
+#[test]
+fn an_anchored_move_on_an_old_worker_says_deploy_and_an_unanchored_one_on_1_11_moves() {
+    let old = Worker::start(old_worker);
+    for anchor in ["--before", "--after"] {
+        for json in [false, true] {
+            let mut args = vec!["move", "FEAT-41", "--to", "new", anchor, "BUG-3"];
+            if json {
+                args.push("--json");
+            }
+            refused(
+                &run(&old, "move_old_anchor", &args),
+                "this Worker still has a board per person; run p99 deploy for the one board",
+            );
+            assert!(old.last().body.get("board").is_none());
+        }
+    }
+    let worker = Worker::start(answers);
+    let out = run(&worker, "move_plain", &["move", "FEAT-41", "--to", "new"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    assert_eq!(out.stdout, "FEAT-41 is in New\n");
 }
 
 #[test]

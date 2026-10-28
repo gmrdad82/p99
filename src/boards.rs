@@ -135,9 +135,14 @@ pub fn meanwhile(key: &str, now: &str, to: &str) -> String {
     }
 }
 
+const ANCHOR_NEEDS_BOARD: &str = "before and after place a card on a board; give board too";
+
 pub fn raced(client: &Client, key: &str, to: &str, error: String) -> String {
     if !error.ends_with("(409)") {
-        return crate::card::refusal(error);
+        return match crate::card::refusal(error) {
+            bare if bare == ANCHOR_NEEDS_BOARD => crate::one_board::OLD_WORKER.to_owned(),
+            bare => bare,
+        };
     }
     match client.thread(key).map(|thread| thread.issue) {
         Ok(Issue {
