@@ -106,8 +106,8 @@ fn hit(app: &Run, key: &str) -> Rect {
         .unwrap_or_else(|| panic!("{key} is drawn whole"))
 }
 
-fn heard(app: &mut Run, account: usize, event: serde_json::Value) -> String {
-    app.event(BOARD, Msg::Heard(account, event.to_string()))
+fn heard(app: &mut Run, space: usize, event: serde_json::Value) -> String {
+    app.event(BOARD, Msg::Heard(space, event.to_string()))
 }
 
 fn card(key: &str, label: &str, who: Option<&str>) -> Card {
@@ -446,7 +446,7 @@ fn a_saved_move_to_a_lane_the_board_lacks_takes_the_card_off() {
 }
 
 #[test]
-fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
+fn a_space_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
     let mut app = shown();
     let mut view = app.demo(|demo| demo.one_board(&[]));
     let line_of = deck::behind("blog", Some("1.9.4"));
@@ -457,7 +457,7 @@ fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
         "{text}"
     );
     assert!(
-        text.contains("p99 deploy --account blog upgrades it"),
+        text.contains("p99 deploy --space blog upgrades it"),
         "{text}"
     );
     assert!(
@@ -477,12 +477,12 @@ fn an_account_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
 }
 
 #[test]
-fn cards_of_several_accounts_share_the_lanes_and_name_their_account() {
+fn cards_of_several_spaces_share_the_lanes_and_name_their_space() {
     let mut app = shown();
     board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
     let mut view = app.demo(|demo| demo.one_board(&[]));
     let mut other = card("FEAT-9", "Stuck", None);
-    other.account = 1;
+    other.space = 1;
     other.id = "1/FEAT-9".into();
     view.cards.push(other);
     let text = app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
@@ -502,11 +502,11 @@ fn cards_of_several_accounts_share_the_lanes_and_name_their_account() {
 
 #[test]
 fn a_failed_board_read_says_why_and_r_reads_again() {
-    let mut app = run(Source::Broken("no account yet; p99 setup makes one".into()));
+    let mut app = run(Source::Broken("no space yet; p99 setup makes one".into()));
     let text = app.go(BOARD);
     for said in [
         "Couldn't read the board.",
-        "no account yet; p99 setup makes one",
+        "no space yet; p99 setup makes one",
         "r reads it again · p99 tui --demo shows sample data",
         "r read again",
     ] {
@@ -712,10 +712,10 @@ fn enter_reads_the_card_as_a_thread_and_esc_comes_back_to_the_board() {
 }
 
 #[test]
-fn a_card_of_a_second_account_opens_its_own_thread() {
+fn a_card_of_a_second_space_opens_its_own_thread() {
     let mut app = shown();
     let mut other = card("BUG-90", "New", None);
-    other.account = 1;
+    other.space = 1;
     other.id = "1/BUG-90".into();
     other.order = Some("!".into());
     let view = BoardView {
@@ -990,7 +990,7 @@ fn a_card_draws_its_key_title_and_assignee_inside_rounded_edges() {
 }
 
 #[test]
-fn a_card_names_its_project_left_and_its_account_on_top_when_there_are_several() {
+fn a_card_names_its_project_left_and_its_space_on_top_when_there_are_several() {
     let palette = palette();
     let mut buffer = Buffer::empty(Rect::new(0, 0, 30, 4));
     let mut item = card("FEAT-41", "Stuck", Some("ada"));
@@ -1019,7 +1019,7 @@ fn a_card_names_its_project_left_and_its_account_on_top_when_there_are_several()
         0,
         0,
         10,
-        (&item, Some("an account with a long name")),
+        (&item, Some("a space with a long name")),
         (false, false, false),
         &palette,
     );
@@ -1355,7 +1355,7 @@ fn choosing_the_same_projects_again_keeps_the_board_without_reading_it_anew() {
 }
 
 #[test]
-fn a_card_deleted_on_a_board_of_several_accounts_marks_it_stale_instead_of_guessing() {
+fn a_card_deleted_on_a_board_of_several_spaces_marks_it_stale_instead_of_guessing() {
     let mut app = shown();
     board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
     let before = lane(&app, "New");

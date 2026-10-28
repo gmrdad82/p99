@@ -169,8 +169,8 @@ fn erase(source: &Source, code: &Code) -> Result<(), String> {
             Ok(())
         });
     }
-    for account in 0..source.accounts().len() {
-        let client = source.client(account, None)?;
+    for space in 0..source.spaces().len() {
+        let client = source.client(space, None)?;
         let held = client.codes(None)?.iter().any(|c| same(c, code));
         if held {
             return remove(&client, code.id).map(|_| ());

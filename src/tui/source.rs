@@ -18,15 +18,15 @@ use super::demo::Demo;
 
 #[derive(Debug, Clone)]
 pub struct Entry {
-    pub account: usize,
+    pub space: usize,
     pub summary: Summary,
     pub haystack: String,
 }
 
 impl Entry {
-    pub fn new(account: usize, summary: Summary) -> Entry {
+    pub fn new(space: usize, summary: Summary) -> Entry {
         let mut entry = Entry {
-            account,
+            space,
             summary,
             haystack: String::new(),
         };
@@ -83,7 +83,7 @@ pub enum Source {
 
 pub struct Live {
     config: Config,
-    accounts: Vec<String>,
+    spaces: Vec<String>,
     holder: Option<String>,
     agent: Option<Option<String>>,
     clients: OnceLock<Result<Vec<Client>, String>>,
@@ -98,18 +98,18 @@ impl Source {
         Source::Demo(Arc::new(Mutex::new(Demo::new())), pace)
     }
 
-    pub fn live(account: Option<&str>, agent: Option<Option<String>>) -> Source {
+    pub fn live(space: Option<&str>, agent: Option<Option<String>>) -> Source {
         let config = match Config::load() {
             Ok(config) => config,
             Err(why) => return Source::Broken(why),
         };
-        let accounts: Vec<String> = match account {
+        let spaces: Vec<String> = match space {
             Some(name) if config.accounts.contains_key(name) => vec![name.to_owned()],
-            Some(name) => return Source::Broken(format!("no account is called {name}")),
+            Some(name) => return Source::Broken(format!("no space is called {name}")),
             None => config.accounts.keys().cloned().collect(),
         };
-        if accounts.is_empty() {
-            return Source::Broken("no account yet; p99 setup makes one".into());
+        if spaces.is_empty() {
+            return Source::Broken("no space yet; p99 setup makes one".into());
         }
         let holder = match crate::config::key_holder(&config) {
             Ok(holder) => holder,
@@ -117,7 +117,7 @@ impl Source {
         };
         Source::Live(Arc::new(Live {
             config,
-            accounts,
+            spaces,
             holder,
             agent,
             clients: OnceLock::new(),
@@ -128,7 +128,7 @@ impl Source {
     #[cfg(test)]
     pub(super) fn over(config: Config) -> Source {
         Source::Live(Arc::new(Live {
-            accounts: config.accounts.keys().cloned().collect(),
+            spaces: config.accounts.keys().cloned().collect(),
             config,
             holder: None,
             agent: None,
@@ -137,17 +137,17 @@ impl Source {
         }))
     }
 
-    pub fn accounts(&self) -> Vec<String> {
+    pub fn spaces(&self) -> Vec<String> {
         match self {
             Source::Demo(..) => vec!["sample".to_owned()],
-            Source::Live(live) => live.accounts.clone(),
+            Source::Live(live) => live.spaces.clone(),
             Source::Broken(_) => Vec::new(),
         }
     }
 
-    pub(super) fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
+    pub(super) fn client(&self, space: usize, host: Option<&str>) -> Result<Client, String> {
         match self {
-            Source::Live(live) => live.client(account, host),
+            Source::Live(live) => live.client(space, host),
             Source::Demo(..) => Err("not the live data".into()),
             Source::Broken(why) => Err(why.clone()),
         }
@@ -173,7 +173,7 @@ impl Source {
                 .config
                 .hosts
                 .iter()
-                .filter(|(_, host)| live.accounts.contains(&host.account))
+                .filter(|(_, host)| live.spaces.contains(&host.account))
                 .map(|(name, _)| name.clone())
                 .collect(),
             Source::Broken(_) => Vec::new(),
@@ -222,11 +222,11 @@ impl Source {
         Ok(loaded)
     }
 
-    pub fn thread(&self, account: usize, host: Option<&str>, key: &str) -> Result<Thread, String> {
+    pub fn thread(&self, space: usize, host: Option<&str>, key: &str) -> Result<Thread, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.thread(key)),
             Source::Live(live) => {
-                let client = live.client(account, host)?;
+                let client = live.client(space, host)?;
                 let (thread, people) = thread::scope(|s| {
                     let people = s.spawn(|| client.people());
                     (client.thread(key), people.join())
@@ -241,7 +241,7 @@ impl Source {
 
     pub fn comment(
         &self,
-        account: usize,
+        space: usize,
         host: Option<&str>,
         key: &str,
         body: &str,
@@ -249,34 +249,34 @@ impl Source {
     ) -> Result<Comment, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.comment(key, body, internal)),
-            Source::Live(live) => live.client(account, host)?.comment(key, body, internal),
+            Source::Live(live) => live.client(space, host)?.comment(key, body, internal),
             Source::Broken(why) => Err(why.clone()),
         }
     }
 
     pub fn change(
         &self,
-        account: usize,
+        space: usize,
         host: Option<&str>,
         key: &str,
         change: &Change,
     ) -> Result<Issue, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.change(key, change)),
-            Source::Live(live) => live.client(account, host)?.change(key, change),
+            Source::Live(live) => live.client(space, host)?.change(key, change),
             Source::Broken(why) => Err(why.clone()),
         }
     }
 
     pub fn delete(
         &self,
-        account: usize,
+        space: usize,
         host: Option<&str>,
         key: &str,
     ) -> Result<crate::wire::Deleted, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.delete(key)),
-            Source::Live(live) => live.client(account, host)?.delete_item(key),
+            Source::Live(live) => live.client(space, host)?.delete_item(key),
             Source::Broken(why) => Err(why.clone()),
         }
     }
@@ -291,11 +291,11 @@ impl Source {
         if listeners.len() > 1 {
             return;
         }
-        for (account, client) in clients.iter().enumerate() {
+        for (space, client) in clients.iter().enumerate() {
             let (client, live) = (client.clone(), Arc::clone(live));
             thread::spawn(move || {
                 let _ = crate::stream::follow(&client, None, |heard| {
-                    relay(&live.listeners, account, heard)
+                    relay(&live.listeners, space, heard)
                 });
             });
         }
@@ -318,7 +318,7 @@ impl Source {
     }
 }
 
-fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, account: usize, heard: Heard<'_>) -> bool {
+fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, space: usize, heard: Heard<'_>) -> bool {
     let tell = |send: &dyn Fn(&Waker<Msg>) -> bool| {
         listeners
             .lock()
@@ -327,7 +327,7 @@ fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, account: usize, heard: Heard<'_>) -
     };
     match heard {
         Heard::Open { again: false } | Heard::Dropped(..) => true,
-        Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(account, None))),
+        Heard::Open { again: true } => tell(&|w| w.send(Msg::Pushed(space, None))),
         Heard::Event(text) => {
             let event = serde_json::from_str::<serde_json::Value>(text).ok();
             let key = event
@@ -335,8 +335,8 @@ fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, account: usize, heard: Heard<'_>) -
                 .and_then(|event| event["key"].as_str().map(str::to_owned));
             let gone = event.is_some_and(|event| event["type"] == "delete");
             tell(&|w| {
-                (gone || w.send(Msg::Pushed(account, key.clone())))
-                    & w.send(Msg::Heard(account, text.to_owned()))
+                (gone || w.send(Msg::Pushed(space, key.clone())))
+                    & w.send(Msg::Heard(space, text.to_owned()))
             })
         }
     }
@@ -346,7 +346,7 @@ impl Live {
     fn clients(&self) -> Result<&[Client], String> {
         self.clients
             .get_or_init(|| {
-                self.accounts
+                self.spaces
                     .iter()
                     .map(|name| {
                         Client::among(&self.config, name, self.holder.as_deref(), &self.agent)
@@ -357,16 +357,16 @@ impl Live {
             .map_err(Clone::clone)
     }
 
-    fn client(&self, account: usize, host: Option<&str>) -> Result<Client, String> {
+    fn client(&self, space: usize, host: Option<&str>) -> Result<Client, String> {
         self.clients()?
-            .get(account)
+            .get(space)
             .map(|client| client.clone().with_host(host))
-            .ok_or_else(|| "that account is gone".to_owned())
+            .ok_or_else(|| "that space is gone".to_owned())
     }
 
     fn inbox(&self) -> Result<Loaded, String> {
         let (mut entries, mut unloaded) = (Vec::new(), 0);
-        for (account, client) in self.clients()?.iter().enumerate() {
+        for (space, client) in self.clients()?.iter().enumerate() {
             let (start, mut total) = (entries.len(), None);
             let mut cursor = None;
             loop {
@@ -380,12 +380,12 @@ impl Live {
                 };
                 let page = client
                     .list(&query)
-                    .map_err(|why| format!("{}: {why}", self.accounts[account]))?;
+                    .map_err(|why| format!("{}: {why}", self.spaces[space]))?;
                 total = total.or(page.total);
                 entries.extend(
                     page.issues
                         .into_iter()
-                        .map(|summary| Entry::new(account, summary)),
+                        .map(|summary| Entry::new(space, summary)),
                 );
                 match page.next_cursor {
                     Some(next) if entries.len() < MOST => cursor = Some(next),

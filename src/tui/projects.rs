@@ -142,9 +142,9 @@ impl Source {
             Source::Demo(..) => self.sample(|demo| Ok(demo.projects())),
             Source::Live(_) => {
                 let (mut lists, mut failed, mut answered) = (Vec::new(), None, false);
-                for (account, name) in self.accounts().iter().enumerate() {
+                for (space, name) in self.spaces().iter().enumerate() {
                     let answer = self
-                        .client(account, None)
+                        .client(space, None)
                         .and_then(|client| client.json::<ProjectList>("GET", "/v1/projects", None));
                     match answer {
                         Ok(list) => {
@@ -198,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn names_from_several_accounts_merge_once_keeping_the_first_spelling() {
+    fn names_from_several_spaces_merge_once_keeping_the_first_spelling() {
         let merged = merge([
             names(&["Splicer", "paper"]),
             names(&["Paper", "Dispatch"]),
@@ -227,7 +227,7 @@ mod tests {
             source.projects().expect("the sample has projects"),
             ["Mobile app", "Storefront"]
         );
-        let broken = Source::Broken("no account yet".into());
-        assert_eq!(broken.projects().err().as_deref(), Some("no account yet"));
+        let broken = Source::Broken("no space yet".into());
+        assert_eq!(broken.projects().err().as_deref(), Some("no space yet"));
     }
 }

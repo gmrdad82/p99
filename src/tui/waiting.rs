@@ -138,7 +138,7 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
         self.picking = Some(Picking::Waiting(
             shown
                 .iter()
-                .map(|(account, card)| (*account, card.key.clone()))
+                .map(|(space, card)| (*space, card.key.clone()))
                 .collect(),
         ));
         cx.pick(
@@ -200,9 +200,9 @@ impl Source {
             Source::Live(_) => {
                 let (mut count, mut cards, mut answered) = (0, Vec::new(), false);
                 let (mut failed, mut behind) = (None, None);
-                let names = self.accounts();
-                for (account, name) in names.iter().enumerate() {
-                    let client = match self.client(account, None) {
+                let names = self.spaces();
+                for (space, name) in names.iter().enumerate() {
+                    let client = match self.client(space, None) {
                         Ok(client) => client,
                         Err(error) => {
                             failed.get_or_insert(format!("{name}: {error}"));
@@ -213,10 +213,10 @@ impl Source {
                         Ok(list) => {
                             answered = true;
                             count += list.count;
-                            cards.extend(list.cards.into_iter().map(|card| (account, card)));
+                            cards.extend(list.cards.into_iter().map(|card| (space, card)));
                         }
                         Err(error) if unrouted(&error) || older(&error) => {
-                            behind.get_or_insert(account);
+                            behind.get_or_insert(space);
                         }
                         Err(error) => {
                             failed.get_or_insert(format!("{name}: {error}"));
@@ -227,9 +227,9 @@ impl Source {
                     if let Some(error) = failed {
                         return Err(error);
                     }
-                    if let Some(account) = behind {
-                        let client = self.client(account, None)?;
-                        return Err(asked_behind(&client, &names[account]));
+                    if let Some(space) = behind {
+                        let client = self.client(space, None)?;
+                        return Err(asked_behind(&client, &names[space]));
                     }
                 }
                 (count, cards)
@@ -348,13 +348,13 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             }
             Msg::Projects(Err(error)) if self.free() => cx.say(error, Tone::Alert),
             Msg::Projects(Err(_)) => {}
-            Msg::Heard(account, text) if self.reading() => {
-                self.reader.event(Msg::Heard(account, text.clone()), cx);
-                self.inner.event(Msg::Heard(account, text), cx);
+            Msg::Heard(space, text) if self.reading() => {
+                self.reader.event(Msg::Heard(space, text.clone()), cx);
+                self.inner.event(Msg::Heard(space, text), cx);
             }
-            Msg::Pushed(account, key) if self.reading() => {
-                self.reader.event(Msg::Pushed(account, key.clone()), cx);
-                self.inner.event(Msg::Pushed(account, key), cx);
+            Msg::Pushed(space, key) if self.reading() => {
+                self.reader.event(Msg::Pushed(space, key.clone()), cx);
+                self.inner.event(Msg::Pushed(space, key), cx);
             }
             event if self.reading() && settled(&event) => {
                 self.reader.event(event, cx);
@@ -387,8 +387,8 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                 }
             }
             (Some(Picking::Waiting(rows)), Some(at)) => {
-                if let Some((account, key)) = rows.into_iter().nth(at) {
-                    self.reader.open_key(account, None, key, cx);
+                if let Some((space, key)) = rows.into_iter().nth(at) {
+                    self.reader.open_key(space, None, key, cx);
                 }
             }
             (Some(_), None) => {}

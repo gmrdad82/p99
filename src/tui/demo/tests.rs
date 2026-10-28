@@ -30,7 +30,7 @@ fn the_sample_holds_every_kind_and_state_with_unique_keys() {
         assert!(list.iter().any(|e| e.summary.status == status), "{status}");
     }
     assert_eq!(list.iter().filter(|e| e.summary.unread).count(), 3);
-    assert!(list.iter().all(|e| e.account == 0));
+    assert!(list.iter().all(|e| e.space == 0));
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn the_duplicate_points_at_its_original_and_the_original_lists_it() {
 }
 
 #[test]
-fn reading_a_thread_marks_it_read_and_names_the_people_on_the_account() {
+fn reading_a_thread_marks_it_read_and_names_the_people_on_the_space() {
     let mut demo = Demo::new();
     let unread = |demo: &Demo| demo.list().into_iter().filter(|e| e.summary.unread).count();
     assert_eq!(unread(&demo), 3);

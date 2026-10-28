@@ -103,7 +103,7 @@ enum Asked {
 
 struct Open {
     key: String,
-    account: usize,
+    space: usize,
     host: Option<String>,
     entry: Option<usize>,
     thread: Option<Thread>,
@@ -220,10 +220,10 @@ impl Inbox {
         cx.detach(move || Msg::Inbox(source.inbox()));
     }
 
-    fn pushed(&mut self, account: usize, key: Option<String>, cx: &mut Cx<'_, Msg>) {
+    fn pushed(&mut self, space: usize, key: Option<String>, cx: &mut Cx<'_, Msg>) {
         self.refresh(cx);
         let reread = self.open.as_ref().is_some_and(|open| {
-            !open.sending && open.account == account && key.as_deref() == Some(open.key.as_str())
+            !open.sending && open.space == space && key.as_deref() == Some(open.key.as_str())
         });
         if reread {
             self.read_thread(cx);
@@ -231,13 +231,13 @@ impl Inbox {
     }
 
     fn keep(&mut self, kept: Option<(usize, String)>) {
-        let (Some((account, key)), Some(entries)) = (kept, &self.entries) else {
+        let (Some((space, key)), Some(entries)) = (kept, &self.entries) else {
             return;
         };
         let at = self.filter.shown().iter().position(|&index| {
             entries
                 .get(index)
-                .is_some_and(|e| e.account == account && e.summary.key == key)
+                .is_some_and(|e| e.space == space && e.summary.key == key)
         });
         if let Some(at) = at {
             self.filter.list_mut().select(at);
@@ -356,11 +356,11 @@ impl Inbox {
         };
         entry.summary.unread = false;
         let key = entry.summary.key.clone();
-        let account = entry.account;
+        let space = entry.space;
         let host = entry.summary.host.clone();
         self.open = Some(Open {
             key: key.clone(),
-            account,
+            space,
             host,
             entry: Some(index),
             thread: None,
@@ -378,14 +378,14 @@ impl Inbox {
 
     pub(super) fn open_key(
         &mut self,
-        account: usize,
+        space: usize,
         host: Option<String>,
         key: String,
         cx: &mut Cx<'_, Msg>,
     ) {
         self.open = Some(Open {
             key,
-            account,
+            space,
             host,
             entry: None,
             thread: None,
@@ -402,14 +402,14 @@ impl Inbox {
 
     fn read_thread(&self, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &self.open else { return };
-        let (source, key, account, host) = (
+        let (source, key, space, host) = (
             self.source.clone(),
             open.key.clone(),
-            open.account,
+            open.space,
             open.host.clone(),
         );
         cx.detach(move || {
-            let result = source.thread(account, host.as_deref(), &key);
+            let result = source.thread(space, host.as_deref(), &key);
             Msg::Thread(key, result)
         });
     }
@@ -418,14 +418,14 @@ impl Inbox {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
         open.asked = Asked::Status;
-        let (source, key, account, host) = (
+        let (source, key, space, host) = (
             self.source.clone(),
             open.key.clone(),
-            open.account,
+            open.space,
             open.host.clone(),
         );
         cx.detach(move || {
-            let result = source.change(account, host.as_deref(), &key, &change);
+            let result = source.change(space, host.as_deref(), &key, &change);
             Msg::Changed(key, result)
         });
     }
@@ -441,16 +441,16 @@ impl Inbox {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
         open.asked = Asked::Label;
-        let (source, key, account, host) = (
+        let (source, key, space, host) = (
             self.source.clone(),
             open.key.clone(),
-            open.account,
+            open.space,
             open.host.clone(),
         );
         cx.detach(move || {
             let result = source
-                .shift(account, &request)
-                .and_then(|_| source.thread(account, host.as_deref(), &key))
+                .shift(space, &request)
+                .and_then(|_| source.thread(space, host.as_deref(), &key))
                 .map(|thread| thread.issue);
             Msg::Changed(key, result)
         });
@@ -460,14 +460,14 @@ impl Inbox {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
         let internal = open.internal;
-        let (source, key, account, host) = (
+        let (source, key, space, host) = (
             self.source.clone(),
             open.key.clone(),
-            open.account,
+            open.space,
             open.host.clone(),
         );
         cx.detach(move || {
-            let result = source.comment(account, host.as_deref(), &key, &body, internal);
+            let result = source.comment(space, host.as_deref(), &key, &body, internal);
             Msg::Commented(key, result.map(|_| internal))
         });
     }
@@ -475,53 +475,53 @@ impl Inbox {
     fn delete(&mut self, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
-        let (source, key, account, host) = (
+        let (source, key, space, host) = (
             self.source.clone(),
             open.key.clone(),
-            open.account,
+            open.space,
             open.host.clone(),
         );
         cx.detach(move || {
-            let result = source.delete(account, host.as_deref(), &key);
+            let result = source.delete(space, host.as_deref(), &key);
             Msg::Deleted(key, result)
         });
     }
 
-    fn drop_entry(&mut self, account: usize, key: &str) {
+    fn drop_entry(&mut self, space: usize, key: &str) {
         let kept = self
             .filter
             .current()
             .and_then(|at| self.entries.as_ref()?.get(at))
-            .map(|e| (e.account, e.summary.key.clone()));
+            .map(|e| (e.space, e.summary.key.clone()));
         let Some(entries) = &mut self.entries else {
             return;
         };
         let before = entries.len();
-        entries.retain(|e| !(e.account == account && e.summary.key == key));
+        entries.retain(|e| !(e.space == space && e.summary.key == key));
         if entries.len() == before {
             return;
         }
         if let Some(open) = &mut self.open {
             open.entry = entries
                 .iter()
-                .position(|e| e.account == open.account && e.summary.key == open.key);
+                .position(|e| e.space == open.space && e.summary.key == open.key);
         }
         self.sift();
         self.keep(kept);
     }
 
-    fn heard(&mut self, account: usize, text: &str, cx: &mut Cx<'_, Msg>) {
+    fn heard(&mut self, space: usize, text: &str, cx: &mut Cx<'_, Msg>) {
         let Ok(event) = serde_json::from_str::<serde_json::Value>(text) else {
             return;
         };
         let (Some("delete"), Some(key)) = (event["type"].as_str(), event["key"].as_str()) else {
             return;
         };
-        self.drop_entry(account, key);
+        self.drop_entry(space, key);
         let reading = self
             .open
             .as_ref()
-            .is_some_and(|o| o.account == account && o.key == key && !o.sending);
+            .is_some_and(|o| o.space == space && o.key == key && !o.sending);
         if reading {
             self.open = None;
             let by = &event["by"];
@@ -577,11 +577,11 @@ impl Inbox {
     }
 
     fn pick_label(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some(account) = self.open.as_ref().map(|o| o.account) else {
+        let Some(space) = self.open.as_ref().map(|o| o.space) else {
             return;
         };
         let source = self.source.clone();
-        cx.detach(move || Msg::Labels(source.labels(account)));
+        cx.detach(move || Msg::Labels(source.labels(space)));
     }
 
     fn offer_labels(&mut self, labels: Vec<String>, cx: &mut Cx<'_, Msg>) {
@@ -1107,13 +1107,13 @@ impl Screen<Msg> for Inbox {
                             .filter
                             .current()
                             .and_then(|at| self.entries.as_ref()?.get(at))
-                            .map(|e| (e.account, e.summary.key.clone()));
+                            .map(|e| (e.space, e.summary.key.clone()));
                         self.hosts = merged_hosts(self.source.hosts(), &entries);
                         self.now = self.source.now();
                         if let Some(open) = &mut self.open {
-                            open.entry = entries.iter().position(|e| {
-                                e.account == open.account && e.summary.key == open.key
-                            });
+                            open.entry = entries
+                                .iter()
+                                .position(|e| e.space == open.space && e.summary.key == open.key);
                         }
                         self.entries = Some(entries);
                         self.sift();
@@ -1134,10 +1134,10 @@ impl Screen<Msg> for Inbox {
                     self.refresh(cx);
                 }
             }
-            Msg::Pushed(account, key) => self.pushed(account, key, cx),
+            Msg::Pushed(space, key) => self.pushed(space, key, cx),
             Msg::Labels(Ok(labels)) => self.offer_labels(labels, cx),
             Msg::Labels(Err(error)) => cx.say(error, Tone::Alert),
-            Msg::Heard(account, text) => self.heard(account, &text, cx),
+            Msg::Heard(space, text) => self.heard(space, &text, cx),
             Msg::Deleted(key, result) => {
                 let Some(open) = self.open.as_mut().filter(|o| o.key == key) else {
                     return;
@@ -1145,9 +1145,9 @@ impl Screen<Msg> for Inbox {
                 open.sending = false;
                 match result {
                     Ok(done) => {
-                        let account = open.account;
+                        let space = open.space;
                         self.open = None;
-                        self.drop_entry(account, &key);
+                        self.drop_entry(space, &key);
                         let mut said = format!("Deleted {key}");
                         if done.files > 0 {
                             said.push_str(&format!(" and its {} files", done.files));

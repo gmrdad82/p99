@@ -9,7 +9,7 @@ use super::super::deck::Move;
 use super::super::demo::NOW;
 use super::*;
 
-fn ghost(accounts: &[&str]) -> Source {
+fn ghost(spaces: &[&str]) -> Source {
     let mut config = Config::default();
     config.hosts.insert(
         "example.com".into(),
@@ -27,7 +27,7 @@ fn ghost(accounts: &[&str]) -> Source {
     );
     Source::Live(Arc::new(Live {
         config,
-        accounts: accounts.iter().map(|name| (*name).to_owned()).collect(),
+        spaces: spaces.iter().map(|name| (*name).to_owned()).collect(),
         holder: None,
         agent: None,
         clients: OnceLock::new(),
@@ -44,8 +44,8 @@ fn heard(inbox: &Receiver<Wake<Msg>>) -> Vec<String> {
     inbox
         .try_iter()
         .map(|wake| match wake {
-            Wake::Event(4, Msg::Pushed(account, key)) => format!("pushed {account} {key:?}"),
-            Wake::Event(4, Msg::Heard(account, text)) => format!("heard {account} {text}"),
+            Wake::Event(4, Msg::Pushed(space, key)) => format!("pushed {space} {key:?}"),
+            Wake::Event(4, Msg::Heard(space, text)) => format!("heard {space} {text}"),
             _ => "something else".to_owned(),
         })
         .collect()
@@ -88,7 +88,7 @@ fn folding_drops_case_and_accents_so_words_match_as_people_type_them() {
 #[test]
 fn an_entry_is_found_by_every_word_a_person_sees_for_it() {
     let entry = Entry::new(2, summary("FEAT-9"));
-    assert_eq!(entry.account, 2);
+    assert_eq!(entry.space, 2);
     for word in [
         "feat-9",
         "feature",
@@ -190,10 +190,10 @@ fn known_hosts_and_hosts_seen_on_items_merge_sorted_once_each() {
 }
 
 #[test]
-fn the_sample_source_is_one_account_at_a_fixed_now() {
+fn the_sample_source_is_one_space_at_a_fixed_now() {
     let source = Source::demo(Duration::ZERO);
     assert!(source.is_demo());
-    assert_eq!(source.accounts(), ["sample"]);
+    assert_eq!(source.spaces(), ["sample"]);
     assert_eq!(source.now(), NOW);
     assert_eq!(
         source.hosts(),
@@ -223,7 +223,7 @@ fn the_sample_offers_a_card_and_a_plain_item_the_same_seven_lanes() {
     assert_eq!(board.cards.len(), 28);
     let (count, cards) = source.waiting().expect("the sample has cards waiting");
     assert_eq!((count, cards.len()), (3, 3));
-    assert!(cards.iter().all(|(account, _)| *account == 0));
+    assert!(cards.iter().all(|(space, _)| *space == 0));
 }
 
 #[test]
@@ -301,10 +301,10 @@ fn a_poisoned_sample_says_it_broke_instead_of_panicking() {
 
 #[test]
 fn a_broken_source_answers_every_read_and_write_with_why() {
-    let source = Source::Broken("no account yet; p99 setup makes one".into());
-    let why = Some("no account yet; p99 setup makes one");
+    let source = Source::Broken("no space yet; p99 setup makes one".into());
+    let why = Some("no space yet; p99 setup makes one");
     assert!(!source.is_demo());
-    assert!(source.accounts().is_empty());
+    assert!(source.spaces().is_empty());
     assert!(source.hosts().is_empty());
     assert_eq!(source.inbox().err().as_deref(), why);
     assert_eq!(source.codes().err().as_deref(), why);
@@ -338,11 +338,11 @@ fn a_broken_source_answers_every_read_and_write_with_why() {
 }
 
 #[test]
-fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() {
+fn a_live_source_with_a_space_the_config_lacks_says_so_without_the_network() {
     let source = ghost(&["ghost"]);
-    let why = Some("no account is called ghost");
+    let why = Some("no space is called ghost");
     assert!(!source.is_demo());
-    assert_eq!(source.accounts(), ["ghost"]);
+    assert_eq!(source.spaces(), ["ghost"]);
     assert_eq!(source.hosts(), ["example.com"]);
     assert_eq!(source.inbox().err().as_deref(), why);
     assert_eq!(source.codes().err().as_deref(), why);
@@ -367,11 +367,11 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
     assert_eq!(source.board(&[]).err().as_deref(), why);
     assert_eq!(
         source.waiting().err().as_deref(),
-        Some("ghost: no account is called ghost")
+        Some("ghost: no space is called ghost")
     );
     assert_eq!(
         source.projects().err().as_deref(),
-        Some("ghost: no account is called ghost")
+        Some("ghost: no space is called ghost")
     );
     assert_eq!(source.inbox().err().as_deref(), why);
     let (sender, _inbox) = channel();
@@ -383,7 +383,7 @@ fn a_live_source_with_an_account_the_config_lacks_says_so_without_the_network() 
 }
 
 #[test]
-fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
+fn a_live_source_with_no_spaces_reads_empty_and_has_no_board() {
     let source = ghost(&[]);
     assert!(source.hosts().is_empty());
     assert!(source.inbox().expect("nothing to read").entries.is_empty());
@@ -395,11 +395,11 @@ fn a_live_source_with_no_accounts_reads_empty_and_has_no_board() {
     assert!(source.projects().expect("nothing to read").is_empty());
     assert_eq!(
         source.client(0, None).err().as_deref(),
-        Some("that account is gone")
+        Some("that space is gone")
     );
     assert_eq!(
         source.labels(0).err().as_deref(),
-        Some("that account is gone")
+        Some("that space is gone")
     );
     let (sender, _inbox) = channel();
     source.follow(&Waker::new(sender.clone(), 0));
@@ -556,7 +556,7 @@ fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
 }
 
 #[test]
-fn a_board_over_several_unreadable_accounts_still_draws_with_one_line_each() {
+fn a_board_over_several_unreadable_spaces_still_draws_with_one_line_each() {
     let source = ghost(&["ghost", "phantom"]);
     let board = source.board(&[]).expect("the board draws with its lines");
     assert_eq!(board.missing.len(), 2);
@@ -700,9 +700,9 @@ fn serve(answer: Answer) -> String {
     url
 }
 
-fn workers(accounts: &[(&str, Answer)]) -> Source {
+fn workers(spaces: &[(&str, Answer)]) -> Source {
     let mut toml = String::new();
-    for (name, answer) in accounts {
+    for (name, answer) in spaces {
         toml.push_str(&format!(
             "[accounts.{name}]\naccount_id = \"a\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{}\"\n",
             serve(*answer)
@@ -711,10 +711,7 @@ fn workers(accounts: &[(&str, Answer)]) -> Source {
     let config: Config = toml::from_str(&toml).expect("the config parses");
     Source::Live(Arc::new(Live {
         config,
-        accounts: accounts
-            .iter()
-            .map(|(name, _)| (*name).to_owned())
-            .collect(),
+        spaces: spaces.iter().map(|(name, _)| (*name).to_owned()).collect(),
         holder: None,
         agent: None,
         clients: OnceLock::new(),
@@ -723,30 +720,30 @@ fn workers(accounts: &[(&str, Answer)]) -> Source {
 }
 
 #[test]
-fn a_board_over_one_answering_and_one_routeless_account_shows_the_cards_and_one_line() {
+fn a_board_over_one_answering_and_one_routeless_space_shows_the_cards_and_one_line() {
     let source = workers(&[("shop", current), ("old", behind_named)]);
-    let view = source.board(&[]).expect("one account answered");
+    let view = source.board(&[]).expect("one space answered");
     let keys: Vec<(usize, &str)> = view
         .cards
         .iter()
-        .map(|c| (c.account, c.key.as_str()))
+        .map(|c| (c.space, c.key.as_str()))
         .collect();
     assert_eq!(keys, [(0, "BUG-25")]);
     assert_eq!(view.lanes.len(), 7);
     assert_eq!(
         view.missing,
         [
-            "old: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --account old upgrades it"
+            "old: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --space old upgrades it"
         ]
     );
 }
 
 #[test]
-fn a_routeless_account_with_no_version_alone_gets_its_line_over_empty_lanes() {
+fn a_routeless_space_with_no_version_alone_gets_its_line_over_empty_lanes() {
     let source = workers(&[("old", behind_nameless)]);
     let view = source
         .board(&[])
-        .expect("a routeless account is a line, not a failure");
+        .expect("a routeless space is a line, not a failure");
     assert!(view.cards.is_empty());
     assert_eq!(view.lanes.len(), 7);
     assert_eq!(view.missing.len(), 1);
@@ -758,7 +755,7 @@ fn a_routeless_account_with_no_version_alone_gets_its_line_over_empty_lanes() {
 }
 
 #[test]
-fn a_routeless_account_beside_a_failing_one_shows_both_lines() {
+fn a_routeless_space_beside_a_failing_one_shows_both_lines() {
     let source = workers(&[("old", behind_named), ("down", broken)]);
     let view = source.board(&[]).expect("two lines, no lone failure");
     assert_eq!(view.missing.len(), 2);
@@ -779,7 +776,7 @@ fn a_routeless_account_beside_a_failing_one_shows_both_lines() {
 }
 
 #[test]
-fn one_failing_account_alone_is_an_error_not_a_board() {
+fn one_failing_space_alone_is_an_error_not_a_board() {
     let source = workers(&[("down", broken)]);
     assert_eq!(
         source.board(&[]).err().as_deref(),
@@ -792,16 +789,16 @@ fn one_failing_account_alone_is_an_error_not_a_board() {
 }
 
 #[test]
-fn the_count_comes_from_the_accounts_that_answer_and_skips_a_routeless_one() {
+fn the_count_comes_from_the_spaces_that_answer_and_skips_a_routeless_one() {
     let source = workers(&[("shop", current), ("old", behind_named)]);
-    let (count, cards) = source.waiting().expect("one account answered");
+    let (count, cards) = source.waiting().expect("one space answered");
     assert_eq!(count, 2);
     let keys: Vec<(usize, &str)> = cards.iter().map(|(a, c)| (*a, c.key.as_str())).collect();
     assert_eq!(keys, [(0, "BUG-25")]);
     let alone = workers(&[("old", behind_named)]);
     let said = alone.waiting().expect_err("nothing answered");
     assert!(said.starts_with("old: "), "{said}");
-    assert!(said.contains("p99 deploy --account old"), "{said}");
+    assert!(said.contains("p99 deploy --space old"), "{said}");
 }
 
 #[test]
@@ -810,15 +807,15 @@ fn a_worker_older_than_the_waiting_route_is_named_with_its_version() {
     assert_eq!(
         source.waiting().err().as_deref(),
         Some(
-            "pre: its Worker is P99 1.8.0, the board needs 1.11 or later; p99 deploy --account pre upgrades it"
+            "pre: its Worker is P99 1.8.0, the board needs 1.11 or later; p99 deploy --space pre upgrades it"
         )
     );
     let beside = workers(&[("shop", current), ("pre", before_waiting)]);
-    assert_eq!(beside.waiting().expect("the newer account answered").0, 2);
+    assert_eq!(beside.waiting().expect("the newer space answered").0, 2);
 }
 
 #[test]
-fn a_user_account_is_told_it_is_not_an_owner() {
+fn a_user_space_is_told_it_is_not_an_owner() {
     let source = workers(&[("mine", not_owner)]);
     assert_eq!(
         source.waiting().err().as_deref(),
@@ -831,14 +828,14 @@ fn a_user_account_is_told_it_is_not_an_owner() {
 }
 
 #[test]
-fn projects_merge_across_accounts_in_any_case_and_skip_a_routeless_one() {
+fn projects_merge_across_spaces_in_any_case_and_skip_a_routeless_one() {
     let source = workers(&[
         ("shop", current),
         ("blog", current_too),
         ("old", behind_named),
     ]);
     assert_eq!(
-        source.projects().expect("two accounts answered"),
+        source.projects().expect("two spaces answered"),
         ["Mobile app", "Storefront"]
     );
     let alone = workers(&[("old", behind_named)]);

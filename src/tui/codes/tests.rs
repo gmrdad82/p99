@@ -161,11 +161,11 @@ fn no_codes_yet_says_how_to_make_one() {
 
 #[test]
 fn codes_that_cannot_be_read_say_why_and_r_reads_them_again() {
-    let mut app = run(Source::Broken("no account yet; p99 setup makes one".into()));
+    let mut app = run(Source::Broken("no space yet; p99 setup makes one".into()));
     let text = app.go(CODES);
     for said in [
         "Couldn't read the codes.",
-        "no account yet; p99 setup makes one",
+        "no space yet; p99 setup makes one",
         "r reads them again.",
         "r read again",
     ] {
@@ -420,7 +420,7 @@ fn twin(app: &mut Run) -> Code {
 }
 
 #[test]
-fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_the_id() {
+fn a_delete_in_one_space_removes_only_its_own_row_when_another_space_shares_the_id() {
     let mut app = shown();
     let other = twin(&mut app);
     let before = app.text();
@@ -446,7 +446,7 @@ fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_
 }
 
 #[test]
-fn deleting_the_twin_with_d_takes_the_selected_row_and_leaves_the_other_account_alone() {
+fn deleting_the_twin_with_d_takes_the_selected_row_and_leaves_the_other_space_alone() {
     let mut app = shown();
     twin(&mut app);
     let selected = codes(&app).chosen().cloned().expect("a row is selected");
@@ -564,7 +564,7 @@ fn listing(codes: &[(i64, &str, &str)]) -> String {
     serde_json::json!({ "codes": codes }).to_string()
 }
 
-fn account(
+fn space(
     codes: &'static [(i64, &'static str, &'static str)],
     delete: (u16, &'static str),
 ) -> (String, Seen) {
@@ -603,8 +603,8 @@ fn calls(seen: &Seen) -> Vec<String> {
 }
 
 #[test]
-fn a_live_delete_finds_the_code_in_the_second_account_and_deletes_it_there() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+fn a_live_delete_finds_the_code_in_the_second_space_and_deletes_it_there() {
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(2, "katherine@example.com", "zz99");
     assert_eq!(erase(&source, &code), Ok(()));
     assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
@@ -612,8 +612,8 @@ fn a_live_delete_finds_the_code_in_the_second_account_and_deletes_it_there() {
 }
 
 #[test]
-fn a_live_delete_of_a_code_no_account_holds_says_so_and_deletes_nothing() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+fn a_live_delete_of_a_code_no_space_holds_says_so_and_deletes_nothing() {
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(9, "grace@example.com", "3fpd");
     assert_eq!(erase(&source, &code), Err("no such code 9".to_owned()));
     assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
@@ -622,7 +622,7 @@ fn a_live_delete_of_a_code_no_account_holds_says_so_and_deletes_nothing() {
 
 #[test]
 fn a_live_delete_whose_id_matches_but_hint_does_not_deletes_nothing() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(2, "grace@example.com", "xxxx");
     assert_eq!(erase(&source, &code), Err("no such code 2".to_owned()));
     for seen in [&a, &b] {
@@ -639,7 +639,7 @@ fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
     for (status, message) in [(409, "revoke it first"), (404, "no such code")] {
         let body: &'static str =
             Box::leak(format!(r#"{{"message":"{message}"}}"#).into_boxed_str());
-        let (source, a, _) = live(account(GRACE_A, (status, body)), account(&[], DELETED));
+        let (source, a, _) = live(space(GRACE_A, (status, body)), space(&[], DELETED));
         let code = revoked(2, "grace@example.com", "3fpd");
         assert_eq!(erase(&source, &code), Err(format!("{message} ({status})")));
         assert_eq!(calls(&a), ["GET /_p99/v1/codes", "DELETE /_p99/v1/codes/2"]);
@@ -647,10 +647,10 @@ fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
 }
 
 #[test]
-fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
+fn a_live_space_that_cannot_list_its_codes_stops_the_delete_with_why() {
     let (source, _, b) = live(
         worker(|_, _| (500, r#"{"message":"database is down"}"#.to_owned())),
-        account(KATHERINE_B, DELETED),
+        space(KATHERINE_B, DELETED),
     );
     let code = revoked(2, "katherine@example.com", "zz99");
     assert_eq!(
@@ -662,7 +662,7 @@ fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
 
 #[test]
 fn a_broken_source_deletes_nothing_and_says_why() {
-    let broken = Source::Broken("no account yet; p99 setup makes one".into());
+    let broken = Source::Broken("no space yet; p99 setup makes one".into());
     let code = Code {
         id: 2,
         hint: "3fpd".into(),
@@ -671,7 +671,7 @@ fn a_broken_source_deletes_nothing_and_says_why() {
     };
     assert_eq!(
         erase(&broken, &code).unwrap_err(),
-        "no account yet; p99 setup makes one"
+        "no space yet; p99 setup makes one"
     );
     assert_eq!(erase(&sample(), &code), Ok(()));
 }

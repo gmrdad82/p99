@@ -154,17 +154,14 @@ fn a_size_or_key_that_does_not_parse_is_refused_like_clap() {
 }
 
 #[test]
-fn without_an_account_the_inbox_says_how_to_make_one() {
+fn without_a_space_the_inbox_says_how_to_make_one() {
     let run = p99(&["tui", "--dump", "120x34"]);
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
     assert!(text.contains("Couldn't read the inbox."), "{text}");
-    assert!(
-        text.contains("no account yet; p99 setup makes one"),
-        "{text}"
-    );
-    let named = out(&p99(&["tui", "--account", "shop", "--dump", "120x34"]));
-    assert!(named.contains("no account is called shop"), "{named}");
+    assert!(text.contains("no space yet; p99 setup makes one"), "{text}");
+    let named = out(&p99(&["tui", "--space", "shop", "--dump", "120x34"]));
+    assert!(named.contains("no space is called shop"), "{named}");
 }
 
 #[test]
