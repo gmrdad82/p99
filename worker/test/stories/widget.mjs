@@ -32,11 +32,12 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
        ON CONFLICT (actor_email, day) DO UPDATE SET ${field} = excluded.${field}`,
     );
   const used = (email, field) => one(`SELECT coalesce(max(${field}), 0) AS n FROM usage WHERE actor_email = '${email}'`);
-  const raw = (method, path, { host, headers = {}, body } = {}) =>
+  const raw = (method, path, { host, headers = {}, body, declared } = {}) =>
     new Promise((resolve, reject) => {
       const sent = { ...headers };
       if (host) sent.host = `${host}:${port}`;
       if (body) sent["content-length"] = body.length;
+      if (declared !== undefined) sent["content-length"] = declared;
       let answered = false;
       const req = request({ host: "127.0.0.1", port, path, method, headers: sent }, (res) => {
         answered = true;
@@ -50,11 +51,13 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
           } catch {}
           resolve({ status: res.statusCode, headers: res.headers, text, json });
         });
+        if (declared !== undefined) res.on("end", () => req.destroy());
       });
       req.on("error", (error) => {
         if (!answered) reject(error);
       });
-      req.end(body);
+      if (declared !== undefined) req.flushHeaders();
+      else req.end(body);
     });
   const attach = async (code, key, { uid = randomUUID(), role = "file", name = "notes.txt", type = "text/plain", mark, comment, body }) => {
     const params = new URLSearchParams({ name, role });
@@ -143,10 +146,9 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;
     const before = used("mary@example.com", "bytes");
-    const big = Buffer.alloc(MAX_FILE + 1, 0x41);
     const answer = await raw("PUT", `/_p99/api/issues/${key}/attachments/${randomUUID()}?name=export.txt&role=file`, {
       headers: { "x-p99-code": mary.secret, "content-type": "text/plain" },
-      body: big,
+      declared: MAX_FILE + 1,
     });
     assert.equal(answer.status, 413, answer.text);
     assert.equal(answer.json.error, "too_large");
