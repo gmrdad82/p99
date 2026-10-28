@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, PERSON_CLOSES } from "../src/cards.js";
-import { BOARDS_DEPRECATED, BOARDS_GONE } from "../src/one-board.js";
+import { BOARDS_DEPRECATED, BOARDS_GONE, NO_BOARD } from "../src/one-board.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const adaBot = { email: "ada@example.com", name: "Ada Lovelace", agent: true, via: "pci·board" };
@@ -155,43 +155,32 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.ok(signed.every((cd) => cd.host === here));
   });
 
-  await check("[board] GET /boards is deprecated: the one board, plus the folded boards archived with what they showed", async () => {
+  await check("[board] GET /boards is deprecated: the one board and nothing archived; every old board is deleted and answers 404", async () => {
     const old = await call("GET", "/_p99/v1/boards", { actor: ada });
     assert.equal(old.status, 200, JSON.stringify(old.json));
     assert.equal(old.json.deprecated, BOARDS_DEPRECATED);
+    assert.deepEqual(Object.keys(old.json).sort(), ["board", "cards", "deprecated"]);
     assert.deepEqual(old.json.board.lanes.map((l) => l.word), LANES);
     assert.ok(Array.isArray(old.json.cards) && old.json.cards.length > 0);
-    assert.ok(old.json.archived.length > 0);
-    for (const b of old.json.archived) {
-      assert.equal(b.archived, true);
-      assert.deepEqual(Object.keys(b).sort(), ["archived", "cards", "columns", "id", "name", "owner"]);
-      assert.notEqual(b.id, cardsBoardId);
-    }
-    const lanes = old.json.archived.find((b) => b.id === 950);
-    assert.ok(lanes, JSON.stringify(old.json.archived.map((b) => [b.id, b.name])));
-    assert.deepEqual(lanes.columns.map((col) => col.label), ["Inbox", "Building", "review", "Done"]);
-    assert.deepEqual(lanes.cards.filter((cd) => cd.label === "Inbox").map((cd) => cd.key), ["BUG-953", "BUG-955", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
-    assert.ok(lanes.cards.every((cd) => cd.key.startsWith("BUG-95")), JSON.stringify(lanes.cards.map((cd) => cd.key)));
-    const nested = old.json.archived.find((b) => b.id === 951);
-    assert.ok(nested, "the nested board is archived flat");
-    assert.equal(nested.cards.length, 7, JSON.stringify(nested.cards.map((cd) => cd.key)));
-    const legacy = old.json.archived.find((b) => b.name === "legacy.example");
-    assert.ok(legacy, JSON.stringify(old.json.archived.map((b) => b.name)));
-    assert.deepEqual(legacy.cards.filter((cd) => cd.label === "Building").map((cd) => cd.key), ["BUG-903", "BUG-902"]);
+    const now = await board();
+    assert.deepEqual(old.json.cards.map((cd) => cd.key), now.json.cards.map((cd) => cd.key));
+    assert.equal(d1count("SELECT count(*) AS n FROM boards WHERE cards = 0"), 0);
+    assert.equal(d1count("SELECT count(*) AS n FROM board_columns WHERE board_id IN (950, 951)"), 0);
+    assert.equal(d1count("SELECT count(*) AS n FROM board_positions WHERE board_id <> (SELECT id FROM boards WHERE cards = 1)"), 0);
+    const kept = ["BUG-951", "BUG-952", "BUG-953", "BUG-954", "BUG-955", "BUG-956", "BUG-957"];
+    assert.deepEqual(kept.filter((key) => now.json.cards.some((cd) => cd.key === key)), kept);
     const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
     assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
-    const one = await call("GET", "/_p99/v1/boards/950", { actor: ada });
-    assert.equal(one.status, 200, JSON.stringify(one.json));
-    assert.deepEqual(one.json, lanes);
-    assert.equal((await call("GET", `/_p99/v1/boards/${cardsBoardId}`, { actor: ada })).status, 404);
-    assert.equal((await call("GET", "/_p99/v1/boards/nope", { actor: ada })).status, 404);
-    assert.equal((await call("GET", "/_p99/v1/boards/99999999", { actor: ada })).status, 404);
+    assert.ok(thread.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
+    for (const id of ["950", "951", String(cardsBoardId), "nope", "99999999"]) {
+      const gone = await call("GET", `/_p99/v1/boards/${id}`, { actor: ada });
+      assert.equal(gone.status, 404, id);
+      assert.equal(gone.json.message, NO_BOARD, id);
+    }
     assert.equal((await browse("GET", "/boards/950", owner.secret)).status, 404);
     const browser = await browse("GET", "/boards", owner.secret);
     assert.equal(browser.status, 200);
-    assert.ok(browser.json.archived.every((b) => b.id !== 950));
-    const moved = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
-    assert.ok(moved.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
+    assert.equal(browser.json.archived, undefined);
   });
 
   await check("[board] creating, changing or deleting a board answers 410 and changes nothing", async () => {
@@ -210,7 +199,7 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.equal(d1count("SELECT count(*) AS n FROM boards"), before);
   });
 
-  await check("[board] /labels answers the seven lanes only; a lane renames everywhere, an archived label or a one-host Owner can't", async () => {
+  await check("[board] /labels answers the seven lanes only; a lane renames everywhere, a deleted old label frees its name, a one-host Owner can't rename", async () => {
     const labels = (await call("GET", "/_p99/v1/labels", { actor: ada })).json.labels;
     assert.deepEqual(labels.map((l) => l.word), LANES);
     assert.deepEqual(labels.map((l) => l.closes), [false, false, false, false, false, false, true]);
@@ -225,19 +214,20 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: planned.name } })).status, 200);
     const taken = await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: "stuck" } });
     assert.deepEqual([taken.status, taken.json.message], [409, "a label called stuck exists"]);
-    const hidden = await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: "LEGACY tag" } });
-    assert.deepEqual([hidden.status, hidden.json.message], [409, "an old label holds the name LEGACY tag"]);
+    assert.equal(d1count("SELECT count(*) AS n FROM labels WHERE name = 'legacy tag'"), 0);
+    const freed = await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: "LEGACY tag" } });
+    assert.deepEqual([freed.status, freed.json.name], [200, "LEGACY tag"]);
+    assert.equal((await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: planned.name } })).status, 200);
     assert.equal((await board()).json.board.lanes[1].label, planned.name);
     assert.equal((await call("PATCH", `/_p99/v1/labels/${planned.id}`, { actor: ada, body: { name: "!" } })).status, 400);
-    const archived = d1count("SELECT id AS n FROM labels WHERE name = 'legacy tag'");
-    const old = await call("PATCH", `/_p99/v1/labels/${archived}`, { actor: ada, body: { name: "Back again" } });
+    const old = await call("PATCH", "/_p99/v1/labels/900", { actor: ada, body: { name: "Back again" } });
     assert.equal(old.status, 404);
     assert.equal(old.json.message, "no such lane");
     assert.equal((await browse("PATCH", `/labels/${planned.id}`, owner.secret, { name: "Mine" })).status, 403);
     assert.equal((await browse("GET", "/labels", owner.secret)).json.labels.length, LANES.length);
   });
 
-  await check("[board] the label filter on the list finds the lanes, never an archived label", async () => {
+  await check("[board] the label filter on the list finds the lanes, never a deleted old label", async () => {
     const plain = await fileOn(here, "Found by lane name");
     const keys = async (name) => (await call("GET", `/_p99/v1/issues?scope=all&host=${here}&label=${encodeURIComponent(name)}`, { actor: ada })).json.issues.map((i) => i.key);
     assert.ok((await keys("New")).includes(plain));

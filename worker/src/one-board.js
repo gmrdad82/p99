@@ -6,13 +6,11 @@ import { namedBy, sameFolded } from "./text.js";
 
 export const BOARDS_GONE = "boards are one per account; see p99 board";
 export const BOARDS_DEPRECATED = "one board per account since 1.11; read /board";
-export const NOT_ARCHIVED = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'board' AND a.id = b.id))";
-export const LIVE_LABEL = "(NOT EXISTS (SELECT 1 FROM archived a WHERE a.kind = 'label' AND a.id = l.id))";
+export const NO_BOARD = "no such board; there is one board per account, read /board";
 
 const DONE = LANES.length - 1;
 const SOURCES = { human: 0, agent: 1 };
 const MAX_KEY_CHARS = 40;
-const ARCHIVED = `(NOT ${NOT_ARCHIVED})`;
 export const LANES_SQL = `SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN board_columns bc ON bc.board_id = b.id
   JOIN labels l ON l.id = bc.label_id WHERE b.cards = 1 ORDER BY bc.position`;
 const LANE_ROWS = `SELECT i.id, i.host, bp.key FROM items i
@@ -20,29 +18,6 @@ const LANE_ROWS = `SELECT i.id, i.host, bp.key FROM items i
   WHERE i.label_id = ?2 ORDER BY bp.key IS NOT NULL, bp.key, i.id DESC`;
 const CHANGED_EMAIL = "COALESCE(e.actor_email, i.reporter_email)";
 const CHANGED_AGENT = "CASE WHEN e.id IS NULL THEN i.reporter_agent ELSE e.actor_agent END";
-export const ARCHIVED_BOARDS = `SELECT b.id, b.name, b.owner, (SELECT username FROM people WHERE email = b.owner) AS owner_username,
-    (SELECT json_group_array(json_object('label', x.name, 'closes', x.closes)) FROM
-      (SELECT l.name, l.closes FROM board_columns bc JOIN labels l ON l.id = bc.label_id WHERE bc.board_id = b.id ORDER BY bc.position) x) AS columns
-  FROM boards b WHERE b.cards = 0 AND ${ARCHIVED} AND (?1 OR b.host = ?2) AND (?3 IS NULL OR b.id = ?3)
-  ORDER BY b.created_at, b.id`;
-export const ARCHIVED_CARDS = `WITH fold AS (SELECT at FROM archived WHERE kind = 'fold' AND id = 0),
-  was AS (
-    SELECT i.id, i.kind, i.title, i.host, i.assignee, COALESCE(
-      (SELECT f.id FROM events e JOIN labels f ON f.name = json_extract(e.detail_json, '$.from')
-       WHERE e.item_id = i.id AND e.kind = 'label' AND e.actor_email IS NULL AND json_extract(e.detail_json, '$.migrated') = 1
-       ORDER BY e.id LIMIT 1),
-      (SELECT f.id FROM events e JOIN labels f ON f.name = json_extract(e.detail_json, '$.from')
-       WHERE e.item_id = i.id AND e.kind = 'label' AND e.at >= (SELECT at FROM fold)
-       ORDER BY e.id LIMIT 1), i.label_id) AS label_id
-    FROM items i WHERE i.project IS NULL AND (?1 OR i.host = ?2) AND i.created_at <= (SELECT at FROM fold))
-  SELECT b.id AS board_id, w.id, w.kind, w.title, w.assignee, l.name AS label, bp.key AS ord,
-    (SELECT username FROM people WHERE email = w.assignee) AS assignee_username
-  FROM boards b JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
-  JOIN was w ON w.label_id = bc.label_id AND (b.host IS NULL OR w.host = b.host)
-  LEFT JOIN board_positions bp ON bp.board_id = b.id AND bp.item_id = w.id AND bp.label_id = bc.label_id
-  WHERE b.cards = 0 AND ${ARCHIVED} AND (?1 OR b.host = ?2) AND (?3 IS NULL OR b.id = ?3)
-  ORDER BY b.id, bc.position, bp.key IS NOT NULL, bp.key, w.id DESC`;
-
 export function laneOf(lanes, to) {
   const at = LANES.indexOf(to);
   if (at >= 0) return lanes[at] ?? null;
@@ -120,24 +95,6 @@ export function boardCardOf(row) {
   };
 }
 
-export function archivedOf(board, cards) {
-  return {
-    id: board.id,
-    name: board.name,
-    owner: board.owner ? { username: board.owner_username ?? null } : null,
-    columns: JSON.parse(board.columns || "[]").map((col) => ({ label: col.label, closes: Boolean(col.closes) })),
-    cards: cards.map((row) => ({
-      key: K.keyOf(row.kind, row.id),
-      kind: row.kind,
-      title: row.title,
-      label: row.label,
-      assignee: row.assignee ? { username: row.assignee_username ?? null } : null,
-      order: row.ord ?? null,
-    })),
-    archived: true,
-  };
-}
-
 async function settle(c, rows) {
   const wanted = [];
   for (const row of rows) {
@@ -163,14 +120,6 @@ async function oneBoard(c) {
   return { board: { lanes: lanesOf(lanes.results) }, cards: rows.results.map(boardCardOf) };
 }
 
-async function archivedBoards(c, id) {
-  const v = boardView(c);
-  const { DB } = c.env;
-  const binds = [v.all ? 1 : 0, v.host, id];
-  const [boards, cards] = await DB.batch([DB.prepare(ARCHIVED_BOARDS).bind(...binds), DB.prepare(ARCHIVED_CARDS).bind(...binds)]);
-  return boards.results.map((b) => archivedOf(b, cards.results.filter((row) => row.board_id === b.id)));
-}
-
 export async function getOneBoard(c) {
   K.requireEmptyBody(c);
   K.requireManager(c);
@@ -181,17 +130,13 @@ export async function getBoardsDeprecated(c) {
   K.requireEmptyBody(c);
   K.requireManager(c);
   const one = await oneBoard(c);
-  return K.json(200, { deprecated: BOARDS_DEPRECATED, ...one, archived: await archivedBoards(c, null) });
+  return K.json(200, { deprecated: BOARDS_DEPRECATED, ...one });
 }
 
-export async function getArchivedBoard(c, rawId) {
+export async function getGoneBoard(c) {
   K.requireEmptyBody(c);
   K.requireManager(c);
-  const text = String(rawId);
-  if (!/^\d{1,15}$/.test(text)) K.fail(404, "no such board");
-  const [board] = await archivedBoards(c, Number(text));
-  if (!board) K.fail(404, "no such board");
-  return K.json(200, board);
+  K.fail(404, NO_BOARD);
 }
 
 export async function goneBoards(c) {
@@ -281,7 +226,7 @@ export const ONE_BOARD_ROUTES = [
   ["GET", /^\/board$/, getOneBoard],
   ["GET", /^\/boards$/, getBoardsDeprecated],
   ["POST", /^\/boards$/, goneBoards],
-  ["GET", /^\/boards\/([^/]+)$/, getArchivedBoard],
+  ["GET", /^\/boards\/([^/]+)$/, getGoneBoard],
   ["PUT", /^\/boards\/([^/]+)$/, goneBoards],
   ["DELETE", /^\/boards\/([^/]+)$/, goneBoards],
 ];

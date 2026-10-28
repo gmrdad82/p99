@@ -96,7 +96,7 @@ pub enum Command {
     Card(card::CardArgs),
     #[command(about = "list the project names cards carry")]
     Projects,
-    #[command(about = "deprecated: the boards before the one board, archived and read-only")]
+    #[command(about = "deprecated: prints the one board, as p99 board does")]
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print the one board: its seven lanes and their cards")]
     Board(crate::boards::BoardArgs),

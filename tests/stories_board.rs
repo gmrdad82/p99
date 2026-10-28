@@ -246,12 +246,6 @@ fn the_board() -> Value {
 fn old_boards() -> Value {
     let mut all = the_board();
     all["deprecated"] = json!("one board per account since 1.11; read /board");
-    all["archived"] = json!([
-        {"id": 2, "name": "Web", "owner": {"username": "ada"}, "columns": [
-            {"label": "Inbox", "closes": false}, {"label": "QA ready", "closes": false}, {"label": "Done", "closes": true}],
-         "cards": [{"key": "BUG-12", "kind": "bug", "title": "Broken button", "label": "Inbox"}], "archived": true},
-        {"id": 3, "name": "Ops", "owner": {"username": "grace"}, "columns": [], "cards": [], "archived": true}
-    ]);
     all
 }
 
@@ -504,7 +498,7 @@ fn board_refusals_are_one_line_and_an_old_worker_says_deploy() {
 }
 
 #[test]
-fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
+fn boards_says_it_is_deprecated_and_prints_the_one_board_never_an_archive() {
     let worker = Worker::start(answers);
     let out = run(&worker, "boards_text", &["boards"]);
     assert_eq!(out.code, Some(0), "{}", out.stderr);
@@ -512,26 +506,35 @@ fn boards_says_it_is_deprecated_and_lists_the_archived_boards() {
         out.stderr,
         "p99: p99 boards is deprecated: one board per account since 1.11; p99 board prints it\n"
     );
-    assert_eq!(
-        out.stdout,
-        format!(
-            "{:<5} {:<24} {:<16} archived, 3 columns, 1 card\n{:<5} {:<24} {:<16} archived, 0 columns, 0 cards\n",
-            2, "Web", "@ada", 3, "Ops", "@grace"
-        )
-    );
     assert_eq!(worker.last().path, "/v1/boards");
+    let board = run(&worker, "boards_text", &["board"]);
+    assert_eq!(out.stdout, board.stdout);
+    assert!(!out.stdout.contains("archived"), "{}", out.stdout);
 
     let json = run(&worker, "boards_json", &["boards", "--json"]);
     let doc = json_of(&json);
     assert!(json.stderr.is_empty(), "{}", json.stderr);
-    assert_eq!(
-        doc["deprecated"],
-        "one board per account since 1.11; read /board"
-    );
-    assert_eq!(doc["board"]["lanes"], lanes());
-    assert_eq!(doc["archived"][0]["name"], "Web");
-    assert_eq!(doc["archived"][0]["archived"], true);
-    assert_eq!(doc["archived"].as_array().unwrap().len(), 2);
+    assert_eq!(doc, old_boards());
+    assert!(doc.get("archived").is_none());
+}
+
+#[test]
+fn boards_ignores_the_archive_a_1_11_worker_still_sends() {
+    let worker = Worker::start(|method, path, _| {
+        if method == "GET" && path.starts_with("/v1/boards") {
+            let mut old = old_boards();
+            old["archived"] = json!([
+                {"id": 2, "name": "Web", "owner": {"username": "ada"}, "columns": [], "cards": [], "archived": true}
+            ]);
+            return (200, old.to_string());
+        }
+        (404, r#"{"message":"no such route"}"#.into())
+    });
+    let out = run(&worker, "boards_old", &["boards"]);
+    assert_eq!(out.code, Some(0), "{}", out.stderr);
+    assert!(!out.stdout.contains("Web"), "{}", out.stdout);
+    assert!(!out.stdout.contains("archived"), "{}", out.stdout);
+    assert!(out.stdout.starts_with("New ("), "{}", out.stdout);
 }
 
 #[test]
@@ -581,7 +584,7 @@ fn boards_set_refuses_locally_and_never_asks_the_worker() {
 }
 
 #[test]
-fn boards_host_scopes_the_archived_list_to_that_host() {
+fn boards_host_scopes_the_one_board_to_that_host() {
     let worker = Worker::start(answers);
     let out = run(
         &worker,
@@ -868,7 +871,7 @@ fn board_json_passes_fields_the_cli_does_not_know_through_untouched() {
         if method == "GET" && path.starts_with("/v1/boards") {
             let mut old = old_boards();
             old["next"] = json!(null);
-            old["archived"][1] = json!({"id": 3, "name": "Ops"});
+            old["cards"][1]["checks"] = json!(["ci"]);
             return (200, old.to_string());
         }
         (404, r#"{"message":"no such route"}"#.into())
@@ -878,5 +881,5 @@ fn board_json_passes_fields_the_cli_does_not_know_through_untouched() {
     assert_eq!(board["cards"][0]["checks"], json!(["ci"]));
     let old = json_of(&run(&worker, "board_raw", &["boards", "--json"]));
     assert!(old.get("next").is_some());
-    assert_eq!(old["archived"][1], json!({"id": 3, "name": "Ops"}));
+    assert_eq!(old["cards"][1]["checks"], json!(["ci"]));
 }

@@ -221,7 +221,8 @@ export async function backupChecks({ check, root }) {
     const skipped = ["app_sessions", "app_tries", "backup_runs", "github_deliveries", "usage"];
     assert.deepEqual(made.filter((n) => !skipped.includes(n)), BACKUP_TABLES.map((t) => t.name).sort());
     assert.ok(skipped.every((n) => made.includes(n)), JSON.stringify(made));
-    assert.ok(made.includes("archived"));
+    assert.equal(made.includes("archived"), false);
+    assert.equal(BACKUP_TABLES.some((t) => t.name === "archived"), false);
   });
 
   await check("[backup] every table is paged after every table it points at, the lanes first and the key counters last", async () => {

@@ -15,7 +15,7 @@ const ACCESS: &str = "access-secret-Ub4Ne8Rk2Xo6";
 const LICENSE: &str = "p99-licence-Vz5Mi3Qa7Ld9";
 const HOOK: &str = "https://hooks.slack.com/services/T0EXAMPLE/B0EXAMPLE/Xy7Kp3Wm9QrTe2";
 
-const SHIPPED: [&str; 16] = [
+const SHIPPED: [&str; 17] = [
     "0001_p99.sql",
     "0002_code_uid.sql",
     "0003_code_totp.sql",
@@ -32,6 +32,7 @@ const SHIPPED: [&str; 16] = [
     "0014_backup_cut.sql",
     "0015_cards.sql",
     "0016_one_board.sql",
+    "0017_delete_archived.sql",
 ];
 
 #[derive(Debug, Clone)]
@@ -78,6 +79,7 @@ struct Cf {
     applied: Vec<String>,
     rows: Vec<(&'static str, Value)>,
     fail: Option<String>,
+    fail_with: Option<&'static str>,
     mail: Option<String>,
     denied: bool,
     deny: Option<&'static str>,
@@ -101,11 +103,12 @@ fn refused(status: u16, code: i64, message: &str) -> (u16, Value) {
     )
 }
 
-fn recorded(sql: &str) -> Option<String> {
+fn recorded(sql: &str) -> Vec<String> {
     let start = "INSERT INTO d1_migrations (name) VALUES ('";
-    let at = sql.find(start)? + start.len();
-    let rest = &sql[at..];
-    Some(rest[..rest.find("')")?].to_owned())
+    sql.split(start)
+        .skip(1)
+        .filter_map(|rest| rest.find("')").map(|end| rest[..end].to_owned()))
+        .collect()
 }
 
 fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
@@ -125,14 +128,20 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
         cf.table = true;
         return rows(json!([]));
     }
-    if let Some(name) = recorded(&sql) {
+    let names = recorded(&sql);
+    if !names.is_empty() {
         if !cf.table {
             return refused(400, 7500, "no such table: d1_migrations: SQLITE_ERROR");
         }
-        if cf.fail.as_deref() == Some(name.as_str()) {
-            return refused(400, 7500, "near \"github\": syntax error: SQLITE_ERROR");
+        if names.iter().any(|n| cf.fail.as_deref() == Some(n.as_str())) {
+            return refused(
+                400,
+                7500,
+                cf.fail_with
+                    .unwrap_or("near \"github\": syntax error: SQLITE_ERROR"),
+            );
         }
-        cf.applied.push(name);
+        cf.applied.extend(names);
         return rows(json!([]));
     }
     if sql.starts_with("INSERT OR IGNORE INTO mail ") {
@@ -466,7 +475,7 @@ impl Home {
     fn inserted(&self) -> Vec<String> {
         self.calls()
             .iter()
-            .filter_map(|c| c.sql().and_then(|s| recorded(&s)))
+            .flat_map(|c| c.sql().map(|s| recorded(&s)).unwrap_or_default())
             .collect()
     }
 
@@ -748,11 +757,11 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
         .expect("the migrations table was never made");
     let first = calls
         .iter()
-        .position(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .position(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let upload = calls.iter().position(Call::upload).expect("no upload");
     assert!(table < first && last < upload);
@@ -842,17 +851,20 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
 }
 
 #[test]
-fn an_account_already_at_0016_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
-    let h = home("at-0016", &plain_config(), live(&SHIPPED, v19_rows()));
+fn an_account_already_at_0017_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
+    let h = home("at-0017", &plain_config(), live(&SHIPPED, v19_rows()));
 
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(plan.stdout.contains("nothing to migrate"));
     assert!(plan.stdout.contains("deploy needs no --accept-plan"));
+    assert!(!plan.stdout.contains("Old tags"), "{}", plan.stdout);
     assert!(
-        plan.stdout.contains(": 2 tags on 3 items"),
-        "{}",
-        plan.stdout
+        h.calls()
+            .iter()
+            .filter_map(Call::sql)
+            .all(|sql| !sql.contains("item_labels")),
+        "an account past 0017 still reads the old tags"
     );
     h.forget();
 
@@ -942,7 +954,7 @@ fn v110_rows() -> Vec<(&'static str, Value)> {
 }
 
 #[test]
-fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only_0016() {
+fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016_and_0017() {
     let mut rows = v110_rows();
     rows.extend(v19_rows());
     let h = home("at-0015", &plain_config(), live(&SHIPPED[..15], rows));
@@ -950,7 +962,7 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0016_one_board.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0016_one_board.sql, 0017_delete_archived.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -965,7 +977,10 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0016_one_board.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0016_one_board.sql, 0017_delete_archived.sql\n"),
+        "{text}"
+    );
     assert!(text.contains("\nOne board per account (0016)\n"), "{text}");
     assert!(text.contains("  the Cards board gets Needs you as lane 4; its cards stay where they are: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{text}");
     assert!(
@@ -981,10 +996,13 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     );
     assert!(
         text.contains(
-            "  archived, read-only: 2 boards (Web (ada@example.com), Ops (grace@example.com))\n"
+            "  deleted once moved (0017): 2 boards (Web (ada@example.com), Ops (grace@example.com))\n"
         ),
         "{text}"
     );
+    assert!(text.contains("\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane"), "{text}");
+    assert!(!text.contains("archived labels"), "{text}");
+    assert!(!text.contains("read-only"), "{text}");
     assert!(text.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 items with no place, newest first\n"), "{text}");
     assert!(text.contains("  - 1 item on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished\n"), "{text}");
     assert!(
@@ -996,10 +1014,17 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
 
     let json = h.run(&["migrate", "--plan", "--json"]).json();
     assert_eq!(json["hash"], hash);
-    assert_eq!(json["plan"]["pending"], json!(["0016_one_board.sql"]));
+    assert_eq!(
+        json["plan"]["pending"],
+        json!(["0016_one_board.sql", "0017_delete_archived.sql"])
+    );
     assert_eq!(json["plan"]["one_board"]["cards_board"], "insert");
     assert_eq!(json["plan"]["one_board"]["unplaced"], 2);
     assert_eq!(json["plan"]["one_board"]["labels"][2]["to"], "in-progress");
+    assert_eq!(
+        json["plan"]["delete_archived"],
+        json!({"after": ["0016_one_board.sql"]})
+    );
     assert_eq!(json["plan"]["decisions"].as_array().unwrap().len(), 1);
     assert_eq!(plan_hash(&h.run(&["migrate", "--plan"]).stdout), hash);
 
@@ -1015,6 +1040,283 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     assert_eq!(after.code, Some(0), "{}", after.stderr);
     assert!(h.inserted().is_empty());
     never_shows_a_secret(&[&out, &plan, &done, &after], &[]);
+}
+
+fn v111_rows() -> Vec<(&'static str, Value)> {
+    vec![
+        ("AS lanes FROM board_columns", json!([{ "lanes": 7 }])),
+        (
+            "AS places",
+            json!([
+                { "id": 2, "name": "Web", "owner": "ada@example.com", "columns": 4, "places": 3 },
+                { "id": 3, "name": "Ops", "owner": null, "columns": 3, "places": 1 }
+            ]),
+        ),
+        (
+            "WHERE l.id NOT IN (SELECT bc.label_id",
+            json!([
+                { "label": "Inbox", "items": 0, "open": 0 },
+                { "label": "Triage", "items": 2, "open": 1 }
+            ]),
+        ),
+        ("AS unplaced FROM items", json!([{ "unplaced": 1 }])),
+        (
+            "SELECT count(*) AS tags FROM item_labels",
+            json!([{ "tags": 4 }]),
+        ),
+    ]
+}
+
+#[test]
+fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_names_what_it_deletes_and_carries()
+ {
+    let mut rows = v111_rows();
+    rows.extend(v19_rows());
+    let h = home("at-0016", &plain_config(), live(&SHIPPED[..16], rows));
+
+    let out = h.run(&["deploy"]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr.ends_with("p99: 0017_delete_archived.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        "{}",
+        out.stderr
+    );
+    assert!(
+        h.writes().is_empty(),
+        "a refused deploy wrote: {:?}",
+        h.writes()
+    );
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    let text = &plan.stdout;
+    assert!(
+        text.contains("  pending: 0017_delete_archived.sql\n"),
+        "{text}"
+    );
+    assert!(!text.contains("One board per account (0016)"), "{text}");
+    assert!(
+        text.contains("\nDelete what the one board carries (0017)\n"),
+        "{text}"
+    );
+    assert!(text.contains("  deleted: 2 old boards (Web (ada@example.com), Ops), with their 7 columns and 4 card places\n"), "{text}");
+    assert!(
+        text.contains(&format!(
+            "  carried first: {:<20} 1 open -> in-progress; 1 closed -> done\n",
+            "Triage"
+        )),
+        "{text}"
+    );
+    assert!(text.contains("  deleted labels: Inbox, Triage\n"), "{text}");
+    assert!(
+        text.contains(
+            "  placed first: 1 item with a place only on an old board, after the lane's last card\n"
+        ),
+        "{text}"
+    );
+    assert!(
+        text.contains("  deleted old tags: 4 (item_labels rows nothing reads)\n"),
+        "{text}"
+    );
+    assert!(text.contains("  - 2 items on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n"), "{text}");
+    assert!(text.contains("  - 1 item has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n"), "{text}");
+    assert!(!text.contains("archived,"), "{text}");
+    assert!(!text.contains("Old tags"), "{text}");
+    assert!(
+        h.calls().iter().all(|c| !c.writes()),
+        "the plan wrote: {:?}",
+        h.writes()
+    );
+    let hash = plan_hash(text);
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(json["hash"], hash);
+    assert_eq!(json["plan"]["pending"], json!(["0017_delete_archived.sql"]));
+    assert_eq!(json["plan"]["delete_archived"]["lanes"], 7);
+    assert_eq!(json["plan"]["delete_archived"]["orders"], 1);
+    assert_eq!(json["plan"]["delete_archived"]["labels"][1]["closed"], 1);
+    assert_eq!(json["plan"]["decisions"].as_array().unwrap().len(), 2);
+
+    h.forget();
+    let stale = h.run(&["deploy", "--accept-plan", &"0".repeat(64)]);
+    assert_eq!(stale.code, Some(1));
+    assert!(
+        h.writes().is_empty(),
+        "a stale hash wrote: {:?}",
+        h.writes()
+    );
+
+    h.forget();
+    let done = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    assert_eq!(h.inserted(), names(&SHIPPED[16..]));
+    assert_eq!(h.applied(), names(&SHIPPED));
+    assert!(h.upload().is_some());
+    never_shows_a_secret(&[&out, &plan, &stale, &done], &[]);
+}
+
+fn count_rows() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "AS attachments, (SELECT count(*) FROM events) AS events",
+            json!([{ "items": 5, "comments": 4, "attachments": 2, "events": 9 }]),
+        ),
+        (
+            "FROM labels l JOIN items i ON i.label_id = l.id",
+            json!([{ "label": "In progress", "items": 3 }, { "label": "Triage", "items": 2 }]),
+        ),
+        (
+            "sum(s.moved) AS moved",
+            json!([{ "lane": 2, "items": 4, "moved": 1 }, { "lane": 6, "items": 1, "moved": 1 }]),
+        ),
+    ]
+}
+
+#[test]
+fn an_account_at_0016_counts_before_and_after_and_a_count_that_differs_inside_0017_refuses_with_nothing_deleted()
+ {
+    let mut rows = count_rows();
+    rows.extend(v111_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..16], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: count_check_comments: SQLITE_CONSTRAINT");
+    let h = home("count-check", &plain_config(), cf);
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    let text = &plan.stdout;
+    assert!(text.contains("\nCount check\n  before: 5 items, 4 comments, 2 attachments, 9 events\n  before, by label: In progress 3, Triage 2\n  after:  5 items, 4 comments, 2 attachments, 11 events\n  after, by lane: In progress 4, Done 1\n  the events grow by the 2 migrated label events and by nothing else\n"), "{text}");
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(json["plan"]["count_check"]["after"]["events"], 11);
+    assert_eq!(json["plan"]["count_check"]["after"]["lanes"][2]["items"], 4);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &plan_hash(text)]);
+    assert_eq!(out.code, Some(1));
+    assert_eq!(
+        out.stderr,
+        "p99: the count check stopped 0017: the comments no longer count 4 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+    );
+    let guarded: Vec<String> = h
+        .calls()
+        .iter()
+        .filter_map(Call::sql)
+        .filter(|sql| {
+            recorded(sql)
+                .iter()
+                .any(|n| n == "0017_delete_archived.sql")
+        })
+        .collect();
+    assert_eq!(guarded.len(), 1);
+    let at = guarded[0]
+        .find("CREATE TABLE count_check")
+        .expect("0017 carries the count check");
+    assert!(at > guarded[0].find("DROP TABLE IF EXISTS archived").unwrap());
+    assert!(at < guarded[0].find("INSERT INTO d1_migrations").unwrap());
+    for want in [
+        "CONSTRAINT count_check_items CHECK (items = 5)",
+        "CONSTRAINT count_check_comments CHECK (comments = 4)",
+        "CONSTRAINT count_check_events CHECK (events = 11)",
+        "CONSTRAINT count_check_lane_2 CHECK (lane_2 = 4)",
+        "CONSTRAINT count_check_lane_6 CHECK (lane_6 = 1)",
+    ] {
+        assert!(guarded[0].contains(want), "{want}");
+    }
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&plan, &out], &[]);
+}
+
+#[test]
+fn an_account_at_0015_refused_by_the_count_check_rolls_0016_back_with_0017_and_its_old_worker_keeps_its_boards()
+ {
+    let mut rows = count_rows();
+    rows.extend(v110_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..15], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: count_check_events: SQLITE_CONSTRAINT");
+    let h = home("count-check-0015", &plain_config(), cf);
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    assert!(plan.stdout.contains("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"), "{}", plan.stdout);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &plan_hash(&plan.stdout)]);
+    assert_eq!(out.code, Some(1));
+    assert_eq!(
+        out.stderr,
+        "p99: the count check stopped 0017: the events no longer count 11 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+    );
+    let sent: Vec<String> = h
+        .calls()
+        .iter()
+        .filter_map(Call::sql)
+        .filter(|sql| !recorded(sql).is_empty())
+        .collect();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(recorded(&sent[0]), names(&SHIPPED[15..]));
+    let at = |what: &str| sent[0].find(what).unwrap_or_else(|| panic!("{what}"));
+    assert!(at("VALUES ('0016_one_board.sql')") < at("DROP TABLE IF EXISTS archived"));
+    assert!(at("DROP TABLE IF EXISTS archived") < at("CREATE TABLE count_check"));
+    assert!(at("CREATE TABLE count_check") < at("VALUES ('0017_delete_archived.sql')"));
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..15]));
+    assert!(!out.stdout.contains("applied 0016"), "{}", out.stdout);
+    never_shows_a_secret(&[&plan, &out], &[]);
+}
+
+#[test]
+fn a_migration_failing_for_another_reason_is_reported_as_cloudflare_said_it() {
+    let mut rows = count_rows();
+    rows.extend(v111_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..16], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: lanes = 7: SQLITE_CONSTRAINT");
+    let h = home("other-failure", &plain_config(), cf);
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+    let out = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr
+            .contains("CHECK constraint failed: lanes = 7: SQLITE_CONSTRAINT"),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("count check"), "{}", out.stderr);
+    assert!(h.upload().is_none());
+}
+
+#[test]
+fn an_account_at_0016_whose_cards_board_lacks_a_lane_is_refused_before_0017_and_nothing_is_written()
+{
+    let mut rows = v111_rows();
+    rows[0] = ("AS lanes FROM board_columns", json!([{ "lanes": 6 }]));
+    rows.extend(v19_rows());
+    let h = home("short-lanes", &plain_config(), live(&SHIPPED[..16], rows));
+    let said = "the Cards board has 6 lanes, not seven, so 0017 can't tell where an old board's cards belong: deploy stops before any migration, and nothing is deleted";
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(1));
+    assert!(plan.stderr.contains(said), "{}", plan.stderr);
+    assert!(plan.stdout.is_empty(), "{}", plan.stdout);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &"0".repeat(64)]);
+    assert_eq!(out.code, Some(1));
+    assert!(out.stderr.contains(said), "{}", out.stderr);
+    assert!(
+        h.writes().is_empty(),
+        "a refused deploy wrote: {:?}",
+        h.writes()
+    );
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&plan, &out], &[]);
 }
 
 #[test]
@@ -1078,7 +1380,10 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0016_one_board.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0016_one_board.sql, 0017_delete_archived.sql\n"),
+        "{text}"
+    );
     assert!(
         text.contains("  the Cards board is made, owned by the oldest Owner, with seven lanes"),
         "{text}"
@@ -1124,7 +1429,7 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
         let why = if args.len() == 3 {
             "--accept-plan takes the 64-character hash"
         } else {
-            "p99: 0016_one_board.sql change this account's data"
+            "p99: 0016_one_board.sql, 0017_delete_archived.sql change this account's data"
         };
         let out = h.refuses_and_changes_nothing(&args, why);
         assert!(!out.all().contains("applied 0014"), "{}", out.all());
@@ -1143,7 +1448,7 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 
@@ -1215,7 +1520,7 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
     assert!(text.starts_with("Migration plan for the account main\n"));
     assert!(
         text.contains(
-            "  pending: 0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql\n"
         ),
         "{text}"
     );
@@ -1262,7 +1567,8 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
             "0011_lanes.sql",
             "0012_people.sql",
             "0013_app.sql",
-            "0016_one_board.sql"
+            "0016_one_board.sql",
+            "0017_delete_archived.sql"
         ])
     );
     assert_eq!(json["plan"]["account_id"], "acc1");
@@ -1282,7 +1588,7 @@ fn migrate_plan_on_a_1_8_schema_names_every_decision_a_manager_must_answer() {
     let text = &out.stdout;
     assert!(
         text.contains(
-            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql\n"
         ),
         "{text}"
     );
@@ -1379,7 +1685,7 @@ fn deploy_on_1_8_without_the_hash_refuses_cleanly_and_changes_nothing() {
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -1475,7 +1781,7 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 
@@ -1561,7 +1867,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(
         plan.stdout.contains(
-            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql\n"
         ),
         "{}",
         plan.stdout
@@ -1582,7 +1888,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
 
     let out = h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql change this account's data",
     );
     assert!(!out.stderr.contains("applied 0005"), "{}", out.stderr);
     assert_eq!(h.applied(), names(&SHIPPED[..4]));
@@ -1595,7 +1901,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 }
@@ -1608,7 +1914,7 @@ fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
         live(&SHIPPED[..4], half_rows()),
     );
     let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
-    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data";
+    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql change this account's data";
     let changed = "the plan changed since that hash was taken";
     h.refuses_and_changes_nothing(&["deploy"], gated);
     h.refuses_and_changes_nothing(&["deploy", "--json"], gated);
@@ -1672,7 +1978,7 @@ fn the_mail_sender_in_the_config_moves_only_with_an_accepted_deploy_and_only_onc
             .unwrap()
     };
     let mail = sql_at(&|s| s.starts_with("INSERT OR IGNORE INTO mail "));
-    assert!(mail > sql_at(&|s| recorded(s).as_deref() == Some("0008_mail.sql")));
+    assert!(mail > sql_at(&|s| recorded(s).iter().any(|n| n == "0008_mail.sql")));
     assert!(mail > calls.iter().position(Call::upload).unwrap());
 
     h.forget();
@@ -1937,7 +2243,7 @@ fn a_p99_page_on_its_own_host_gets_its_route_after_the_migrations() {
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let added = calls
         .iter()
@@ -1982,7 +2288,7 @@ fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0015_with_
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 }
@@ -1996,7 +2302,7 @@ fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     assert_eq!(out.code, Some(1));
     assert!(
         out.stderr.contains(
-            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data"
+            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql change this account's data"
         ),
         "{}",
         out.stderr
@@ -2007,7 +2313,7 @@ fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(
         plan.stdout
-            .contains("  pending: 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"),
+            .contains("  pending: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql\n"),
         "{}",
         plan.stdout
     );
@@ -2044,7 +2350,7 @@ fn a_migration_that_fails_midway_stops_before_the_upload_and_the_account_resumes
     h.cf.lock().unwrap().fail = None;
     h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql change this account's data",
     );
     assert_eq!(h.applied(), names(&SHIPPED[..6]));
 
