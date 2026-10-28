@@ -58,6 +58,8 @@ struct Migrated {
     already: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     accepted: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    parked: Vec<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -218,6 +220,12 @@ pub struct DeployArgs {
         help = "the hash `p99 migrate --plan` printed, which data-changing migrations need"
     )]
     pub accept_plan: Option<String>,
+    #[arg(
+        long = "park",
+        value_name = "code-id",
+        help = "while 0018 makes the projects, give this code no grant instead of its default: it opens nothing and is not revoked, and nobody is mailed; repeat it"
+    )]
+    pub park: Vec<u64>,
 }
 
 struct Ask {
@@ -757,11 +765,20 @@ struct Steps {
     todo: Vec<(&'static str, &'static str)>,
     already: Vec<String>,
     accepted: Option<String>,
+    plan: Option<Value>,
+    park: Vec<u64>,
 }
 
-fn steps(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Steps, String> {
+fn steps(
+    cf: &Cloudflare,
+    space: &str,
+    entry: &Account,
+    accept: Option<&str>,
+    park: &[u64],
+) -> Result<Steps, String> {
     let before = applied(cf, &entry.account_id, &entry.database_id)?;
-    let accepted = crate::migrate::gate(cf, entry, &before, accept)?;
+    let (accepted, plan) = crate::migrate::gate(cf, space, entry, &before, accept)?.unzip();
+    crate::spaces_plan::parked(plan.as_ref(), park)?;
     let already: Vec<String> = bundle::MIGRATIONS
         .iter()
         .filter(|(name, _)| before.iter().any(|a| a == name))
@@ -771,7 +788,40 @@ fn steps(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Steps
         todo: pending(bundle::MIGRATIONS, &before),
         already,
         accepted,
+        plan,
+        park: park.to_vec(),
     })
+}
+
+const ONE_RUN: &str = "0017";
+
+type Step = (&'static str, &'static str);
+
+fn runs(todo: Vec<Step>) -> Vec<Vec<Step>> {
+    let mut out: Vec<Vec<Step>> = Vec::new();
+    for step in todo {
+        match out.last_mut() {
+            Some(run) if step.0 >= ONE_RUN && run.first().is_some_and(|f| f.0 >= ONE_RUN) => {
+                run.push(step)
+            }
+            _ => out.push(vec![step]),
+        }
+    }
+    out
+}
+
+fn run_sql(run: &[Step], plan: Option<&Value>, park: &[u64]) -> String {
+    let staged = plan.filter(|p| p.get("spaces").is_some());
+    run.iter()
+        .map(|(name, sql)| match staged {
+            Some(plan) if name.starts_with(crate::spaces_plan::STEP) => migration_sql(
+                name,
+                &format!("{}\n{sql}", crate::spaces_plan::prelude(plan, park)),
+            ),
+            _ => migration_sql(name, sql),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn apply(cf: &Cloudflare, entry: &Account, steps: Steps) -> Result<Migrated, String> {
@@ -781,20 +831,44 @@ fn apply(cf: &Cloudflare, entry: &Account, steps: Steps) -> Result<Migrated, Str
         applied: Vec::new(),
         already: steps.already,
         accepted: steps.accepted,
+        parked: Vec::new(),
     };
     if steps.todo.is_empty() {
         done("every migration is applied");
     }
-    for (name, sql) in steps.todo {
-        cf.query(account, db, &migration_sql(name, sql), &[])?;
-        done(&format!("applied {name}"));
-        out.applied.push(name.to_owned());
+    for run in runs(steps.todo) {
+        let names: Vec<&str> = run.iter().map(|(name, _)| *name).collect();
+        let sql = run_sql(&run, steps.plan.as_ref(), &steps.park);
+        if let Err(e) = cf.query(account, db, &sql, &[]) {
+            return Err(crate::spaces_plan::refusal(&e.message, &names).unwrap_or(e.message));
+        }
+        for name in names {
+            done(&format!("applied {name}"));
+            out.applied.push(name.to_owned());
+            if name.starts_with(crate::spaces_plan::STEP) && !steps.park.is_empty() {
+                out.parked = steps.park.clone();
+                done(&format!(
+                    "parked {}: no grant, nothing opens for them, and nobody was mailed",
+                    steps
+                        .park
+                        .iter()
+                        .map(|id| format!("#{id}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
     }
     Ok(out)
 }
 
-fn migrate(cf: &Cloudflare, entry: &Account, accept: Option<&str>) -> Result<Migrated, String> {
-    apply(cf, entry, steps(cf, entry, accept)?)
+fn migrate(
+    cf: &Cloudflare,
+    space: &str,
+    entry: &Account,
+    accept: Option<&str>,
+) -> Result<Migrated, String> {
+    apply(cf, entry, steps(cf, space, entry, accept, &[])?)
 }
 
 fn ensure_bucket(cf: &Cloudflare, account: &str, name: &str) -> Result<(), String> {
@@ -850,6 +924,7 @@ fn hub_migration(tag: Option<&str>) -> Option<Value> {
 }
 
 fn our_bindings(
+    space: &str,
     account: &Account,
     rate: Option<u64>,
     app: Option<&str>,
@@ -861,6 +936,8 @@ fn our_bindings(
         json!({ "type": "plain_text", "name": "VERSION", "text": VERSION }),
         json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": state.word() }),
         json!({ "type": "plain_text", "name": "LICENSE_LINK", "text": state.link_binding() }),
+        json!({ "type": "plain_text", "name": "SPACE", "text": space }),
+        json!({ "type": "plain_text", "name": "SPACE_NAME", "text": crate::spaces_plan::shown(space, account) }),
         json!({ "type": "durable_object_namespace", "name": "HUB", "class_name": HUB_CLASS }),
     ];
     if let Some(host) = app {
@@ -945,8 +1022,10 @@ fn rate_namespace(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn upload(
     cf: &Cloudflare,
+    space: &str,
     account: &Account,
     existing: &[Value],
     rate: Option<u64>,
@@ -954,7 +1033,7 @@ fn upload(
     state: State,
     tag: Option<&str>,
 ) -> Result<Uploaded, String> {
-    let bindings = merge_bindings(existing, our_bindings(account, rate, app, state));
+    let bindings = merge_bindings(existing, our_bindings(space, account, rate, app, state));
     let migrations = hub_migration(tag);
     cf.upload(
         &account.account_id,
@@ -1400,6 +1479,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         access_client_secret: None,
         code: None,
         me: AccountMe::default(),
+        ..Account::default()
     });
     account.me = me;
     if account.account_id != cf_account.id {
@@ -1446,7 +1526,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "The schema",
         "Migrations are applied in order and recorded in d1_migrations, as wrangler records them.",
     );
-    migrate(&cf, &account, args.accept_plan.as_deref())?;
+    migrate(&cf, &name, &account, args.accept_plan.as_deref())?;
 
     step(
         5,
@@ -1542,6 +1622,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     let tag = cf.migration_tag(&id, &account.worker)?;
     upload(
         &cf,
+        &name,
         &account,
         &bindings,
         rate,
@@ -1786,7 +1867,7 @@ fn deploy_into(
             account.worker
         )
     })?;
-    let steps = steps(&cf, account, args.accept_plan.as_deref())?;
+    let steps = steps(&cf, name, account, args.accept_plan.as_deref(), &args.park)?;
     let rate = match find_binding(&bindings, "ratelimit", Some("RATE")) {
         Some(_) => None,
         None => Some(
@@ -1832,6 +1913,7 @@ fn deploy_into(
     report.migrations = apply(&cf, account, steps)?;
     upload(
         &cf,
+        name,
         account,
         &bindings,
         rate,
@@ -1956,7 +2038,7 @@ mod tests {
             (State::Ff, "shown"),
             (State::Owner, "hideable"),
         ] {
-            let ours = our_bindings(&account, None, None, state);
+            let ours = our_bindings("main", &account, None, None, state);
             let found = find_binding(&ours, "plain_text", Some("LICENSE_STATE")).unwrap();
             assert_eq!(found["text"], state.word());
             let found = find_binding(&ours, "plain_text", Some("LICENSE_LINK")).unwrap();
@@ -1965,7 +2047,10 @@ mod tests {
         }
         let stale =
             vec![json!({ "type": "plain_text", "name": "LICENSE_STATE", "text": "agency" })];
-        let merged = merge_bindings(&stale, our_bindings(&account, None, None, State::Free));
+        let merged = merge_bindings(
+            &stale,
+            our_bindings("main", &account, None, None, State::Free),
+        );
         let states: Vec<&Value> = merged
             .iter()
             .filter(|b| binding_name(b) == "LICENSE_STATE")
@@ -2109,10 +2194,11 @@ mod tests {
             bucket: "files".into(),
             ..Account::default()
         };
-        let bare = our_bindings(&account, None, None, State::Free);
+        let bare = our_bindings("main", &account, None, None, State::Free);
         assert!(find_binding(&bare, "ratelimit", None).is_none());
         assert!(find_binding(&bare, "plain_text", Some("APP_HOST")).is_none());
         let ours = our_bindings(
+            "main",
             &account,
             Some(1004),
             Some("p99.example.workers.dev"),
@@ -2159,6 +2245,99 @@ mod tests {
         );
         assert_eq!(d1_id(&json!({ "type": "d1" })), "");
         assert_eq!(binding_name(&json!({})), "");
+    }
+
+    #[test]
+    fn the_worker_is_bound_to_its_space_by_slug_and_by_the_name_the_config_shows() {
+        let named = Account {
+            name: Some("PITO MD".into()),
+            ..Account::default()
+        };
+        let ours = our_bindings("pito", &named, None, None, State::Free);
+        assert_eq!(
+            find_binding(&ours, "plain_text", Some("SPACE")).unwrap()["text"],
+            "pito"
+        );
+        assert_eq!(
+            find_binding(&ours, "plain_text", Some("SPACE_NAME")).unwrap()["text"],
+            "PITO MD"
+        );
+        let bare = our_bindings("fepra", &Account::default(), None, None, State::Free);
+        assert_eq!(
+            find_binding(&bare, "plain_text", Some("SPACE_NAME")).unwrap()["text"],
+            "fepra"
+        );
+        let stale = vec![
+            json!({ "type": "plain_text", "name": "SPACE", "text": "main" }),
+            json!({ "type": "plain_text", "name": "SPACE_NAME", "text": "Old" }),
+        ];
+        let merged = merge_bindings(&stale, ours);
+        assert_eq!(
+            merged
+                .iter()
+                .filter(|b| binding_name(b).starts_with("SPACE"))
+                .map(|b| b["text"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["pito", "PITO MD"]
+        );
+    }
+
+    #[test]
+    fn migrations_0017_and_0018_run_as_one_batch_and_every_earlier_one_runs_alone() {
+        let todo: Vec<Step> = vec![
+            ("0011_lanes.sql", "A;"),
+            ("0016_one_board.sql", "B;"),
+            ("0017_delete_archived.sql", "C;"),
+            ("0018_spaces.sql", "D;"),
+        ];
+        let names = |runs: Vec<Vec<Step>>| -> Vec<Vec<&str>> {
+            runs.iter()
+                .map(|r| r.iter().map(|(n, _)| *n).collect())
+                .collect()
+        };
+        assert_eq!(
+            names(runs(todo.clone())),
+            [
+                vec!["0011_lanes.sql"],
+                vec!["0016_one_board.sql"],
+                vec!["0017_delete_archived.sql", "0018_spaces.sql"],
+            ]
+        );
+        assert_eq!(names(runs(todo[3..].to_vec())), [vec!["0018_spaces.sql"]]);
+        assert!(runs(Vec::new()).is_empty());
+        assert_eq!(
+            run_sql(&todo[2..], None, &[]),
+            "C;\nINSERT INTO d1_migrations (name) VALUES ('0017_delete_archived.sql');\nD;\nINSERT INTO d1_migrations (name) VALUES ('0018_spaces.sql');"
+        );
+    }
+
+    #[test]
+    fn only_0018_carries_the_accepted_plan_and_a_parked_code_grants_nothing() {
+        let plan = json!({
+            "spaces": {
+                "projects": [{ "name": "Site" }],
+                "hosts": [{ "host": "example.com", "project": "Site" }],
+                "codes": [
+                    { "id": 1, "grant": { "space": true } },
+                    { "id": 2, "grant": { "projects": ["Site"] } }
+                ]
+            }
+        });
+        let todo: Vec<Step> = vec![("0016_one_board.sql", "B;"), ("0018_spaces.sql", "D;")];
+        let sql = run_sql(&todo, Some(&plan), &[2]);
+        assert!(sql.starts_with(
+            "B;\nINSERT INTO d1_migrations (name) VALUES ('0016_one_board.sql');\nDROP TABLE IF EXISTS spaces_plan;\n"
+        ));
+        assert!(
+            sql.contains(r#"('grant', '2', '{"projects":[]}')"#),
+            "{sql}"
+        );
+        assert!(sql.contains(r#"('grant', '1', '{"space":true}')"#), "{sql}");
+        let staged = sql.find("INSERT INTO spaces_plan").unwrap();
+        assert!(staged < sql.find("\nD;\n").unwrap());
+        assert!(sql.ends_with("D;\nINSERT INTO d1_migrations (name) VALUES ('0018_spaces.sql');"));
+        assert!(!run_sql(&todo, Some(&json!({ "pending": [] })), &[]).contains("spaces_plan"));
+        assert!(!run_sql(&todo, None, &[2]).contains("spaces_plan"));
     }
 
     #[test]

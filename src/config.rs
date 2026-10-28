@@ -36,6 +36,8 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Account {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     pub account_id: String,
     pub token: String,
     #[serde(default = "p99")]
@@ -64,6 +66,8 @@ pub struct Account {
     pub code: Option<String>,
     #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
     pub me: AccountMe,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub projects: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -736,6 +740,7 @@ mod tests {
                     email: full("grace@example.com"),
                     agent: Some(true),
                 },
+                ..Account::default()
             },
         );
         config.hosts.insert(

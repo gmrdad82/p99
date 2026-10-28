@@ -53,8 +53,6 @@ const Q_ORDER: &str = "SELECT b.slug AS board, COALESCE(s.name, x.status) AS lab
 
 const EXTRA_TAGS: &str = "FROM item_labels il JOIN labels l ON l.id = il.label_id JOIN items i ON i.id = il.item_id LEFT JOIN statuses s ON s.key = i.status WHERE s.name IS NULL OR lower(trim(s.name)) <> lower(trim(l.name))";
 
-const Q_OLD_TAGS: &str = "SELECT count(DISTINCT il.item_id) AS items, count(DISTINCT il.label_id) AS tags FROM item_labels il JOIN items i ON i.id = il.item_id WHERE il.label_id <> i.label_id";
-
 const Q_MEMBERS: &str = "SELECT lower(trim(e.actor_email)) AS email, (SELECT n.name FROM codes n WHERE lower(trim(n.email)) = lower(trim(e.actor_email)) ORDER BY n.id DESC LIMIT 1) AS name, count(*) AS changes FROM events e WHERE e.kind = 'status' AND e.actor_email IS NOT NULL AND EXISTS (SELECT 1 FROM codes r WHERE lower(trim(r.email)) = lower(trim(e.actor_email))) AND NOT EXISTS (SELECT 1 FROM codes m WHERE lower(trim(m.email)) = lower(trim(e.actor_email)) AND m.manager = 1 AND m.revoked_at IS NULL) AND NOT (json_extract(e.detail_json, '$.to') = 'abandoned' OR (json_extract(e.detail_json, '$.to') = 'done' AND json_extract(e.detail_json, '$.resolution') = 'abandoned')) AND NOT (json_extract(e.detail_json, '$.from') IN ('done', 'resolved', 'abandoned', 'duplicate') AND json_extract(e.detail_json, '$.to') IN ('inbox', 'new')) AND NOT (json_extract(e.detail_json, '$.from') = 'waiting' AND json_extract(e.detail_json, '$.to') = 'confirmed' AND EXISTS (SELECT 1 FROM items i WHERE i.id = e.item_id AND lower(trim(i.reporter_email)) = lower(trim(e.actor_email)))) GROUP BY lower(trim(e.actor_email)) ORDER BY 1";
 
 const Q_COLLIDE: &str = "SELECT s.name AS label, l.name AS tag FROM statuses s JOIN labels l ON lower(trim(l.name)) = lower(trim(s.name)) ORDER BY s.position, l.id";
@@ -77,7 +75,7 @@ pub fn run(_args: &MigrateArgs, global: &Global) -> Result<(), String> {
     let (name, account) = config.account(global.account.as_deref())?;
     let cf = Cloudflare::new(&crate::config::token(account)?);
     let applied = crate::setup::applied(&cf, &account.account_id, &account.database_id)?;
-    let plan = plan(&cf, account, &applied)?;
+    let plan = plan(&cf, name, account, &applied)?;
     let hash = hash(&plan);
     if global.json {
         let text = serde_json::to_string_pretty(&json!({
@@ -113,10 +111,11 @@ fn numbered(name: &str, prefix: &str) -> bool {
 
 pub fn gate(
     cf: &Cloudflare,
+    space: &str,
     account: &Account,
     applied: &[String],
     accept: Option<&str>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<(String, Value)>, String> {
     let pending = gated_pending(applied);
     if applied.is_empty() || pending.is_empty() {
         return Ok(None);
@@ -132,14 +131,15 @@ pub fn gate(
             "--accept-plan takes the 64-character hash `p99 migrate --plan` ends with".into(),
         );
     }
-    let now = hash(&plan(cf, account, applied)?);
+    let read = plan(cf, space, account, applied)?;
+    let now = hash(&read);
     if given != now {
         return Err(
             "the plan changed since that hash was taken (the database moved on): read `p99 migrate --plan` again and run with its new hash"
                 .into(),
         );
     }
-    Ok(Some(now))
+    Ok(Some((now, read)))
 }
 
 pub fn hash(plan: &Value) -> String {
@@ -216,14 +216,18 @@ fn person(name: &str, email: &str) -> String {
     }
 }
 
-pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Value, String> {
+pub fn plan(
+    cf: &Cloudflare,
+    space: &str,
+    account: &Account,
+    applied: &[String],
+) -> Result<Value, String> {
     let pending = gated_pending(applied);
     let mut plan = json!({
         "account_id": account.account_id,
         "database_id": account.database_id,
         "pending": pending,
     });
-    old_tags(cf, account, applied, &mut plan)?;
     if applied.is_empty() || pending.is_empty() {
         plan["decisions"] = json!([]);
         return Ok(plan);
@@ -242,6 +246,12 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     }
     if pending.iter().any(|p| p.starts_with("0016")) {
         crate::fold::plan(cf, account, carded, &mut plan, &mut decisions)?;
+    }
+    if pending
+        .iter()
+        .any(|p| numbered(p, crate::spaces_plan::STEP))
+    {
+        crate::spaces_plan::plan(cf, space, account, applied, &mut plan, &mut decisions)?;
     }
 
     let mut usernames: BTreeMap<String, String> = BTreeMap::new();
@@ -327,23 +337,6 @@ pub fn plan(cf: &Cloudflare, account: &Account, applied: &[String]) -> Result<Va
     plan["url"] = json!(account.url);
     plan["decisions"] = json!(decisions);
     Ok(plan)
-}
-
-fn old_tags(
-    cf: &Cloudflare,
-    account: &Account,
-    applied: &[String],
-    plan: &mut Value,
-) -> Result<(), String> {
-    if !applied.iter().any(|a| numbered(a, "0011")) {
-        return Ok(());
-    }
-    let row = select(cf, account, Q_OLD_TAGS)?
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-    plan["old_tags"] = json!({ "items": count(&row, "items"), "tags": count(&row, "tags") });
-    Ok(())
 }
 
 type Owner = Option<(String, String)>;
@@ -706,7 +699,6 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     out.push_str(&format!("Migration plan for the account {account}\n"));
     if pending.is_empty() || plan.get("kinds").is_none() {
         out.push_str("  nothing to migrate: the database is new or already past every gated migration; deploy needs no --accept-plan\n");
-        render_old_tags(&mut out, plan);
         out.push_str(&format!("\nPlan hash: {hash}\n"));
         return out;
     }
@@ -863,8 +855,6 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         ));
     }
 
-    render_old_tags(&mut out, plan);
-
     out.push_str("\nKinds and keys (unchanged)\n");
     let kinds: Vec<String> = list(&plan["kinds"])
         .iter()
@@ -904,6 +894,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         out.push_str(&format!("  the CLI's url {url} stays\n"));
     }
     crate::fold::render(&mut out, plan);
+    crate::spaces_plan::render(&mut out, plan);
 
     out.push_str("\nDecisions\n");
     let decisions = list(&plan["decisions"]);
@@ -917,16 +908,6 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         "\nPlan hash: {hash}\nOnce the decisions are answered: p99 deploy --accept-plan {hash}\n"
     ));
     out
-}
-
-fn render_old_tags(out: &mut String, plan: &Value) {
-    if let Some(tags) = plan.get("old_tags") {
-        out.push_str(&format!(
-            "\nOld tags beyond the label (item_labels rows 0011 kept untouched and unused; nothing drops them): {} on {}\n",
-            many(count(tags, "tags"), "tag"),
-            many(count(tags, "items"), "item")
-        ));
-    }
 }
 
 fn render_members(out: &mut String, plan: &Value) {
@@ -1197,9 +1178,7 @@ mod tests {
         assert!(out.contains("deploy needs no --accept-plan"));
         assert!(out.ends_with("\nPlan hash: abc123\n"), "{out}");
         assert!(!out.contains("Old tags"));
-        let tagged = json!({"pending": [], "old_tags": {"tags": 1, "items": 2}});
-        let out = render("main", &tagged, "abc123");
-        assert!(out.contains(": 1 tag on 2 items\n"), "{out}");
+        assert!(!out.contains("Spaces and projects"));
         let mut members = String::new();
         render_members(&mut members, &json!({}));
         assert!(members.ends_with("  none\n"));

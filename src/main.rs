@@ -18,6 +18,7 @@ mod migrate;
 mod one_board;
 mod setup;
 mod sign;
+mod spaces_plan;
 mod stream;
 mod trailers;
 mod tui;
