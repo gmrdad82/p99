@@ -30,7 +30,9 @@ pub struct Around<S> {
     reader: Inbox,
     picking: Option<Picking>,
     turn: u64,
+    scope: u64,
     now: Instant,
+    palette: Palette,
 }
 
 impl<S: Screen<Msg> + Narrow> Around<S> {
@@ -39,10 +41,28 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             inner,
             reader: Inbox::new(source.clone(), palette),
             turn: shared.turn(),
+            scope: shared.scoped(),
             shared,
             source,
             picking: None,
             now: Instant::now(),
+            palette,
+        }
+    }
+
+    fn switch(&mut self, cx: &mut Cx<'_, Msg>) {
+        let scope = self.source.rescope();
+        self.shared.rescoped(scope);
+        self.settle(cx);
+    }
+
+    fn settle(&mut self, cx: &mut Cx<'_, Msg>) {
+        self.turn = self.shared.turn();
+        self.scope = self.shared.scoped();
+        self.inner.rescope();
+        cx.reload();
+        if !self.shared.0.borrow().counted {
+            self.ask(false, cx);
         }
     }
 
@@ -154,16 +174,23 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
         {
             let mut state = self.shared.0.borrow_mut();
             state.asking = false;
-            if let Ok((count, _)) = &result {
-                state.counted = true;
-                state.waiting.set(*count);
-            }
         }
+        tally(&self.shared, &result);
         match result {
             _ if !open || !self.free() => {}
             Ok((_, cards)) => self.offer_waiting(cards, cx),
             Err(error) => cx.say(error, Tone::Alert),
         }
+    }
+}
+
+pub fn tally(shared: &Shared, result: &Result<Waiting, String>) {
+    if let Ok((count, cards)) = result {
+        let projects = cards
+            .iter()
+            .map(|(space, card)| (*space, card.project.clone()))
+            .collect();
+        shared.counted(*count, projects);
     }
 }
 
@@ -201,7 +228,8 @@ impl Source {
                 let (mut count, mut cards, mut answered) = (0, Vec::new(), false);
                 let (mut failed, mut behind) = (None, None);
                 let names = self.spaces();
-                for (space, name) in names.iter().enumerate() {
+                for space in self.scoped() {
+                    let name = names.get(space).map_or("", String::as_str);
                     let client = match self.client(space, None) {
                         Ok(client) => client,
                         Err(error) => {
@@ -284,10 +312,20 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         if !self.shared.0.borrow().counted {
             self.ask(false, cx);
         }
+        let name = {
+            let mut state = self.shared.0.borrow_mut();
+            !std::mem::replace(&mut state.named, true) && !self.source.is_demo()
+        };
+        if name {
+            let source = self.source.clone();
+            cx.detach(move || Msg::Spaces(source.named()));
+        }
     }
 
     fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
-        if self.turn != self.shared.turn() {
+        if self.scope != self.shared.scoped() {
+            self.settle(cx);
+        } else if self.turn != self.shared.turn() {
             self.apply(cx);
         }
         self.inner.entered(cx);
@@ -303,6 +341,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             match key.code {
                 KeyCode::Char('w') => {
                     self.ask(true, cx);
+                    return;
+                }
+                KeyCode::Char('S') if self.source.spaces().len() > 1 => {
+                    self.switch(cx);
                     return;
                 }
                 KeyCode::Char('p') => {
@@ -340,6 +382,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         self.watch(&event);
         match event {
             Msg::Waiting(open, result) => self.got(open, result, cx),
+            Msg::Spaces(names) => self.shared.names(names, self.source.scope()),
             Msg::Projects(Ok(names)) => {
                 self.shared.0.borrow_mut().known = names;
                 if self.free() {
@@ -411,6 +454,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
         let mut hints = self.inner.hints();
         if self.free() && self.inner.phase() == Phase::Ready && !self.inner.typing() {
+            if self.source.spaces().len() > 1 {
+                hints.push(Hint::new("S", "space").rank(2));
+            }
             hints.push(Hint::new("p", "projects").rank(2));
             if self.clears_projects() {
                 hints.push(Hint::new("esc", "all projects"));
@@ -421,17 +467,18 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
-        self.inner.facts()
+        let mut facts = self.inner.facts();
+        let state = self.shared.0.borrow();
+        if !state.label.is_empty() && !facts.is_empty() {
+            let at = facts.len() - usize::from(self.source.is_demo());
+            facts.insert(at, (format!("in {}", state.label), self.palette.accent));
+        }
+        facts
     }
 
     fn status(&self) -> Option<(String, Style)> {
-        let (mut text, style) = self.inner.status()?;
-        let state = self.shared.0.borrow();
-        if !state.label.is_empty() {
-            text.push_str(" · ");
-            text.push_str(&state.label);
-        }
-        Some((text, style))
+        let space = self.shared.space();
+        Some((space, self.palette.accent)).filter(|(space, _)| !space.is_empty())
     }
 
     fn badge(&self) -> &[Span] {

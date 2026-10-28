@@ -84,7 +84,7 @@ const DROP: &str = "Drop (close without fixing)";
 const DUPLICATE: &str = "Duplicate of…";
 
 enum Picking {
-    Host,
+    Host(Vec<String>),
     Assign(Vec<Option<String>>),
     Move(Vec<String>),
 }
@@ -169,7 +169,7 @@ impl Inbox {
             error: None,
             stopped: false,
             filter: Filter::new("Filter")
-                .placeholder("type to filter by key, title, page, host or person")
+                .placeholder("type to filter by key, title, page, host, project or person")
                 .hint("enter keeps the filter · esc clears it"),
             host: None,
             shown: Shown::Open,
@@ -197,6 +197,12 @@ impl Inbox {
         if self.entries.is_some() {
             self.sift();
         }
+    }
+
+    pub(super) fn respace(&mut self) {
+        self.projects.clear();
+        self.host = None;
+        self.hosts = self.source.hosts();
     }
 
     pub(super) fn filtering(&self) -> bool {
@@ -258,6 +264,9 @@ impl Inbox {
         );
         if self.host.is_some() {
             said.push_str(" · h picks another host");
+        }
+        if !self.projects.is_empty() {
+            said.push_str(" · esc shows all projects");
         }
         said.push('.');
         said
@@ -322,6 +331,7 @@ impl Inbox {
             .filter(|e| {
                 host.as_ref()
                     .is_none_or(|h| e.summary.host.as_ref() == Some(h))
+                    && super::deck::wanted(e.summary.project.as_deref(), &self.projects)
             })
             .fold((0, 0), |(all, unread), e| {
                 (all + 1, unread + usize::from(e.summary.unread))
@@ -535,14 +545,29 @@ impl Inbox {
     }
 
     fn pick_host(&mut self, cx: &mut Cx<'_, Msg>) {
+        let hosts: Vec<String> = self
+            .hosts
+            .iter()
+            .filter(|host| {
+                self.projects.is_empty()
+                    || self.host.as_ref() == Some(*host)
+                    || self.entries.as_ref().is_some_and(|entries| {
+                        entries.iter().any(|e| {
+                            e.summary.host.as_ref() == Some(*host)
+                                && super::deck::wanted(e.summary.project.as_deref(), &self.projects)
+                        })
+                    })
+            })
+            .cloned()
+            .collect();
         let mut options = vec!["All hosts".to_owned()];
-        options.extend(self.hosts.iter().cloned());
+        options.extend(hosts.iter().cloned());
         let at = self
             .host
             .as_ref()
-            .and_then(|h| self.hosts.iter().position(|x| x == h))
+            .and_then(|h| hosts.iter().position(|x| x == h))
             .map_or(0, |at| at + 1);
-        self.picking = Some(Picking::Host);
+        self.picking = Some(Picking::Host(hosts));
         cx.pick(Pick::new("Host", options).selected(at).hints(pick_hints()));
     }
 
@@ -1267,10 +1292,8 @@ impl Screen<Msg> for Inbox {
             return;
         };
         match picking {
-            Picking::Host => {
-                self.host = choice
-                    .checked_sub(1)
-                    .and_then(|at| self.hosts.get(at).cloned());
+            Picking::Host(hosts) => {
+                self.host = choice.checked_sub(1).and_then(|at| hosts.get(at).cloned());
                 self.sift();
             }
             Picking::Move(labels) => {
@@ -1451,11 +1474,6 @@ impl Screen<Msg> for Inbox {
         hints
     }
 
-    fn status(&self) -> Option<(String, Style)> {
-        let host = self.host.as_deref().unwrap_or("All hosts");
-        Some((host.to_owned(), self.palette.accent))
-    }
-
     fn moment(&mut self, now: Instant) {
         self.badge.moment(now);
     }
@@ -1484,6 +1502,9 @@ impl Screen<Msg> for Inbox {
                 self.palette.muted
             };
             facts.push((word, style));
+        }
+        if let Some(host) = &self.host {
+            facts.push((format!("host {host}"), self.palette.accent));
         }
         if unread > 0 {
             facts.push((format!("{unread} unread"), self.palette.accent));

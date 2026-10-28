@@ -25,14 +25,8 @@ fn ghost(spaces: &[&str]) -> Source {
             ..Host::default()
         },
     );
-    Source::Live(Arc::new(Live {
-        config,
-        spaces: spaces.iter().map(|name| (*name).to_owned()).collect(),
-        holder: None,
-        agent: None,
-        clients: OnceLock::new(),
-        listeners: Mutex::new(Vec::new()),
-    }))
+    let spaces = spaces.iter().map(|name| (*name).to_owned()).collect();
+    Source::Live(Arc::new(Live::build(config, spaces, None, None)))
 }
 
 fn listening() -> (Mutex<Vec<Waker<Msg>>>, Receiver<Wake<Msg>>) {
@@ -593,6 +587,12 @@ const WAITING_CARD: &str = r#"{"key":"BUG-25","kind":"bug","project":"Storefront
 
 fn current(path: &str) -> (u16, &'static str) {
     static BOARD: OnceLock<String> = OnceLock::new();
+    if path.starts_with("/v1/space") {
+        return (
+            200,
+            r#"{"space":{"slug":"shop","name":"Shop"},"projects":[]}"#,
+        );
+    }
     static WAITING: OnceLock<String> = OnceLock::new();
     if path.starts_with("/v1/board") {
         let board =
@@ -709,14 +709,8 @@ fn workers(spaces: &[(&str, Answer)]) -> Source {
         ));
     }
     let config: Config = toml::from_str(&toml).expect("the config parses");
-    Source::Live(Arc::new(Live {
-        config,
-        spaces: spaces.iter().map(|(name, _)| (*name).to_owned()).collect(),
-        holder: None,
-        agent: None,
-        clients: OnceLock::new(),
-        listeners: Mutex::new(Vec::new()),
-    }))
+    let names = spaces.iter().map(|(name, _)| (*name).to_owned()).collect();
+    Source::Live(Arc::new(Live::build(config, names, None, None)))
 }
 
 #[test]
@@ -852,4 +846,117 @@ fn the_move_to_list_reads_the_lane_names_from_labels() {
         source.labels(0).expect("the Worker lists its labels"),
         ["New", "Needs you", "Done"]
     );
+}
+
+#[test]
+fn the_scope_cycles_every_space_then_each_one_then_every_space_again() {
+    let source = workers(&[("shop", current), ("old", behind_named)]);
+    assert_eq!(source.scope(), None);
+    assert_eq!(source.scoped(), [0, 1]);
+    assert_eq!(source.rescope(), Some(0));
+    assert_eq!((source.scope(), source.scoped()), (Some(0), vec![0]));
+    assert_eq!(source.rescope(), Some(1));
+    assert_eq!((source.scope(), source.scoped()), (Some(1), vec![1]));
+    assert_eq!(source.rescope(), None);
+    assert_eq!((source.scope(), source.scoped()), (None, vec![0, 1]));
+}
+
+#[test]
+fn one_space_has_nothing_to_switch_to_and_neither_has_the_sample_or_a_broken_source() {
+    let one = workers(&[("shop", current)]);
+    assert_eq!(one.rescope(), None);
+    assert_eq!(one.scoped(), [0]);
+    let sample = Source::demo(std::time::Duration::ZERO);
+    assert_eq!(
+        (sample.rescope(), sample.scope(), sample.scoped()),
+        (None, None, vec![0])
+    );
+    let broken = Source::Broken("no space yet".into());
+    assert_eq!(
+        (broken.rescope(), broken.scoped()),
+        (None, Vec::<usize>::new())
+    );
+}
+
+#[test]
+fn a_board_and_a_count_read_only_the_space_in_scope() {
+    let source = workers(&[("shop", current), ("old", behind_named)]);
+    source.rescope();
+    let view = source.board(&[]).expect("shop answered");
+    assert!(view.missing.is_empty(), "{:?}", view.missing);
+    assert_eq!(view.cards.len(), 1);
+    let (count, cards) = source.waiting().expect("shop counts");
+    assert_eq!((count, cards.len()), (2, 1));
+    source.rescope();
+    let view = source.board(&[]).expect("old is a line of its own");
+    assert!(view.cards.is_empty());
+    assert_eq!(view.missing.len(), 1);
+    assert!(
+        view.missing[0].starts_with("old: its Worker is P99 1.9.2"),
+        "{:?}",
+        view.missing
+    );
+    assert!(source.waiting().is_err());
+}
+
+#[test]
+fn the_projects_offered_are_those_of_the_space_in_scope() {
+    let source = workers(&[("shop", current), ("two", current_too)]);
+    assert_eq!(
+        source.projects().expect("both answered"),
+        ["Mobile app", "Storefront"]
+    );
+    source.rescope();
+    assert_eq!(source.projects().expect("shop answered"), ["Storefront"]);
+    source.rescope();
+    assert_eq!(
+        source.projects().expect("two answered"),
+        ["Mobile app", "storefront"]
+    );
+}
+
+#[test]
+fn the_hosts_offered_are_those_of_the_space_in_scope() {
+    let source = ghost(&["ghost", "other"]);
+    assert_eq!(source.hosts(), ["elsewhere.example.com", "example.com"]);
+    source.rescope();
+    assert_eq!(source.hosts(), ["example.com"]);
+    source.rescope();
+    assert_eq!(source.hosts(), ["elsewhere.example.com"]);
+    source.rescope();
+    assert_eq!(source.hosts(), ["elsewhere.example.com", "example.com"]);
+}
+
+#[test]
+fn a_space_is_named_by_its_worker_and_by_its_slug_when_the_worker_cannot() {
+    let source = workers(&[("shop", current), ("old", behind_named)]);
+    assert_eq!(source.named(), ["Shop", "old"]);
+    assert_eq!(source.spaces(), ["shop", "old"]);
+    let sample = Source::demo(std::time::Duration::ZERO);
+    assert_eq!(sample.named(), [super::super::demo::SPACE]);
+    assert!(Source::Broken("no space yet".into()).named().is_empty());
+}
+
+#[test]
+fn a_board_from_a_worker_that_ignores_the_project_filter_still_holds_it() {
+    let source = workers(&[("shop", current)]);
+    let all = source.board(&[]).expect("shop answered");
+    assert_eq!(all.cards.len(), 1);
+    let kept = source
+        .board(&["storefront".to_owned()])
+        .expect("shop answered");
+    assert_eq!(kept.cards.len(), 1);
+    let other = source
+        .board(&["Mobile app".to_owned()])
+        .expect("shop answered");
+    assert!(other.cards.is_empty());
+}
+
+#[test]
+fn a_search_finds_an_item_by_its_project_name() {
+    let mut entry = Entry::new(0, Summary::default());
+    entry.summary.project = Some("Storefront".to_owned());
+    entry.refold();
+    assert!(hits(&entry.haystack, &words("storefront")));
+    assert!(!hits(&entry.haystack, &words("mobile")));
 }

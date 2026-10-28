@@ -254,7 +254,8 @@ impl Source {
         let names = self.spaces();
         let mut view = BoardView::default();
         let (mut answered, mut failed) = (false, None);
-        for (space, name) in names.iter().enumerate() {
+        for space in self.scoped() {
+            let name = names.get(space).map_or("", String::as_str);
             let client = match self.client(space, None) {
                 Ok(client) => client,
                 Err(error) => {
@@ -279,6 +280,8 @@ impl Source {
                 }
             }
         }
+        view.cards
+            .retain(|card| wanted(card.project.as_deref(), projects));
         match failed {
             Some(error) if !answered && view.missing.len() == 1 => Err(error),
             _ => {

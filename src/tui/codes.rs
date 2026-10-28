@@ -13,12 +13,14 @@ use crate::wire::Code;
 
 use super::Msg;
 use super::badge::Badge;
+use super::projects::Shared;
 use super::source::{Source, fold, hits, unix, words};
+use super::waiting::tally;
 
 const COLUMNS: [Column; 7] = [
     Column::new("Person", 12, 16).pinned(),
     Column::new("E-mail", 12, 22).priority(2),
-    Column::new("Hosts", 12, 0).flex(),
+    Column::new("Reaches", 12, 0).flex(),
     Column::new("Role", 6, 8).priority(1),
     Column::new("Code", 6, 6).pinned(),
     Column::new("Last used", 6, 9).right().priority(1),
@@ -35,6 +37,47 @@ pub struct Codes {
     badge: Badge,
     asking: Option<(Input, Code, String)>,
     sending: bool,
+    shared: Option<Shared>,
+    scope: u64,
+}
+
+pub fn reach(code: &Code) -> String {
+    match &code.grant {
+        Some(grant) if grant.space => "Whole space".to_owned(),
+        Some(grant) if grant.projects.is_empty() => "Nothing".to_owned(),
+        Some(grant) => grant.projects.join(", "),
+        None => code.hosts.join(", "),
+    }
+}
+
+pub fn parked(code: &Code) -> bool {
+    code.revoked_at.is_none()
+        && code
+            .grant
+            .as_ref()
+            .is_some_and(|grant| !grant.space && grant.projects.is_empty())
+}
+
+fn state_word(code: &Code) -> &'static str {
+    if code.revoked_at.is_some() {
+        "revoked"
+    } else if parked(code) {
+        "parked"
+    } else {
+        "active"
+    }
+}
+
+fn haystack(code: &Code) -> String {
+    fold(&format!(
+        "{} {} {} {} {} {}",
+        code.name,
+        code.email,
+        reach(code),
+        code.hosts.join(" "),
+        Role::of(code.manager).word(),
+        state_word(code),
+    ))
 }
 
 impl Codes {
@@ -46,12 +89,29 @@ impl Codes {
             error: None,
             stopped: false,
             filter: Filter::new("Filter")
-                .placeholder("type to filter by person or host")
+                .placeholder("type to filter by person, project, host, role or state")
                 .hint("enter keeps the filter · esc clears it"),
             badge: Badge::off(),
             asking: None,
             sending: false,
+            shared: None,
+            scope: 0,
         }
+    }
+
+    pub fn shared(mut self, shared: Shared) -> Self {
+        self.scope = shared.scoped();
+        self.shared = Some(shared);
+        self
+    }
+
+    fn switch(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(shared) = &self.shared else { return };
+        shared.rescoped(self.source.rescope());
+        self.scope = shared.scoped();
+        cx.reload();
+        let source = self.source.clone();
+        cx.detach(move || Msg::Waiting(false, source.waiting()));
     }
 
     pub fn badge(mut self, badge: Badge) -> Self {
@@ -80,14 +140,15 @@ impl Codes {
             &codes,
             |(_, haystack), _| hits(haystack, &words),
             |(code, _)| {
-                let state = match &code.revoked_at {
-                    Some(_) => Cell::new("revoked").style(palette.bad),
-                    None => Cell::new("active").style(palette.good),
+                let state = match state_word(code) {
+                    "revoked" => Cell::new("revoked").style(palette.bad),
+                    "parked" => Cell::new("parked").style(palette.warn),
+                    _ => Cell::new("active").style(palette.good),
                 };
                 Row::new([
                     Cell::new(code.name.as_str()).style(palette.strong),
                     Cell::new(code.email.as_str()).faint(),
-                    Cell::new(code.hosts.join(", ")),
+                    Cell::new(reach(code)),
                     match Role::of(code.manager) {
                         Role::Owner => Cell::new(Role::Owner.word()).style(palette.accent),
                         Role::User => Cell::new(Role::User.word()).faint(),
@@ -236,8 +297,7 @@ impl Screen<Msg> for Codes {
                     codes
                         .into_iter()
                         .map(|c| {
-                            let haystack =
-                                fold(&format!("{} {} {}", c.name, c.email, c.hosts.join(" ")));
+                            let haystack = haystack(&c);
                             (c, haystack)
                         })
                         .collect(),
@@ -250,9 +310,28 @@ impl Screen<Msg> for Codes {
     }
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
-        if let Msg::CodeDeleted(code, result) = event {
-            self.erased(&code, result, cx);
+        match event {
+            Msg::CodeDeleted(code, result) => self.erased(&code, result, cx),
+            Msg::Waiting(_, result) => {
+                if let Some(shared) = &self.shared {
+                    tally(shared, &result);
+                }
+            }
+            _ => {}
         }
+    }
+
+    fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(shared) = &self.shared else { return };
+        if self.scope != shared.scoped() {
+            self.scope = shared.scoped();
+            cx.reload();
+        }
+    }
+
+    fn status(&self) -> Option<(String, Style)> {
+        let space = self.shared.as_ref()?.space();
+        Some((space, self.palette.accent)).filter(|(space, _)| !space.is_empty())
     }
 
     fn cancel(&mut self) {
@@ -274,6 +353,9 @@ impl Screen<Msg> for Codes {
             Turn::Filtered => self.sift(),
             Turn::Pass if key.code == KeyCode::Char('r') => cx.reload(),
             Turn::Pass if key.code == KeyCode::Char('d') => self.ask(cx),
+            Turn::Pass if key.code == KeyCode::Char('S') && self.source.spaces().len() > 1 => {
+                self.switch(cx);
+            }
             _ => {}
         }
     }
@@ -326,6 +408,9 @@ impl Screen<Msg> for Codes {
             Hint::new("/", "filter").rank(1),
             Hint::new("r", "read again").rank(3),
         ];
+        if self.source.spaces().len() > 1 {
+            hints.push(Hint::new("S", "space").rank(2));
+        }
         if self.chosen().is_some_and(|c| c.revoked_at.is_some()) {
             hints.push(Hint::new("d", "delete").rank(2));
         }
@@ -339,9 +424,17 @@ impl Screen<Msg> for Codes {
         let Some(codes) = &self.codes else {
             return Vec::new();
         };
-        let active = codes.iter().filter(|(c, _)| c.revoked_at.is_none()).count();
+        let active = codes
+            .iter()
+            .filter(|(c, _)| c.revoked_at.is_none() && !parked(c))
+            .count();
+        let count = if self.filter.active() {
+            format!("{} of {} codes", self.filter.shown().len(), codes.len())
+        } else {
+            format!("{} codes", codes.len())
+        };
         vec![
-            (format!("{} codes", codes.len()), Style::new()),
+            (count, Style::new()),
             (format!("{active} active"), self.palette.good),
         ]
     }

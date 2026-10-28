@@ -201,7 +201,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     let one = app.press("down enter");
     assert!(one.contains("2 of 2 items"), "{one}");
     assert!(one.contains("1 unread"), "{one}");
-    assert!(!one.contains("All hosts"), "{one}");
+    assert!(one.contains("host dev.example.com"), "{one}");
     assert!(!line(&one, "BUG-8 ").contains("dev.example.com"), "{one}");
     assert!(line(&one, "BUG-8 ").contains("Search box loses focus on mobile"));
     let none = app.press("s");
@@ -212,7 +212,10 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     app.press("s s h");
     let all = app.press("up enter");
     assert!(all.contains("21 of 28 items"), "{all}");
-    assert!(all.contains("All hosts"), "{all}");
+    assert!(
+        !all.contains("host dev") && !all.contains("host shop"),
+        "{all}"
+    );
 }
 
 #[test]
@@ -220,7 +223,10 @@ fn a_cancelled_host_pick_keeps_every_host() {
     let mut app = run(sample());
     let text = app.press("h down esc");
     assert!(text.contains("21 of 28 items"), "{text}");
-    assert!(text.contains("All hosts"), "{text}");
+    assert!(
+        !text.contains("host dev") && !text.contains("host shop"),
+        "{text}"
+    );
 }
 
 #[test]

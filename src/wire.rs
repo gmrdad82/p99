@@ -771,6 +771,16 @@ pub struct Code {
     pub last_used_at: Option<String>,
     #[serde(default, deserialize_with = "lenient")]
     pub totp: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    pub grant: Option<Grant>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+pub struct Grant {
+    #[serde(default, deserialize_with = "lenient")]
+    pub space: bool,
+    #[serde(default, deserialize_with = "lenient")]
+    pub projects: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

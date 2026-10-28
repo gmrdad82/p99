@@ -10,6 +10,7 @@ use super::source::{Entry, iso};
 mod boards;
 
 pub const NOW: i64 = 1_791_979_200;
+pub const SPACE: &str = "Example shop";
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
 const VIA: &str = "pci";
@@ -715,20 +716,33 @@ fn codes() -> Vec<Code> {
         created_by: ME.1.into(),
         ..Code::default()
     };
+    let projects = |names: &[&str]| {
+        Some(wire::Grant {
+            space: false,
+            projects: names.iter().map(|n| (*n).into()).collect(),
+        })
+    };
     let both = ["example.com", "shop.example.com"];
     let mut ada = code(1, ME, &both, true, "7k2q");
+    ada.grant = Some(wire::Grant {
+        space: true,
+        projects: Vec::new(),
+    });
     ada.created_at = iso(NOW - 30 * DAY);
     ada.last_used_at = Some(iso(NOW - 12 * MINUTE));
     let mut old = code(2, GRACE, &["shop.example.com"], false, "3fpd");
+    old.grant = projects(&[boards::PROJECTS[0]]);
     old.created_at = iso(NOW - 25 * DAY);
     old.revoked_at = Some(iso(NOW - 21 * DAY));
     old.last_used_at = Some(iso(NOW - 22 * DAY));
-    let mut grace = code(3, GRACE, &both, false, "m9xa");
+    let mut grace = code(3, GRACE, &["shop.example.com"], false, "m9xa");
+    grace.grant = projects(&[boards::PROJECTS[0]]);
     grace.created_at = iso(NOW - 21 * DAY);
     grace.last_used_at = Some(iso(NOW - 12 * MINUTE));
-    let mut blog = code(4, GRACE, &["example.com"], false, "q81v");
-    blog.created_at = iso(NOW - 2 * DAY);
-    vec![ada, old, grace, blog]
+    let mut agent = code(4, GRACE, &[], false, "q81v");
+    agent.grant = projects(&[boards::PROJECTS[1]]);
+    agent.created_at = iso(NOW - 2 * DAY);
+    vec![ada, old, grace, agent]
 }
 
 #[cfg(test)]

@@ -10,6 +10,20 @@ pub(in crate::tui) fn without_codes() -> Source {
     Source::Demo(Arc::new(Mutex::new(demo)), Duration::ZERO)
 }
 
+pub(in crate::tui) fn with_parked() -> Source {
+    let mut demo = Demo::new();
+    demo.codes.push(Code {
+        id: 5,
+        name: "Katherine Johnson".into(),
+        email: "katherine@example.com".into(),
+        hint: "p4rk".into(),
+        created_at: iso(NOW - DAY),
+        grant: Some(wire::Grant::default()),
+        ..Code::default()
+    });
+    Source::Demo(Arc::new(Mutex::new(demo)), Duration::ZERO)
+}
+
 fn issue(demo: &mut Demo, key: &str) -> Issue {
     demo.thread(key).expect("the sample has it").issue
 }

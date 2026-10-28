@@ -480,6 +480,7 @@ fn a_space_whose_worker_lacks_the_board_gets_one_line_above_the_lanes() {
 fn cards_of_several_spaces_share_the_lanes_and_name_their_space() {
     let mut app = shown();
     board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
+    board_mut(&mut app).many = true;
     let mut view = app.demo(|demo| demo.one_board(&[]));
     let mut other = card("FEAT-9", "Stuck", None);
     other.space = 1;
@@ -1358,6 +1359,7 @@ fn choosing_the_same_projects_again_keeps_the_board_without_reading_it_anew() {
 fn a_card_deleted_on_a_board_of_several_spaces_marks_it_stale_instead_of_guessing() {
     let mut app = shown();
     board_mut(&mut app).names = vec!["shop".into(), "blog".into()];
+    board_mut(&mut app).many = true;
     let before = lane(&app, "New");
     let deleted = crate::wire::Deleted {
         key: "FEAT-9".into(),
@@ -1369,4 +1371,53 @@ fn a_card_deleted_on_a_board_of_several_spaces_marks_it_stale_instead_of_guessin
     assert_eq!(lane(&app, "New"), before);
     app.tui.settle();
     assert!(board(&app).stale.is_none());
+}
+
+fn rule_row(buffer: &pito_tui::ratatui::buffer::Buffer, lane: Rect) -> Vec<String> {
+    (lane.left()..lane.right())
+        .map(|x| buffer[(x, lane.y + 1)].symbol().to_owned())
+        .collect()
+}
+
+#[test]
+fn every_lane_header_rule_spans_its_lane_at_every_size() {
+    let mut app = shown();
+    for width in [40u16, 47, 61, 80, 99, 119, 120, 133, 160, 201] {
+        let buffer = app.tui.frame(width, 30);
+        let board = board(&app);
+        let drawn: Vec<Rect> = board
+            .lanes
+            .iter()
+            .copied()
+            .filter(|lane| lane.width > 0)
+            .collect();
+        assert!(!drawn.is_empty(), "{width}");
+        for lane in &drawn {
+            let rule = rule_row(&buffer, *lane);
+            assert_eq!(rule.len(), usize::from(lane.width), "{width}");
+            assert!(
+                rule.iter().all(|symbol| symbol == "─"),
+                "{width}: {rule:?} under {lane:?}"
+            );
+        }
+        for pair in drawn.windows(2) {
+            let gap = pair[0].right();
+            assert_eq!(buffer[(gap, pair[0].y + 1)].symbol(), " ", "{width}");
+        }
+    }
+}
+
+#[test]
+fn the_rule_of_the_lane_a_card_is_carried_to_is_heavy_across_all_of_it() {
+    let mut app = shown();
+    app.press("space right right");
+    let buffer = app.frame();
+    let board = board(&app);
+    let (column, _) = board.lift.as_ref().map(|lift| lift.to).expect("a lift");
+    let lane = board.lanes[column];
+    let rule = rule_row(&buffer, lane);
+    assert!(rule.iter().all(|symbol| symbol == "━"), "{rule:?}");
+    let other = board.lanes[(column + 1) % LANES];
+    let plain = rule_row(&buffer, other);
+    assert!(plain.iter().all(|symbol| symbol == "─"), "{plain:?}");
 }

@@ -16,8 +16,12 @@ pub const ALL: &str = "All projects";
 pub const NONE_YET: &str =
     "No projects yet: p99 card new --project <name> --title <text> files a card.";
 
+pub const EVERY_SPACE: &str = "All spaces";
+
 pub trait Narrow {
     fn narrow(&mut self, projects: &[String], cx: &mut Cx<'_, Msg>);
+
+    fn rescope(&mut self);
 
     fn filtered(&self) -> bool {
         false
@@ -33,6 +37,10 @@ pub trait Narrow {
 impl Narrow for Inbox {
     fn narrow(&mut self, projects: &[String], _cx: &mut Cx<'_, Msg>) {
         self.projects(projects);
+    }
+
+    fn rescope(&mut self) {
+        self.respace();
     }
 
     fn filtered(&self) -> bool {
@@ -58,6 +66,36 @@ pub struct State {
     pub asking: bool,
     pub counted: bool,
     pub waiting: Rc<Cell<u64>>,
+    pub names: Vec<String>,
+    pub space: String,
+    pub scope: Option<usize>,
+    pub scoped: u64,
+    pub named: bool,
+    pub projects_of: Vec<(usize, String)>,
+    pub total: u64,
+}
+
+impl State {
+    fn recount(&mut self) {
+        let count = if self.chosen.is_empty() {
+            self.total
+        } else {
+            self.projects_of
+                .iter()
+                .filter(|(_, project)| has(&self.chosen, project))
+                .count() as u64
+        };
+        self.waiting.set(count);
+    }
+}
+
+pub fn space_label(names: &[String], scope: Option<usize>) -> String {
+    match (scope, names) {
+        (Some(at), names) => names.get(at).cloned().unwrap_or_default(),
+        (None, [only]) => only.clone(),
+        (None, []) => String::new(),
+        (None, _) => EVERY_SPACE.to_owned(),
+    }
 }
 
 #[derive(Clone, Default)]
@@ -69,6 +107,42 @@ impl Shared {
             waiting,
             ..State::default()
         })))
+    }
+
+    pub fn names(&self, names: Vec<String>, scope: Option<usize>) {
+        let mut state = self.0.borrow_mut();
+        state.space = space_label(&names, scope);
+        state.names = names;
+        state.scope = scope;
+    }
+
+    pub fn rescoped(&self, scope: Option<usize>) {
+        let mut state = self.0.borrow_mut();
+        state.scope = scope;
+        state.space = space_label(&state.names, scope);
+        state.chosen.clear();
+        state.known.clear();
+        state.label.clear();
+        state.turn += 1;
+        state.scoped += 1;
+        state.counted = false;
+        state.recount();
+    }
+
+    pub fn scoped(&self) -> u64 {
+        self.0.borrow().scoped
+    }
+
+    pub fn space(&self) -> String {
+        self.0.borrow().space.clone()
+    }
+
+    pub fn counted(&self, total: u64, projects_of: Vec<(usize, String)>) {
+        let mut state = self.0.borrow_mut();
+        state.counted = true;
+        state.total = total;
+        state.projects_of = projects_of;
+        state.recount();
     }
 
     pub fn chosen(&self) -> Vec<String> {
@@ -84,6 +158,7 @@ impl Shared {
         state.label = chosen.join(", ");
         state.chosen = chosen;
         state.turn += 1;
+        state.recount();
     }
 
     pub fn toggle(&self, name: &str) {
@@ -142,7 +217,9 @@ impl Source {
             Source::Demo(..) => self.sample(|demo| Ok(demo.projects())),
             Source::Live(_) => {
                 let (mut lists, mut failed, mut answered) = (Vec::new(), None, false);
-                for (space, name) in self.spaces().iter().enumerate() {
+                let names = self.spaces();
+                for space in self.scoped() {
+                    let name = names.get(space).map_or("", String::as_str);
                     let answer = self
                         .client(space, None)
                         .and_then(|client| client.json::<ProjectList>("GET", "/v1/projects", None));
@@ -229,5 +306,78 @@ mod tests {
         );
         let broken = Source::Broken("no space yet".into());
         assert_eq!(broken.projects().err().as_deref(), Some("no space yet"));
+    }
+
+    fn waits() -> Vec<(usize, String)> {
+        ["Storefront", "storefront", "Mobile app"]
+            .iter()
+            .map(|p| (0, (*p).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_waiting_count_narrows_to_the_projects_chosen_in_any_case_and_widens_again() {
+        let counter = Rc::new(Cell::new(0));
+        let shared = Shared::new(Rc::clone(&counter));
+        shared.counted(3, waits());
+        assert_eq!(counter.get(), 3);
+        shared.toggle("MOBILE APP");
+        assert_eq!(counter.get(), 1);
+        shared.toggle("Storefront");
+        assert_eq!(counter.get(), 3);
+        shared.toggle("mobile app");
+        assert_eq!(counter.get(), 2);
+        shared.choose(Vec::new());
+        assert_eq!(counter.get(), 3);
+    }
+
+    #[test]
+    fn a_count_the_worker_gives_above_the_cards_it_listed_shows_whole_until_a_project_is_chosen() {
+        let counter = Rc::new(Cell::new(0));
+        let shared = Shared::new(Rc::clone(&counter));
+        shared.counted(9, waits());
+        assert_eq!(counter.get(), 9);
+        shared.toggle("Mobile app");
+        assert_eq!(counter.get(), 1);
+        shared.toggle("Nowhere");
+        assert_eq!(counter.get(), 1);
+        shared.choose(Vec::new());
+        assert_eq!(counter.get(), 9);
+    }
+
+    #[test]
+    fn a_space_is_labelled_by_its_name_or_all_spaces_or_nothing() {
+        assert_eq!(space_label(&[], None), "");
+        assert_eq!(space_label(&names(&["PITO MD"]), None), "PITO MD");
+        assert_eq!(
+            space_label(&names(&["PITO MD", "Fepra"]), None),
+            "All spaces"
+        );
+        assert_eq!(space_label(&names(&["PITO MD", "Fepra"]), Some(1)), "Fepra");
+        assert_eq!(space_label(&names(&["PITO MD"]), Some(4)), "");
+    }
+
+    #[test]
+    fn switching_space_forgets_the_projects_and_bumps_both_turns_and_widens_the_count() {
+        let counter = Rc::new(Cell::new(0));
+        let shared = Shared::new(Rc::clone(&counter));
+        shared.names(vec!["PITO MD".into(), "Fepra".into()], None);
+        assert_eq!(shared.space(), "All spaces");
+        shared.counted(3, waits());
+        shared.toggle("Mobile app");
+        shared.0.borrow_mut().known = vec!["Mobile app".into()];
+        let (turn, scoped) = (shared.turn(), shared.scoped());
+        assert_eq!(counter.get(), 1);
+        shared.rescoped(Some(1));
+        assert_eq!(shared.space(), "Fepra");
+        assert!(shared.chosen().is_empty());
+        assert!(shared.0.borrow().known.is_empty());
+        assert_eq!(shared.0.borrow().label, "");
+        assert_eq!(shared.turn(), turn + 1);
+        assert_eq!(shared.scoped(), scoped + 1);
+        assert!(!shared.0.borrow().counted);
+        assert_eq!(counter.get(), 3);
+        shared.names(vec!["PITO MD".into(), "Fepra Ltd".into()], Some(1));
+        assert_eq!(shared.space(), "Fepra Ltd");
     }
 }

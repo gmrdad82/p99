@@ -95,6 +95,7 @@ pub struct Board {
     palette: Palette,
     view: Option<BoardView>,
     names: Vec<String>,
+    many: bool,
     projects: Vec<String>,
     asked: Vec<String>,
     error: Option<String>,
@@ -126,6 +127,7 @@ impl Board {
             following: false,
             stale: None,
             names: source.spaces(),
+            many: source.scoped().len() > 1,
             projects: Vec::new(),
             asked: Vec::new(),
             source,
@@ -656,7 +658,7 @@ impl Board {
     }
 
     fn whose(&self, card: &Card) -> Option<&str> {
-        if self.names.len() > 1 {
+        if self.many {
             self.names.get(card.space).map(String::as_str)
         } else {
             None
@@ -698,11 +700,25 @@ impl Board {
         target: bool,
         palette: &Palette,
     ) {
-        if lane.height < 2 || lane.width < 4 {
+        if lane.height < 2 || lane.width < 1 {
+            return;
+        }
+        let lit = column == self.column;
+        let rule_style = if target || lit {
+            palette.accent
+        } else {
+            palette.rule
+        };
+        let glyph = if target { "━" } else { "─" };
+        for x in lane.left()..lane.right() {
+            if let Some(cell) = buf.cell_mut((x, lane.y + 1)) {
+                cell.set_symbol(glyph).set_style(rule_style);
+            }
+        }
+        if lane.width < 4 {
             return;
         }
         let name = self.name(column);
-        let lit = column == self.column;
         let style = if lit { palette.accent } else { palette.strong };
         let room = usize::from(lane.width);
         let mut more = String::new();
@@ -738,18 +754,6 @@ impl Board {
             let room = usize::from(lane.right().saturating_sub(x + 1));
             buf.set_stringn(x + 1, lane.y, &more, room, palette.muted);
         }
-        let room = usize::from(lane.width);
-        let rule = if target {
-            "━".repeat(room)
-        } else {
-            "─".repeat(room)
-        };
-        let rule_style = if target || lit {
-            palette.accent
-        } else {
-            palette.rule
-        };
-        buf.set_stringn(lane.x, lane.y + 1, rule, room, rule_style);
     }
 }
 
@@ -1065,7 +1069,7 @@ impl Screen<Msg> for Board {
                 if result.is_ok()
                     && let Some(view) = &mut self.view
                 {
-                    if self.names.len() > 1 {
+                    if self.many {
                         self.stale = Some(self.moment);
                     } else {
                         view.cards.retain(|c| c.key != key);
@@ -1245,16 +1249,6 @@ impl Screen<Msg> for Board {
         hints
     }
 
-    fn status(&self) -> Option<(String, Style)> {
-        self.view.as_ref()?;
-        let spaces = if self.names.len() > 1 {
-            self.names.join(", ")
-        } else {
-            self.names.first().cloned().unwrap_or_default()
-        };
-        Some((spaces, self.palette.accent))
-    }
-
     fn badge(&self) -> &[Span] {
         self.badge.parts()
     }
@@ -1295,6 +1289,12 @@ impl Narrow for Board {
         if self.view.is_some() {
             self.read(cx);
         }
+    }
+
+    fn rescope(&mut self) {
+        self.projects.clear();
+        self.asked.clear();
+        self.many = self.source.scoped().len() > 1;
     }
 
     fn touched(&mut self, _cx: &mut Cx<'_, Msg>) {

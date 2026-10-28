@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -37,7 +38,7 @@ impl Entry {
     pub fn refold(&mut self) {
         let item = &self.summary;
         self.haystack = fold(&format!(
-            "{} {} {} {} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {} {} {} {}",
             item.key,
             item.kind,
             kind_word(&item.kind),
@@ -48,7 +49,8 @@ impl Entry {
             item.page.path,
             item.reporter.name,
             item.reporter.email,
-            item.label.as_deref().unwrap_or_default()
+            item.label.as_deref().unwrap_or_default(),
+            item.project.as_deref().unwrap_or_default()
         ));
     }
 }
@@ -84,12 +86,14 @@ pub enum Source {
 pub struct Live {
     config: Config,
     spaces: Vec<String>,
+    scope: AtomicUsize,
     holder: Option<String>,
     agent: Option<Option<String>>,
     clients: OnceLock<Result<Vec<Client>, String>>,
     listeners: Mutex<Vec<Waker<Msg>>>,
 }
 
+const EVERY: usize = usize::MAX;
 const PAGE: i64 = 100;
 const MOST: usize = 1000;
 
@@ -115,32 +119,49 @@ impl Source {
             Ok(holder) => holder,
             Err(why) => return Source::Broken(why),
         };
-        Source::Live(Arc::new(Live {
-            config,
-            spaces,
-            holder,
-            agent,
-            clients: OnceLock::new(),
-            listeners: Mutex::new(Vec::new()),
-        }))
+        Source::Live(Arc::new(Live::build(config, spaces, holder, agent)))
     }
 
     #[cfg(test)]
     pub(super) fn over(config: Config) -> Source {
-        Source::Live(Arc::new(Live {
-            spaces: config.accounts.keys().cloned().collect(),
-            config,
-            holder: None,
-            agent: None,
-            clients: OnceLock::new(),
-            listeners: Mutex::new(Vec::new()),
-        }))
+        let spaces = config.accounts.keys().cloned().collect();
+        Source::Live(Arc::new(Live::build(config, spaces, None, None)))
     }
 
     pub fn spaces(&self) -> Vec<String> {
         match self {
             Source::Demo(..) => vec!["sample".to_owned()],
             Source::Live(live) => live.spaces.clone(),
+            Source::Broken(_) => Vec::new(),
+        }
+    }
+
+    pub fn scoped(&self) -> Vec<usize> {
+        match self {
+            Source::Demo(..) => vec![0],
+            Source::Live(live) => live.scoped(),
+            Source::Broken(_) => Vec::new(),
+        }
+    }
+
+    pub fn scope(&self) -> Option<usize> {
+        match self {
+            Source::Live(live) => live.scope(),
+            _ => None,
+        }
+    }
+
+    pub fn rescope(&self) -> Option<usize> {
+        match self {
+            Source::Live(live) => live.rescope(),
+            _ => None,
+        }
+    }
+
+    pub fn named(&self) -> Vec<String> {
+        match self {
+            Source::Demo(..) => vec![super::demo::SPACE.to_owned()],
+            Source::Live(live) => live.named(),
             Source::Broken(_) => Vec::new(),
         }
     }
@@ -169,13 +190,19 @@ impl Source {
     pub fn hosts(&self) -> Vec<String> {
         match self {
             Source::Demo(demo, _) => demo.lock().map(|d| d.hosts()).unwrap_or_default(),
-            Source::Live(live) => live
-                .config
-                .hosts
-                .iter()
-                .filter(|(_, host)| live.spaces.contains(&host.account))
-                .map(|(name, _)| name.clone())
-                .collect(),
+            Source::Live(live) => {
+                let kept: Vec<&String> = live
+                    .scoped()
+                    .into_iter()
+                    .filter_map(|at| live.spaces.get(at))
+                    .collect();
+                live.config
+                    .hosts
+                    .iter()
+                    .filter(|(_, host)| kept.contains(&&host.account))
+                    .map(|(name, _)| name.clone())
+                    .collect()
+            }
             Source::Broken(_) => Vec::new(),
         }
     }
@@ -306,7 +333,8 @@ impl Source {
             Source::Demo(..) => self.sample(|demo| Ok(demo.codes()))?,
             Source::Live(live) => {
                 let mut all = Vec::new();
-                for client in live.clients()? {
+                let clients = live.clients()?;
+                for client in live.scoped().into_iter().filter_map(|at| clients.get(at)) {
                     all.extend(client.codes(None)?);
                 }
                 all
@@ -343,6 +371,72 @@ fn relay(listeners: &Mutex<Vec<Waker<Msg>>>, space: usize, heard: Heard<'_>) -> 
 }
 
 impl Live {
+    fn build(
+        config: Config,
+        spaces: Vec<String>,
+        holder: Option<String>,
+        agent: Option<Option<String>>,
+    ) -> Live {
+        Live {
+            config,
+            spaces,
+            scope: AtomicUsize::new(EVERY),
+            holder,
+            agent,
+            clients: OnceLock::new(),
+            listeners: Mutex::new(Vec::new()),
+        }
+    }
+
+    fn scope(&self) -> Option<usize> {
+        Some(self.scope.load(Ordering::Relaxed)).filter(|&at| at < self.spaces.len())
+    }
+
+    fn scoped(&self) -> Vec<usize> {
+        match self.scope() {
+            Some(at) => vec![at],
+            None => (0..self.spaces.len()).collect(),
+        }
+    }
+
+    fn rescope(&self) -> Option<usize> {
+        let next = match self.scope() {
+            None => (self.spaces.len() > 1).then_some(0),
+            Some(at) => Some(at + 1).filter(|&next| next < self.spaces.len()),
+        };
+        self.scope.store(next.unwrap_or(EVERY), Ordering::Relaxed);
+        next
+    }
+
+    fn named(&self) -> Vec<String> {
+        let Ok(clients) = self.clients() else {
+            return self.spaces.clone();
+        };
+        thread::scope(|s| {
+            let asks: Vec<_> = clients
+                .iter()
+                .map(|client| {
+                    s.spawn(|| {
+                        client
+                            .json::<serde_json::Value>("GET", "/v1/space", None)
+                            .ok()
+                            .and_then(|answer| answer["space"]["name"].as_str().map(str::to_owned))
+                    })
+                })
+                .collect();
+            asks.into_iter()
+                .zip(&self.spaces)
+                .map(|(ask, slug)| {
+                    ask.join()
+                        .ok()
+                        .flatten()
+                        .filter(|name| !name.trim().is_empty())
+                        .unwrap_or_else(|| slug.clone())
+                })
+                .collect()
+        })
+    }
+
     fn clients(&self) -> Result<&[Client], String> {
         self.clients
             .get_or_init(|| {
@@ -366,7 +460,11 @@ impl Live {
 
     fn inbox(&self) -> Result<Loaded, String> {
         let (mut entries, mut unloaded) = (Vec::new(), 0);
-        for (space, client) in self.clients()?.iter().enumerate() {
+        let clients = self.clients()?;
+        for space in self.scoped() {
+            let Some(client) = clients.get(space) else {
+                continue;
+            };
             let (start, mut total) = (entries.len(), None);
             let mut cursor = None;
             loop {

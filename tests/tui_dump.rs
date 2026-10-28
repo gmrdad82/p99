@@ -304,11 +304,11 @@ fn p_narrows_the_inbox_and_the_board_to_the_projects_chosen() {
         }
     }
     let one = dump("120x34", "p down enter");
-    assert!(one.contains("2 of 28 items"), "{one}");
+    assert!(one.contains("2 of 2 items"), "{one}");
     assert!(one.contains("Mobile app"), "{one}");
     assert!(!one.contains("BUG-11"), "{one}");
     let several = dump("120x34", "p down enter p down down enter");
-    assert!(several.contains("5 of 28 items"), "{several}");
+    assert!(several.contains("5 of 6 items"), "{several}");
     let board = dump("120x34", "p down enter tab");
     assert!(board.contains("2 items"), "{board}");
     assert!(
@@ -338,5 +338,98 @@ fn the_waiting_badge_counts_down_as_cards_move_out_and_hides_at_zero() {
                 None => assert!(!head.contains("waiting"), "{size} {keys:?}:\n{text}"),
             }
         }
+    }
+}
+
+#[test]
+fn every_tab_header_names_the_space_beside_the_licence_pill() {
+    for size in ["120x34", "80x24"] {
+        for keys in ["", "tab", "tab tab"] {
+            let text = dump(size, keys);
+            let head = text.lines().next().unwrap_or_default();
+            for said in ["P99", "Example shop", "Free", "waiting"] {
+                assert!(head.contains(said), "{size} {keys:?} {said}:\n{text}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_project_filter_is_named_in_the_facts_narrows_the_count_and_esc_takes_it_off() {
+    let one = dump("120x34", "p down enter");
+    let head: String = one.lines().take(3).collect::<Vec<_>>().join("\n");
+    assert!(head.contains("in Mobile app"), "{one}");
+    assert!(head.contains("1 waiting"), "{one}");
+    assert!(!head.contains("3 waiting"), "{one}");
+    assert!(one.contains("esc all projects"), "{one}");
+    let off = dump("120x34", "p down enter esc");
+    let head: String = off.lines().take(3).collect::<Vec<_>>().join("\n");
+    assert!(!head.contains("in Mobile app"), "{off}");
+    assert!(head.contains("3 waiting"), "{off}");
+    assert!(!off.contains("esc all projects"), "{off}");
+}
+
+#[test]
+fn a_filtered_out_project_says_so_and_how_to_show_it_again() {
+    let none = dump("120x34", "p down enter s");
+    assert!(none.contains("0 of 2 items"), "{none}");
+    assert!(
+        none.contains("Nothing closed here. s shows open or closed · esc shows all projects."),
+        "{none}"
+    );
+}
+
+#[test]
+fn the_inbox_search_finds_an_item_by_its_project() {
+    let found = dump("120x34", "/ storefront");
+    assert!(found.contains("BUG-25"), "{found}");
+    assert!(!found.contains("BUG-11"), "{found}");
+    assert!(!found.contains("21 of 28 items"), "{found}");
+}
+
+#[test]
+fn the_codes_filter_finds_by_state_and_project_and_counts_what_it_shows() {
+    let revoked = dump("120x34", "tab tab / revoked");
+    assert!(
+        revoked.contains("…3fpd") && !revoked.contains("…q81v"),
+        "{revoked}"
+    );
+    assert!(revoked.contains("1 of 4 codes"), "{revoked}");
+    let mobile = dump("120x34", "tab tab / mobile");
+    assert!(
+        mobile.contains("…q81v") && !mobile.contains("…m9xa"),
+        "{mobile}"
+    );
+    assert!(mobile.contains("1 of 4 codes"), "{mobile}");
+    let whole = dump("120x34", "tab tab / whole enter");
+    assert!(
+        whole.contains("…7k2q") && !whole.contains("…q81v"),
+        "{whole}"
+    );
+    assert!(whole.contains("esc clear filter"), "{whole}");
+    let all = dump("120x34", "tab tab / revoked esc");
+    assert!(
+        all.contains("4 codes") && !all.contains("of 4 codes"),
+        "{all}"
+    );
+}
+
+#[test]
+fn one_space_offers_no_switch_so_a_capital_s_changes_nothing() {
+    for keys in ["", "tab", "tab tab"] {
+        let plain = dump("120x34", keys);
+        let pressed = dump("120x34", &format!("{keys} S"));
+        assert_eq!(plain, pressed, "{keys:?}");
+        assert!(!plain.contains("All spaces"), "{plain}");
+        assert!(!plain.contains("S space"), "{plain}");
+    }
+}
+
+#[test]
+fn the_codes_tab_says_what_each_code_reaches() {
+    let text = dump("120x34", "tab tab");
+    assert!(text.contains("Reaches"), "{text}");
+    for said in ["Whole space", "Storefront", "Mobile app"] {
+        assert!(text.contains(said), "{said}:\n{text}");
     }
 }
