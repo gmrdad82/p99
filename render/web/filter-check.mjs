@@ -138,7 +138,8 @@ try {
     if (i > 120) throw new Error("the local Worker did not come up");
     await sleep(500);
   }
-  await must("PUT", `/hosts/${HOST}`, { env: "production", config: {} });
+  await must("POST", "/projects", { name: "Splicer" });
+  await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Splicer", config: {} });
   const boss = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
   const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false })).secret;
   const byAgent = (await file("An agent filed this", { ...ADA, agent: true, via: "pci" })).key;
@@ -192,21 +193,21 @@ try {
     await ctx.addInitScript(openShadow);
     let p = await open(ctx, boss);
     let s = await settled(p);
-    check(`a manager's list shows the filter, Only this website and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "site" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
-    check(`Only this website lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
+    check(`a manager's list shows the filter, This project and Everyone by default, with today's tabs and filters (${JSON.stringify(s)})`, s.pick && s.view === "project" && s.source === "" && s.tabs && s.filters && !s.projectsShown);
+    check(`This project lists today's items, the agent's with ${ROBOT} and never an asterisk (${s.robots.join(",")})`, s.keys.includes(byAgent) && s.keys.includes(byPerson) && s.robots.length >= 1 && s.robots.every((r) => r === ROBOT));
 
     asked.length = 0;
     await source(p, "agent");
     s = await settled(p, (s) => s.source === "agent");
-    check(`Agents on Only this website asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
+    check(`Agents on This project asks /issues with source=agent (${asked.join(" ")})`, asked.some((a) => a.startsWith("/_p99/api/issues?") && a.includes("source=agent")));
 
     asked.length = 0;
     await source(p, "");
-    await choose(p, "site");
+    await choose(p, "project");
     await p.locator(S("[data-scope=all]")).click();
-    s = await settled(p, (s) => s.view === "site" && s.keys.includes(NEAR));
-    check(`Only this website lists everything on this host, plain items and cards alike, with today's tabs and filters (${s.keys})`, s.tabs && s.filters && [byAgent, byPerson, NEAR].every((k) => s.keys.includes(k)));
-    check(`Only this website reads the item list, never /cards (${asked.join(" ")})`, !asked.some((a) => a.startsWith("/_p99/api/cards")));
+    s = await settled(p, (s) => s.view === "project" && s.keys.includes(NEAR));
+    check(`This project lists everything on this host, plain items and cards alike, with today's tabs and filters (${s.keys})`, s.tabs && s.filters && [byAgent, byPerson, NEAR].every((k) => s.keys.includes(k)));
+    check(`This project reads the item list, never /cards (${asked.join(" ")})`, !asked.some((a) => a.startsWith("/_p99/api/cards")));
 
     await choose(p, "projects");
     s = await settled(p, (s) => s.view === "projects" && s.keys.length === 3);
@@ -239,8 +240,8 @@ try {
     check(`People on Needs you keeps the cards a person changed last (${s.keys})`, s.keys.join() === "FEAT-902");
     await source(p, "");
     WAITING.fail = true;
-    await choose(p, "site");
-    await settled(p, (s) => s.view === "site");
+    await choose(p, "project");
+    await settled(p, (s) => s.view === "project");
     await choose(p, "needs");
     await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results .p99-failed"), null, { timeout: 8000 }).catch(() => {});
     const broke = await p.evaluate(() => {
@@ -253,8 +254,8 @@ try {
     s = await settled(p, (s) => s.view === "needs" && s.keys.length === 2);
     check(`Retry reads /cards/waiting again and lists it (${s.keys})`, s.keys.join() === "FEAT-901,FEAT-902");
     WAITING.cards = [];
-    await choose(p, "site");
-    await settled(p, (s) => s.view === "site");
+    await choose(p, "project");
+    await settled(p, (s) => s.view === "project");
     await choose(p, "needs");
     s = await settled(p, (s) => s.view === "needs" && s.empty);
     check(`with nothing waiting, Needs you says so (${s.empty})`, s.empty === "Nothing needs you.");
@@ -291,9 +292,9 @@ try {
     check(`a reload comes back to the same view, projects and source (${JSON.stringify(s)})`, s.view === "projects" && s.source === "agent" && s.projects.every(([, on]) => on) && s.keys.join() === "FEAT-901");
     await p.screenshot({ path: join(stills, "filter-projects-1440-light.png") });
 
-    await choose(p, "site");
+    await choose(p, "project");
     await source(p, "agent");
-    await settled(p, (s) => s.view === "site" && s.source === "agent");
+    await settled(p, (s) => s.view === "project" && s.source === "agent");
     const boardAsked = [];
     await p.route((url) => url.pathname === "/_p99/api/board", (r) => {
       boardAsked.push(new URL(r.request().url()).search);
@@ -310,7 +311,7 @@ try {
       };
     });
     check(`the board overlay shows only what the filter keeps, and says so (${JSON.stringify(board)})`, board.cards.join() === byAgent && board.note === "showing Agents");
-    check(`the board overlay asks the one board for this website with the filter's source, nothing else (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((q) => q === `?host=${HOST}&source=agent`));
+    check(`the board overlay asks the one board for this website with the filter's source, nothing else (${boardAsked})`, boardAsked.length > 0 && boardAsked.every((q) => q === "?project=Splicer&source=agent"));
 
     await p.evaluate(() => localStorage.setItem("p99:pick", JSON.stringify({ view: "landed", projects: [], source: "" })));
     await p.close();
@@ -333,7 +334,7 @@ try {
     await p.close();
     p = await open(ctx, boss);
     s = await settled(p);
-    check(`a broken stored choice falls back to Only this website and Everyone (${s.view}, ${s.source})`, s.view === "site" && s.source === "");
+    check(`a broken stored choice falls back to This project and Everyone (${s.view}, ${s.source})`, s.view === "project" && s.source === "");
     await ctx.close();
   }
 
@@ -345,7 +346,7 @@ try {
     });
     const p = await open(ctx, boss);
     const s = await settled(p);
-    check(`with storage blocked the filter still draws at Only this website (${s && s.view})`, s && s.pick && s.view === "site");
+    check(`with storage blocked the filter still draws at This project (${s && s.view})`, s && s.pick && s.view === "project");
     await ctx.close();
   }
 

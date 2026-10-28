@@ -65,13 +65,16 @@ const cardOf = (i) => {
     changed_at: "2026-10-22T09:00:00.000Z", changed_by: { name: ADA.name, username: ADA.username, agent: i.agent, via: i.agent ? "pci" : null },
   };
 };
+export const PROJECTS = [{ name: "Splicer", hosts: [HOST] }, { name: "Manfred", hosts: [ELSEWHERE] }];
+export const HOME = PROJECTS[0].name;
+const projectOf = (i) => i.project || (PROJECTS.find((p) => p.hosts.includes(i.host)) || {}).name || null;
 export function oneBoard(query = new URLSearchParams()) {
   const projects = query.getAll("project").map((p) => p.toLowerCase());
   const statuses = query.getAll("status");
   const host = query.get("host");
   const source = query.get("source");
   const cards = items
-    .filter((i) => (!projects.length || (i.project && projects.includes(i.project.toLowerCase())))
+    .filter((i) => (!projects.length || (projectOf(i) && projects.includes(projectOf(i).toLowerCase())))
       && (!statuses.length || statuses.includes(LANES[at(i.label)].word))
       && (!host || i.host === host)
       && (!source || (source === "agent") === i.agent))
@@ -114,6 +117,7 @@ const USER = { ...ME, name: GRACE.name, email: GRACE.email, username: GRACE.user
 function api(method, path, body, owner) {
   const url = new URL(path, "http://stub");
   if (url.pathname === "/me") return [200, owner ? ME : USER];
+  if (method === "GET" && url.pathname === "/space") return [200, { space: { slug: "pito", name: "Northwind" }, projects: PROJECTS.map((p) => ({ ...p, open: items.filter((i) => projectOf(i) === p.name).length, closed: 0 })) }];
   if (method === "GET" && url.pathname === "/issues") return [200, { issues: [], next_cursor: null }];
   if (!owner) return [403, { message: "only an Owner can do this" }];
   if (method === "GET" && url.pathname === "/board") return [200, oneBoard(url.searchParams)];
@@ -213,8 +217,9 @@ async function worker() {
   };
   const on = `?host=${HOST}`;
   await signed("PUT", "/envs/production", { kind: "release", position: 1, notify: false });
-  await signed("PUT", `/hosts/${HOST}`, { env: "production", config: { theme: { accent: "#b5621e" } } });
-  await signed("PUT", `/hosts/${ELSEWHERE}`, { env: "production", config: {} });
+  for (const p of PROJECTS) await signed("POST", "/projects", { name: p.name });
+  await signed("PUT", `/hosts/${HOST}`, { env: "production", project: HOME, config: { theme: { accent: "#b5621e" } } });
+  await signed("PUT", `/hosts/${ELSEWHERE}`, { env: "production", project: PROJECTS[1].name, config: {} });
   const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST, ELSEWHERE], manager: true });
   await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, ELSEWHERE], manager: true });
   await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST, ELSEWHERE], manager: true });
@@ -856,14 +861,35 @@ async function check(back) {
     const boardRead = (b) => b.seen.filter((c) => c.method === "GET" && c.path === "/board").at(-1)?.query ?? null;
     const site = await board(browser, back);
     const here = await cardsOf(site);
-    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `Only this website, the default, keeps ${HOST}'s cards and drops ${ELSEWHERE}'s: ${here}`);
-    assert.equal(boardRead(site), `?host=${HOST}`);
+    assert.ok(!here.includes(K("BUG-31")) && here.includes(K("BUG-14")), `This project, the default, keeps ${HOME}'s cards and drops ${ELSEWHERE}'s: ${here}`);
+    assert.equal(boardRead(site), `?project=${HOME}`);
     await site.ctx.close();
     const every = await board(browser, back, { pick: { view: "projects", projects: [], source: "" }, least: 0 });
     assert.ok((await cardsOf(every)).includes(K("BUG-31")), `Projects shows ${ELSEWHERE}'s BUG-31`);
     assert.equal(boardRead(every), "");
     await every.ctx.close();
-    ok(`Only this website, the default, asks /board?host=${HOST} and keeps that host alone; Projects shows every host's cards`);
+    ok(`This project, the default, asks /board?project=${HOME}, the project ${HOST} belongs to; Projects shows every host's cards`);
+
+    const lanes = await board(browser, back);
+    await drag(lanes.p, K("LB-2"), K("LR-3"), 18);
+    const crossing = await R(lanes.p, () => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      const shifts = r.getAnimations().filter((a) => a.id === "p99-shift");
+      const lists = Array.from(r.querySelectorAll(".p99-cards"));
+      const off = shifts.filter((a) => {
+        const e = a.effect.target, list = e.closest(".p99-cards"), box = list.getBoundingClientRect(), b = e.getBoundingClientRect();
+        return b.bottom < box.top - b.height * 2 || b.top > box.bottom + b.height * 2;
+      }).length;
+      return { shifts: shifts.length, off, dragging: r.querySelector(".p99-board").classList.contains("is-dragging"), cards: lists.reduce((n, l) => n + l.children.length, 0), transition: getComputedStyle(r.querySelector(".p99-card:not(.is-placeholder)")).transitionDuration };
+    });
+    await lanes.p.mouse.up();
+    await settle(lanes.p);
+    const dropped = await R(lanes.p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-board").classList.contains("is-dragging"));
+    assert.ok(crossing.dragging && !dropped, `the board carries is-dragging only while a card is held (${crossing.dragging}, ${dropped})`);
+    assert.ok(crossing.shifts < 30 && crossing.off === 0, `crossing into a 30-card lane animates only the rows near its view: ${JSON.stringify(crossing)}`);
+    assert.match(crossing.transition, /^0s(, 0s)*$/, `cards run no transitions while a card is held (${crossing.transition})`);
+    await lanes.ctx.close();
+    ok("a drag across long lanes animates only the rows in view and turns card transitions off until the drop");
 
     for (const [size, view] of SIZES) {
       for (const scheme of ["light", "dark"]) {
