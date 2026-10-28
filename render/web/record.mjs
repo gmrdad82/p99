@@ -45,8 +45,10 @@ const uid = () => `00000000-0000-4000-8000-${String(++uids).padStart(12, "0")}`;
 
 async function seed() {
   await api("PUT", "/envs/production", { kind: "release", position: 1, notify: false });
-  await api("PUT", `/hosts/${HOST}`, { env: "production", config: { theme: { accent: "#b5621e" } } });
-  await api("PUT", "/hosts/docs.example.org", { env: "production", config: {} });
+  await api("POST", "/projects", { name: "Shop" });
+  await api("POST", "/projects", { name: "Docs" });
+  await api("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: { theme: { accent: "#b5621e" } } });
+  await api("PUT", "/hosts/docs.example.org", { env: "production", project: "Docs", config: {} });
   const file = (host, actor, kind, title, body, at) =>
     api("POST", `/issues?host=${host}`, { client_uid: uid(), kind, title, body, page: { ...at, url: `https://${host}${at.path}` }, context: {}, marks: [] }, actor);
   await file("docs.example.org", ADA, "question", "Does the brew guide cover cold brew ratios?", "Readers ask for a ratio table next to the steeping times.", page("/guides/brewing", "Brewing guides"));
@@ -58,31 +60,36 @@ async function seed() {
   await say(GRACE, "Same on my phone, in Safari.");
   await api("PATCH", `/issues/${cart.key}?host=${HOST}`, { status: "doing" }, ADA);
   await say({ ...ADA, agent: true }, "Found it: the total was summed before the line was removed. The fix is on main with a test for the last bag, and goes out with the next release.");
-  const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false }, ADA);
+  const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], role: "user" }, ADA);
   writeFileSync(join(work, "code"), minted.secret, { mode: 0o600 });
   const home = join(work, "home", ".config", "p99");
   mkdirSync(home, { recursive: true });
   writeFileSync(
     join(home, "config.toml"),
-    `default_account = "main"
+    `default_space = "main"
 
 [me]
 name = "Ada Lovelace"
 email = "ada@example.com"
 
-[accounts.main]
+[spaces.main]
+name = "Northwind Coffee"
 account_id = "0123456789abcdef0123456789abcdef"
 token = "unused"
 key_id = "p99"
 key = "${key}"
 url = "http://127.0.0.1:${PORT}/_p99"
 
+[spaces.main.projects]
+Shop = ["${HOST}"]
+Docs = ["docs.example.org"]
+
 [hosts."${HOST}"]
-account = "main"
+space = "main"
 env = "production"
 
 [hosts."docs.example.org"]
-account = "main"
+space = "main"
 env = "production"
 `,
     { mode: 0o600 },
@@ -393,7 +400,7 @@ function totpNow(key) {
 async function totp() {
   const browser = await launch();
   for (const scheme of ["light", "dark"]) {
-    const minted = await api("POST", "/codes", { client_uid: randomUUID(), name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false, totp: true }, ADA);
+    const minted = await api("POST", "/codes", { client_uid: randomUUID(), name: GRACE.name, email: GRACE.email, hosts: [HOST], role: "user", totp: true }, ADA);
     const ctx = await browser.newContext({ viewport: VIEW, deviceScaleFactor: 1, colorScheme: scheme });
     await ctx.addInitScript(openShadow);
     const p = await ctx.newPage();

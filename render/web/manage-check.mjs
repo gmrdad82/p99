@@ -77,9 +77,9 @@ try {
   }
   await must("POST", "/projects", { name: "Shop" });
   await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: {} });
-  const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
-  await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false });
-  await must("POST", "/codes", { name: "Linus Park", email: "linus@example.com", hosts: [HOST], manager: false });
+  const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "owner" })).secret;
+  await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], role: "user" });
+  await must("POST", "/codes", { name: "Linus Park", email: "linus@example.com", hosts: [HOST], role: "user" });
   await file("bug", "The cart total doesn't update after removing a bag");
   await file("feature", "Let returning customers reorder from a receipt");
   const canada = await file("question", "Do you ship to Canada?");

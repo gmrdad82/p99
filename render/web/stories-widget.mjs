@@ -197,7 +197,7 @@ try {
   await until("the local Worker", async () => (await api("PUT", "/envs/production", { kind: "release", position: 1, notify: false }).catch(() => ({ status: 0 }))).status === 200, 90000);
   await must("POST", "/projects", { name: "Shop" });
   await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: {} });
-  const mint = async (name, email) => (await must("POST", "/codes", { name, email, hosts: [HOST], manager: false })).secret;
+  const mint = async (name, email) => (await must("POST", "/codes", { name, email, hosts: [HOST], role: "user" })).secret;
   const code = await mint(ADA.name, ADA.email);
   const chromiumPath = process.env.P99_CHROMIUM || (existsSync("/usr/bin/chromium") ? "/usr/bin/chromium" : undefined);
   const browser = await chromium.launch({

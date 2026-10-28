@@ -48,8 +48,9 @@ const uid = () => `00000000-0000-4000-8000-${String(++uids).padStart(12, "0")}`;
 async function seed() {
   await api("PUT", "/envs/dev", { kind: "development", position: 1, notify: false });
   await api("PUT", "/envs/production", { kind: "release", position: 2, notify: false });
-  await api("PUT", `/hosts/${HOST}`, { env: "dev", config: CONFIG });
-  await api("PUT", `/hosts/${LIVE}`, { env: "production", config: CONFIG });
+  await api("POST", "/projects", { name: "PITO MD site" });
+  await api("PUT", `/hosts/${HOST}`, { env: "dev", project: "PITO MD site", config: CONFIG });
+  await api("PUT", `/hosts/${LIVE}`, { env: "production", project: "PITO MD site", config: CONFIG });
   const file = (host, actor, kind, title, body, path, ptitle) =>
     api("POST", `/issues?host=${host}`, { client_uid: uid(), kind, title, body, page: { url: `https://${host}${path}`, path, title: ptitle }, context: {}, marks: [] }, actor);
   await file(LIVE, ADA, "question", "Should the FAQ say where the speech model lives?", "", "/splicer/", "Splicer — Cut fast. Freaking fast.");
@@ -60,31 +61,35 @@ async function seed() {
   await say(GRACE, "Same in Firefox, and on a tablet held upright.");
   await api("PATCH", `/issues/${wrap.key}?host=${HOST}`, { status: "doing" }, ADA);
   await say({ ...ADA, agent: true }, "Found it: the button had no minimum width, so the price card squeezed it. The fix is on main with a check at 1100 px.");
-  const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, LIVE], manager: false }, ADA);
+  const minted = await api("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, LIVE], role: "user" }, ADA);
   writeFileSync(join(work, "code"), minted.secret, { mode: 0o600 });
   const home = join(work, "home", ".config", "p99");
   mkdirSync(home, { recursive: true });
   writeFileSync(
     join(home, "config.toml"),
-    `default_account = "main"
+    `default_space = "pito"
 
 [me]
 name = "Ada Lovelace"
 email = "ada@example.com"
 
-[accounts.main]
+[spaces.pito]
+name = "PITO MD"
 account_id = "0123456789abcdef0123456789abcdef"
 token = "unused"
 key_id = "p99"
 key = "${key}"
 url = "http://127.0.0.1:${PORT}/_p99"
 
+[spaces.pito.projects]
+"PITO MD site" = ["${LIVE}", "${HOST}"]
+
 [hosts."${HOST}"]
-account = "main"
+space = "pito"
 env = "dev"
 
 [hosts."${LIVE}"]
-account = "main"
+space = "pito"
 env = "production"
 `,
     { mode: 0o600 },

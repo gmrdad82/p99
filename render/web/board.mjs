@@ -220,9 +220,9 @@ async function worker() {
   for (const p of PROJECTS) await signed("POST", "/projects", { name: p.name });
   await signed("PUT", `/hosts/${HOST}`, { env: "production", project: HOME, config: { theme: { accent: "#b5621e" } } });
   await signed("PUT", `/hosts/${ELSEWHERE}`, { env: "production", project: PROJECTS[1].name, config: {} });
-  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST, ELSEWHERE], manager: true });
-  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, ELSEWHERE], manager: true });
-  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST, ELSEWHERE], manager: true });
+  const minted = await signed("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST, ELSEWHERE], role: "owner" });
+  await signed("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST, ELSEWHERE], role: "owner" });
+  await signed("POST", "/codes", { name: LIN.name, email: LIN.email, hosts: [HOST, ELSEWHERE], role: "owner" });
   const keys = new Map();
   let uid = 0;
   for (const it of items) {

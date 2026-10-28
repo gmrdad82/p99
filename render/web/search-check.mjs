@@ -116,7 +116,7 @@ try {
   }
   await must("POST", "/projects", { name: "Shop" });
   await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: {} });
-  const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
+  const code = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "owner" })).secret;
   await file("bug", "The cart total doesn't update after removing a bag");
   await file("feature", "Let returning customers reorder from a receipt");
   await file("question", "Do you ship to Canada?");

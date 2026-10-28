@@ -140,8 +140,8 @@ try {
   }
   await must("POST", "/projects", { name: "Splicer" });
   await must("PUT", `/hosts/${HOST}`, { env: "production", project: "Splicer", config: {} });
-  const boss = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true })).secret;
-  const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], manager: false })).secret;
+  const boss = (await must("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "owner" })).secret;
+  const visitor = (await must("POST", "/codes", { name: GRACE.name, email: GRACE.email, hosts: [HOST], role: "user" })).secret;
   const byAgent = (await file("An agent filed this", { ...ADA, agent: true, via: "pci" })).key;
   const byPerson = (await file("A person filed this", GRACE)).key;
   const filed = (await must("GET", `/issues/${byPerson}?host=${HOST}`)).issue.label;

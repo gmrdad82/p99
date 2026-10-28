@@ -65,7 +65,7 @@ try {
     context: {},
     marks: [],
   });
-  const { secret } = await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: true });
+  const { secret } = await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "owner" });
 
   const browser = await chromium.launch({
     executablePath: "/usr/bin/chromium",

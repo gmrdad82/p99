@@ -84,7 +84,7 @@ async function worker() {
     for (const host of hosts) await signed("PUT", `/hosts/${host}`, { env: "production", project, config: {} });
   }
   const person = async (who, hosts, manager = false) => {
-    const minted = await signed("POST", "/codes", { name: who.name, email: who.email, hosts, manager, totp: true });
+    const minted = await signed("POST", "/codes", { name: who.name, email: who.email, hosts, role: manager ? "owner" : "user", totp: true });
     return { ...who, id: minted.code.id, key: minted.totp_key };
   };
   const people = {

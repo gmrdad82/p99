@@ -89,8 +89,8 @@ try {
   }
   await api("POST", "/projects", { name: "Shop" });
   await api("PUT", `/hosts/${HOST}`, { env: "production", project: "Shop", config: { above: "#totop" } });
-  const plain = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: false })).secret;
-  const guarded = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], manager: false, totp: true })).secret;
+  const plain = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "user" })).secret;
+  const guarded = (await api("POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [HOST], role: "user", totp: true })).secret;
 
   const browser = await chromium.launch({
     executablePath: "/usr/bin/chromium",
