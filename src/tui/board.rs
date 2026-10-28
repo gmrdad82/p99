@@ -95,6 +95,7 @@ pub struct Board {
     palette: Palette,
     view: Option<BoardView>,
     names: Vec<String>,
+    many: bool,
     projects: Vec<String>,
     asked: Vec<String>,
     error: Option<String>,
@@ -125,7 +126,8 @@ impl Board {
             reader: Inbox::new(source.clone(), palette),
             following: false,
             stale: None,
-            names: source.accounts(),
+            names: source.spaces(),
+            many: source.scoped().len() > 1,
             projects: Vec::new(),
             asked: Vec::new(),
             source,
@@ -293,8 +295,8 @@ impl Board {
     }
 
     fn enter(&mut self, cx: &mut Cx<'_, Msg>) {
-        if let Some((account, key)) = self.current().map(|c| (c.account, c.key.clone())) {
-            self.reader.open_key(account, None, key, cx);
+        if let Some((space, key)) = self.current().map(|c| (c.space, c.key.clone())) {
+            self.reader.open_key(space, None, key, cx);
         }
     }
 
@@ -302,7 +304,7 @@ impl Board {
         self.reader.crumb().is_some()
     }
 
-    fn heard(&mut self, account: usize, text: &str) {
+    fn heard(&mut self, space: usize, text: &str) {
         let Ok(event) = serde_json::from_str::<serde_json::Value>(text) else {
             return;
         };
@@ -311,13 +313,13 @@ impl Board {
         let Some(view) = self.view.as_mut() else {
             return;
         };
-        let outcome = patch(view, account, &event);
+        let outcome = patch(view, space, &event);
         if let Some(id) = lifted {
             let gone = self
                 .view
                 .as_ref()
                 .is_none_or(|v| v.cards.iter().all(|c| c.id != id));
-            let key = event["key"].as_str().map(|key| format!("{account}/{key}"));
+            let key = event["key"].as_str().map(|key| format!("{space}/{key}"));
             if gone || key.as_deref() == Some(id.as_str()) {
                 self.lift = None;
                 self.press = None;
@@ -378,13 +380,13 @@ impl Board {
         };
         let lane: Vec<&Card> = lanes[column].iter().map(|&at| &view.cards[at]).collect();
         let request = request(view, &lane, &view.cards[at], column, row);
-        let account = view.cards[at].account;
+        let space = view.cards[at].space;
         let mut card = view.cards.remove(at);
         if let Some(to) = view.lanes.get(column) {
             card.label = to.label.clone();
             card.status = to.word;
         }
-        let find = |key: &Option<String>| key.as_ref().and_then(|key| view.find(account, key));
+        let find = |key: &Option<String>| key.as_ref().and_then(|key| view.find(space, key));
         let spot = find(&request.before)
             .or_else(|| find(&request.after).map(|at| at + 1))
             .unwrap_or_else(|| {
@@ -399,7 +401,7 @@ impl Board {
         let source = self.source.clone();
         let id = lift.id;
         cx.detach(move || {
-            let result = source.shift(account, &request);
+            let result = source.shift(space, &request);
             Msg::Shifted(id, result)
         });
     }
@@ -656,8 +658,8 @@ impl Board {
     }
 
     fn whose(&self, card: &Card) -> Option<&str> {
-        if self.names.len() > 1 {
-            self.names.get(card.account).map(String::as_str)
+        if self.many {
+            self.names.get(card.space).map(String::as_str)
         } else {
             None
         }
@@ -698,11 +700,25 @@ impl Board {
         target: bool,
         palette: &Palette,
     ) {
-        if lane.height < 2 || lane.width < 4 {
+        if lane.height < 2 || lane.width < 1 {
+            return;
+        }
+        let lit = column == self.column;
+        let rule_style = if target || lit {
+            palette.accent
+        } else {
+            palette.rule
+        };
+        let glyph = if target { "━" } else { "─" };
+        for x in lane.left()..lane.right() {
+            if let Some(cell) = buf.cell_mut((x, lane.y + 1)) {
+                cell.set_symbol(glyph).set_style(rule_style);
+            }
+        }
+        if lane.width < 4 {
             return;
         }
         let name = self.name(column);
-        let lit = column == self.column;
         let style = if lit { palette.accent } else { palette.strong };
         let room = usize::from(lane.width);
         let mut more = String::new();
@@ -738,18 +754,6 @@ impl Board {
             let room = usize::from(lane.right().saturating_sub(x + 1));
             buf.set_stringn(x + 1, lane.y, &more, room, palette.muted);
         }
-        let room = usize::from(lane.width);
-        let rule = if target {
-            "━".repeat(room)
-        } else {
-            "─".repeat(room)
-        };
-        let rule_style = if target || lit {
-            palette.accent
-        } else {
-            palette.rule
-        };
-        buf.set_stringn(lane.x, lane.y + 1, rule, room, rule_style);
     }
 }
 
@@ -845,7 +849,7 @@ fn draw_card(
     x: i32,
     y: i32,
     width: u16,
-    (card, account): (&Card, Option<&str>),
+    (card, space): (&Card, Option<&str>),
     (selected, held, done): (bool, bool, bool),
     palette: &Palette,
 ) {
@@ -888,13 +892,10 @@ fn draw_card(
     };
     let head = vec![(key, key_style(palette, selected || held))];
     let mut top = Vec::new();
-    if let Some(account) = account {
+    if let Some(space) = space {
         let room = inner.saturating_sub(text::cells(&card.key) + 4);
         if room > 2 {
-            top.push((
-                format!(" {} ", text::clip(account, room - 2)),
-                palette.muted,
-            ));
+            top.push((format!(" {} ", text::clip(space, room - 2)), palette.muted));
         }
     }
     edge(buf, clip, x, y, w, edges.top, &head, &top, frame);
@@ -1058,17 +1059,17 @@ impl Screen<Msg> for Board {
                     }
                 }
             }
-            Msg::Heard(account, text) => {
-                self.heard(account, &text);
+            Msg::Heard(space, text) => {
+                self.heard(space, &text);
                 if self.reading_thread() {
-                    self.reader.event(Msg::Heard(account, text), cx);
+                    self.reader.event(Msg::Heard(space, text), cx);
                 }
             }
             Msg::Deleted(key, result) => {
                 if result.is_ok()
                     && let Some(view) = &mut self.view
                 {
-                    if self.names.len() > 1 {
+                    if self.many {
                         self.stale = Some(self.moment);
                     } else {
                         view.cards.retain(|c| c.key != key);
@@ -1248,16 +1249,6 @@ impl Screen<Msg> for Board {
         hints
     }
 
-    fn status(&self) -> Option<(String, Style)> {
-        self.view.as_ref()?;
-        let accounts = if self.names.len() > 1 {
-            self.names.join(", ")
-        } else {
-            self.names.first().cloned().unwrap_or_default()
-        };
-        Some((accounts, self.palette.accent))
-    }
-
     fn badge(&self) -> &[Span] {
         self.badge.parts()
     }
@@ -1298,6 +1289,12 @@ impl Narrow for Board {
         if self.view.is_some() {
             self.read(cx);
         }
+    }
+
+    fn rescope(&mut self) {
+        self.projects.clear();
+        self.asked.clear();
+        self.many = self.source.scoped().len() > 1;
     }
 
     fn touched(&mut self, _cx: &mut Cx<'_, Msg>) {

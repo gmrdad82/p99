@@ -42,7 +42,7 @@ p99
 
 `p99` alone, in a terminal, opens the TUI, as `p99 tui` does; its flags (`--space`, `--agent`) go with `p99 tui`. Piped or in a script, a bare `p99` prints clap's short error and exits 2 instead of waiting on a screen.
 
-The Inbox screen lists the open items of every host, newest activity first, with a dot on the unread ones and each item's label; the header counts the items shown and the unread. `tab`, or `1`, `2` and `3`, switch between the Inbox, Board and Codes screens.
+The header of every screen names the space. The Inbox screen lists the open items of every host, newest activity first, with a dot on the unread ones and each item's label; the line under the tabs counts the items shown, out of those in the host and projects chosen, and the unread. `tab`, or `1`, `2` and `3`, switch between the Inbox, Board and Codes screens.
 
 | Key | In the list |
 | --- | --- |
@@ -51,6 +51,9 @@ The Inbox screen lists the open items of every host, newest activity first, with
 | `/` | filter by text as you type; `esc` clears it |
 | `s` | show open, closed, or open and closed items, in turn |
 | `h` | show every host, or pick one, when there is more than one |
+| `p` | narrow to one project or several; the line under the tabs says `in Storefront`, and `esc` or `All projects` clears them |
+| `w` | the cards waiting on you, in the projects chosen |
+| `S` | with more than one space configured, show every space, then each one in turn |
 | `r` | read the list again, keeping it on screen |
 | `?` | every key of the screen |
 | `ctrl+c` twice | quit |
@@ -76,7 +79,9 @@ The Board screen shows the one board: its seven lanes and their cards, in the sp
 | `←` `→` `↑` `↓` | move between cards |
 | `space` | pick up a card; the arrows carry it, `enter` drops it, `esc` puts it back |
 | `enter` | open the item |
+| `p` | narrow the board to one project or several |
 | `w` | the cards waiting on you |
+| `S` | with more than one space configured, show every space, then each one in turn |
 | `r` | read the board again |
 
 The mouse drags cards too.

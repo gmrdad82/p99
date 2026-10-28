@@ -7,8 +7,10 @@ use pito_tui::dump;
 
 use crate::config::{Account, Config};
 
-use super::super::demo::tests::without_codes;
-use super::super::tests::{CODES, HIGH, Run, WIDE, line, row, run, sample, spot, waiting};
+use super::super::demo::tests::{with_parked, without_codes};
+use super::super::tests::{
+    BOARD, CODES, HIGH, INBOX, Run, WIDE, line, row, run, sample, spot, waiting,
+};
 use super::*;
 
 fn codes(app: &Run) -> &Codes {
@@ -48,13 +50,7 @@ fn the_codes_list_newest_first_with_who_where_and_whether_they_still_work() {
         assert!(blog.contains(cell), "{cell} in {blog}");
     }
     let ada = line(&text, "…7k2q");
-    for cell in [
-        "Ada Lovelace",
-        "example.com, shop.example.com",
-        "Owner",
-        "12m",
-        "active",
-    ] {
+    for cell in ["Ada Lovelace", "Whole space", "Owner", "12m", "active"] {
         assert!(ada.contains(cell), "{cell} in {ada}");
     }
     let old = line(&text, "…3fpd");
@@ -62,7 +58,7 @@ fn the_codes_list_newest_first_with_who_where_and_whether_they_still_work() {
     for header in [
         "Person",
         "E-mail",
-        "Hosts",
+        "Reaches",
         "Role",
         "Code",
         "Last used",
@@ -161,11 +157,11 @@ fn no_codes_yet_says_how_to_make_one() {
 
 #[test]
 fn codes_that_cannot_be_read_say_why_and_r_reads_them_again() {
-    let mut app = run(Source::Broken("no account yet; p99 setup makes one".into()));
+    let mut app = run(Source::Broken("no space yet; p99 setup makes one".into()));
     let text = app.go(CODES);
     for said in [
         "Couldn't read the codes.",
-        "no account yet; p99 setup makes one",
+        "no space yet; p99 setup makes one",
         "r reads them again.",
         "r read again",
     ] {
@@ -420,7 +416,7 @@ fn twin(app: &mut Run) -> Code {
 }
 
 #[test]
-fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_the_id() {
+fn a_delete_in_one_space_removes_only_its_own_row_when_another_space_shares_the_id() {
     let mut app = shown();
     let other = twin(&mut app);
     let before = app.text();
@@ -446,7 +442,7 @@ fn a_delete_in_one_account_removes_only_its_own_row_when_another_account_shares_
 }
 
 #[test]
-fn deleting_the_twin_with_d_takes_the_selected_row_and_leaves_the_other_account_alone() {
+fn deleting_the_twin_with_d_takes_the_selected_row_and_leaves_the_other_space_alone() {
     let mut app = shown();
     twin(&mut app);
     let selected = codes(&app).chosen().cloned().expect("a row is selected");
@@ -564,7 +560,7 @@ fn listing(codes: &[(i64, &str, &str)]) -> String {
     serde_json::json!({ "codes": codes }).to_string()
 }
 
-fn account(
+fn space(
     codes: &'static [(i64, &'static str, &'static str)],
     delete: (u16, &'static str),
 ) -> (String, Seen) {
@@ -603,8 +599,8 @@ fn calls(seen: &Seen) -> Vec<String> {
 }
 
 #[test]
-fn a_live_delete_finds_the_code_in_the_second_account_and_deletes_it_there() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+fn a_live_delete_finds_the_code_in_the_second_space_and_deletes_it_there() {
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(2, "katherine@example.com", "zz99");
     assert_eq!(erase(&source, &code), Ok(()));
     assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
@@ -612,8 +608,8 @@ fn a_live_delete_finds_the_code_in_the_second_account_and_deletes_it_there() {
 }
 
 #[test]
-fn a_live_delete_of_a_code_no_account_holds_says_so_and_deletes_nothing() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+fn a_live_delete_of_a_code_no_space_holds_says_so_and_deletes_nothing() {
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(9, "grace@example.com", "3fpd");
     assert_eq!(erase(&source, &code), Err("no such code 9".to_owned()));
     assert_eq!(calls(&a), ["GET /_p99/v1/codes"]);
@@ -622,7 +618,7 @@ fn a_live_delete_of_a_code_no_account_holds_says_so_and_deletes_nothing() {
 
 #[test]
 fn a_live_delete_whose_id_matches_but_hint_does_not_deletes_nothing() {
-    let (source, a, b) = live(account(GRACE_A, DELETED), account(KATHERINE_B, DELETED));
+    let (source, a, b) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
     let code = revoked(2, "grace@example.com", "xxxx");
     assert_eq!(erase(&source, &code), Err("no such code 2".to_owned()));
     for seen in [&a, &b] {
@@ -639,7 +635,7 @@ fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
     for (status, message) in [(409, "revoke it first"), (404, "no such code")] {
         let body: &'static str =
             Box::leak(format!(r#"{{"message":"{message}"}}"#).into_boxed_str());
-        let (source, a, _) = live(account(GRACE_A, (status, body)), account(&[], DELETED));
+        let (source, a, _) = live(space(GRACE_A, (status, body)), space(&[], DELETED));
         let code = revoked(2, "grace@example.com", "3fpd");
         assert_eq!(erase(&source, &code), Err(format!("{message} ({status})")));
         assert_eq!(calls(&a), ["GET /_p99/v1/codes", "DELETE /_p99/v1/codes/2"]);
@@ -647,10 +643,10 @@ fn a_live_delete_the_worker_refuses_with_409_or_404_says_why() {
 }
 
 #[test]
-fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
+fn a_live_space_that_cannot_list_its_codes_stops_the_delete_with_why() {
     let (source, _, b) = live(
         worker(|_, _| (500, r#"{"message":"database is down"}"#.to_owned())),
-        account(KATHERINE_B, DELETED),
+        space(KATHERINE_B, DELETED),
     );
     let code = revoked(2, "katherine@example.com", "zz99");
     assert_eq!(
@@ -662,7 +658,7 @@ fn a_live_account_that_cannot_list_its_codes_stops_the_delete_with_why() {
 
 #[test]
 fn a_broken_source_deletes_nothing_and_says_why() {
-    let broken = Source::Broken("no account yet; p99 setup makes one".into());
+    let broken = Source::Broken("no space yet; p99 setup makes one".into());
     let code = Code {
         id: 2,
         hint: "3fpd".into(),
@@ -671,7 +667,7 @@ fn a_broken_source_deletes_nothing_and_says_why() {
     };
     assert_eq!(
         erase(&broken, &code).unwrap_err(),
-        "no account yet; p99 setup makes one"
+        "no space yet; p99 setup makes one"
     );
     assert_eq!(erase(&sample(), &code), Ok(()));
 }
@@ -703,4 +699,224 @@ fn a_delete_the_worker_refuses_says_why_and_keeps_the_code() {
     assert!(text.contains("offline now"), "{text}");
     assert!(text.contains("…3fpd"), "{text}");
     assert!(text.contains("4 codes"), "{text}");
+}
+
+fn named(
+    codes: &'static [(i64, &'static str, &'static str)],
+    name: &'static str,
+) -> (String, Seen) {
+    worker(move |method, path| match method {
+        "GET" if path.starts_with("/_p99/v1/space") => (
+            200,
+            format!(r#"{{"space":{{"slug":"x","name":"{name}"}},"projects":[]}}"#),
+        ),
+        "GET" if path.starts_with("/_p99/v1/codes") => (200, listing(codes)),
+        _ => (404, r#"{"message":"no such route"}"#.to_owned()),
+    })
+}
+
+fn header(text: &str) -> &str {
+    line(text, "P99")
+}
+
+#[test]
+fn the_header_of_every_tab_names_the_space() {
+    let mut app = run(sample());
+    for screen in [INBOX, BOARD, CODES] {
+        let text = app.go(screen);
+        assert!(header(&text).contains("Example shop"), "{screen}:\n{text}");
+    }
+}
+
+#[test]
+fn a_capital_s_walks_every_space_then_each_one_and_the_header_names_which() {
+    let (source, ..) = live(named(GRACE_A, "Alpha"), named(KATHERINE_B, "Beta"));
+    let mut app = run(source);
+    let all = app.go(CODES);
+    for said in ["…3fpd", "…zz99", "S space"] {
+        assert!(all.contains(said), "{said}:\n{all}");
+    }
+    assert!(header(&all).contains("All spaces"), "{all}");
+    let first = app.press("S");
+    assert!(
+        first.contains("…3fpd") && !first.contains("…zz99"),
+        "{first}"
+    );
+    assert!(header(&first).contains("Alpha"), "{first}");
+    let second = app.press("S");
+    assert!(
+        second.contains("…zz99") && !second.contains("…3fpd"),
+        "{second}"
+    );
+    assert!(header(&second).contains("Beta"), "{second}");
+    let again = app.press("S");
+    assert!(
+        again.contains("…3fpd") && again.contains("…zz99"),
+        "{again}"
+    );
+    assert!(header(&again).contains("All spaces"), "{again}");
+}
+
+#[test]
+fn one_space_offers_no_switch_and_a_capital_s_does_nothing() {
+    let mut app = shown();
+    let text = app.press("S");
+    assert!(!text.contains("S space"), "{text}");
+    assert!(text.contains("4 codes"), "{text}");
+    assert!(header(&text).contains("Example shop"), "{text}");
+}
+
+#[test]
+fn a_space_switched_on_the_codes_tab_reaches_the_other_tabs_too() {
+    let (source, ..) = live(named(GRACE_A, "Alpha"), named(KATHERINE_B, "Beta"));
+    let mut app = run(source);
+    app.go(CODES);
+    app.press("S");
+    let inbox = app.go(INBOX);
+    assert!(header(&inbox).contains("Alpha"), "{inbox}");
+    let board = app.go(BOARD);
+    assert!(header(&board).contains("Alpha"), "{board}");
+    assert_eq!(app.source.scope(), Some(0));
+}
+
+#[test]
+fn the_codes_of_a_source_are_those_of_the_space_in_scope() {
+    let (source, ..) = live(space(GRACE_A, DELETED), space(KATHERINE_B, DELETED));
+    let ids = |source: &Source| -> Vec<String> {
+        source
+            .codes()
+            .expect("both read")
+            .into_iter()
+            .map(|c| c.hint)
+            .collect()
+    };
+    assert_eq!(ids(&source).len(), 2);
+    source.rescope();
+    assert_eq!(ids(&source), ["3fpd"]);
+    source.rescope();
+    assert_eq!(ids(&source), ["zz99"]);
+    source.rescope();
+    assert_eq!(ids(&source).len(), 2);
+}
+
+#[test]
+fn a_code_reaches_its_projects_or_the_whole_space_or_nothing() {
+    let mut app = run(with_parked());
+    let text = app.go(CODES);
+    assert!(line(&text, "…7k2q").contains("Whole space"), "{text}");
+    assert!(line(&text, "…m9xa").contains("Storefront"), "{text}");
+    assert!(line(&text, "…q81v").contains("Mobile app"), "{text}");
+    let parked = line(&text, "…p4rk");
+    assert!(
+        parked.contains("Nothing") && parked.contains("parked"),
+        "{parked}"
+    );
+    assert!(
+        text.contains("5 codes") && text.contains("3 active"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_parked_code_reads_in_the_warning_colour_and_is_not_counted_active() {
+    let mut app = run(with_parked());
+    app.go(CODES);
+    let buffer = app.frame();
+    assert_eq!(
+        Some(buffer[spot(&buffer, "…p4rk", "parked")].fg),
+        app.palette.warn.fg
+    );
+}
+
+#[test]
+fn a_filter_finds_codes_by_state_role_and_project() {
+    let mut app = run(with_parked());
+    app.go(CODES);
+    let parked = app.press("/ parked");
+    assert!(
+        parked.contains("…p4rk") && !parked.contains("…q81v"),
+        "{parked}"
+    );
+    assert!(parked.contains("1 of 5 codes"), "{parked}");
+    app.press("esc");
+    let revoked = app.press("/ revoked");
+    assert!(
+        revoked.contains("…3fpd") && !revoked.contains("…m9xa"),
+        "{revoked}"
+    );
+    assert!(revoked.contains("1 of 5 codes"), "{revoked}");
+    app.press("esc");
+    let owner = app.press("/ owner");
+    assert!(
+        owner.contains("…7k2q") && !owner.contains("…m9xa"),
+        "{owner}"
+    );
+    app.press("esc");
+    let project = app.press("/ mobile");
+    assert!(
+        project.contains("…q81v") && !project.contains("…m9xa"),
+        "{project}"
+    );
+    app.press("esc");
+    let space = app.press("/ whole");
+    assert!(
+        space.contains("…7k2q") && !space.contains("…q81v"),
+        "{space}"
+    );
+    app.press("esc");
+    let cleared = app.press("esc");
+    assert!(
+        cleared.contains("5 codes") && !cleared.contains("of 5 codes"),
+        "{cleared}"
+    );
+}
+
+#[test]
+fn a_code_without_a_grant_still_shows_its_hosts() {
+    let code = Code {
+        hosts: vec!["example.com".into(), "shop.example.com".into()],
+        ..Code::default()
+    };
+    assert_eq!(reach(&code), "example.com, shop.example.com");
+    assert!(!parked(&code));
+    let projects = Code {
+        grant: Some(crate::wire::Grant {
+            space: false,
+            projects: vec!["Alfred".into(), "PITO MD site".into()],
+        }),
+        ..Code::default()
+    };
+    assert_eq!(reach(&projects), "Alfred, PITO MD site");
+    let revoked = Code {
+        revoked_at: Some("2026-10-01T00:00:00Z".into()),
+        grant: Some(crate::wire::Grant::default()),
+        ..Code::default()
+    };
+    assert!(!parked(&revoked));
+    assert_eq!(state_word(&revoked), "revoked");
+}
+
+#[test]
+fn a_capital_s_on_the_inbox_and_the_board_switches_the_space_for_every_tab() {
+    let (source, ..) = live(named(GRACE_A, "Alpha"), named(KATHERINE_B, "Beta"));
+    let mut app = run(source);
+    let inbox = app.text();
+    assert!(header(&inbox).contains("All spaces"), "{inbox}");
+    let first = app.press("S");
+    assert!(header(&first).contains("Alpha"), "{first}");
+    assert_eq!(app.source.scope(), Some(0));
+    let board = app.go(BOARD);
+    assert!(header(&board).contains("Alpha"), "{board}");
+    let second = app.press("S");
+    assert!(header(&second).contains("Beta"), "{second}");
+    assert_eq!(app.source.scope(), Some(1));
+    let codes = app.go(CODES);
+    assert!(
+        codes.contains("…zz99") && !codes.contains("…3fpd"),
+        "{codes}"
+    );
+    assert!(header(&codes).contains("Beta"), "{codes}");
+    let last = app.press("S");
+    assert!(header(&last).contains("All spaces"), "{last}");
+    assert_eq!(app.source.scope(), None);
 }

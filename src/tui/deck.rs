@@ -27,16 +27,16 @@ pub const WAITS: [Lane; 3] = [Lane::NeedsYou, Lane::Stuck, Lane::Landed];
 
 #[derive(Debug, Clone)]
 pub struct Card {
-    pub account: usize,
+    pub space: usize,
     pub id: String,
     pub card: BoardCard,
 }
 
 impl Card {
-    pub fn new(account: usize, card: BoardCard) -> Card {
+    pub fn new(space: usize, card: BoardCard) -> Card {
         Card {
-            id: format!("{account}/{}", card.key),
-            account,
+            id: format!("{space}/{}", card.key),
+            space,
             card,
         }
     }
@@ -95,10 +95,10 @@ impl BoardView {
             .is_some_and(|c| c.closes)
     }
 
-    pub fn find(&self, account: usize, key: &str) -> Option<usize> {
+    pub fn find(&self, space: usize, key: &str) -> Option<usize> {
         self.cards
             .iter()
-            .position(|c| c.account == account && c.key == key)
+            .position(|c| c.space == space && c.key == key)
     }
 }
 
@@ -113,7 +113,7 @@ pub fn sort(view: &mut BoardView) {
     cards.sort_by(|a, b| {
         rank(a)
             .cmp(&rank(b))
-            .then(a.account.cmp(&b.account))
+            .then(a.space.cmp(&b.space))
             .then_with(|| a.order.cmp(&b.order))
     });
 }
@@ -134,11 +134,11 @@ pub enum Patch {
     Reload,
 }
 
-pub fn patch(view: &mut BoardView, account: usize, event: &Value) -> Patch {
+pub fn patch(view: &mut BoardView, space: usize, event: &Value) -> Patch {
     let Some(key) = event["key"].as_str() else {
         return Patch::Reload;
     };
-    let at = view.find(account, key);
+    let at = view.find(space, key);
     match event["type"].as_str() {
         Some("label") => {
             let to = event["to"].as_str().unwrap_or_default();
@@ -166,7 +166,7 @@ pub fn patch(view: &mut BoardView, account: usize, event: &Value) -> Patch {
         },
         Some("delete") => {
             view.cards
-                .retain(|card| card.account != account || card.key != key);
+                .retain(|card| card.space != space || card.key != key);
             Patch::Patched
         }
         _ => Patch::Reload,
@@ -174,7 +174,7 @@ pub fn patch(view: &mut BoardView, account: usize, event: &Value) -> Patch {
 }
 
 pub fn request(view: &BoardView, lane: &[&Card], card: &Card, column: usize, row: usize) -> Move {
-    let same = |c: &&&Card| c.account == card.account && c.key != card.key;
+    let same = |c: &&&Card| c.space == card.space && c.key != card.key;
     let before = lane.get(row..).and_then(|rest| rest.iter().find(same));
     let after = lane
         .get(..row.min(lane.len()))
@@ -209,21 +209,21 @@ pub fn older(error: &str) -> bool {
     error.ends_with("(404)") || error.ends_with("(400)")
 }
 
-pub fn asked_behind(client: &Client, account: &str) -> String {
+pub fn asked_behind(client: &Client, space: &str) -> String {
     let version = client
         .json::<Value>("GET", "/health", None)
         .ok()
         .and_then(|health| health["version"].as_str().map(str::to_owned));
-    behind(account, version.as_deref())
+    behind(space, version.as_deref())
 }
 
-pub fn behind(account: &str, version: Option<&str>) -> String {
+pub fn behind(space: &str, version: Option<&str>) -> String {
     let worker = version.map_or_else(
         || "an older P99".to_owned(),
         |v| format!("P99 {}", v.trim_start_matches('v')),
     );
     format!(
-        "{account}: its Worker is {worker}, the board needs {SINCE} or later; p99 deploy --account {account} upgrades it"
+        "{space}: its Worker is {worker}, the board needs {SINCE} or later; p99 deploy --space {space} upgrades it"
     )
 }
 
@@ -251,11 +251,12 @@ impl Source {
             projects: projects.to_vec(),
             ..BoardQuery::default()
         };
-        let names = self.accounts();
+        let names = self.spaces();
         let mut view = BoardView::default();
         let (mut answered, mut failed) = (false, None);
-        for (account, name) in names.iter().enumerate() {
-            let client = match self.client(account, None) {
+        for space in self.scoped() {
+            let name = names.get(space).map_or("", String::as_str);
+            let client = match self.client(space, None) {
                 Ok(client) => client,
                 Err(error) => {
                     view.missing.push(format!("{name}: {error}"));
@@ -270,7 +271,7 @@ impl Source {
                     }
                     answered = true;
                     view.cards
-                        .extend(board.cards.into_iter().map(|c| Card::new(account, c)));
+                        .extend(board.cards.into_iter().map(|c| Card::new(space, c)));
                 }
                 Err(error) if unrouted(&error) => view.missing.push(asked_behind(&client, name)),
                 Err(error) => {
@@ -279,6 +280,8 @@ impl Source {
                 }
             }
         }
+        view.cards
+            .retain(|card| wanted(card.project.as_deref(), projects));
         match failed {
             Some(error) if !answered && view.missing.len() == 1 => Err(error),
             _ => {
@@ -290,11 +293,11 @@ impl Source {
         }
     }
 
-    pub fn labels(&self, account: usize) -> Result<Vec<String>, String> {
+    pub fn labels(&self, space: usize) -> Result<Vec<String>, String> {
         match self {
             Source::Demo(..) => Ok(default_lanes().into_iter().map(|c| c.label).collect()),
             Source::Live(_) => Ok(self
-                .client(account, None)?
+                .client(space, None)?
                 .label_list()?
                 .into_iter()
                 .map(|label| label.name)
@@ -303,11 +306,11 @@ impl Source {
         }
     }
 
-    pub fn shift(&self, account: usize, request: &Move) -> Result<Moved, String> {
+    pub fn shift(&self, space: usize, request: &Move) -> Result<Moved, String> {
         match self {
             Source::Demo(..) => self.sample(|demo| demo.shift(request)),
             Source::Live(_) => {
-                let client = self.client(account, None)?;
+                let client = self.client(space, None)?;
                 client
                     .move_to(request)
                     .map_err(|error| raced(&client, &request.key, &request.to, error))
@@ -323,9 +326,9 @@ mod tests {
 
     use super::*;
 
-    fn card(account: usize, key: &str, status: &str, order: Option<&str>) -> Card {
+    fn card(space: usize, key: &str, status: &str, order: Option<&str>) -> Card {
         Card::new(
-            account,
+            space,
             serde_json::from_value(json!({
                 "key": key, "kind": "bug", "project": null, "status": status,
                 "label": LANES.iter().find(|l| l.0.word() == status).map(|l| l.1).unwrap(),
@@ -379,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn cards_sort_by_lane_then_account_then_order() {
+    fn cards_sort_by_lane_then_space_then_order() {
         assert_eq!(
             ids(&view()),
             [
@@ -403,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn a_drop_asks_by_lane_word_with_neighbours_of_the_same_account_only() {
+    fn a_drop_asks_by_lane_word_with_neighbours_of_the_same_space_only() {
         let view = view();
         let lane: Vec<&Card> = view
             .cards
@@ -436,7 +439,7 @@ mod tests {
     }
 
     #[test]
-    fn live_events_patch_only_the_account_they_came_from() {
+    fn live_events_patch_only_the_space_they_came_from() {
         let mut view = view();
         let order = json!({"type": "order", "board": 3, "key": "BUG-3", "order": "Zx"});
         assert_eq!(patch(&mut view, 0, &order), Patch::Patched);
@@ -480,7 +483,7 @@ mod tests {
     fn an_old_worker_gets_one_line_naming_both_versions_and_the_fix() {
         assert_eq!(
             behind("shop", Some("1.9.2")),
-            "shop: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --account shop upgrades it"
+            "shop: its Worker is P99 1.9.2, the board needs 1.11 or later; p99 deploy --space shop upgrades it"
         );
         assert!(older("no such card (404)"));
         assert!(older("not a card key (400)"));

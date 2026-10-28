@@ -10,6 +10,20 @@ pub(in crate::tui) fn without_codes() -> Source {
     Source::Demo(Arc::new(Mutex::new(demo)), Duration::ZERO)
 }
 
+pub(in crate::tui) fn with_parked() -> Source {
+    let mut demo = Demo::new();
+    demo.codes.push(Code {
+        id: 5,
+        name: "Katherine Johnson".into(),
+        email: "katherine@example.com".into(),
+        hint: "p4rk".into(),
+        created_at: iso(NOW - DAY),
+        grant: Some(wire::Grant::default()),
+        ..Code::default()
+    });
+    Source::Demo(Arc::new(Mutex::new(demo)), Duration::ZERO)
+}
+
 fn issue(demo: &mut Demo, key: &str) -> Issue {
     demo.thread(key).expect("the sample has it").issue
 }
@@ -30,7 +44,7 @@ fn the_sample_holds_every_kind_and_state_with_unique_keys() {
         assert!(list.iter().any(|e| e.summary.status == status), "{status}");
     }
     assert_eq!(list.iter().filter(|e| e.summary.unread).count(), 3);
-    assert!(list.iter().all(|e| e.account == 0));
+    assert!(list.iter().all(|e| e.space == 0));
 }
 
 #[test]
@@ -106,7 +120,7 @@ fn the_duplicate_points_at_its_original_and_the_original_lists_it() {
 }
 
 #[test]
-fn reading_a_thread_marks_it_read_and_names_the_people_on_the_account() {
+fn reading_a_thread_marks_it_read_and_names_the_people_on_the_space() {
     let mut demo = Demo::new();
     let unread = |demo: &Demo| demo.list().into_iter().filter(|e| e.summary.unread).count();
     assert_eq!(unread(&demo), 3);

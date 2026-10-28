@@ -274,6 +274,7 @@ pub enum Msg {
     Labels(Result<Vec<String>, String>),
     Waiting(bool, Result<waiting::Waiting, String>),
     Projects(Result<Vec<String>, String>),
+    Spaces(Vec<String>),
 }
 
 fn report(
@@ -361,6 +362,14 @@ fn tui(source: Source, state: State) -> Tui<Msg> {
 fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
     let badge = Badge::new(state, &palette);
     let shared = Shared::new(badge.counter());
+    shared.names(
+        if source.is_demo() {
+            source.named()
+        } else {
+            source.spaces()
+        },
+        source.scope(),
+    );
     Tui::new(NAME, VERSION, ACCENT)
         .title("P99")
         .words(words())
@@ -385,12 +394,12 @@ fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
                 Board::new(source.clone(), palette).badge(badge.clone()),
                 source.clone(),
                 palette,
-                shared,
+                shared.clone(),
             ),
         )
         .screen(
             Section::new("Codes"),
-            Codes::new(source, palette).badge(badge),
+            Codes::new(source, palette).badge(badge).shared(shared),
         )
 }
 

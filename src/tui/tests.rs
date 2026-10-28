@@ -235,9 +235,9 @@ fn the_licence_badge_eases_in_beside_the_status_and_then_holds() {
     let half = app.advance(Duration::from_millis(100));
     assert!(!half.contains("Studio"), "{half}");
     let shown = app.advance(Duration::from_millis(400));
-    assert!(line(&shown, "All hosts").contains("Studio"), "{shown}");
+    assert!(line(&shown, "Example shop").contains("Studio"), "{shown}");
     let later = app.advance(Duration::from_secs(5));
-    assert!(line(&later, "All hosts").contains("Studio"), "{later}");
+    assert!(line(&later, "Example shop").contains("Studio"), "{later}");
 }
 
 #[test]
@@ -270,7 +270,7 @@ fn close(app: &Run, key: &str) {
 fn the_header_counts_what_waits_beside_the_licence_pill_on_every_tab() {
     let mut app = run_as(sample(), State::Studio);
     let shown = settled(&mut app);
-    let header = line(&shown, "All hosts");
+    let header = line(&shown, "Example shop");
     let (pill, count) = (header.find("Studio"), header.find("3 waiting"));
     assert!(pill.is_some() && count.is_some(), "{shown}");
     assert!(pill < count, "{header}");
@@ -394,14 +394,15 @@ fn p_offers_every_project_and_enter_narrows_the_inbox_and_closes_the_picker() {
     }
     let narrowed = app.press("down enter");
     assert!(!narrowed.contains("All projects"), "{narrowed}");
-    assert!(narrowed.contains("All hosts · Mobile app"), "{narrowed}");
+    assert!(narrowed.contains("Example shop"), "{narrowed}");
+    assert!(narrowed.contains("in Mobile app"), "{narrowed}");
     let ticked = app.press("p");
     assert!(ticked.contains("✓ Mobile app"), "{ticked}");
     assert!(!ticked.contains("✓ Storefront"), "{ticked}");
     let kept = app.press("esc");
     assert!(!kept.contains("All projects"), "{kept}");
-    assert!(kept.contains("All hosts · Mobile app"), "{kept}");
-    assert!(kept.contains("2 of 28 items"), "{kept}");
+    assert!(kept.contains("in Mobile app"), "{kept}");
+    assert!(kept.contains("2 of 2 items"), "{kept}");
     for key in ["TASK-24 ", "FEAT-27 "] {
         assert!(kept.contains(key), "{key}:\n{kept}");
     }
@@ -413,11 +414,8 @@ fn several_projects_narrow_every_tab_and_esc_clears_them() {
     let mut app = run(sample());
     settled(&mut app);
     let both = app.press("p down enter p down down enter");
-    assert!(
-        both.contains("All hosts · Mobile app, Storefront"),
-        "{both}"
-    );
-    assert!(both.contains("5 of 28 items"), "{both}");
+    assert!(both.contains("in Mobile app, Storefront"), "{both}");
+    assert!(both.contains("5 of 6 items"), "{both}");
     let board = app.go(BOARD);
     for said in [
         "6 items",
@@ -437,7 +435,7 @@ fn several_projects_narrow_every_tab_and_esc_clears_them() {
     assert!(cleared.contains("New 8"), "{cleared}");
     let inbox = app.go(INBOX);
     assert!(inbox.contains("21 of 28 items"), "{inbox}");
-    assert!(!inbox.contains("· Mobile app"), "{inbox}");
+    assert!(!inbox.contains("in Mobile app"), "{inbox}");
 }
 
 #[test]
@@ -449,7 +447,8 @@ fn the_needs_you_list_honours_the_projects_chosen() {
     assert!(list.contains("Needs you · 1"), "{list}");
     assert!(list.contains("FEAT-27"), "{list}");
     assert!(!list.contains("BUG-25"), "{list}");
-    assert!(list.contains("3 waiting"), "{list}");
+    assert!(list.contains("1 waiting"), "{list}");
+    assert!(!list.contains("3 waiting"), "{list}");
     app.press("esc");
     close(&app, "FEAT-27");
     let none = app.press("w");
@@ -464,7 +463,7 @@ fn all_projects_clears_the_choice_and_closes_the_picker() {
     let all = app.press("p enter");
     assert!(!all.contains("Projects"), "{all}");
     assert!(all.contains("21 of 28 items"), "{all}");
-    assert!(!all.contains("· Mobile app"), "{all}");
+    assert!(!all.contains("in Mobile app"), "{all}");
 }
 
 #[test]
@@ -525,8 +524,8 @@ fn a_late_project_answer_leaves_the_host_picker_and_its_choice_alone() {
     assert!(over.contains("dev.example.com"), "{over}");
     let picked = app.press("down enter");
     assert!(!picked.contains("✓"), "{picked}");
-    assert!(!picked.contains("All hosts"), "{picked}");
-    assert!(!picked.contains("· Mobile app"), "{picked}");
+    assert!(picked.contains("host dev.example.com"), "{picked}");
+    assert!(!picked.contains("in Mobile app"), "{picked}");
 }
 
 #[test]
@@ -539,10 +538,10 @@ fn esc_clears_the_text_filter_first_and_the_projects_on_the_next_esc() {
     assert!(both.contains("esc clear filter"), "{both}");
     assert!(!both.contains("esc all projects"), "{both}");
     let first = app.press("esc");
-    assert!(first.contains("All hosts · Mobile app"), "{first}");
+    assert!(first.contains("in Mobile app"), "{first}");
     assert!(first.contains("esc all projects"), "{first}");
     let second = app.press("esc");
-    assert!(!second.contains("· Mobile app"), "{second}");
+    assert!(!second.contains("in Mobile app"), "{second}");
     assert!(second.contains("21 of 28 items"), "{second}");
     assert!(!second.contains("esc all projects"), "{second}");
 }

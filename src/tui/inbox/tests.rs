@@ -201,7 +201,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     let one = app.press("down enter");
     assert!(one.contains("2 of 2 items"), "{one}");
     assert!(one.contains("1 unread"), "{one}");
-    assert!(!one.contains("All hosts"), "{one}");
+    assert!(one.contains("host dev.example.com"), "{one}");
     assert!(!line(&one, "BUG-8 ").contains("dev.example.com"), "{one}");
     assert!(line(&one, "BUG-8 ").contains("Search box loses focus on mobile"));
     let none = app.press("s");
@@ -212,7 +212,10 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     app.press("s s h");
     let all = app.press("up enter");
     assert!(all.contains("21 of 28 items"), "{all}");
-    assert!(all.contains("All hosts"), "{all}");
+    assert!(
+        !all.contains("host dev") && !all.contains("host shop"),
+        "{all}"
+    );
 }
 
 #[test]
@@ -220,7 +223,10 @@ fn a_cancelled_host_pick_keeps_every_host() {
     let mut app = run(sample());
     let text = app.press("h down esc");
     assert!(text.contains("21 of 28 items"), "{text}");
-    assert!(text.contains("All hosts"), "{text}");
+    assert!(
+        !text.contains("host dev") && !text.contains("host shop"),
+        "{text}"
+    );
 }
 
 #[test]
@@ -591,7 +597,7 @@ fn move_to_says_so_when_no_board_has_a_label_or_the_labels_fail() {
 }
 
 #[test]
-fn a_assigns_someone_from_the_people_on_the_account() {
+fn a_assigns_someone_from_the_people_on_the_space() {
     let mut app = run(sample());
     let pick = app.press("enter a");
     for person in [
@@ -813,13 +819,13 @@ fn a_delete_heard_from_elsewhere_closes_the_thread_and_says_who() {
 fn heard_events_that_are_not_a_delete_here_change_nothing() {
     let mut app = run(sample());
     app.press("enter");
-    for (account, text) in [
+    for (space, text) in [
         (0, "not json".to_owned()),
         (0, json!({"type": "comment", "key": "BUG-11"}).to_string()),
         (0, json!({"type": "delete"}).to_string()),
         (1, json!({"type": "delete", "key": "BUG-11"}).to_string()),
     ] {
-        let shown = app.event(INBOX, Msg::Heard(account, text.clone()));
+        let shown = app.event(INBOX, Msg::Heard(space, text.clone()));
         assert_eq!(inbox(&app).crumb().as_deref(), Some("BUG-11"), "{text}");
         assert!(!shown.contains("deleted"), "{shown}");
     }
@@ -839,11 +845,11 @@ fn a_delete_heard_for_another_item_keeps_the_selection() {
 
 #[test]
 fn a_failed_inbox_load_says_why_and_r_tries_again() {
-    let mut app = run(Source::Broken("no account yet; p99 setup makes one".into()));
+    let mut app = run(Source::Broken("no space yet; p99 setup makes one".into()));
     let text = app.text();
     for said in [
         "Couldn't read the inbox.",
-        "no account yet; p99 setup makes one",
+        "no space yet; p99 setup makes one",
         "r reads it again · p99 tui --demo shows sample data",
     ] {
         assert!(text.contains(said), "{said}:\n{text}");

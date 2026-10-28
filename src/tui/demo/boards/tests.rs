@@ -85,7 +85,7 @@ fn the_sample_is_one_board_of_seven_lanes_holding_plain_items_and_cards() {
     );
     assert_eq!(keys(&view, Lane::Done).len(), 7);
     assert!(view.cards.iter().all(|card| card.order.is_some()));
-    assert!(view.cards.iter().all(|card| card.account == 0));
+    assert!(view.cards.iter().all(|card| card.space == 0));
     let places: Vec<Option<u32>> = view
         .cards
         .iter()
