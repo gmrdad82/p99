@@ -105,9 +105,9 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, "bin"), { recursive: true });
     mkdirSync(join(dir, "home"), { recursive: true });
-    const fakeOp = join(dir, "bin", "op");
-    writeFileSync(fakeOp, '#!/bin/sh\n[ "$1" = read ] || exit 9\nprintf %s "$FAKE_OP_VALUE"\n');
-    chmodSync(fakeOp, 0o755);
+    const fakeTool = join(dir, "bin", "p99-fake-secret");
+    writeFileSync(fakeTool, '#!/bin/sh\nprintf %s "$FAKE_SECRET_VALUE"\n');
+    chmodSync(fakeTool, 0o755);
     const config = join(dir, "config.toml");
     const write = (code) => {
       writeFileSync(
@@ -122,7 +122,7 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
           'token = ""',
           `key = "${keys.p99}"`,
           `url = "${base}/_p99"`,
-          ...(code ? [`code = "${code}"`] : []),
+          ...(code ? [`code = ${code}`] : []),
           `[hosts."${here}"]`,
           'space = "local"',
           `[hosts."${there}"]`,
@@ -188,10 +188,10 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
     const kept = [readFileSync(config, "utf8"), readFileSync(join(work, "test-dev.log"), "utf8")];
     for (const text of kept) for (const c of [code, mine]) assert.equal(text.includes(c), false);
 
-    write("op://Vault/Item/field");
-    const read = await run(["link", there, "--print"], { FAKE_OP_VALUE: mine });
+    write('{ command = ["p99-fake-secret"] }');
+    const read = await run(["link", there, "--print"], { FAKE_SECRET_VALUE: mine });
     assert.equal(read.stdout, `https://${there}/#p99=${mine}\n`);
-    write(mine.toUpperCase().replace(/(.{4})(?!$)/g, "$1-"));
+    write(`"${mine.toUpperCase().replace(/(.{4})(?!$)/g, "$1-")}"`);
     assert.equal((await run(["link", here, "--print"])).stdout, `https://${here}/#p99=${mine}\n`);
     rmSync(dir, { recursive: true, force: true });
   });

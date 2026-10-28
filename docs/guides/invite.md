@@ -61,11 +61,11 @@ p99 link shop.example.com
 p99 link shop.example.com --print
 ```
 
-`p99 link` opens your link in the default browser, built from the `code` your config keeps for the space: the 12 characters inline (the config file at mode 600), or an `op://vault/item/field` reference that P99 reads through the 1Password CLI at that moment, as it reads a token or a key. P99 only reads it and never writes it there:
+`p99 link` opens your link in the default browser, built from the `code` your config keeps for the space: the 12 characters inline (the config file at mode 600), or a source that P99 reads at that moment, as it reads a token or a key: `{ file = "…" }`, `{ env = "…" }` or `{ command = ["…"] }`. P99 only reads it and never writes it there:
 
 ```toml
-[spaces.main]
-code = "op://vault/item/field"
+[spaces.pito]
+code = { command = ["pass", "show", "p99/code"] }
 ```
 
 With several hosts and none named, it asks which one in a terminal and lists them otherwise. `--print` prints the link instead of opening it; `P99_BROWSER` names another program to open it with.
@@ -144,7 +144,7 @@ key:    <32 base32 characters>   (paste it as a one-time password or setup key; 
 totp:   otpauth://totp/P99:grace@example.com?secret=<32 base32 characters>&issuer=P99&algorithm=SHA1&digits=6&period=30
 ```
 
-Both lines carry the same secret, shown this once. Paste the key: in 1Password as an item's One-Time Password field, in Bitwarden or Apple Passwords as the authenticator key, in Google Authenticator or Authy under "enter a setup key". The `otpauth://` line is for apps that take a setup link; if an app shows codes P99 refuses, set it up from the key instead. Send both apart from the link, so one forwarded message never carries both.
+Both lines carry the same secret, shown this once. Paste the key: in your password manager as the item's one-time-password key, or in Google Authenticator or Authy under "enter a setup key". The `otpauth://` line is for apps that take a setup link; if an app shows codes P99 refuses, set it up from the key instead. Send both apart from the link, so one forwarded message never carries both.
 
 The first time a browser opens the link, the panel opens on its own and asks for the 6-digit code; after that the browser is remembered. Another browser, or one whose site data was cleared, asks again. After 10 wrong codes the authenticator locks; `p99 invites totp <id>` sets a new one, which also makes every browser of that code ask again, so it is the way to recover a lost phone too. `p99 invites` marks such codes `totp`.
 

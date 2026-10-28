@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use crate::bundle::{self, ModuleInfo};
 use crate::cli::Global;
 use crate::cloudflare::{ApiError, CRON, Cloudflare, Named};
-use crate::config::{Account, AccountMe, Config, Host};
+use crate::config::{Account, AccountMe, Config, Host, Secret};
 use crate::license::State;
 use crate::vault;
 
@@ -141,7 +141,7 @@ pub struct Access {
     #[arg(
         long,
         value_name = "token",
-        help = "the Cloudflare API token, or a reference to it; P99_TOKEN in the environment keeps it out of the shell history"
+        help = "the Cloudflare API token, or where it comes from: env:NAME, file:PATH or command:WORDS; P99_TOKEN in the environment keeps it out of the shell history"
     )]
     pub token: Option<String>,
     #[arg(long, value_name = "id", help = "the Cloudflare account id")]
@@ -191,9 +191,15 @@ pub struct SetupArgs {
     #[arg(
         long,
         value_name = "key",
-        help = "a Resend API key, which turns mail on; P99_RESEND_KEY in the environment keeps it out of the shell history"
+        help = "a Resend API key, or where it comes from: env:NAME, file:PATH or command:WORDS; turns mail on; P99_RESEND_KEY in the environment keeps it out of the shell history"
     )]
     pub resend_key: Option<String>,
+    #[arg(
+        long,
+        value_name = "key",
+        help = "a P99 key that already exists, or where it comes from: env:NAME, file:PATH or command:WORDS, instead of making a new one"
+    )]
+    pub key_from: Option<String>,
     #[arg(
         long,
         value_name = "from",
@@ -284,6 +290,67 @@ impl Ask {
                 "y" | "yes" => return Ok(true),
                 "n" | "no" => return Ok(false),
                 _ => say!("  Answer y or n."),
+            }
+        }
+    }
+
+    fn choice(&self) -> Result<u8, String> {
+        loop {
+            sayn!("Choice [1]: ");
+            flush().map_err(|e| e.to_string())?;
+            let mut line = String::new();
+            if io::stdin()
+                .lock()
+                .read_line(&mut line)
+                .map_err(|e| e.to_string())?
+                == 0
+            {
+                return Ok(1);
+            }
+            match line.trim() {
+                "" | "1" => return Ok(1),
+                "2" => return Ok(2),
+                "3" => return Ok(3),
+                "4" => return Ok(4),
+                _ => say!("  Answer 1, 2, 3 or 4."),
+            }
+        }
+    }
+
+    fn origin(
+        &self,
+        what: &str,
+        first: &str,
+        flag: &str,
+    ) -> Result<Option<(Secret, String)>, String> {
+        loop {
+            say!("      Where does {what} come from?");
+            say!("        1. {first}");
+            say!("        2. a file only you can read");
+            say!("        3. an environment variable");
+            say!("        4. a command that prints it (pass show …, bw get …)");
+            let secret = match self.choice()? {
+                1 => return Ok(None),
+                2 => Secret::File(self.line("The file's path", None, flag)?),
+                3 => Secret::Env(self.line("The variable's name", None, flag)?),
+                _ => {
+                    let words = self.line(
+                        "The command (no shell: words split on spaces, quotes keep a run whole)",
+                        None,
+                        flag,
+                    )?;
+                    match crate::secret::split_words(&words) {
+                        Ok(words) => Secret::Command(words),
+                        Err(why) => {
+                            say!("  !!  {why}");
+                            continue;
+                        }
+                    }
+                }
+            };
+            match secret.read() {
+                Ok(plain) => return Ok(Some((secret, plain))),
+                Err(why) => say!("  !!  {why}"),
             }
         }
     }
@@ -456,17 +523,20 @@ impl Session<'_> {
         Ok(choice)
     }
 
-    fn keep(&mut self, title: &str, secret: &str) -> Result<String, String> {
-        if vault::is_reference(secret) {
-            return Ok(secret.to_owned());
+    fn keep(&mut self, title: &str, secret: Secret) -> Result<Secret, String> {
+        let Secret::Text(text) = &secret else {
+            return Ok(secret);
+        };
+        if vault::is_reference(text) {
+            return Ok(secret);
         }
         match self.vault()? {
             Some(v) => {
-                let reference = vault::store(&v, title, secret)?;
+                let reference = vault::store(&v, title, text)?;
                 done(&format!("{title} kept in the vault {v}"));
-                Ok(reference)
+                Ok(Secret::Text(reference))
             }
-            None => Ok(secret.to_owned()),
+            None => Ok(secret),
         }
     }
 
@@ -540,14 +610,14 @@ impl Session<'_> {
         Ok(over)
     }
 
-    fn token(&mut self, existing: Option<&Account>) -> Result<(String, Cloudflare, Named), String> {
+    fn token(&mut self, existing: Option<&Account>) -> Result<(Secret, Cloudflare, Named), String> {
         let configured = existing.map(|a| a.token.clone()).filter(|t| !t.is_empty());
-        let mut stored = self
-            .access
-            .token
-            .clone()
-            .or_else(|| from_env("P99_TOKEN"))
-            .or_else(|| configured.clone());
+        let mut stored = match self.access.token.as_deref() {
+            Some(spec) => Some(Secret::from_spec(spec)?),
+            None => from_env("P99_TOKEN")
+                .map(Secret::Text)
+                .or_else(|| configured.clone()),
+        };
         if stored.is_none() {
             say!("      P99 needs a Cloudflare API token with these permissions:");
             for (permission, why) in PERMISSIONS {
@@ -560,11 +630,27 @@ impl Session<'_> {
             say!("      Limit it to the account and the zones of your hosts.");
         }
         loop {
-            let raw = match stored.take() {
-                Some(s) => s,
-                None => self.ask.secret("Paste the token", "--token")?,
+            let (raw, plain) = match stored.take() {
+                Some(secret) => {
+                    let plain = secret.read()?;
+                    (secret, plain)
+                }
+                None => {
+                    let picked = if self.ask.yes {
+                        None
+                    } else {
+                        self.ask.origin("the token", "paste it now", "--token")?
+                    };
+                    match picked {
+                        Some(pair) => pair,
+                        None => {
+                            let raw = Secret::Text(self.ask.secret("Paste the token", "--token")?);
+                            let plain = raw.read()?;
+                            (raw, plain)
+                        }
+                    }
+                }
             };
-            let plain = vault::read(&raw)?;
             let cf = Cloudflare::new(&plain);
             let accounts = match reach(&cf) {
                 Ok(accounts) => accounts,
@@ -618,10 +704,10 @@ impl Session<'_> {
                 } else {
                     "the token can list Workers, D1 and R2, and the routes of the hosts' zones"
                 });
-                let kept = if configured.as_deref() == Some(raw.as_str()) {
+                let kept = if configured.as_ref() == Some(&raw) {
                     raw
                 } else {
-                    self.keep("P99 Cloudflare token", &raw)?
+                    self.keep("P99 Cloudflare token", raw)?
                 };
                 return Ok((kept, cf, account));
             }
@@ -1475,12 +1561,12 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     let (token, cf, cf_account) = s.token(existing.as_ref())?;
     let mut account = existing.unwrap_or_else(|| Account {
         account_id: String::new(),
-        token: String::new(),
+        token: Secret::default(),
         worker: "p99".into(),
         database: "p99".into(),
         database_id: String::new(),
         bucket: "p99".into(),
-        key: String::new(),
+        key: Secret::default(),
         url: None,
         app: None,
         resend_key: None,
@@ -1554,9 +1640,28 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "The CLI and the TUI sign every request with the account's key; the Worker holds\nthe same key as its secret KEY_P99.",
     );
     if account.key.is_empty() {
-        let key = new_key()?;
-        account.key = s.keep("P99 key", &key)?;
-        done("made a new key (32 random bytes)");
+        let given = match args.key_from.as_deref() {
+            Some(spec) => {
+                let secret = Secret::from_spec(spec)?;
+                let plain = secret.read()?;
+                Some((secret, plain))
+            }
+            None if !s.ask.yes => s
+                .ask
+                .origin("the P99 key", "make a new one", "--key-from")?,
+            None => None,
+        };
+        match given {
+            Some((secret, _)) => {
+                account.key = s.keep("P99 key", secret)?;
+                done(&format!("the key is {}", account.key.kept()));
+            }
+            None => {
+                let key = new_key()?;
+                account.key = s.keep("P99 key", Secret::Text(key))?;
+                done("made a new key (32 random bytes)");
+            }
+        }
     } else {
         done("the account has its key");
     }
@@ -1568,20 +1673,37 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         "Mail (optional)",
         "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nOwners about new items and reporters about replies and fixes.",
     );
-    let mut key = args
-        .resend_key
-        .clone()
-        .or_else(|| from_env("P99_RESEND_KEY"));
+    let mut key = match args.resend_key.as_deref() {
+        Some(spec) => {
+            let secret = Secret::from_spec(spec)?;
+            let plain = secret.read()?;
+            Some((secret, plain))
+        }
+        None => from_env("P99_RESEND_KEY").map(|plain| (Secret::Text(plain.clone()), plain)),
+    };
     if key.is_none()
         && account.resend_key.is_none()
         && !args.no_mail
         && !s.ask.yes
         && s.ask.confirm("Turn mail on through Resend?", false)?
     {
-        key = Some(s.ask.secret("Resend API key", "--resend-key")?);
+        key = match s
+            .ask
+            .origin("the Resend API key", "paste it now", "--resend-key")?
+        {
+            Some(pair) => Some(pair),
+            None => {
+                let plain = s.ask.secret("Resend API key", "--resend-key")?;
+                Some((Secret::Text(plain.clone()), plain))
+            }
+        };
     }
+    let mut resend_source = None;
     let mail = match key {
-        Some(key) => {
+        Some((secret, key)) => {
+            if !matches!(secret, Secret::Text(_)) {
+                resend_source = Some(secret);
+            }
             let from = match &args.mail_from {
                 Some(f) => f.clone(),
                 None => s.ask.line(
@@ -1641,7 +1763,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         tag.as_deref(),
     )?;
     let secrets = cf.secrets(&id, &account.worker)?;
-    cf.put_secret(&id, &account.worker, "KEY_P99", &vault::read(&account.key)?)?;
+    cf.put_secret(&id, &account.worker, "KEY_P99", &account.key.read()?)?;
     done("secret KEY_P99");
     if !secrets.iter().any(|s| s == "MANAGERS") {
         let manager = config.me_for(&name).email;
@@ -1655,11 +1777,15 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         crate::email::store(&cf, &account, "resend", Some(from), checked.as_deref())?;
         cf.put_secret(&id, &account.worker, "RESEND_API_KEY", key)?;
         done(&format!("secret RESEND_API_KEY, mail from {from}"));
+        if let Some(source) = resend_source {
+            account.resend_key = Some(source);
+            save(&mut config, &account)?;
+        }
         if let Some(why) = checked {
             note(why);
         }
     } else if let Some(k) = &account.resend_key {
-        cf.put_secret(&id, &account.worker, "RESEND_API_KEY", &vault::read(k)?)?;
+        cf.put_secret(&id, &account.worker, "RESEND_API_KEY", &k.read()?)?;
         done("secret RESEND_API_KEY");
         if crate::email::adopt_legacy(&cf, &account)? {
             done("the mail sender moved from the config to the database");
@@ -1771,14 +1897,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         account.database_id
     );
     say!("  R2 bucket           {}", account.bucket);
-    say!(
-        "  key                 p99, {}",
-        if vault::is_reference(&account.key) {
-            "kept in the vault"
-        } else {
-            "in the config (mode 0600)"
-        }
-    );
+    say!("  key                 p99, {}", account.key.kept());
     say!(
         "  mail                {}",
         if mail_on { "on" } else { "off" }
@@ -1828,7 +1947,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             "version": VERSION,
             "database": {"name": account.database, "id": account.database_id},
             "bucket": account.bucket,
-            "key": if vault::is_reference(&account.key) { "vault" } else { "config" },
+            "key": account.key.kind(),
             "mail": mail_on,
             "hosts": hosts_json,
             "failed": failed,

@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::secret::Secret;
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 #[serde(try_from = "RawConfig")]
 pub struct Config {
@@ -118,7 +120,7 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub account_id: String,
-    pub token: String,
+    pub token: Secret,
     #[serde(default = "p99")]
     pub worker: String,
     #[serde(default = "p99")]
@@ -128,21 +130,21 @@ pub struct Account {
     #[serde(default = "p99")]
     pub bucket: String,
     #[serde(default)]
-    pub key: String,
+    pub key: Secret,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resend_key: Option<String>,
+    pub resend_key: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access_client_secret: Option<String>,
+    pub access_client_secret: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
+    pub code: Option<Secret>,
     #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
     pub me: AccountMe,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -433,7 +435,7 @@ impl Config {
                 ]
                 .into_iter()
                 .flatten()
-                .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
+                .any(Secret::is_inline)
             })
     }
 }
@@ -447,7 +449,7 @@ const SECRET_KEYS: [&str; 6] = [
     "license",
 ];
 
-const KNOWN_KEYS: [&str; 37] = [
+const KNOWN_KEYS: [&str; 39] = [
     "default_space",
     "license",
     "me",
@@ -485,6 +487,8 @@ const KNOWN_KEYS: [&str; 37] = [
     "capture",
     "x",
     "y",
+    "file",
+    "command",
 ];
 
 fn keys_on(line: &str) -> Vec<String> {
@@ -549,8 +553,8 @@ fn parse_error(file: &Path, text: &str, error: &toml::de::Error) -> String {
     }
 }
 
-pub fn secret(value: &str) -> Result<String, String> {
-    crate::vault::read(value)
+pub fn secret(value: &Secret) -> Result<String, String> {
+    value.read()
 }
 
 pub fn token(account: &Account) -> Result<String, String> {
@@ -587,7 +591,7 @@ fn holder_from(
     if given.is_none() {
         return Ok(None);
     }
-    key_from(given, "")?;
+    key_from(given, &Secret::default())?;
     Ok(match bound {
         Some(name) => name
             .into_string()
@@ -604,7 +608,7 @@ pub fn key_overridden(config: &Config, account: &str) -> bool {
     }
 }
 
-fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
+fn key_from(given: Option<std::ffi::OsString>, configured: &Secret) -> Result<String, String> {
     let Some(given) = given else {
         return secret(configured);
     };
@@ -674,6 +678,10 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "s3cr3t-Vq8Lm2Xw7Rk4";
+
+    fn unreachable() -> Secret {
+        Secret::Command(vec!["p99-secret-tool-that-must-never-run".into()])
+    }
     const OTHER: &str = "s3cr3t-Hd5Tz1Pc9Ny6";
 
     fn broken(text: &str) -> String {
@@ -684,7 +692,7 @@ mod tests {
     }
 
     fn account_with(line: &str) -> String {
-        format!("[accounts.main]\naccount_id = \"a\"\n{line}\ndatabase_id = \"d\"\n")
+        format!("[spaces.main]\naccount_id = \"a\"\n{line}\ndatabase_id = \"d\"\n")
     }
 
     fn hides(message: &str, secrets: &[&str]) {
@@ -771,7 +779,7 @@ mod tests {
     #[test]
     fn dotted_and_inline_secret_keys_are_hidden_too() {
         let message = broken(&format!(
-            "accounts.main.account_id = \"a\"\naccounts.main.token = \"{SECRET}\n"
+            "spaces.main.account_id = \"a\"\nspaces.main.token = \"{SECRET}\n"
         ));
         hides(&message, &[SECRET]);
         assert!(
@@ -779,7 +787,7 @@ mod tests {
             "{message}"
         );
         let message = broken(&format!(
-            "[accounts.main]\naccount_id = \"a\"\nme = {{ name = \"Ada Lovelace\", token = {SECRET} }}\n"
+            "[spaces.main]\naccount_id = \"a\"\nme = {{ name = \"Ada Lovelace\", token = {SECRET} }}\n"
         ));
         hides(&message, &[SECRET]);
         assert!(
@@ -802,7 +810,7 @@ mod tests {
     #[test]
     fn an_unterminated_multiline_secret_never_reaches_the_error() {
         let message = broken(&format!(
-            "{}[hosts.\"example.com\"]\naccount = \"main\"\n",
+            "{}[hosts.\"example.com\"]\nspace = \"main\"\n",
             account_with(&format!("token = \"\"\"{SECRET}"))
         ));
         hides(&message, &[SECRET]);
@@ -814,13 +822,13 @@ mod tests {
 
     #[test]
     fn a_broken_plain_line_keeps_its_line_key_and_reason() {
-        let message = broken("[hosts.\"example.com\"]\naccount = \"main\"\nfeed = maybe\n");
+        let message = broken("[hosts.\"example.com\"]\nspace = \"main\"\nfeed = maybe\n");
         assert!(
             message.starts_with("config.toml: line 3, key feed: "),
             "{message}"
         );
         assert!(!message.contains("not shown"), "{message}");
-        let message = broken("[accounts.main]\ntoken = \"\"\n");
+        let message = broken("[spaces.main]\ntoken = \"\"\n");
         assert!(message.starts_with("config.toml: line "), "{message}");
         assert!(message.contains("account_id"), "{message}");
         assert!(!message.contains("not shown"), "{message}");
@@ -829,7 +837,7 @@ mod tests {
     #[test]
     fn keys_on_reads_every_key_of_a_line_and_survives_any_text() {
         assert_eq!(keys_on("token = \"a=b\" key = 1"), ["token", "a", "key"]);
-        assert_eq!(keys_on("accounts.main.token = 1"), ["token"]);
+        assert_eq!(keys_on("spaces.main.token = 1"), ["token"]);
         assert_eq!(keys_on("\"token\" = 1"), ["token"]);
         assert!(keys_on("é=ü = 1").is_empty());
         assert_eq!(keys_on("ünï_key = 1"), ["_key"]);
@@ -893,11 +901,11 @@ mod tests {
                 key: "k".into(),
                 url: full("https://example.com"),
                 app: full("app.example.com"),
-                resend_key: full("r"),
+                resend_key: full("r").map(Secret::Text),
                 mail_from: full("P99 <p99@example.com>"),
                 access_client_id: full("c"),
-                access_client_secret: full("s"),
-                code: full("o"),
+                access_client_secret: full("s").map(Secret::Text),
+                code: full("o").map(Secret::Text),
                 me: AccountMe {
                     name: full("Grace Hopper"),
                     email: full("grace@example.com"),
@@ -964,30 +972,30 @@ mod tests {
             name = "Ada Lovelace"
             email = "ada@example.com"
 
-            [accounts.main]
+            [spaces.main]
             account_id = "a"
             token = ""
             me = { name = "Grace Hopper", email = "grace@example.org" }
 
-            [accounts.custom]
+            [spaces.custom]
             account_id = "b"
             token = ""
             url = "https://p99.example.org/_p99/"
 
             [hosts."dev.example.com"]
-            account = "main"
+            space = "main"
             env = "dev"
 
             [hosts."a.example.com"]
-            account = "main"
+            space = "main"
             env = "staging"
 
             [hosts."example.com"]
-            account = "main"
+            space = "main"
             env = "production"
 
             [hosts."example.org"]
-            account = "custom"
+            space = "custom"
             "#,
         )
         .unwrap();
@@ -1022,28 +1030,34 @@ mod tests {
     #[test]
     fn p99_key_comes_first_over_an_inline_key_and_a_reference() {
         let given = |v: &str| Some(std::ffi::OsString::from(v));
-        assert_eq!(key_from(given("from-env"), "inline").unwrap(), "from-env");
         assert_eq!(
-            key_from(given("from-env"), "op://Example/p99/key").unwrap(),
+            key_from(given("from-env"), &"inline".into()).unwrap(),
             "from-env"
         );
-        assert_eq!(key_from(given(" padded "), "inline").unwrap(), " padded ");
+        assert_eq!(
+            key_from(given("from-env"), &unreachable()).unwrap(),
+            "from-env"
+        );
+        assert_eq!(
+            key_from(given(" padded "), &"inline".into()).unwrap(),
+            " padded "
+        );
     }
 
     #[test]
     fn without_p99_key_the_configured_key_is_used() {
-        assert_eq!(key_from(None, "inline").unwrap(), "inline");
+        assert_eq!(key_from(None, &"inline".into()).unwrap(), "inline");
     }
 
     #[test]
     fn an_empty_p99_key_is_refused_without_the_configured_key() {
         for empty in ["", " ", "\t\n  "] {
             assert_eq!(
-                key_from(Some(empty.into()), "inline").unwrap_err(),
+                key_from(Some(empty.into()), &"inline".into()).unwrap_err(),
                 "P99_KEY is set but empty; unset it or give the key"
             );
             assert_eq!(
-                key_from(Some(empty.into()), "op://Example/p99/key").unwrap_err(),
+                key_from(Some(empty.into()), &unreachable()).unwrap_err(),
                 "P99_KEY is set but empty; unset it or give the key"
             );
         }
@@ -1051,11 +1065,11 @@ mod tests {
 
     fn accounts(default: Option<&str>, names: &[&str]) -> Config {
         let mut text = default
-            .map(|d| format!("default_account = \"{d}\"\n"))
+            .map(|d| format!("default_space = \"{d}\"\n"))
             .unwrap_or_default();
         for name in names {
             text.push_str(&format!(
-                "[accounts.{name}]\naccount_id = \"{name}\"\ntoken = \"\"\n"
+                "[spaces.{name}]\naccount_id = \"{name}\"\ntoken = \"\"\n"
             ));
         }
         toml::from_str(&text).unwrap()
@@ -1166,7 +1180,7 @@ mod tests {
     fn a_p99_key_that_is_not_text_is_refused_without_echoing_it() {
         use std::os::unix::ffi::OsStringExt;
         let raw = std::ffi::OsString::from_vec(vec![b'k', 0xff, b'y']);
-        let why = key_from(Some(raw), "inline").unwrap_err();
+        let why = key_from(Some(raw), &"inline".into()).unwrap_err();
         assert_eq!(why, "P99_KEY is not text; unset it or give the key");
     }
 
@@ -1194,17 +1208,17 @@ mod tests {
     }
 
     const INLINE: &str = r#"
-        [accounts.main]
+        [spaces.main]
         account_id = "a"
         token = "cf-inline-token"
-        key = "op://Vault/P99/key"
+        key = { file = "/run/p99/key" }
         "#;
 
     const REFERENCES: &str = r#"
-        [accounts.main]
+        [spaces.main]
         account_id = "a"
-        token = "op://Vault/Cloudflare/token"
-        key = "op://Vault/P99/key"
+        token = { command = ["pass", "show", "cloudflare"] }
+        key = { env = "P99_KEY_FOR_TESTS" }
         "#;
 
     #[cfg(unix)]
@@ -1234,9 +1248,52 @@ mod tests {
         let dir = scratch("references");
         let file = written(&dir, REFERENCES, 0o644);
         let config = Config::load_from(&file).unwrap();
-        assert_eq!(config.accounts["main"].token, "op://Vault/Cloudflare/token");
+        assert_eq!(
+            config.accounts["main"].token,
+            Secret::Command(vec!["pass".into(), "show".into(), "cloudflare".into()])
+        );
+        assert_eq!(
+            config.accounts["main"].key,
+            Secret::Env("P99_KEY_FOR_TESTS".into())
+        );
         assert!(!config.has_inline_secret());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_secret_keeps_its_source_through_a_save_and_a_load() {
+        let dir = scratch("sources");
+        let mut config: Config = toml::from_str(REFERENCES).unwrap();
+        let account = config.accounts.get_mut("main").unwrap();
+        account.resend_key = Some(Secret::File("~/.p99-resend".into()));
+        account.access_client_secret = Some(Secret::Env("ACCESS_SECRET".into()));
+        account.code = Some(Secret::Command(vec![
+            "bw".into(),
+            "get".into(),
+            "p99".into(),
+        ]));
+        let file = dir.join("config.toml");
+        config.save_to(&file).unwrap();
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("cf-inline"), "{text}");
+        let back = Config::load_from(&file).unwrap();
+        let (was, now) = (&config.accounts["main"], &back.accounts["main"]);
+        assert_eq!(was.token, now.token);
+        assert_eq!(was.key, now.key);
+        assert_eq!(was.resend_key, now.resend_key);
+        assert_eq!(was.access_client_secret, now.access_client_secret);
+        assert_eq!(was.code, now.code);
+        assert!(!back.has_inline_secret());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_secret_written_inline_beside_a_source_still_counts_as_inline() {
+        let config: Config = toml::from_str(
+            "[spaces.main]\naccount_id = \"a\"\ntoken = { env = \"T\" }\nkey = \"inline-key\"\n",
+        )
+        .unwrap();
+        assert!(config.has_inline_secret());
     }
 
     #[test]
@@ -1342,11 +1399,11 @@ mod tests {
             name = "Ada Lovelace"
             email = "ada@example.com"
 
-            [accounts.shop]
+            [spaces.shop]
             account_id = "a"
             token = ""
 
-            [accounts.shop.me]
+            [spaces.shop.me]
             agent = true
             "#,
         )

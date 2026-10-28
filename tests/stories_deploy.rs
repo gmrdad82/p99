@@ -2414,10 +2414,10 @@ fn a_revoked_token_stops_deploy_and_plan_with_a_clean_error_and_never_shows_the_
 }
 
 #[test]
-fn the_token_from_the_environment_wins_trimmed_and_1password_is_never_needed() {
+fn the_token_from_the_environment_wins_trimmed_and_no_secret_tool_is_ever_run() {
     let config = plain_config().replace(
         &format!("token = \"{TOKEN}\""),
-        "token = \"op://vault/item/field\"",
+        "token = { command = [\"p99-secret-tool-that-must-never-run\"] }",
     );
     let h = home("env-token", &config, live(&SHIPPED, Vec::new()));
     let out = h.run_with(&["deploy"], &[("P99_TOKEN", &format!("  {TOKEN}\n"))]);

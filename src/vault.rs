@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 const SCHEME: &str = "op://";
-const TOOL: &str = "the 1Password CLI";
+const TOOL: &str = "the op command";
 
 pub fn is_reference(value: &str) -> bool {
     value.starts_with(SCHEME)
@@ -81,9 +81,11 @@ pub fn resolve_ref(raw: &str) -> Result<String, String> {
         read(raw)?
     } else if let Some(name) = raw.strip_prefix("env:") {
         std::env::var(name).map_err(|_| format!("{raw}: {name} is not set"))?
+    } else if raw.starts_with("file:") || raw.starts_with("command:") {
+        crate::secret::Secret::from_spec(raw)?.read()?
     } else {
         return Err(format!(
-            "{raw} is not a reference; give op://vault/item/field or env:NAME"
+            "{raw} is not a reference; give env:NAME, file:PATH or command:WORDS"
         ));
     };
     let value = value.trim().to_owned();
@@ -132,7 +134,7 @@ mod tests {
         for raw in ["ghp_raw", "", "env", "op:/vault/item"] {
             assert_eq!(
                 resolve_ref(raw).unwrap_err(),
-                format!("{raw} is not a reference; give op://vault/item/field or env:NAME")
+                format!("{raw} is not a reference; give env:NAME, file:PATH or command:WORDS")
             );
         }
     }

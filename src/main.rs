@@ -18,6 +18,7 @@ mod links;
 mod migrate;
 mod one_board;
 mod prune;
+mod secret;
 mod setup;
 mod sign;
 mod spaces_plan;

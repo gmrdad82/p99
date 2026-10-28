@@ -1225,6 +1225,7 @@ mod vault {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
+    const SCHEME: &str = "op://";
     const MADE: &str = r#"printf '{"id":"item%s","vault":{"id":"vlt1"}}' "$n""#;
 
     fn op(dir: &Path, made: &str) -> PathBuf {
@@ -1312,8 +1313,14 @@ esac
 
         let config = h.toml();
         let main = &config["accounts"]["main"];
-        assert_eq!(main["token"].as_str(), Some("op://vlt1/item1/credential"));
-        assert_eq!(main["key"].as_str(), Some("op://vlt1/item2/credential"));
+        assert_eq!(
+            main["token"].as_str(),
+            Some(&format!("{SCHEME}vlt1/item1/credential") as &str)
+        );
+        assert_eq!(
+            main["key"].as_str(),
+            Some(&format!("{SCHEME}vlt1/item2/credential") as &str)
+        );
         assert!(!h.config().contains(TOKEN), "{}", h.config());
 
         let token = item(&bin, 1);
@@ -1339,7 +1346,7 @@ esac
             "{calls:?}"
         );
         assert!(
-            calls.contains(&"read --no-newline op://vlt1/item2/credential".to_owned()),
+            calls.contains(&format!("read --no-newline {SCHEME}vlt1/item2/credential")),
             "{calls:?}"
         );
         assert_eq!(
@@ -1402,7 +1409,7 @@ esac
             "{calls:?}"
         );
         assert!(
-            calls.contains(&"read --no-newline op://vlt1/item1/credential".to_owned()),
+            calls.contains(&format!("read --no-newline {SCHEME}vlt1/item1/credential")),
             "{calls:?}"
         );
         assert!(
@@ -1436,11 +1443,11 @@ esac
         let config = h.toml();
         assert_eq!(
             config["accounts"]["main"]["token"].as_str(),
-            Some("op://Example/item1/credential")
+            Some(&format!("{SCHEME}Example/item1/credential") as &str)
         );
         assert_eq!(
             config["accounts"]["main"]["key"].as_str(),
-            Some("op://Example/item2/credential")
+            Some(&format!("{SCHEME}Example/item2/credential") as &str)
         );
     }
 
@@ -1465,13 +1472,13 @@ esac
             (
                 "setup-vault-refused",
                 "echo '[ERROR] vault \"Example\" was not found' >&2; exit 1",
-                "the 1Password CLI: [ERROR] vault \"Example\" was not found",
+                "the op command: [ERROR] vault \"Example\" was not found",
             ),
-            ("setup-vault-garbled", "true", "the 1Password CLI: "),
+            ("setup-vault-garbled", "true", "the op command: "),
             (
                 "setup-vault-no-id",
                 r#"printf '{"vault":{"id":"vlt1"}}'"#,
-                "the 1Password CLI gave no item id",
+                "the op command gave no item id",
             ),
         ];
         for (name, made, said) in cases {
@@ -1509,7 +1516,7 @@ esac
         );
         assert_eq!(out.code, Some(1), "{}", out.stderr);
         assert!(
-            out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+            out.stderr.ends_with("; is the op command installed?\n"),
             "{}",
             out.stderr
         );
@@ -1556,4 +1563,407 @@ fn a_new_account_whose_email_has_no_at_sign_refuses_with_yes_and_names_the_first
 
 fn fake_none(_: &Req) -> Reply {
     Reply::problem(500, "nothing is asked for before the e-mail")
+}
+
+#[cfg(unix)]
+mod sources {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    const RESEND: &str = "re_story_Wq8Tz2Lm4Xv9";
+    const SENDER: &str = "P99 <p99@example.com>";
+    const OWN_KEY: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
+
+    fn kept(h: &Home, name: &str, text: &str, mode: u32) -> String {
+        let file = h.dir.join(name);
+        std::fs::write(&file, text).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
+        file.display().to_string()
+    }
+
+    fn run(h: &Home, extra: &[&str], envs: &[(&str, &str)]) -> Out {
+        let mut args = vec!["setup", "--yes"];
+        args.extend(ME);
+        args.extend(extra);
+        h.p99_env(&args, envs)
+    }
+
+    fn again(h: &Home, envs: &[(&str, &str)], extra: &[&str]) -> Out {
+        let mut args = vec![
+            "setup",
+            "--yes",
+            "--account",
+            "main",
+            "--host",
+            "shop.example.com",
+        ];
+        args.extend(extra);
+        h.p99_env(&args, envs)
+    }
+
+    fn every_cloudflare_call_carried_the_token(h: &Home) {
+        let bearer = format!("Bearer {TOKEN}");
+        let calls: Vec<Req> = h
+            .stub
+            .seen()
+            .into_iter()
+            .filter(|r| r.path.starts_with("/cf/"))
+            .collect();
+        assert!(!calls.is_empty());
+        assert!(
+            calls
+                .iter()
+                .all(|r| r.header("authorization") == Some(bearer.as_str()))
+        );
+    }
+
+    fn secret_of(cf: &Shared, name: &str) -> Option<String> {
+        cf.lock().unwrap().secret(name)
+    }
+
+    #[test]
+    fn a_token_in_a_private_file_is_read_used_and_never_copied_into_the_config() {
+        let (h, cf) = blank("setup-src-file", fresh());
+        let path = kept(&h, "token", &format!("  {TOKEN}\n"), 0o600);
+        let spec = format!("file:{path}");
+        let first = run(
+            &h,
+            &["--token", &spec, "--host", "shop.example.com", "--no-mail"],
+            &[],
+        );
+        first.ok();
+        let main = h.toml()["accounts"]["main"].clone();
+        assert_eq!(main["token"]["file"].as_str(), Some(path.as_str()));
+        assert!(!h.config().contains(TOKEN), "{}", h.config());
+        every_cloudflare_call_carried_the_token(&h);
+        let key = secret_of(&cf, "KEY_P99").unwrap();
+        assert!(is_hex(&key));
+        let config = h.config();
+
+        let second = again(&h, &[], &["--no-mail"]);
+        second.ok();
+        assert_eq!(h.config(), config, "the second run rewrote the config");
+        every_cloudflare_call_carried_the_token(&h);
+        assert_eq!(secret_of(&cf, "KEY_P99"), Some(key.clone()));
+        never_shows(&[&first, &second], &[key.as_str()]);
+    }
+
+    #[test]
+    fn a_token_in_an_environment_variable_is_read_and_only_its_name_is_kept() {
+        let (h, _cf) = blank("setup-src-env", fresh());
+        let out = run(
+            &h,
+            &["--token", "env:CF_STORY_TOKEN", "--no-mail"],
+            &[("CF_STORY_TOKEN", TOKEN)],
+        );
+        out.ok();
+        let main = h.toml()["accounts"]["main"].clone();
+        assert_eq!(main["token"]["env"].as_str(), Some("CF_STORY_TOKEN"));
+        assert!(!h.config().contains(TOKEN), "{}", h.config());
+        every_cloudflare_call_carried_the_token(&h);
+        never_shows(&[&out], &[]);
+    }
+
+    #[test]
+    fn a_token_a_command_prints_is_read_with_no_shell_and_only_the_command_is_kept() {
+        let (h, _cf) = blank("setup-src-command", fresh());
+        let script = kept(
+            &h,
+            "print-token.sh",
+            &format!("printf '%s\\n' {TOKEN}\n"),
+            0o600,
+        );
+        let spec = format!("command:sh {script}");
+        let out = run(&h, &["--token", &spec, "--no-mail"], &[]);
+        out.ok();
+        let main = h.toml()["accounts"]["main"].clone();
+        let words: Vec<&str> = main["token"]["command"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|w| w.as_str().unwrap())
+            .collect();
+        assert_eq!(words, ["sh", script.as_str()]);
+        assert!(!h.config().contains(TOKEN), "{}", h.config());
+        every_cloudflare_call_carried_the_token(&h);
+        never_shows(&[&out], &[]);
+    }
+
+    #[test]
+    fn a_token_file_the_group_or_the_world_can_read_is_refused_and_nothing_is_made() {
+        for (mode, name) in [
+            (0o640, "setup-src-group"),
+            (0o644, "setup-src-world"),
+            (0o604, "setup-src-other"),
+        ] {
+            let (h, _cf) = blank(name, fresh());
+            let path = kept(&h, "token", TOKEN, mode);
+            let spec = format!("file:{path}");
+            let out = run(&h, &["--token", &spec, "--no-mail"], &[]);
+            out.refused(&format!(
+                "{path}: other users can read this file; make it yours alone (chmod 600)"
+            ));
+            assert!(h.stub.seen().is_empty());
+            never_shows(&[&out], &[]);
+        }
+    }
+
+    #[test]
+    fn a_token_source_that_fails_says_why_in_one_line_and_nothing_is_made() {
+        let cases = [
+            (
+                "setup-src-locked",
+                "echo 'the vault is locked' >&2; exit 3",
+                "sh: the vault is locked",
+            ),
+            ("setup-src-silent", "exit 0", "sh: printed nothing"),
+            ("setup-src-status", "exit 5", "sh: exited with status 5"),
+        ];
+        for (name, body, said) in cases {
+            let (h, _cf) = blank(name, fresh());
+            let script = kept(&h, "token.sh", body, 0o600);
+            let spec = format!("command:sh {script}");
+            run(&h, &["--token", &spec, "--no-mail"], &[]).refused(said);
+            assert!(h.stub.seen().is_empty());
+        }
+        let (h, _cf) = blank("setup-src-missing-tool", fresh());
+        let out = run(
+            &h,
+            &["--token", "command:p99-no-such-secret-tool", "--no-mail"],
+            &[],
+        );
+        out.dropped("p99-no-such-secret-tool");
+        let (h, _cf) = blank("setup-src-unset", fresh());
+        run(&h, &["--token", "env:CF_STORY_UNSET", "--no-mail"], &[])
+            .refused("CF_STORY_UNSET: the variable is not set");
+        assert!(h.stub.seen().is_empty());
+        let (h, _cf) = blank("setup-src-bare", fresh());
+        run(&h, &["--token", "command:", "--no-mail"], &[])
+            .refused("command: needs a program to run");
+    }
+
+    #[test]
+    fn a_key_that_already_exists_is_read_from_its_source_and_handed_to_the_worker() {
+        let (h, cf) = blank("setup-src-key-file", fresh());
+        let path = kept(&h, "key", &format!("{OWN_KEY}\n"), 0o600);
+        let spec = format!("file:{path}");
+        let out = run(
+            &h,
+            &["--key-from", &spec, "--no-mail", "--json"],
+            &[("P99_TOKEN", TOKEN)],
+        );
+        out.ok();
+        assert_eq!(out.json()["key"], "file");
+        let main = h.toml()["accounts"]["main"].clone();
+        assert_eq!(main["key"]["file"].as_str(), Some(path.as_str()));
+        assert!(!h.config().contains(OWN_KEY), "{}", h.config());
+        assert_eq!(secret_of(&cf, "KEY_P99").as_deref(), Some(OWN_KEY));
+        never_shows(&[&out], &[OWN_KEY]);
+
+        let (h, cf) = blank("setup-src-key-env", fresh());
+        let out = run(
+            &h,
+            &["--key-from", "env:P99_STORY_OWN_KEY", "--no-mail"],
+            &[("P99_TOKEN", TOKEN), ("P99_STORY_OWN_KEY", OWN_KEY)],
+        );
+        out.ok();
+        assert!(
+            out.stdout
+                .contains("the key is read from the variable P99_STORY_OWN_KEY"),
+            "{}",
+            out.stdout
+        );
+        assert_eq!(secret_of(&cf, "KEY_P99").as_deref(), Some(OWN_KEY));
+        assert_eq!(
+            h.toml()["accounts"]["main"]["key"]["env"].as_str(),
+            Some("P99_STORY_OWN_KEY")
+        );
+    }
+
+    #[test]
+    fn a_key_file_others_can_read_is_refused_before_the_worker_is_touched() {
+        let (h, cf) = blank("setup-src-key-open", fresh());
+        let path = kept(&h, "key", OWN_KEY, 0o644);
+        let spec = format!("file:{path}");
+        let out = run(
+            &h,
+            &["--key-from", &spec, "--no-mail"],
+            &[("P99_TOKEN", TOKEN)],
+        );
+        out.refused(&format!(
+            "{path}: other users can read this file; make it yours alone (chmod 600)"
+        ));
+        assert!(secret_of(&cf, "KEY_P99").is_none());
+        assert!(!h.stub.writes().iter().any(|r| r.is("PUT", UPLOAD)));
+    }
+
+    #[test]
+    fn a_made_key_still_lands_in_the_config_and_a_pasted_resend_key_stays_out_of_it() {
+        let (h, cf) = blank("setup-src-paste", fresh());
+        let out = run(
+            &h,
+            &["--resend-key", RESEND, "--mail-from", SENDER],
+            &[("P99_TOKEN", TOKEN)],
+        );
+        out.ok();
+        let main = h.toml()["accounts"]["main"].clone();
+        assert!(is_hex(main["key"].as_str().unwrap()));
+        assert!(main.get("resend_key").is_none(), "{}", h.config());
+        assert!(!h.config().contains(RESEND));
+        assert_eq!(secret_of(&cf, "RESEND_API_KEY").as_deref(), Some(RESEND));
+        never_shows(&[&out], &[RESEND]);
+    }
+
+    #[test]
+    fn a_resend_key_from_a_source_turns_mail_on_and_is_read_again_by_the_next_run() {
+        let (h, cf) = blank("setup-src-resend", fresh());
+        let path = kept(&h, "resend", &format!("{RESEND}\n"), 0o600);
+        let spec = format!("file:{path}");
+        let out = run(
+            &h,
+            &[
+                "--resend-key",
+                &spec,
+                "--mail-from",
+                SENDER,
+                "--host",
+                "shop.example.com",
+            ],
+            &[("P99_TOKEN", TOKEN)],
+        );
+        out.ok();
+        assert_eq!(
+            h.stub
+                .call("GET", "/resend/domains")
+                .header("authorization"),
+            Some(format!("Bearer {RESEND}").as_str())
+        );
+        assert_eq!(secret_of(&cf, "RESEND_API_KEY").as_deref(), Some(RESEND));
+        let main = h.toml()["accounts"]["main"].clone();
+        assert_eq!(main["resend_key"]["file"].as_str(), Some(path.as_str()));
+        assert!(!h.config().contains(RESEND), "{}", h.config());
+        assert!(
+            out.stdout.contains("  mail                on"),
+            "{}",
+            out.stdout
+        );
+        cf.lock()
+            .unwrap()
+            .secrets
+            .retain(|(n, _)| n != "RESEND_API_KEY");
+
+        let second = again(&h, &[("P99_TOKEN", TOKEN)], &[]);
+        second.ok();
+        assert_eq!(secret_of(&cf, "RESEND_API_KEY").as_deref(), Some(RESEND));
+        never_shows(&[&out, &second], &[RESEND]);
+    }
+
+    #[test]
+    fn a_resend_key_file_others_can_read_is_refused_and_the_worker_never_gets_it() {
+        let (h, cf) = blank("setup-src-resend-open", fresh());
+        let path = kept(&h, "resend", RESEND, 0o640);
+        let spec = format!("file:{path}");
+        let out = run(
+            &h,
+            &["--resend-key", &spec, "--mail-from", SENDER],
+            &[("P99_TOKEN", TOKEN)],
+        );
+        out.refused(&format!(
+            "{path}: other users can read this file; make it yours alone (chmod 600)"
+        ));
+        assert!(secret_of(&cf, "RESEND_API_KEY").is_none());
+    }
+
+    #[test]
+    fn the_old_forms_still_read_an_inline_token_and_a_made_key_kept_as_strings() {
+        let (h, cf) = blank("setup-src-old", fresh());
+        let first = setup(&h, &["--host", "shop.example.com", "--no-mail"]);
+        first.ok();
+        let config = h.toml();
+        assert_eq!(config["accounts"]["main"]["token"].as_str(), Some(TOKEN));
+        let key = config["accounts"]["main"]["key"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        assert!(is_hex(&key));
+
+        let second = again(&h, &[], &["--no-mail"]);
+        second.ok();
+        assert_eq!(secret_of(&cf, "KEY_P99"), Some(key));
+        every_cloudflare_call_carried_the_token(&h);
+    }
+
+    #[test]
+    fn setup_asks_where_the_token_and_the_key_come_from_and_keeps_the_answer() {
+        let (h, cf) = blank("setup-src-asked", fresh());
+        let path = kept(&h, "token", TOKEN, 0o644);
+        let empty = h.dir.join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        let stdin = format!("2\n{path}\n3\nCF_STORY_TOKEN\n1\n");
+        let mut args = vec!["setup"];
+        args.extend(ME);
+        args.extend(["--no-mail", "--host", "shop.example.com"]);
+        let out = h.run(
+            &args,
+            &[("PATH", empty.to_str().unwrap()), ("CF_STORY_TOKEN", TOKEN)],
+            Some(&stdin),
+        );
+        out.ok();
+        for asked in [
+            "Where does the token come from?",
+            "  1. paste it now",
+            "  2. a file only you can read",
+            "  3. an environment variable",
+            "  4. a command that prints it (pass show …, bw get …)",
+            "The file's path: ",
+            "  !!  ",
+            "other users can read this file",
+            "The variable's name: ",
+            "Where does the P99 key come from?",
+            "  1. make a new one",
+            "  ok  made a new key (32 random bytes)",
+        ] {
+            assert!(out.stdout.contains(asked), "{asked}:\n{}", out.stdout);
+        }
+        assert_eq!(
+            h.toml()["accounts"]["main"]["token"]["env"].as_str(),
+            Some("CF_STORY_TOKEN")
+        );
+        assert!(is_hex(
+            h.toml()["accounts"]["main"]["key"].as_str().unwrap()
+        ));
+        assert!(secret_of(&cf, "KEY_P99").is_some());
+        every_cloudflare_call_carried_the_token(&h);
+        never_shows(&[&out], &[]);
+    }
+
+    #[test]
+    fn a_command_answer_is_split_without_a_shell_and_an_open_quote_asks_again() {
+        let (h, _cf) = blank("setup-src-command-asked", fresh());
+        let script = kept(
+            &h,
+            "print-token.sh",
+            &format!("printf '%s' {TOKEN}\n"),
+            0o600,
+        );
+        let only_sh = h.dir.join("only-sh");
+        std::fs::create_dir_all(&only_sh).unwrap();
+        std::os::unix::fs::symlink("/bin/sh", only_sh.join("sh")).unwrap();
+        let stdin = format!("4\n\"unclosed\n4\nsh {script}\n1\n");
+        let mut args = vec!["setup"];
+        args.extend(ME);
+        args.extend(["--no-mail", "--host", "shop.example.com"]);
+        let out = h.run(&args, &[("PATH", only_sh.to_str().unwrap())], Some(&stdin));
+        out.ok();
+        assert!(
+            out.stdout
+                .contains("a quote in the command is never closed"),
+            "{}",
+            out.stdout
+        );
+        let main = h.toml()["accounts"]["main"].clone();
+        assert_eq!(main["token"]["command"][0].as_str(), Some("sh"));
+        assert_eq!(main["token"]["command"][1].as_str(), Some(script.as_str()));
+        assert!(!h.config().contains(TOKEN));
+    }
 }

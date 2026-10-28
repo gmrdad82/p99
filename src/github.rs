@@ -30,7 +30,7 @@ pub enum GithubAction {
         #[arg(
             long,
             value_name = "ref",
-            help = "a fine-grained token with Issues: read and write (and Webhooks: read and write to add the webhook), as op://vault/item/field or env:NAME"
+            help = "a fine-grained token with Issues: read and write (and Webhooks: read and write to add the webhook), as env:NAME, file:PATH or command:WORDS"
         )]
         token_ref: String,
     },

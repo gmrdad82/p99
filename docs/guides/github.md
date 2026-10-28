@@ -14,12 +14,12 @@ On GitHub, Settings, Developer settings, Fine-grained tokens, make a token for t
 - **Issues: read and write**, to open issues;
 - **Webhooks: read and write**, so P99 can add the webhook itself (without it, P99 prints the steps to add it by hand).
 
-Keep it in 1Password or in an environment variable; P99 takes it as a reference, never as text on the command line.
+Keep it in an environment variable, a file only you can read or a password manager; P99 takes it as a source, never as text on the command line.
 
 ## 2. Link the host
 
 ```sh
-p99 github set example.com --repo acme/shop --token-ref op://vault/item/field
+p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN
 p99 github set example.com --repo acme/shop --token-ref env:GITHUB_TOKEN
 ```
 
