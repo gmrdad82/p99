@@ -93,58 +93,44 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     assert.equal((await remove(target.code.id)).status, 200);
   });
 
-  await check("a code carries role beside manager, and POST /codes takes role or the old manager", async () => {
-    const make = (body) => call("POST", "/_p99/v1/codes", { body: { name: "Grace Hopper", email: `g.${randomUUID().slice(0, 8)}@example.com`, hosts: [here], ...body } });
-    const cases = [
-      [{ role: "owner" }, true, "owner"],
-      [{ role: "user" }, false, "user"],
-      [{ manager: true }, true, "owner"],
-      [{ manager: false }, false, "user"],
-      [{}, false, "user"],
-      [{ role: "owner", manager: true }, true, "owner"],
-      [{ role: "user", manager: false }, false, "user"],
-      [{ role: "owner", manager: null }, true, "owner"],
-    ];
-    for (const [body, manager, role] of cases) {
+  await check("a code carries role and no manager alias, and POST /codes takes role alone", async () => {
+    const make = (body) => call("POST", "/_p99/v1/codes", { body: { name: "Grace Hopper", email: `g.${randomUUID().slice(0, 8)}@example.com`, hosts: [here], mail: false, ...body } });
+    for (const [body, role] of [[{ role: "owner" }, "owner"], [{ role: "user" }, "user"], [{}, "user"], [{ role: null }, "user"]]) {
       const made = await make(body);
       assert.equal(made.status, 201, `${JSON.stringify(body)} ${JSON.stringify(made.json)}`);
-      assert.equal(made.json.code.manager, manager, JSON.stringify(body));
       assert.equal(made.json.code.role, role, JSON.stringify(body));
+      assert.equal("manager" in made.json.code, false, JSON.stringify(made.json.code));
     }
-    for (const body of [{ role: "guest" }, { role: "Owner" }, { role: "manager" }, { role: 1 }, { role: "owner", manager: false }, { role: "user", manager: true }, { manager: "yes" }]) {
+    for (const body of [{ role: "guest" }, { role: "Owner" }, { role: "manager" }, { role: 1 }, { manager: true }, { manager: false }, { role: "owner", manager: true }]) {
       const refused = await make(body);
       assert.equal(refused.status, 400, `${JSON.stringify(body)} ${JSON.stringify(refused.json)}`);
     }
     for (const code of (await call("GET", "/_p99/v1/codes")).json.codes) {
-      assert.equal(code.role, code.manager ? "owner" : "user", JSON.stringify(code));
+      assert.ok(["owner", "user"].includes(code.role), JSON.stringify(code));
+      assert.equal("manager" in code, false, JSON.stringify(code));
     }
   });
 
-  await check("/me, /people and a comment's author carry role beside manager", async () => {
+  await check("/me, /people and a comment's author carry role and never the manager alias", async () => {
     const owner = await mint("Ada Lovelace", "ada.roles@example.com", [here, there], true);
     const user = await mint("Grace Hopper", "grace.roles@example.com", [here]);
     const mine = await browse("GET", "/me", owner.secret);
-    assert.equal(mine.json.manager, true);
     assert.equal(mine.json.role, "owner");
+    assert.equal("manager" in mine.json, false);
     const theirs = await browse("GET", "/me", user.secret);
-    assert.equal(theirs.json.manager, false);
     assert.equal(theirs.json.role, "user");
     const people = (await browse("GET", "/people", owner.secret)).json.people;
     assert.ok(people.length > 0);
-    for (const p of people) {
-      assert.deepEqual(Object.keys(p).sort(), ["manager", "role", "username"]);
-      assert.equal(p.role, p.manager ? "owner" : "user");
-    }
+    for (const p of people) assert.deepEqual(Object.keys(p).sort(), ["role", "username"]);
     const filed = await browse("POST", "/issues", user.secret, issueBody({ title: "Role words on a comment" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;
     assert.equal((await browse("POST", `/issues/${key}/comments`, user.secret, { client_uid: randomUUID(), body: "Still broken." })).status, 201);
     assert.equal((await browse("POST", `/issues/${key}/comments`, owner.secret, { client_uid: randomUUID(), body: "Looking." })).status, 201);
     const thread = (await browse("GET", `/issues/${key}`, owner.secret)).json;
-    const authors = thread.comments.map((c) => [c.body, c.author.manager, c.author.role]);
-    assert.deepEqual(authors, [
-      ["Still broken.", false, "user"],
-      ["Looking.", true, "owner"],
+    assert.deepEqual(thread.comments.map((c) => [c.body, c.author.role, "manager" in c.author]), [
+      ["Still broken.", "user", false],
+      ["Looking.", "owner", false],
     ]);
   });
 

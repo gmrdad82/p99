@@ -48,12 +48,12 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
   };
   const mailTo = (email) => sent.filter((m) => m.to[0] === email);
 
-  await check("an invite mails one button per host with the plain links, reply-to the inviter, and only when asked", async () => {
-    const quiet = await call("POST", "/_p99/v1/codes", { body: { name: "Dorothy Vaughan", email: "dorothy@example.com", hosts: [here] } });
+  await check("an invite mails one button per host with the plain links, reply-to the inviter, by default and never when told not to", async () => {
+    const quiet = await call("POST", "/_p99/v1/codes", { body: { name: "Dorothy Vaughan", email: "dorothy@example.com", hosts: [here], mail: false } });
     assert.equal(quiet.status, 201);
     assert.equal(quiet.json.mail, undefined);
     const minted = await call("POST", "/_p99/v1/codes", {
-      body: { name: "Katherine Johnson", email: "katherine@example.com", hosts: [here, there], mail: true },
+      body: { name: "Katherine Johnson", email: "katherine@example.com", hosts: [here, there] },
     });
     assert.equal(minted.status, 201, JSON.stringify(minted.json));
     assert.equal(minted.json.mail, "sent");
@@ -68,7 +68,7 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
   });
 
   await check("a relink revokes the old code in the same request, the old code gets 401, the new one works and the authenticator carries over", async () => {
-    const minted = await call("POST", "/_p99/v1/codes", { body: { name: "Annie Easley", email: "annie@example.com", hosts: [here], totp: true } });
+    const minted = await call("POST", "/_p99/v1/codes", { body: { name: "Annie Easley", email: "annie@example.com", hosts: [here], totp: true, mail: false } });
     assert.equal(minted.status, 201);
     const used = totpOf(minted.json.totp_key);
     assert.equal((await browse("POST", "/verify", minted.json.secret, { totp: used })).status, 201);
@@ -159,8 +159,8 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
           else resolve(out);
         });
       });
-    const person = await call("POST", "/_p99/v1/codes", { body: { name: "Christine Darden", email: "christine@example.com", hosts: [here] } });
-    const mary = await call("POST", "/_p99/v1/codes", { body: { name: "Mary Jackson", email: "mary@example.com", hosts: [here, there] } });
+    const person = await call("POST", "/_p99/v1/codes", { body: { name: "Christine Darden", email: "christine@example.com", hosts: [here], mail: false } });
+    const mary = await call("POST", "/_p99/v1/codes", { body: { name: "Mary Jackson", email: "mary@example.com", hosts: [here, there], mail: false } });
     assert.equal(person.status, 201);
     assert.equal(mary.status, 201);
 

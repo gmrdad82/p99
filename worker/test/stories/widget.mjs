@@ -348,7 +348,8 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
 
   await check("story widget: a host taken off P99 stops its widget at once: loader, panel and filing all answer 404, and its items stay", async () => {
     const host = "retired.example";
-    assert.equal((await call("PUT", `/_p99/v1/hosts/${host}`, { body: { env: "production", config: {} } })).status, 200);
+    assert.equal((await call("POST", "/_p99/v1/projects", { body: { name: "Retired site" } })).status, 201);
+    assert.equal((await call("PUT", `/_p99/v1/hosts/${host}`, { body: { env: "production", config: {}, project: "Retired site" } })).status, 200);
     const code = await mint("Mary Somerville", "mary@example.com", [host]);
     const headers = { "x-p99-code": code.secret, "content-type": "application/json" };
     assert.equal((await raw("GET", "/_p99/p99.js", { host })).status, 200);

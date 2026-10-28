@@ -199,7 +199,7 @@ export async function importChecks({ call, check, here, there }) {
     for (const path of [`/_p99/v1/import?host=${here}`, `/_p99/v1/import/finish?host=${here}`]) {
       const said = await call("POST", path, { body: records, keyId: "test" });
       assert.equal(said.status, 403, JSON.stringify(said.json));
-      assert.equal(said.json.message, "only the account's key imports");
+      assert.equal(said.json.message, "only the space's key imports");
     }
     const put403 = await call("PUT", `/_p99/v1/import/attachments/imp-a-0?host=${here}&item=BUG-9805`, { raw: Buffer.from("x"), type: "text/plain", keyId: "test" });
     assert.equal(put403.status, 403, JSON.stringify(put403.json));
@@ -255,7 +255,7 @@ export async function importChecks({ call, check, here, there }) {
   });
 
   await check("import: a manager already holding a code is counted existing, one without is listed once", async () => {
-    const minted = await call("POST", "/_p99/v1/codes", { body: { name: "Mary Somerville", email: "mary@example.com", hosts: [here], manager: true } });
+    const minted = await call("POST", "/_p99/v1/codes", { body: { name: "Mary Somerville", email: "mary@example.com", hosts: [here], role: "owner", mail: false } });
     assert.equal(minted.status, 201, JSON.stringify(minted.json));
     const said = await post([
       { type: "manager", email: "Mary@Example.com" },

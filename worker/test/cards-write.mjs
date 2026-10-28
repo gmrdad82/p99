@@ -89,7 +89,10 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await file({ title: 5 })).status, 400);
     assert.equal((await file({ body: "x".repeat(20001) })).status, 400);
     assert.equal((await file({ host: "nope.example.com" })).status, 400);
-    assert.equal((await file({ host: undefined })).status, 400);
+    const hostless = await file({ host: undefined, title: "Filed without a host" });
+    assert.equal(hostless.status, 201, JSON.stringify(hostless.json));
+    assert.equal(hostless.json.card.host, null);
+    assert.equal(hostless.json.card.project, "Splicer");
     const scoped = await file({ host: "nope.example.com" }, ada, `?host=${here}`);
     assert.equal(scoped.status, 201, JSON.stringify(scoped.json));
     assert.equal(scoped.json.card.host, here);

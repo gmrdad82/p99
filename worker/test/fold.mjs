@@ -6,7 +6,6 @@ import { LANES, LANE_NAMES, useKit } from "../src/cards.js";
 import {
   ARCHIVED_BOARDS,
   ARCHIVED_CARDS,
-  BOARDS_DEPRECATED,
   BOARDS_GONE,
   LANES_SQL,
   LIVE_LABEL,
@@ -286,8 +285,7 @@ async function unitChecks(check) {
     assert.equal(sql.includes("'--"), false);
     assert.equal(sql.includes("a'b"), false);
     assert.equal(oneBoardSql(ALL, { projects: [], hosts: [], source: null, statuses: [] }).binds.length, 0);
-    assert.equal(BOARDS_GONE, "boards are one per account; see p99 board");
-    assert.equal(BOARDS_DEPRECATED, "one board per account since 1.11; read /board");
+    assert.equal(BOARDS_GONE, "boards are one per space; see p99 board");
   });
 }
 

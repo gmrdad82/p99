@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, PERSON_CLOSES } from "../src/cards.js";
-import { BOARDS_DEPRECATED, BOARDS_GONE } from "../src/one-board.js";
+import { BOARDS_GONE } from "../src/one-board.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const adaBot = { email: "ada@example.com", name: "Ada Lovelace", agent: true, via: "pci·board" };
@@ -155,43 +155,16 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.ok(signed.every((cd) => cd.host === here));
   });
 
-  await check("[board] GET /boards is deprecated: the one board, plus the folded boards archived with what they showed", async () => {
-    const old = await call("GET", "/_p99/v1/boards", { actor: ada });
-    assert.equal(old.status, 200, JSON.stringify(old.json));
-    assert.equal(old.json.deprecated, BOARDS_DEPRECATED);
-    assert.deepEqual(old.json.board.lanes.map((l) => l.word), LANES);
-    assert.ok(Array.isArray(old.json.cards) && old.json.cards.length > 0);
-    assert.ok(old.json.archived.length > 0);
-    for (const b of old.json.archived) {
-      assert.equal(b.archived, true);
-      assert.deepEqual(Object.keys(b).sort(), ["archived", "cards", "columns", "id", "name", "owner"]);
-      assert.notEqual(b.id, cardsBoardId);
+  await check("[board] GET /boards and GET /boards/{id} are gone: 410, the one board lives at /board", async () => {
+    for (const path of ["/_p99/v1/boards", "/_p99/v1/boards/950", `/_p99/v1/boards/${cardsBoardId}`, "/_p99/v1/boards/nope"]) {
+      const gone = await call("GET", path, { actor: ada });
+      assert.equal(gone.status, 410, path);
+      assert.equal(gone.json.message, BOARDS_GONE);
     }
-    const lanes = old.json.archived.find((b) => b.id === 950);
-    assert.ok(lanes, JSON.stringify(old.json.archived.map((b) => [b.id, b.name])));
-    assert.deepEqual(lanes.columns.map((col) => col.label), ["Inbox", "Building", "review", "Done"]);
-    assert.deepEqual(lanes.cards.filter((cd) => cd.label === "Inbox").map((cd) => cd.key), ["BUG-953", "BUG-955", "BUG-954", "BUG-957", "BUG-956", "BUG-951", "BUG-952"]);
-    assert.ok(lanes.cards.every((cd) => cd.key.startsWith("BUG-95")), JSON.stringify(lanes.cards.map((cd) => cd.key)));
-    const nested = old.json.archived.find((b) => b.id === 951);
-    assert.ok(nested, "the nested board is archived flat");
-    assert.equal(nested.cards.length, 7, JSON.stringify(nested.cards.map((cd) => cd.key)));
-    const legacy = old.json.archived.find((b) => b.name === "legacy.example");
-    assert.ok(legacy, JSON.stringify(old.json.archived.map((b) => b.name)));
-    assert.deepEqual(legacy.cards.filter((cd) => cd.label === "Building").map((cd) => cd.key), ["BUG-903", "BUG-902"]);
+    for (const path of ["/boards", "/boards/950"]) assert.equal((await browse("GET", path, owner.secret)).status, 410, path);
     const thread = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
     assert.equal(thread.json.events.some((e) => e.kind === "priority"), false);
-    const one = await call("GET", "/_p99/v1/boards/950", { actor: ada });
-    assert.equal(one.status, 200, JSON.stringify(one.json));
-    assert.deepEqual(one.json, lanes);
-    assert.equal((await call("GET", `/_p99/v1/boards/${cardsBoardId}`, { actor: ada })).status, 404);
-    assert.equal((await call("GET", "/_p99/v1/boards/nope", { actor: ada })).status, 404);
-    assert.equal((await call("GET", "/_p99/v1/boards/99999999", { actor: ada })).status, 404);
-    assert.equal((await browse("GET", "/boards/950", owner.secret)).status, 404);
-    const browser = await browse("GET", "/boards", owner.secret);
-    assert.equal(browser.status, 200);
-    assert.ok(browser.json.archived.every((b) => b.id !== 950));
-    const moved = await call("GET", "/_p99/v1/issues/BUG-953?host=*", { actor: ada });
-    assert.ok(moved.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
+    assert.ok(thread.json.events.some((e) => e.kind === "label" && e.detail.migrated === true && e.detail.from === "Inbox" && e.detail.to === "New"));
   });
 
   await check("[board] creating, changing or deleting a board answers 410 and changes nothing", async () => {
