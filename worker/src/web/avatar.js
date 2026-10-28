@@ -51,3 +51,33 @@ export function avatar(username, size = 24) {
 export function avatarSrc(username, size = 24) {
   return "data:image/svg+xml," + encodeURIComponent(avatar(username, size));
 }
+
+const faces = new Map();
+
+function pathOf(person) {
+  const said = person ? person.avatar : undefined;
+  if (said === null || said === false) return "";
+  if (typeof said === "string") return said.replace(/^\/_p99\/api(?=\/)/, "");
+  const name = person && typeof person.username === "string" ? person.username : "";
+  return name ? "/avatars/" + encodeURIComponent(name) : "";
+}
+
+export function picture(person, get) {
+  const path = pathOf(person);
+  if (!path || !/^\/(?![\/\\])/.test(path) || typeof get !== "function") return Promise.resolve(null);
+  if (!faces.has(path)) {
+    faces.set(path, Promise.resolve().then(() => get(path)).then((b) => (b && /^image\//.test(b.type || "") ? URL.createObjectURL(b) : null), () => null));
+  }
+  return faces.get(path);
+}
+
+export function forget(person) {
+  const name = person && typeof person.username === "string" ? person.username : "";
+  const mark = name ? "/avatars/" + encodeURIComponent(name) : "";
+  const own = pathOf(person);
+  for (const [path, url] of faces) {
+    if (path !== own && (!mark || (path !== mark && !path.startsWith(mark + "?")))) continue;
+    faces.delete(path);
+    url.then((u) => { if (u) URL.revokeObjectURL(u); });
+  }
+}

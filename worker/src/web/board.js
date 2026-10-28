@@ -1,4 +1,4 @@
-import { avatarSrc } from "/_p99/avatar.js?v=__P99_VERSION__";
+import { avatarSrc, picture } from "/_p99/avatar.js?v=__P99_VERSION__";
 
 const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
@@ -39,23 +39,31 @@ const CSS = `
 .p99-live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-rule)}
 .p99-live[data-state=live]::before{background:var(--p99-status-validated);box-shadow:0 0 0 3px color-mix(in srgb,var(--p99-status-validated) 22%,transparent)}
 .p99-live[data-state=connecting]::before{background:var(--p99-status-warning);animation:p99-pulse 1.4s var(--p99-ease-in-out) infinite}
-.p99-board .p99-x{flex:none;display:grid;place-items:center;width:40px;height:40px;padding:0;border:0;border-radius:var(--p99-radius-full);background:transparent;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xl)/1 var(--p99-font-text);cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out),color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
-@media (hover:hover){.p99-board .p99-x:hover{background:color-mix(in srgb,var(--p99-ink) 8%,transparent);color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
+.p99-board .p99-x{flex:none;display:grid;place-items:center;width:40px;height:40px;padding:0;border:1px solid color-mix(in srgb,currentColor 35%,transparent);border-radius:var(--p99-radius-full);background:transparent;color:var(--p99-ink);font:var(--p99-weight-medium) var(--p99-text-xl)/1 var(--p99-font-text);cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out),border-color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
+@media (hover:hover){.p99-board .p99-x:hover{border-color:var(--p99-ink);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
 .p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
+.p99-cols,.p99-cards{scrollbar-width:thin;scrollbar-color:var(--p99-scroll-thumb) transparent}
+.p99-cols::-webkit-scrollbar,.p99-cards::-webkit-scrollbar{width:8px;height:8px}
+.p99-cols::-webkit-scrollbar-track,.p99-cards::-webkit-scrollbar-track{background:transparent}
+.p99-cols::-webkit-scrollbar-thumb,.p99-cards::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:var(--p99-radius-full);background:var(--p99-scroll-thumb) padding-box}
+.p99-board.is-page{position:relative;inset:auto;z-index:auto;flex:1;min-height:0;width:100%;height:100%;border-radius:0;box-shadow:none;transform:none;opacity:1}
+.p99-board.is-page::after{box-shadow:none}
+.p99-board.is-page .p99-board-head{min-height:48px;padding:var(--p99-space-sm) var(--p99-space-xl) 0}
 .p99-col{--p99-tone:var(--p99-status-in-review);display:flex;flex-direction:column;min-height:0;contain:layout paint;border-radius:var(--p99-radius-md);background:color-mix(in srgb,var(--p99-ink) 6%,transparent);box-shadow:inset 0 2px 4px rgba(12,26,43,.22),inset 0 -1px 0 rgba(255,255,255,.25);transition:background var(--p99-motion-base) var(--p99-ease-in-out),box-shadow var(--p99-motion-base) var(--p99-ease-in-out)}
 .p99-col[data-word=new]{--p99-tone:var(--p99-accent-ink)}
 .p99-col[data-word=in-progress],.p99-col[data-word=stuck]{--p99-tone:var(--p99-status-warning)}
-.p99-col[data-word=needs-you]{--p99-tone:var(--p99-accent)}
+.p99-col[data-word=needs-you]{--p99-tone:var(--p99-accent-line)}
 .p99-col[data-closes]{--p99-tone:var(--p99-status-validated)}
 .p99-col-head{display:flex;align-items:center;gap:var(--p99-space-sm);padding:var(--p99-space-md) var(--p99-space-md) var(--p99-space-sm);border-top:3px solid var(--p99-tone);border-radius:var(--p99-radius-md) var(--p99-radius-md) 0 0}
 .p99-col-head h3{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
 .p99-count{padding:0 var(--p99-space-sm);border-radius:var(--p99-radius-full);background:var(--p99-raised);color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1.6 var(--p99-font-text)}
-.p99-col.is-target{background:color-mix(in srgb,var(--p99-accent) 10%,color-mix(in srgb,var(--p99-ink) 6%,transparent));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--p99-accent) 55%,transparent),inset 0 2px 4px rgba(12,26,43,.22)}
+.p99-col.is-target{background:color-mix(in srgb,var(--p99-accent) 10%,color-mix(in srgb,var(--p99-ink) 6%,transparent));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--p99-accent-line) 55%,transparent),inset 0 2px 4px rgba(12,26,43,.22)}
 .p99-cards{position:relative;flex:1;min-height:48px;margin:0;padding:var(--p99-space-xs) var(--p99-space-md) var(--p99-space-md);list-style:none;display:flex;flex-direction:column;gap:var(--p99-space-sm);overflow-y:auto;overscroll-behavior:contain}
 .p99-cards:empty::after{content:attr(data-empty);padding:var(--p99-space-lg) 0;color:var(--p99-muted);font-size:var(--p99-text-sm);text-align:center}
 .p99-card{position:relative;contain:layout paint;display:grid;gap:var(--p99-space-sm);padding:var(--p99-space-md);border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 2px rgba(12,26,43,.18);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:border-color var(--p99-motion-hover-out) var(--p99-ease-in-out),box-shadow var(--p99-motion-hover-out) var(--p99-ease-in-out),scale var(--p99-motion-base) var(--p99-ease-enter)}
 .p99-board[data-mine=false] .p99-card{cursor:pointer;user-select:auto;-webkit-user-select:auto}
+.p99-board.is-dragging .p99-card{transition:none}
 @media (hover:hover){.p99-card:hover{border-color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-card:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
 .p99-card-top{display:flex;align-items:center;gap:var(--p99-space-sm);min-width:0}
@@ -66,9 +74,9 @@ const CSS = `
 .p99-who{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;overflow:hidden;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1 var(--p99-font-text)}
 .p99-who img{display:block;width:100%;height:100%;object-fit:cover}
 .p99-who:has(img){border-color:var(--p99-rule);background:var(--p99-raised)}
-.p99-card.is-placeholder{border:2px dashed;border-color:color-mix(in srgb,var(--p99-accent) 70%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 8%,transparent);box-shadow:none}
+.p99-card.is-placeholder{border:2px dashed;border-color:color-mix(in srgb,var(--p99-accent-line) 70%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 8%,transparent);box-shadow:none}
 .p99-card.is-placeholder>*{visibility:hidden}
-.p99-card.is-lifted{scale:1.03;z-index:1;border-color:var(--p99-accent);box-shadow:0 0 0 2px color-mix(in srgb,var(--p99-accent) 45%,transparent),0 10px 24px rgba(12,26,43,.3)}
+.p99-card.is-lifted{scale:1.03;z-index:1;border-color:var(--p99-accent-line);box-shadow:0 0 0 2px color-mix(in srgb,var(--p99-accent-line) 45%,transparent),0 10px 24px rgba(12,26,43,.3)}
 .p99-ghost{position:fixed;left:0;top:0;z-index:2147483003;margin:0;pointer-events:none;cursor:grabbing;font:400 var(--p99-text-md)/var(--p99-leading-normal) var(--p99-font-text);text-align:left;box-shadow:0 16px 32px rgba(12,26,43,.34),0 2px 6px rgba(12,26,43,.2);will-change:translate}
 .p99-board-state{grid-column:1/-1;align-self:center;justify-self:center;display:grid;justify-items:center;gap:var(--p99-space-md);max-width:420px;padding:var(--p99-space-xl);color:var(--p99-ink);text-align:center;animation:p99-fade var(--p99-motion-base) var(--p99-ease-enter) both}
 .p99-board-state p{margin:0}
@@ -132,19 +140,21 @@ function build(root) {
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(CSS);
   root.adoptedStyleSheets = root.adoptedStyleSheets.concat([sheet]);
+  const stay = !!B.ctx.stay;
   B.scrim = h("div", { class: "p99-board-scrim", hidden: true, onclick: () => close() });
   B.title = h("h2", { id: "p99-board-title", text: t("board") });
   B.filter = h("p", { class: "p99-board-filter", hidden: true });
   B.live = h("span", { class: "p99-live", "data-state": "off", text: t("offline_live") });
   B.cols = h("div", { class: "p99-cols" });
   B.say = h("p", { class: "p99-sr", role: "status", "aria-live": "assertive" });
-  const x = h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
-  B.el = h("div", { class: "p99-board", role: "dialog", "aria-modal": "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
-    h("header", { class: "p99-board-head" }, h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, x),
+  const x = stay ? null : h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
+  B.el = h("div", { class: stay ? "p99-board is-page" : "p99-board", role: stay ? "region" : "dialog", "aria-modal": stay ? null : "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
+    h("header", { class: "p99-board-head" }, stay ? null : h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, x),
     B.cols,
     h("p", { class: "p99-sr", id: "p99-drag-help", text: t("drag_help") }),
     B.say);
-  root.append(B.scrim, B.el);
+  if (stay) root.append(B.el);
+  else root.append(B.scrim, B.el);
   root.addEventListener("keydown", keys);
   B.el.addEventListener("pointerdown", press);
   B.el.addEventListener("click", tap);
@@ -251,7 +261,7 @@ function shown(x) { return typeof B.ctx.keep !== "function" || !!B.ctx.keep(x); 
 function reuse(e, n) {
   if (!e) return n;
   e.replaceChildren(...n.childNodes);
-  for (const a of ["aria-label", "aria-describedby", "data-order", "data-label"]) {
+  for (const a of ["aria-label", "aria-describedby", "data-order", "data-label", "data-host"]) {
     if (n.hasAttribute(a)) e.setAttribute(a, n.getAttribute(a));
     else e.removeAttribute(a);
   }
@@ -273,7 +283,11 @@ function src(u) { return typeof u === "string" && (/^\/(?![\/\\])/.test(u) || /^
 
 function face(p) {
   const name = (p && p.username) || "";
-  return [h("img", { src: src(p && p.avatar) || avatarSrc(name, 28), alt: "", width: 28, height: 28, draggable: "false" })];
+  const direct = src(p && p.avatar);
+  const img = h("img", { src: direct && direct[0] !== "/" ? direct : avatarSrc(name, 28), alt: "", width: 28, height: 28, draggable: "false" });
+  if (typeof B.ctx.blob === "function" && (!direct || direct[0] === "/")) picture(p, B.ctx.blob).then((u) => { if (u) img.src = u; });
+  else if (direct && direct[0] === "/") img.src = direct;
+  return [img];
 }
 
 function who(p) {
@@ -286,6 +300,7 @@ function card(c) {
   if (mine()) e.setAttribute("aria-describedby", "p99-drag-help");
   e.dataset.order = String(c.order == null ? "" : c.order);
   e.dataset.label = c.label;
+  if (c.host) e.dataset.host = c.host;
   const a = person(c.assignee);
   e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : null);
   e.setAttribute("aria-label", c.key + ", " + c.title + (c.project ? ", " + c.project : "") + (a && a.username ? ", " + handle(a) : ""));
@@ -364,6 +379,7 @@ function lift(x, y) {
   B.root.append(g);
   d.ghost = g;
   d.card.classList.add("is-placeholder");
+  B.el.classList.add("is-dragging");
   measure(d);
   B.cols.addEventListener("scroll", scrolled, true);
   window.addEventListener("resize", resized);
@@ -454,9 +470,13 @@ function hover(d) {
   if (j !== d.j) place(d, m, j);
 }
 
-function nudge(e, was, now, dx) {
+function near(d, m, r) {
+  return r.y + r.h + d.s >= m.scroll && r.y - d.s <= m.scroll + m.lbottom - m.ltop;
+}
+
+function nudge(e, was, now, dx, quiet) {
   e.style.translate = now ? "0 " + now + "px" : "";
-  if (still.matches || (was === now && !dx)) return;
+  if (quiet || still.matches || (was === now && !dx)) return;
   e.animate([{ translate: (dx || 0) + "px " + (was - now) + "px" }, { translate: "0 0" }], { duration: 200, easing: TRAVEL, composite: "add" }).id = "p99-shift";
 }
 
@@ -464,7 +484,7 @@ function place(d, m, j) {
   const s = d.s, k = d.k;
   m.rows.forEach((o, i) => {
     const t = (i >= j ? s : 0) - (i >= k ? s : 0);
-    if (t !== o.t) { nudge(o.e, o.t, t); o.t = t; }
+    if (t !== o.t) { nudge(o.e, o.t, t, 0, !near(d, m, o)); o.t = t; }
   });
   const was = d.ct;
   d.j = j;
@@ -477,10 +497,10 @@ function cross(d, m, j) {
   const dy = o.ltop - o.scroll + top(d, o, d.j) - (m.ltop - m.scroll + top(d, m, j));
   o.rows.forEach((r, i) => {
     const was = i >= d.j ? s : 0;
-    if (was || r.t) nudge(r.e, was, 0);
+    if (was || r.t) nudge(r.e, was, 0, 0, !near(d, o, r));
     r.t = 0;
   });
-  m.rows.forEach((r, i) => { if (i >= j) nudge(r.e, -s, 0); });
+  m.rows.forEach((r, i) => { if (i >= j) nudge(r.e, -s, 0, 0, !near(d, m, r)); });
   m.list.insertBefore(d.card, j < m.rows.length ? m.rows[j].e : null);
   nudge(d.card, dy, 0, o.left - m.left);
   o.count.textContent = o.rows.length;
@@ -573,6 +593,7 @@ function land(d, then) {
   const finish = () => {
     if (g) g.remove();
     d.card.classList.remove("is-placeholder", "is-lifted");
+    B.el.classList.remove("is-dragging");
     if (B.drag === d) B.drag = null;
     if (d.focus && d.card.isConnected) d.card.focus({ preventScroll: true });
     replay(d);
@@ -648,10 +669,11 @@ function keys(e) {
   const d = B.drag;
   if (e.key === "Tab") {
     if (d && d.keys) { e.preventDefault(); drop(); return; }
-    trap(e);
+    if (!B.ctx.stay) trap(e);
     return;
   }
   if (e.key === "Escape") {
+    if (!d && B.ctx.stay) return;
     e.preventDefault();
     if (d) { if (d.keys) undo(); else abort(); }
     else close();
@@ -772,7 +794,7 @@ function listen() {
   B.ctx.call("POST", "/stream-ticket").then((r) => {
     const ticket = r && (r.ticket || r.t);
     if (!B.open || !ticket) throw new Error("no ticket");
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/_p99/api/stream?t=" + encodeURIComponent(ticket) + (B.ctx.host ? "&host=" + encodeURIComponent(B.ctx.host) : ""));
+    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/_p99/api/stream?t=" + encodeURIComponent(ticket) + (B.ctx.via || B.ctx.host ? "&host=" + encodeURIComponent(B.ctx.via || B.ctx.host) : ""));
     B.ws = ws;
     ws.onopen = () => { B.tries = 0; state("live"); };
     ws.onmessage = (m) => { try { event(JSON.parse(m.data)); } catch (x) {} };
