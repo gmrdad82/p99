@@ -151,7 +151,7 @@ fn hooks_set_reads_a_url_from_the_environment_and_refuses_anything_else() {
     .refused("the environment variable P99_NO_SUCH_VAR is empty or not set");
     h.p99(&["hooks", "set", "shop.example.com", "--url-ref", SLACK])
         .refused(&format!(
-            "{SLACK}: --url-ref takes a 1Password reference (op://…) or env:NAME"
+            "{SLACK}: --url-ref takes env:NAME, file:PATH or command:WORDS"
         ));
     h.p99(&["hooks", "set", "bad host", "--slack", SLACK])
         .refused("not a key, host or id: bad host");
@@ -531,7 +531,7 @@ fn github_set_refusals_stop_before_any_secret_is_stored() {
         "--token-ref",
         "ghp_raw",
     ])
-    .refused("ghp_raw is not a reference; give op://vault/item/field or env:NAME");
+    .refused("ghp_raw is not a reference; give env:NAME, file:PATH or command:WORDS");
     assert!(h.stub.seen().is_empty());
 }
 

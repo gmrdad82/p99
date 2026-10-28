@@ -47,7 +47,7 @@ pub struct SetArgs {
     #[arg(
         long,
         value_name = "ref",
-        help = "read the webhook URL from 1Password (op://…) or an environment variable (env:NAME), so it never sits in the shell's history"
+        help = "read the webhook URL from an environment variable (env:NAME), a file only you can read (file:PATH) or a command (command:WORDS), so it never sits in the shell's history"
     )]
     pub url_ref: Option<String>,
     #[arg(
@@ -125,11 +125,14 @@ fn resolve(reference: &str) -> Result<String, String> {
             .filter(|v| !v.is_empty())
             .ok_or_else(|| format!("the environment variable {name} is empty or not set"));
     }
-    if crate::vault::is_reference(reference) {
-        return crate::vault::read(reference).map(|v| v.trim().to_owned());
+    if crate::vault::is_reference(reference)
+        || reference.starts_with("file:")
+        || reference.starts_with("command:")
+    {
+        return crate::vault::resolve_ref(reference);
     }
     Err(format!(
-        "{reference}: --url-ref takes a 1Password reference (op://…) or env:NAME"
+        "{reference}: --url-ref takes env:NAME, file:PATH or command:WORDS"
     ))
 }
 

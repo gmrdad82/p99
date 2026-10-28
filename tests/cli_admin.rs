@@ -1173,7 +1173,7 @@ fn link_refuses_a_missing_bad_or_ambiguous_choice() {
     let none = home("link-none");
     let out = none.p99(&["link", "shop.example.com", "--print"]);
     out.refused(&format!(
-        "the account main keeps no code of yours; add code = \"<your code>\" under [accounts.main] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from the 1Password CLI",
+        "the account main keeps no code of yours; add code = \"<your code>\" under [accounts.main] in {} (the file at mode 600), or code = {{ file = \"…\" }}, {{ env = \"…\" }} or {{ command = [\"…\"] }} to read it from elsewhere",
         none.file().display()
     ));
 }

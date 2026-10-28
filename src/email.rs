@@ -38,7 +38,7 @@ pub struct SetArgs {
     #[arg(
         long,
         value_name = "ref",
-        help = "where the provider's API key lives: op://vault/item/field or env:NAME; the key itself never goes in a file"
+        help = "where the provider's API key comes from: env:NAME, file:PATH or command:WORDS; the key itself never goes in a file"
     )]
     pub key_ref: String,
     #[arg(

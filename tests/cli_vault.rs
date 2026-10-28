@@ -116,7 +116,7 @@ fn without_op_installed_the_reference_says_to_install_it() {
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
         out.stderr.starts_with(&format!("p99: {REF}: "))
-            && out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+            && out.stderr.ends_with("; is the op command installed?\n"),
         "{}",
         out.stderr
     );
@@ -133,12 +133,12 @@ fn watch_says_it_reads_the_key_from_the_vault_before_connecting() {
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
         out.stderr
-            .starts_with("p99: reading the account key from the 1Password CLI\n"),
+            .starts_with("p99: reading the account key from the op command\n"),
         "{}",
         out.stderr
     );
     assert!(
-        out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+        out.stderr.ends_with("; is the op command installed?\n"),
         "{}",
         out.stderr
     );
@@ -249,7 +249,7 @@ fn a_github_token_without_op_installed_says_to_install_it() {
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
         out.stderr.starts_with(&format!("p99: {GH_REF}: "))
-            && out.stderr.ends_with("; is the 1Password CLI installed?\n"),
+            && out.stderr.ends_with("; is the op command installed?\n"),
         "{}",
         out.stderr
     );

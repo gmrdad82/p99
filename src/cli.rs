@@ -511,16 +511,12 @@ fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), Strin
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
     let account = account_of(config, global, host.as_deref())?;
     if !crate::config::key_overridden(config, &account)
-        && config
+        && let Some(source) = config
             .accounts
             .get(&account)
-            .is_some_and(|a| crate::vault::is_reference(&a.key))
+            .and_then(|a| a.key.slow_source())
     {
-        eprintln!(
-            "{}: reading the account key from {}",
-            crate::NAME,
-            crate::vault::tool()
-        );
+        eprintln!("{}: reading the account key from {source}", crate::NAME);
     }
     let (client, _) = client_for(config, global, host.as_deref())?;
     let json = global.json;

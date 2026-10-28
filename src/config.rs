@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+pub use crate::secret::Secret;
+
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -37,7 +39,7 @@ fn is_false(value: &bool) -> bool {
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Account {
     pub account_id: String,
-    pub token: String,
+    pub token: Secret,
     #[serde(default = "p99")]
     pub worker: String,
     #[serde(default = "p99")]
@@ -47,21 +49,21 @@ pub struct Account {
     #[serde(default = "p99")]
     pub bucket: String,
     #[serde(default)]
-    pub key: String,
+    pub key: Secret,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub app: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resend_key: Option<String>,
+    pub resend_key: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mail_from: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_client_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub access_client_secret: Option<String>,
+    pub access_client_secret: Option<Secret>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub code: Option<String>,
+    pub code: Option<Secret>,
     #[serde(default, skip_serializing_if = "AccountMe::is_empty")]
     pub me: AccountMe,
 }
@@ -278,7 +280,7 @@ impl Config {
                 ]
                 .into_iter()
                 .flatten()
-                .any(|s| !s.is_empty() && !crate::vault::is_reference(s))
+                .any(Secret::is_inline)
             })
     }
 }
@@ -292,7 +294,7 @@ const SECRET_KEYS: [&str; 6] = [
     "license",
 ];
 
-const KNOWN_KEYS: [&str; 34] = [
+const KNOWN_KEYS: [&str; 37] = [
     "default_account",
     "license",
     "me",
@@ -327,6 +329,9 @@ const KNOWN_KEYS: [&str; 34] = [
     "link",
     "x",
     "y",
+    "file",
+    "env",
+    "command",
 ];
 
 fn keys_on(line: &str) -> Vec<String> {
@@ -391,8 +396,8 @@ fn parse_error(file: &Path, text: &str, error: &toml::de::Error) -> String {
     }
 }
 
-pub fn secret(value: &str) -> Result<String, String> {
-    crate::vault::read(value)
+pub fn secret(value: &Secret) -> Result<String, String> {
+    value.read()
 }
 
 pub fn token(account: &Account) -> Result<String, String> {
@@ -422,7 +427,7 @@ fn holder_from(
     if given.is_none() {
         return Ok(None);
     }
-    key_from(given, "")?;
+    key_from(given, &Secret::default())?;
     Ok(match bound {
         Some(name) => name
             .into_string()
@@ -439,7 +444,7 @@ pub fn key_overridden(config: &Config, account: &str) -> bool {
     }
 }
 
-fn key_from(given: Option<std::ffi::OsString>, configured: &str) -> Result<String, String> {
+fn key_from(given: Option<std::ffi::OsString>, configured: &Secret) -> Result<String, String> {
     let Some(given) = given else {
         return secret(configured);
     };
@@ -509,6 +514,10 @@ mod tests {
     use super::*;
 
     const SECRET: &str = "s3cr3t-Vq8Lm2Xw7Rk4";
+
+    fn unreachable() -> Secret {
+        Secret::Command(vec!["p99-secret-tool-that-must-never-run".into()])
+    }
     const OTHER: &str = "s3cr3t-Hd5Tz1Pc9Ny6";
 
     fn broken(text: &str) -> String {
@@ -726,11 +735,11 @@ mod tests {
                 key: "k".into(),
                 url: full("https://example.com"),
                 app: full("app.example.com"),
-                resend_key: full("r"),
+                resend_key: full("r").map(Secret::Text),
                 mail_from: full("P99 <p99@example.com>"),
                 access_client_id: full("c"),
-                access_client_secret: full("s"),
-                code: full("o"),
+                access_client_secret: full("s").map(Secret::Text),
+                code: full("o").map(Secret::Text),
                 me: AccountMe {
                     name: full("Grace Hopper"),
                     email: full("grace@example.com"),
@@ -851,28 +860,34 @@ mod tests {
     #[test]
     fn p99_key_comes_first_over_an_inline_key_and_a_reference() {
         let given = |v: &str| Some(std::ffi::OsString::from(v));
-        assert_eq!(key_from(given("from-env"), "inline").unwrap(), "from-env");
         assert_eq!(
-            key_from(given("from-env"), "op://Example/p99/key").unwrap(),
+            key_from(given("from-env"), &"inline".into()).unwrap(),
             "from-env"
         );
-        assert_eq!(key_from(given(" padded "), "inline").unwrap(), " padded ");
+        assert_eq!(
+            key_from(given("from-env"), &unreachable()).unwrap(),
+            "from-env"
+        );
+        assert_eq!(
+            key_from(given(" padded "), &"inline".into()).unwrap(),
+            " padded "
+        );
     }
 
     #[test]
     fn without_p99_key_the_configured_key_is_used() {
-        assert_eq!(key_from(None, "inline").unwrap(), "inline");
+        assert_eq!(key_from(None, &"inline".into()).unwrap(), "inline");
     }
 
     #[test]
     fn an_empty_p99_key_is_refused_without_the_configured_key() {
         for empty in ["", " ", "\t\n  "] {
             assert_eq!(
-                key_from(Some(empty.into()), "inline").unwrap_err(),
+                key_from(Some(empty.into()), &"inline".into()).unwrap_err(),
                 "P99_KEY is set but empty; unset it or give the key"
             );
             assert_eq!(
-                key_from(Some(empty.into()), "op://Example/p99/key").unwrap_err(),
+                key_from(Some(empty.into()), &unreachable()).unwrap_err(),
                 "P99_KEY is set but empty; unset it or give the key"
             );
         }
@@ -995,7 +1010,7 @@ mod tests {
     fn a_p99_key_that_is_not_text_is_refused_without_echoing_it() {
         use std::os::unix::ffi::OsStringExt;
         let raw = std::ffi::OsString::from_vec(vec![b'k', 0xff, b'y']);
-        let why = key_from(Some(raw), "inline").unwrap_err();
+        let why = key_from(Some(raw), &"inline".into()).unwrap_err();
         assert_eq!(why, "P99_KEY is not text; unset it or give the key");
     }
 
@@ -1026,14 +1041,14 @@ mod tests {
         [accounts.main]
         account_id = "a"
         token = "cf-inline-token"
-        key = "op://Vault/P99/key"
+        key = { file = "/run/p99/key" }
         "#;
 
     const REFERENCES: &str = r#"
         [accounts.main]
         account_id = "a"
-        token = "op://Vault/Cloudflare/token"
-        key = "op://Vault/P99/key"
+        token = { command = ["pass", "show", "cloudflare"] }
+        key = { env = "P99_KEY_FOR_TESTS" }
         "#;
 
     #[cfg(unix)]
@@ -1063,9 +1078,52 @@ mod tests {
         let dir = scratch("references");
         let file = written(&dir, REFERENCES, 0o644);
         let config = Config::load_from(&file).unwrap();
-        assert_eq!(config.accounts["main"].token, "op://Vault/Cloudflare/token");
+        assert_eq!(
+            config.accounts["main"].token,
+            Secret::Command(vec!["pass".into(), "show".into(), "cloudflare".into()])
+        );
+        assert_eq!(
+            config.accounts["main"].key,
+            Secret::Env("P99_KEY_FOR_TESTS".into())
+        );
         assert!(!config.has_inline_secret());
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn every_secret_keeps_its_source_through_a_save_and_a_load() {
+        let dir = scratch("sources");
+        let mut config: Config = toml::from_str(REFERENCES).unwrap();
+        let account = config.accounts.get_mut("main").unwrap();
+        account.resend_key = Some(Secret::File("~/.p99-resend".into()));
+        account.access_client_secret = Some(Secret::Env("ACCESS_SECRET".into()));
+        account.code = Some(Secret::Command(vec![
+            "bw".into(),
+            "get".into(),
+            "p99".into(),
+        ]));
+        let file = dir.join("config.toml");
+        config.save_to(&file).unwrap();
+        let text = fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("cf-inline"), "{text}");
+        let back = Config::load_from(&file).unwrap();
+        let (was, now) = (&config.accounts["main"], &back.accounts["main"]);
+        assert_eq!(was.token, now.token);
+        assert_eq!(was.key, now.key);
+        assert_eq!(was.resend_key, now.resend_key);
+        assert_eq!(was.access_client_secret, now.access_client_secret);
+        assert_eq!(was.code, now.code);
+        assert!(!back.has_inline_secret());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_secret_written_inline_beside_a_source_still_counts_as_inline() {
+        let config: Config = toml::from_str(
+            "[accounts.main]\naccount_id = \"a\"\ntoken = { env = \"T\" }\nkey = \"inline-key\"\n",
+        )
+        .unwrap();
+        assert!(config.has_inline_secret());
     }
 
     #[test]

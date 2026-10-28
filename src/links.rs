@@ -187,11 +187,10 @@ fn code_of(config: &Config, account: &str) -> Result<String, String> {
         .accounts
         .get(account)
         .ok_or_else(|| format!("no account is called {account}"))?;
-    let Some(store) = entry.code.as_deref().filter(|s| !s.trim().is_empty()) else {
+    let Some(store) = entry.code.as_ref().filter(|s| !s.is_blank()) else {
         return Err(format!(
-            "the account {account} keeps no code of yours; add code = \"<your code>\" under [accounts.{account}] in {} (the file at mode 600), or code = \"op://vault/item/field\" to read it from {}",
-            crate::config::path().display(),
-            crate::vault::tool()
+            "the account {account} keeps no code of yours; add code = \"<your code>\" under [accounts.{account}] in {} (the file at mode 600), or code = {{ file = \"…\" }}, {{ env = \"…\" }} or {{ command = [\"…\"] }} to read it from elsewhere",
+            crate::config::path().display()
         ));
     };
     let raw = crate::config::secret(store)?;

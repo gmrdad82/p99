@@ -16,6 +16,7 @@ mod license;
 mod links;
 mod migrate;
 mod one_board;
+mod secret;
 mod setup;
 mod sign;
 mod stream;
