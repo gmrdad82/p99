@@ -77,11 +77,27 @@ It works the same from 1.7, in one deploy: an account on 1.7 goes straight to 1.
 
    Deploy works out the plan again first and refuses when the hash is missing or no longer matches the database, and refuses at once a hash that isn't the 64 characters the plan ends with. A deploy refused for its plan or its hash changes nothing on the account, not even the migrations that need no plan. A new account, or one already past 0013, needs no `--accept-plan`; one on 1.7 or 1.8 does.
 
-On an account already past 0011, `p99 migrate --plan` also says how many old tag rows (the `item_labels` rows beyond each item's label) are still there, as tags on items, and its `--json` gives them as `old_tags` (`items`, `tags`). 0011 keeps them untouched and unused, and no migration drops them.
+0011 kept the old tag rows (`item_labels`) untouched and unused; 0018, in 1.13, drops them, and its plan counts them first.
 
 ## Upgrading to 1.11
 
 1.11 folds each Owner's boards into the account's one board (0016), which changes data, so it waits for an accepted plan the same way: read `p99 migrate --plan`, then run `p99 deploy --accept-plan <hash>`. An account last deployed with 1.9 doesn't have 0014 and 0015 yet. They add columns and indexes only, and every board starts as not the Cards board, so the plan reads the boards as they would leave them, and the accepted deploy applies 0014, 0015 and 0016 in order. A deploy there without the accepted plan writes nothing, 0014 and 0015 included.
+
+## Upgrading to 1.13
+
+1.13 puts each host in a project (0018), which changes data, so it waits for an accepted plan too. Say first, in the config, which hosts make up which project:
+
+```toml
+[spaces.shop.projects]
+"Example site" = ["example.com", "dev.example.com"]
+Checkout = ["pay.example.com"]
+```
+
+`p99 migrate --plan` then shows the projects 0018 makes, with their hosts and how many items each holds after it; each host's project; each code's grant; the old tag rows it drops; and the counts before and after. A host the config doesn't list becomes a project of its own, named after it, and the plan names it as a decision. So does an item on a host the space no longer has that names no project, since 0018 leaves it in none. A card keeps the project it names; any other item goes to its host's project. A code whose hosts covered every host of the space gets the whole space; any other gets the projects of its hosts, so it may now reach more hosts, and the plan says which.
+
+`p99 deploy --accept-plan <hash>` applies it. `--park <code-id>`, repeated as needed, gives those codes no grant instead: they open nothing and see nothing, stay unrevoked, and nobody is mailed. `--park` takes only codes the plan lists, and only in the deploy that applies 0018.
+
+The plan counts items, open items, the cards in each project, comments, events, attachments and codes. Deploy refuses before any write when a count would drop, and counts again inside 0018: if a count is lower after it, 0018 rolls back, nothing of it is written, and the Worker is not uploaded. A new item, comment, event, attachment or code changes the plan's hash, so read the plan again on a busy space. The deploy also binds the Worker to its space, as `SPACE` (its short name) and `SPACE_NAME` (the config's `name`, or the short name when there is none).
 
 ## Change the setup
 
