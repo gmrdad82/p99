@@ -133,7 +133,7 @@ fn watch_says_it_reads_the_key_from_the_vault_before_connecting() {
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
         out.stderr
-            .starts_with("p99: reading the account key from the 1Password CLI\n"),
+            .starts_with("p99: reading the space key from the 1Password CLI\n"),
         "{}",
         out.stderr
     );

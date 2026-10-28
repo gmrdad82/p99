@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install the p99 binary on Linux, macOS or Windows through WSL, then set up an account and file the first item.
+description: Install the p99 binary on Linux, macOS or Windows through WSL, then set up a space and file the first item.
 sidebar:
   order: 2
 ---
@@ -69,7 +69,7 @@ The Worker is built into the binary, so there is nothing else to install: no Nod
    p99 setup
    ```
 
-   [Set up an account](guides/setup.md) walks through every question.
+   [Set up a space](guides/setup.md) walks through every question.
 
 3. Put one tag in the `<head>` of every page of the site:
 

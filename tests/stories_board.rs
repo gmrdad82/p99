@@ -100,7 +100,7 @@ fn config_with(name: &str, url: &str, me: &str, account: &str) -> PathBuf {
     std::fs::write(
         &file,
         format!(
-            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[accounts.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\naccount = \"main\"\nenv = \"production\"\n"
+            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[spaces.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\nspace = \"main\"\nenv = \"production\"\n"
         ),
     )
     .unwrap();
@@ -243,12 +243,6 @@ fn the_board() -> Value {
     ]})
 }
 
-fn old_boards() -> Value {
-    let mut all = the_board();
-    all["deprecated"] = json!("one board per account since 1.11; read /board");
-    all
-}
-
 fn labels() -> Value {
     Value::Array(
         [0, 2, 5, 6, 3, 1, 4]
@@ -293,11 +287,11 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"board": {"lanes": []}, "cards": []})
         }
         ("GET", "/v1/board") => the_board(),
-        ("GET", "/v1/boards") => old_boards(),
-        ("POST", "/v1/boards") | ("PUT", "/v1/boards/2") | ("DELETE", "/v1/boards/2") => {
+        ("GET" | "POST", "/v1/boards")
+        | ("GET" | "PUT" | "DELETE", "/v1/boards/2") => {
             return (
                 410,
-                r#"{"message":"boards are one per account; see p99 board"}"#.into(),
+                r#"{"message":"boards are one per space; see p99 board"}"#.into(),
             );
         }
         ("GET", "/v1/issues/41") => {
@@ -504,9 +498,9 @@ fn boards_says_it_is_deprecated_and_prints_the_one_board_never_an_archive() {
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     assert_eq!(
         out.stderr,
-        "p99: p99 boards is deprecated: one board per account since 1.11; p99 board prints it\n"
+        "p99: p99 boards is deprecated: one board per space since 1.11; p99 board prints it\n"
     );
-    assert_eq!(worker.last().path, "/v1/boards");
+    assert_eq!(worker.last().path, "/v1/board");
     let board = run(&worker, "boards_text", &["board"]);
     assert_eq!(out.stdout, board.stdout);
     assert!(!out.stdout.contains("archived"), "{}", out.stdout);
@@ -514,27 +508,24 @@ fn boards_says_it_is_deprecated_and_prints_the_one_board_never_an_archive() {
     let json = run(&worker, "boards_json", &["boards", "--json"]);
     let doc = json_of(&json);
     assert!(json.stderr.is_empty(), "{}", json.stderr);
-    assert_eq!(doc, old_boards());
+    assert_eq!(doc, the_board());
     assert!(doc.get("archived").is_none());
 }
 
 #[test]
-fn boards_ignores_the_archive_a_1_11_worker_still_sends() {
-    let worker = Worker::start(|method, path, _| {
-        if method == "GET" && path.starts_with("/v1/boards") {
-            let mut old = old_boards();
-            old["archived"] = json!([
-                {"id": 2, "name": "Web", "owner": {"username": "ada"}, "columns": [], "cards": [], "archived": true}
-            ]);
-            return (200, old.to_string());
-        }
-        (404, r#"{"message":"no such route"}"#.into())
-    });
-    let out = run(&worker, "boards_old", &["boards"]);
+fn boards_never_asks_the_boards_route_a_1_13_worker_answers_410() {
+    let worker = Worker::start(answers);
+    let out = run(&worker, "boards_gone", &["boards"]);
     assert_eq!(out.code, Some(0), "{}", out.stderr);
-    assert!(!out.stdout.contains("Web"), "{}", out.stdout);
-    assert!(!out.stdout.contains("archived"), "{}", out.stdout);
     assert!(out.stdout.starts_with("New ("), "{}", out.stdout);
+    assert!(
+        worker
+            .seen()
+            .iter()
+            .all(|seen| !seen.path.starts_with("/v1/boards")),
+        "{:?}",
+        worker.seen()
+    );
 }
 
 #[test]
@@ -556,7 +547,7 @@ fn boards_set_refuses_locally_and_never_asks_the_worker() {
             }
             refused(
                 &run(&worker, "boards_set", &args),
-                "boards are one per account; see p99 board",
+                "boards are one per space; see p99 board",
             );
         }
         refused(
@@ -573,7 +564,7 @@ fn boards_set_refuses_locally_and_never_asks_the_worker() {
                     "Shipped",
                 ],
             ),
-            "boards are one per account; see p99 board",
+            "boards are one per space; see p99 board",
         );
         assert!(
             worker.seen().is_empty(),
@@ -592,14 +583,14 @@ fn boards_host_scopes_the_one_board_to_that_host() {
         &["boards", "--host", "SHOP.example.com"],
     );
     assert_eq!(out.code, Some(0), "{}", out.stderr);
-    assert_eq!(worker.last().path, "/v1/boards?host=shop.example.com");
+    assert_eq!(worker.last().path, "/v1/board?host=shop.example.com");
     let doc = json_of(&run(
         &worker,
         "boards_host",
         &["boards", "--host", "shop.example.com", "--json"],
     ));
-    assert_eq!(doc, old_boards());
-    assert_eq!(worker.last().path, "/v1/boards?host=shop.example.com");
+    assert_eq!(doc, the_board());
+    assert_eq!(worker.last().path, "/v1/board?host=shop.example.com");
 }
 
 #[test]
@@ -868,18 +859,11 @@ fn board_json_passes_fields_the_cli_does_not_know_through_untouched() {
             board["cards"][0]["checks"] = json!(["ci"]);
             return (200, board.to_string());
         }
-        if method == "GET" && path.starts_with("/v1/boards") {
-            let mut old = old_boards();
-            old["next"] = json!(null);
-            old["cards"][1]["checks"] = json!(["ci"]);
-            return (200, old.to_string());
-        }
         (404, r#"{"message":"no such route"}"#.into())
     });
     let board = json_of(&run(&worker, "board_raw", &["board", "--json"]));
     assert_eq!(board["since"], "2026-10-22T09:00:00.000Z");
     assert_eq!(board["cards"][0]["checks"], json!(["ci"]));
     let old = json_of(&run(&worker, "board_raw", &["boards", "--json"]));
-    assert!(old.get("next").is_some());
-    assert_eq!(old["cards"][1]["checks"], json!(["ci"]));
+    assert_eq!(old, board);
 }

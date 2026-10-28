@@ -5,7 +5,7 @@ use crate::cli::{Global, client_for, print_json};
 use crate::client::Client;
 use crate::config::Config;
 use crate::one_board::{
-    BoardQuery, DEPRECATED, LaneInfo, OldBoards, OneBoard, board_lines, lane_lines, lane_named,
+    BoardQuery, DEPRECATED, LaneInfo, OneBoard, board_lines, lane_lines, lane_named,
     lanes_from, refusal,
 };
 use crate::wire::{Issue, MoveTo, out};
@@ -39,7 +39,7 @@ pub struct MoveArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct BoardsArgs {
-    #[arg(long, help = "the account of this host")]
+    #[arg(long, help = "the space of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<BoardsAction>,
@@ -48,7 +48,7 @@ pub struct BoardsArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum BoardsAction {
     #[allow(dead_code)]
-    #[command(about = "gone: boards are one per account; p99 board prints it")]
+    #[command(about = "gone: boards are one per space; p99 board prints it")]
     Set {
         #[arg(help = "the board's name")]
         name: String,
@@ -81,7 +81,7 @@ pub struct BoardArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct LabelsArgs {
-    #[arg(long, help = "the account of this host")]
+    #[arg(long, help = "the space of this host")]
     pub host: Option<String>,
     #[command(subcommand)]
     pub action: Option<LabelsAction>,
@@ -110,7 +110,7 @@ fn key(raw: &str) -> Result<String, String> {
     crate::cli::key_of(raw)
 }
 
-pub const GONE: &str = "boards are one per account; see p99 board";
+pub const GONE: &str = "boards are one per space; see p99 board";
 
 fn same(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
@@ -215,14 +215,21 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
 }
 
 fn list(config: &Config, global: &Global, host: Option<&str>) -> Result<(), String> {
-    let raw = client(config, global, host)?.old_boards()?;
+    let host = host.map(|h| h.trim().to_ascii_lowercase());
+    let q = BoardQuery {
+        host: host.clone(),
+        ..BoardQuery::default()
+    };
+    let raw: Value = client(config, global, host.as_deref())?
+        .one_board(&q)
+        .map_err(refusal)?;
     if global.json {
         return print_json(&raw);
     }
-    let boards: OldBoards = serde_json::from_value(raw)
+    let board: OneBoard = serde_json::from_value(raw)
         .map_err(|e| format!("the Worker answered an odd board: {e}"))?;
     eprintln!("p99: {DEPRECATED}");
-    for line in board_lines(&boards.one()) {
+    for line in board_lines(&board) {
         out!("{line}");
     }
     Ok(())

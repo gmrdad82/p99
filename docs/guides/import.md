@@ -56,7 +56,7 @@ p99 import ./bundle --host example.com
 
 It sends the records in batches, uploads the files the Worker doesn't hold yet, links duplicates, recounts each item's comments and files, and ends with a summary per type. `--json` prints the summary as JSON and sends the progress lines to standard error.
 
-Imports sign with the account's own key, so they run from the CLI only, and the daily limits never apply to them. New items filed afterwards continue above the highest number in the account: after importing `BUG-7`, the next item is 8 or higher.
+Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them. New items filed afterwards continue above the highest number in the space: after importing `BUG-7`, the next item is 8 or higher.
 
 ## 5. Make the Owners
 
@@ -73,4 +73,4 @@ An import can stop and run again at any point, and a second run of the same bund
 - an item whose key already exists with the same title is left as it is; with another title it is a **conflict**, reported and never overwritten;
 - comments and attachments are matched by `uid`, events by item, kind and time, landings by item and environment, reads by item and person.
 
-The command exits with an error when there were conflicts. Import into a fresh account, or renumber the bundle, to avoid them.
+The command exits with an error when there were conflicts. Import into a fresh space, or renumber the bundle, to avoid them.

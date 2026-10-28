@@ -110,7 +110,7 @@ fn config_with(name: &str, url: &str, me: &str, account: &str) -> PathBuf {
     std::fs::write(
         &file,
         format!(
-            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[accounts.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\naccount = \"main\"\nenv = \"production\"\n"
+            "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n{me}\n[spaces.main]\naccount_id = \"a1\"\ntoken = \"t\"\nkey = \"k\"\nurl = \"{url}\"\n{account}\n[hosts.\"shop.example.com\"]\nspace = \"main\"\nenv = \"production\"\n"
         ),
     )
     .unwrap();
@@ -239,9 +239,13 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
         ("POST", "/v1/cards/FEAT-41/comments") => json!({"key":"FEAT-41","comment":comment}),
         ("POST", "/v1/cards/FEAT-41/links") => json!({"key":"FEAT-41","link":{
             "ref":body["ref"],"note":body["note"],"by":{"name":"Ada Lovelace","username":"ada","agent":false,"via":null},"at":"2026-10-22T09:30:00.000Z"}}),
-        ("GET", "/v1/projects") => {
-            json!({"projects":[{"name":"Paper","open":0,"done":2},{"name":"Splicer","open":3,"done":1}]})
+        ("GET", "/v1/space") => {
+            json!({"space":{"slug":"main","name":"PITO MD"},"projects":[
+                {"name":"Paper","hosts":[],"open":0,"closed":2},
+                {"name":"Splicer","hosts":["shop.example.com"],"open":3,"closed":1}]})
         }
+        ("POST", "/v1/projects") => json!({"project":{"name":body["name"]}}),
+        ("PATCH", "/v1/projects/Paper") => json!({"project":{"name":body["name"]}}),
         ("PATCH", "/v1/issues/12") if body["project"].is_string() => {
             let mut made = card.clone();
             made["key"] = json!("BUG-12");
@@ -385,8 +389,18 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
     );
     unparsed(
         &["projects", "extra"],
-        "error: unexpected argument 'extra' found",
+        "error: unrecognized subcommand 'extra'",
         Some("Usage: p99 projects"),
+    );
+    unparsed(
+        &["projects", "add"],
+        "error: the following required arguments were not provided:\n  <NAME>\n",
+        Some("Usage: p99 projects add "),
+    );
+    unparsed(
+        &["projects", "rename", "Paper"],
+        "error: the following required arguments were not provided:\n  <NEW>\n",
+        Some("Usage: p99 projects rename "),
     );
 }
 
@@ -636,7 +650,7 @@ fn card_show_gives_the_thread_in_json_and_in_text() {
 }
 
 #[test]
-fn card_new_files_on_the_oldest_host_with_a_client_uid_and_the_body_from_stdin() {
+fn card_new_files_with_no_host_a_client_uid_and_the_body_from_stdin() {
     let worker = Worker::start(answers);
     let file = config("new", &worker.url);
     let out = p99(
@@ -657,9 +671,8 @@ fn card_new_files_on_the_oldest_host_with_a_client_uid_and_the_body_from_stdin()
     );
     let printed = json_of(&out);
     let calls = worker.seen();
-    assert_eq!(calls.len(), 2);
-    assert_eq!(calls[0].path, "/v1/hosts");
-    let filed = &calls[1];
+    assert_eq!(calls.len(), 1);
+    let filed = &calls[0];
     assert_eq!(
         (filed.method.as_str(), filed.path.as_str()),
         ("POST", "/v1/cards")
@@ -668,10 +681,12 @@ fn card_new_files_on_the_oldest_host_with_a_client_uid_and_the_body_from_stdin()
     assert_eq!(filed.body["title"], "Export keeps every audio track");
     assert_eq!(filed.body["body"], "Every track.");
     assert_eq!(filed.body["kind"], "feature");
-    assert_eq!(filed.body["host"], "shop.example.com");
+    assert!(filed.body.get("host").is_none());
     assert_eq!(filed.body["client_uid"].as_str().unwrap().len(), 36);
-    assert_eq!(printed.as_object().unwrap().len(), 1);
+    assert_eq!(printed.as_object().unwrap().len(), 2);
     assert_eq!(printed["card"]["project"], "Splicer");
+    assert_eq!(printed["card"]["host"], Value::Null);
+    assert_eq!(printed["space"], json!({"slug": "main", "name": "main"}));
 
     let text = p99(
         &file,
@@ -692,7 +707,7 @@ fn card_new_files_on_the_oldest_host_with_a_client_uid_and_the_body_from_stdin()
     );
     assert_eq!(text.code, Some(0), "{}", text.stderr);
     let filed = worker.last();
-    assert_eq!(worker.seen().len(), 3);
+    assert_eq!(worker.seen().len(), 2);
     assert_eq!(filed.body["host"], "a.example.com");
     assert_eq!(filed.body["kind"], "bug");
     assert_eq!(filed.body["body"], "");
@@ -700,7 +715,14 @@ fn card_new_files_on_the_oldest_host_with_a_client_uid_and_the_body_from_stdin()
         text.stdout,
         "FEAT-41 filed in splicer on a.example.com: Export keeps every audio track\n"
     );
-    assert_ne!(calls[1].body["client_uid"], filed.body["client_uid"]);
+    assert_ne!(calls[0].body["client_uid"], filed.body["client_uid"]);
+    let bare = p99(
+        &file,
+        &["card", "new", "--project", "Splicer", "--title", "t"],
+        &[],
+        None,
+    );
+    assert_eq!(bare.stdout, "FEAT-41 filed in Splicer: t\n");
 }
 
 #[test]
@@ -801,17 +823,66 @@ fn card_link_sends_ref_and_note_and_answers_key_and_link() {
 }
 
 #[test]
-fn projects_lists_names_with_counts() {
+fn projects_lists_names_with_hosts_and_counts() {
     let worker = Worker::start(answers);
     let printed = json_of(&run(&worker, "projects", &["projects", "--json"]));
     assert_eq!(
         printed,
-        json!({"projects":[{"name":"Paper","open":0,"done":2},{"name":"Splicer","open":3,"done":1}]})
+        json!({"space":{"slug":"main","name":"PITO MD"},"projects":[
+            {"name":"Paper","hosts":[],"open":0,"closed":2},
+            {"name":"Splicer","hosts":["shop.example.com"],"open":3,"closed":1}]})
     );
     let text = run(&worker, "projects", &["projects"]);
+    let row = |name: &str, hosts: &str, open: &str, closed: &str| {
+        format!("{name:<7}  {hosts:<16}  {open:>4}  {closed:>6}\n")
+    };
     assert_eq!(
         text.stdout,
-        "PROJECT  OPEN  DONE\nPaper       0     2\nSplicer     3     1\n"
+        row("PROJECT", "HOSTS", "OPEN", "CLOSED")
+            + &row("Paper", "-", "0", "2")
+            + &row("Splicer", "shop.example.com", "3", "1")
+    );
+    assert_eq!(worker.last().path, "/v1/space");
+}
+
+#[test]
+fn projects_add_and_rename_call_the_worker_and_keep_the_configs_mapping() {
+    let worker = Worker::start(answers);
+    let file = config("projects_write", &worker.url);
+    let added = p99(&file, &["projects", "add", "  Docs "], &[], None);
+    assert_eq!(added.code, Some(0), "{}", added.stderr);
+    assert_eq!(added.stdout, "added the project Docs to main\n");
+    let seen = worker.last();
+    assert_eq!(
+        (seen.method.as_str(), seen.path.as_str()),
+        ("POST", "/v1/projects")
+    );
+    assert_eq!(seen.body, json!({"name":"Docs"}));
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(saved.contains("[spaces.main.projects]"), "{saved}");
+    assert!(saved.contains("Docs = []"), "{saved}");
+    let renamed = p99(
+        &file,
+        &["projects", "rename", "Paper", "Notes", "--json"],
+        &[],
+        None,
+    );
+    let printed: Value = serde_json::from_str(&renamed.stdout).unwrap();
+    assert_eq!(printed["renamed"], json!({"from":"Paper","to":"Notes"}));
+    let seen = worker.last();
+    assert_eq!(
+        (seen.method.as_str(), seen.path.as_str()),
+        ("PATCH", "/v1/projects/Paper")
+    );
+    assert_eq!(seen.body, json!({"name":"Notes"}));
+    let blank = p99(&file, &["projects", "add", "   "], &[], None);
+    assert_eq!(blank.code, Some(1));
+    assert!(
+        blank
+            .stderr
+            .ends_with("p99: a project name has 1 to 40 characters\n"),
+        "{}",
+        blank.stderr
     );
 }
 
@@ -942,7 +1013,7 @@ fn p99_agent_zero_unmarks_a_person_whose_config_says_agent() {
     let marked = json!({"email":"ada@example.com","name":"Ada Lovelace","agent":true});
     for (name, me, account) in [
         ("agent_me", "agent = true\n", ""),
-        ("agent_account", "", "\n[accounts.main.me]\nagent = true\n"),
+        ("agent_account", "", "\n[spaces.main.me]\nagent = true\n"),
     ] {
         let file = config_with(name, &worker.url, me, account);
         let args = ["card", "comment", "FEAT-41", "mine", "--json"];
@@ -998,7 +1069,7 @@ fn a_card_whose_last_change_has_no_person_lists_and_shows_as_p99() {
 }
 
 #[test]
-fn cards_lowercases_its_host_for_the_account_and_the_query() {
+fn cards_lowercases_its_host_for_the_space_and_the_query() {
     let worker = Worker::start(answers);
     json_of(&run(
         &worker,
@@ -1019,19 +1090,18 @@ fn cards_lowercases_its_host_for_the_account_and_the_query() {
 }
 
 #[test]
-fn card_new_on_an_account_with_no_host_says_add_one() {
+fn card_new_in_a_space_with_no_host_still_files_the_card() {
     let worker = Worker::start(no_hosts);
     for json in [false, true] {
         let mut args = vec!["card", "new", "--project", "Splicer", "--title", "x"];
         if json {
             args.push("--json");
         }
-        refused(
-            &run(&worker, "no_hosts", &args),
-            "the account main has no host yet; p99 hosts add",
-        );
+        let out = run(&worker, "no_hosts", &args);
+        assert_eq!(out.code, Some(0), "{}", out.stderr);
     }
-    assert!(worker.seen().iter().all(|s| s.path == "/v1/hosts"));
+    assert!(worker.seen().iter().all(|s| s.path == "/v1/cards"));
+    assert_eq!(worker.seen().len(), 2);
 }
 
 #[test]

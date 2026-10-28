@@ -71,13 +71,10 @@ pub fn run(args: &EmailArgs, global: &Global) -> Result<(), String> {
             forget_legacy(&mut config, &name)?;
             if global.json {
                 return emit(
-                    &json!({"account": name, "on": true, "provider": "resend", "from": set.from, "note": note}),
+                    &json!({"space": name, "on": true, "provider": "resend", "from": set.from, "note": note}),
                 );
             }
-            out!(
-                "mail is on for the account {name}: Resend, from {}",
-                set.from
-            );
+            out!("mail is on for the space {name}: Resend, from {}", set.from);
             out!("the key is the Worker's secret {KEY_SECRET}");
             if let Some(note) = note {
                 out!("note: {note}");
@@ -89,9 +86,9 @@ pub fn run(args: &EmailArgs, global: &Global) -> Result<(), String> {
             cloudflare::drop_worker_secret(&config, &name, KEY_SECRET)?;
             forget_legacy(&mut config, &name)?;
             if global.json {
-                return emit(&json!({"account": name, "on": false}));
+                return emit(&json!({"space": name, "on": false}));
             }
-            out!("mail is off for the account {name}, and the Worker no longer holds a mail key");
+            out!("mail is off for the space {name}, and the Worker no longer holds a mail key");
             Ok(())
         }
         EmailAction::Show => show(&cf, &account, &name, global),
@@ -134,7 +131,7 @@ fn show(cf: &Cloudflare, account: &Account, name: &str, global: &Global) -> Resu
     let note = row["note"].as_str();
     if global.json {
         return emit(&json!({
-            "account": name,
+            "space": name,
             "on": on,
             "provider": provider,
             "from": from,
@@ -144,7 +141,7 @@ fn show(cf: &Cloudflare, account: &Account, name: &str, global: &Global) -> Resu
             "source": source,
         }));
     }
-    out!("account   {name}");
+    out!("space     {name}");
     out!("mail      {}", if on { "on" } else { "off" });
     out!("provider  {provider}");
     out!("from      {}", from.as_deref().unwrap_or("-"));
@@ -177,7 +174,7 @@ fn emit(value: &Value) -> Result<(), String> {
 
 fn older(message: String) -> String {
     if message.contains("no such table") {
-        "the account's database has no mail settings yet; run p99 deploy first".to_owned()
+        "the space's database has no mail settings yet; run p99 deploy first".to_owned()
     } else {
         message
     }

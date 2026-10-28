@@ -88,7 +88,7 @@ pub fn feed(config: &mut Config, global: &Global, args: &FeedArgs) -> Result<(),
     let (env, pushed) = (entry.env.clone(), entry.pushed());
     config.save()?;
     let (client, _) = client_for(config, global, Some(&host))?;
-    client.put_host(&host, &env, &pushed)?;
+    client.put_host(&host, &env, &pushed, None)?;
     if global.json {
         return print_json(&json!({"host": host, "on": on, "url": feed_url(&host)}));
     }
@@ -118,7 +118,7 @@ fn feed_list(config: &Config, global: &Global) -> Result<(), String> {
         return print_json(&json!({ "feeds": feeds }));
     }
     if hosts.is_empty() {
-        println!("no hosts yet; p99 hosts add <host> --env <env>");
+        println!("no hosts yet; p99 hosts add <host> --project <name> --env <env>");
     }
     let width = hosts.iter().map(|(h, _)| h.len()).max().unwrap_or(4).max(4);
     for (host, on) in hosts {

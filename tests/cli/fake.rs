@@ -2,7 +2,9 @@
 
 use serde_json::{Value, json};
 
-use crate::stub::{Reply, Req, code, host_entry, issue, minted, summary, thread};
+use crate::stub::{Reply, Req, code, host_entry, issue, minted, project_of, summary, thread};
+
+pub const HOSTS: [&str; 3] = ["shop.example.com", "blog.example.com", "dev.example.com"];
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -48,8 +50,25 @@ pub fn worker(req: &Req) -> Reply {
             "host": host,
             "env": body["env"],
             "config": body["config"],
+            "project": body.get("project").cloned().unwrap_or_else(|| json!(project_of(host))),
             "created_at": "2026-10-01T09:30:00.000Z",
         })),
+        ("PATCH", ["hosts", host]) => Reply::ok(json!({
+            "host": host,
+            "env": "production",
+            "config": {},
+            "project": body["project"],
+            "created_at": "2026-10-01T09:30:00.000Z",
+        })),
+        ("GET", ["space"]) => Reply::ok(json!({
+            "space": {"slug": "main", "name": "PITO MD"},
+            "projects": [
+                {"name": "Shop", "hosts": ["shop.example.com"], "open": 3, "closed": 1},
+                {"name": "Blog", "hosts": ["blog.example.com", "dev.example.com"], "open": 0, "closed": 2},
+            ],
+        })),
+        ("POST", ["projects"]) => Reply::json(201, json!({"project": {"name": body["name"]}})),
+        ("PATCH", ["projects", _]) => Reply::ok(json!({"project": {"name": body["name"]}})),
         ("DELETE", ["hosts", _]) => Reply::ok(json!({"removed": true})),
         ("GET", ["envs"]) => Reply::ok(json!({"envs": [
             {"name": "production", "kind": "release", "position": 0, "notify": false},
@@ -65,12 +84,26 @@ pub fn worker(req: &Req) -> Reply {
             code(4, "Grace Hopper", "grace@example.com", &["shop.example.com"]),
             code(5, "Ada Lovelace", "ada@example.com", &["shop.example.com", "dev.example.com"]),
         ]})),
+        ("PATCH", ["codes", id]) => {
+            let mut held = code(
+                number(id),
+                "Grace Hopper",
+                "grace@example.com",
+                &["shop.example.com"],
+            );
+            held["grant"] = body["grant"].clone();
+            Reply::ok(held)
+        }
         ("POST", ["codes"]) => {
-            let hosts: Vec<&str> = body["hosts"]
+            let projects: Vec<&str> = body["grant"]["projects"]
                 .as_array()
                 .into_iter()
                 .flatten()
                 .filter_map(Value::as_str)
+                .collect();
+            let hosts: Vec<&str> = HOSTS
+                .into_iter()
+                .filter(|h| body["grant"]["space"] == true || projects.contains(&project_of(h)))
                 .collect();
             let mail = (body["mail"] == true).then_some("sent");
             let mut made = minted(
@@ -80,7 +113,9 @@ pub fn worker(req: &Req) -> Reply {
                 &hosts,
                 mail,
             );
-            made["code"]["manager"] = body["manager"].clone();
+            made["code"]["manager"] = json!(body["role"] == "owner");
+            made["code"]["role"] = body["role"].clone();
+            made["code"]["grant"] = body["grant"].clone();
             if body["totp"] == true {
                 made["code"]["totp"] = json!(true);
                 made["totp_key"] = json!("JBSWY3DPEHPK3PXP");

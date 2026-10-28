@@ -5,11 +5,11 @@ sidebar:
   order: 10
 ---
 
-A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the seven lanes of the account's one board, and link them to what moved them: a request id, a commit, a tag or a URL. Only Owners see cards; Users, the people with a code for a site, never do.
+A card is an item with a project. You and your agents file cards with `p99 card new`, move them through the seven lanes of the space's one board, and link them to what moved them: a request id, a commit, a tag or a URL. Only Owners see cards; Users, the people with a code for a site, never do.
 
 ## The lanes
 
-Each account has one board, and its lanes are the only statuses. Their words are fixed, by position:
+Each space has one board, and its lanes are the only statuses. Their words are fixed, by position:
 
 | Word | Lane |
 | --- | --- |
@@ -23,7 +23,7 @@ Each account has one board, and its lanes are the only statuses. Their words are
 
 `needs you`, with the space, is the same word as `needs-you`. Any other word is clap's `invalid value` error, exit 2, listing the seven.
 
-Any Owner may rename the lanes (`p99 labels rename needs-you "Waiting on me"`); the words keep naming them by position. A card's priority is its place in its lane, one order for the whole account, which any Owner changes (`p99 move FEAT-41 --to stuck --before FEAT-40`). Any Owner moves a card from lane to lane with `p99 card status`, `p99 move`, or in the TUI. An agent can't close a card: `p99 card status <KEY> done` from an agent answers `p99: only a person closes a card`, and its `p99 move` into the last lane answers `p99: only a person closes a card (403)`.
+Any Owner may rename the lanes (`p99 labels rename needs-you "Waiting on me"`); the words keep naming them by position. A card's priority is its place in its lane, one order for the whole space, which any Owner changes (`p99 move FEAT-41 --to stuck --before FEAT-40`). Any Owner moves a card from lane to lane with `p99 card status`, `p99 move`, or in the TUI. An agent can't close a card: `p99 card status <KEY> done` from an agent answers `p99: only a person closes a card`, and its `p99 move` into the last lane answers `p99: only a person closes a card (403)`.
 
 The one board shows plain items and cards alike; a filter narrows it (`p99 board --project Splicer`, `--host`). A close from anywhere else, such as a merge or a GitHub pull request, puts an item in the last lane, and a reopen puts it back on one of the others.
 
@@ -54,7 +54,7 @@ p99 edit BUG-12 --no-project
 ```
 
 - `p99 cards` lists cards in lane order, every lane but `done` unless you name `--status`. `--project` and `--status` repeat. `--since` takes a time (`2026-10-22T08:00:00Z`) or an age (`90m`, `6h`, `2d`); `--source human` or `--source agent` keeps the cards whose last change was a person's or an agent's; `--limit` is 200 by default, up to 500, and `--cursor` reads on from `next_cursor`.
-- `p99 card new` files the card in lane `new`; `--kind` is `feature` by default and `--host` the account's oldest host.
+- `p99 card new` files the card in a project, in lane `new`; it needs no host, and `--host` (optional) names the one it sits on for the panel. `--kind` is `feature` by default.
 - `p99 card status` moves the card to the top of that lane; a card already there keeps its place. `--note` adds a comment in the same write.
 - `card new --body`, `card comment`'s text and `card status --note` take `-` to read standard input.
 - A project name has 1 to 40 characters and is matched without regard to case; the first spelling used is kept.

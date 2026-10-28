@@ -12,12 +12,13 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::client::Client;
-use crate::config::{CORNERS, Config, Host, Offset};
+use crate::config::{CORNERS, Config, Host, Offset, WHOLE};
 use crate::stream::Heard;
 use crate::trailers;
 use crate::wire::{
-    ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, HostEntry,
-    Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, Summary, Thread, content_type, out,
+    ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, Grant,
+    HostEntry, Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, Summary, Thread, content_type,
+    out,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -25,10 +26,13 @@ pub struct Global {
     #[arg(long, global = true, help = "answer in JSON, for agents and scripts")]
     pub json: bool,
     #[arg(
-        long,
+        long = "space",
+        alias = "account",
         global = true,
-        value_name = "name",
-        help = "the account to use, when the config has several"
+        value_name = "slug",
+        num_args = 0..=1,
+        default_missing_value = WHOLE,
+        help = "the space to use, when the config has several; p99 invite and p99 invites set read it alone as the whole space"
     )]
     pub account: Option<String>,
     #[arg(
@@ -51,12 +55,14 @@ pub struct Global {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum Command {
+    #[command(about = "list the spaces the config holds: slug, name, Worker and projects")]
+    Spaces,
     #[command(about = "list the hosts P99 serves; add, remove or set one")]
     Hosts(HostsArgs),
-    #[command(about = "mint a personal code for a person on one or more hosts")]
+    #[command(about = "mint a personal code for a person on a whole space or some of its projects")]
     Invite(InviteArgs),
     #[command(
-        about = "list the personal codes; delete a revoked one",
+        about = "list the personal codes with what each grants; change a grant, add an authenticator or delete a revoked one",
         visible_alias = "codes"
     )]
     Invites(InvitesArgs),
@@ -94,8 +100,12 @@ pub enum Command {
         arg_required_else_help = false
     )]
     Card(card::CardArgs),
-    #[command(about = "list the project names cards carry")]
-    Projects,
+    #[command(
+        about = "list the space's projects with their hosts and counts; add or rename one",
+        subcommand_required = false,
+        arg_required_else_help = false
+    )]
+    Projects(ProjectsArgs),
     #[command(about = "deprecated: prints the one board, as p99 board does")]
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print the one board: its seven lanes and their cards")]
@@ -155,13 +165,35 @@ pub struct PeopleArgs {
 #[derive(Debug, clap::Subcommand)]
 pub enum PeopleAction {
     #[command(
-        about = "move everything filed, said or held under one e-mail to another, on the whole account"
+        about = "move everything filed, said or held under one e-mail to another, on the whole space"
     )]
     Rename {
         #[arg(help = "the e-mail the items are under now")]
         from: String,
         #[arg(help = "the e-mail they move to")]
         to: String,
+    },
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ProjectsArgs {
+    #[command(subcommand)]
+    pub action: Option<ProjectsAction>,
+}
+
+#[derive(Debug, clap::Subcommand)]
+pub enum ProjectsAction {
+    #[command(about = "create a project in the space")]
+    Add {
+        #[arg(help = "the project's name, 1 to 40 characters, unique in the space without case")]
+        name: String,
+    },
+    #[command(about = "rename a project; its cards and hosts stay with it")]
+    Rename {
+        #[arg(help = "the project's name now")]
+        old: String,
+        #[arg(help = "its new name")]
+        new: String,
     },
 }
 
@@ -184,6 +216,12 @@ pub enum HostsAction {
 #[derive(Debug, clap::Args)]
 pub struct AddArgs {
     pub host: String,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "the project the host belongs to; reports filed on the host land in it"
+    )]
+    pub project: String,
     #[arg(long, default_value = "production", help = "the host's environment")]
     pub env: String,
     #[arg(
@@ -197,6 +235,12 @@ pub struct AddArgs {
 #[derive(Debug, clap::Args)]
 pub struct SetArgs {
     pub host: String,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "move the host to this project; its items move with it"
+    )]
+    pub project: Option<String>,
     #[arg(long, value_parser = CORNERS, help = "the button's corner")]
     pub corner: Option<String>,
     #[arg(long, value_name = "X,Y", help = "pixels from the corner's two edges")]
@@ -231,12 +275,34 @@ pub struct SetArgs {
         help = "hide (off) or show (on) the panel's 'by PITO.MD' link; off takes an Agency or Owner key"
     )]
     pub pitomd_link: Option<String>,
+    #[arg(
+        long,
+        value_name = "selector",
+        help = "a CSS selector the panel masks in every capture, besides data-p99-redact; repeat it, they replace the list, and --mask none clears it"
+    )]
+    pub mask: Vec<String>,
+    #[arg(
+        long,
+        value_parser = ["on", "off"],
+        help = "off: the panel files the text report with no screenshot and says so; on is the default"
+    )]
+    pub capture: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct InviteArgs {
-    #[arg(required = true, help = "the hosts the code works on")]
+    #[arg(
+        hide = true,
+        value_name = "host",
+        help = "the old way: hosts, which become their projects"
+    )]
     pub hosts: Vec<String>,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "grant this project; repeat it for several (--space alone grants the whole space)"
+    )]
+    pub project: Vec<String>,
     #[arg(long, help = "the person's name, as P99 shows it")]
     pub name: String,
     #[arg(long, help = "the person's e-mail, which ties their items to them")]
@@ -263,8 +329,26 @@ pub struct InviteArgs {
 }
 
 #[derive(Debug, clap::Args)]
+pub struct GrantArgs {
+    #[arg(help = "the code's id, from p99 invites")]
+    pub id: i64,
+    #[arg(
+        long,
+        value_name = "name",
+        conflicts_with = "park",
+        help = "grant exactly these projects; repeat it for several (--space alone grants the whole space)"
+    )]
+    pub project: Vec<String>,
+    #[arg(
+        long,
+        help = "grant nothing: the code opens nothing and is not revoked"
+    )]
+    pub park: bool,
+}
+
+#[derive(Debug, clap::Args)]
 pub struct InvitesArgs {
-    #[arg(long, help = "only the codes for this host")]
+    #[arg(long, help = "only the codes that reach this host")]
     pub host: Option<String>,
     #[arg(long, value_enum, help = "only the codes of this role")]
     pub role: Option<crate::one_board::Role>,
@@ -285,6 +369,10 @@ pub enum InvitesAction {
         about = "delete a revoked code for good, with its devices; asks for its last four characters typed back"
     )]
     Delete(codes::CodeDeleteArgs),
+    #[command(
+        about = "change what a code grants: --space for the whole space, --project for some, --park for nothing; no one is mailed"
+    )]
+    Set(GrantArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -297,6 +385,12 @@ pub struct RevokeArgs {
 pub struct ListArgs {
     #[arg(help = "the host to list")]
     pub host: Option<String>,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "only this project's items; repeat it for several"
+    )]
+    pub project: Vec<String>,
     #[arg(long, conflicts_with = "host", help = "every host")]
     pub all: bool,
     #[arg(long, default_value = "open", help = "open, closed, any or one status")]
@@ -464,9 +558,23 @@ pub struct AnnounceArgs {
     pub rev: Option<String>,
 }
 
+pub fn notices() {
+    let old = std::env::args_os()
+        .skip(1)
+        .take_while(|a| a != "--")
+        .any(|a| {
+            let a = a.to_string_lossy();
+            a == "--account" || a.starts_with("--account=")
+        });
+    if old {
+        crate::config::said_once(crate::config::FLAG_RENAMED);
+    }
+}
+
 pub fn run(command: Command, global: &Global) -> Result<(), String> {
     let mut config = Config::load()?;
     match command {
+        Command::Spaces => spaces(&config, global),
         Command::Hosts(args) => match args.action {
             None => hosts_list(&config, global),
             Some(HostsAction::Add(a)) => hosts_add(&mut config, global, &a),
@@ -491,7 +599,7 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
         Command::Cards(a) => card::cards(&config, global, &a),
         Command::Card(a) => card::card(&config, global, &a),
-        Command::Projects => card::projects(&config, global),
+        Command::Projects(a) => card::projects(&mut config, global, &a),
         Command::Assign(a) => assign(&config, global, &a),
         Command::Edit(a) => edit(&config, global, &a),
         Command::Download(a) => download(&config, global, &a),
@@ -517,7 +625,7 @@ fn watch(config: &Config, global: &Global, args: &WatchArgs) -> Result<(), Strin
             .is_some_and(|a| crate::vault::is_reference(&a.key))
     {
         eprintln!(
-            "{}: reading the account key from {}",
+            "{}: reading the space key from {}",
             crate::NAME,
             crate::vault::tool()
         );
@@ -695,24 +803,113 @@ fn read_attachment(path: &Path) -> Result<(String, &'static str, Vec<u8>), Strin
     Ok((name, kind, bytes))
 }
 
+fn named(global: &Global) -> Option<&str> {
+    global.account.as_deref().filter(|name| *name != WHOLE)
+}
+
+fn without_whole(global: &Global) -> Global {
+    Global {
+        json: global.json,
+        account: named(global).map(str::to_owned),
+        agent: global.agent.clone(),
+        demo: global.demo,
+    }
+}
+
+fn spaces(config: &Config, global: &Global) -> Result<(), String> {
+    let rows: Vec<(&String, &crate::config::Account)> = config
+        .accounts
+        .iter()
+        .filter(|(slug, _)| named(global).is_none_or(|n| n == slug.as_str()))
+        .collect();
+    if let Some(wanted) = named(global)
+        && rows.is_empty()
+    {
+        return Err(format!(
+            "no space is called {wanted}; p99 spaces lists them"
+        ));
+    }
+    let url = |slug: &str| {
+        config
+            .bases(slug, None)
+            .ok()
+            .and_then(|bases| bases.into_iter().next())
+    };
+    if global.json {
+        let spaces: Vec<Value> = rows
+            .iter()
+            .map(|(slug, space)| {
+                let projects: Vec<Value> = space
+                    .projects
+                    .iter()
+                    .map(|(name, hosts)| json!({"name": name, "hosts": hosts}))
+                    .collect();
+                json!({
+                    "slug": slug,
+                    "name": space.title(slug),
+                    "url": url(slug),
+                    "default": config.default_account.as_deref() == Some(slug.as_str()),
+                    "projects": projects,
+                })
+            })
+            .collect();
+        return print_json(&json!({"spaces": spaces}));
+    }
+    if rows.is_empty() {
+        println!("no spaces yet; run p99 setup");
+        return Ok(());
+    }
+    let width = |f: &dyn Fn(&(&String, &crate::config::Account)) -> usize, least: usize| {
+        rows.iter().map(f).max().unwrap_or(least).max(least)
+    };
+    let slugs = width(&|r| r.0.chars().count(), 5);
+    let names = width(&|r| r.1.title(r.0).chars().count(), 4);
+    let urls = width(&|r| url(r.0).map_or(1, |u| u.chars().count()), 6);
+    println!(
+        "{:<slugs$}  {:<names$}  {:<urls$}  PROJECTS",
+        "SPACE", "NAME", "WORKER"
+    );
+    for (slug, space) in &rows {
+        let projects: Vec<&str> = space.projects.keys().map(String::as_str).collect();
+        out!(
+            "{slug:<slugs$}  {:<names$}  {:<urls$}  {}",
+            space.title(slug),
+            url(slug).unwrap_or_else(|| "-".to_owned()),
+            if projects.is_empty() {
+                "-".to_owned()
+            } else {
+                projects.join(", ")
+            }
+        );
+    }
+    Ok(())
+}
+
 fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
     struct Row {
-        account: String,
+        space: String,
+        project: Option<String>,
         env: String,
         config: Value,
         local: bool,
         worker: Option<HostEntry>,
     }
+    let wanted = named(global);
     let mut rows: BTreeMap<String, Row> = BTreeMap::new();
     let mut unreachable: BTreeMap<String, String> = BTreeMap::new();
     for (host, entry) in &config.hosts {
-        if global.account.as_ref().is_some_and(|a| *a != entry.account) {
+        if wanted.is_some_and(|a| a != entry.account) {
             continue;
         }
         rows.insert(
             host.clone(),
             Row {
-                account: entry.account.clone(),
+                space: entry.account.clone(),
+                project: config
+                    .accounts
+                    .get(&entry.account)
+                    .and_then(|a| a.project_of(host))
+                    .map(str::to_owned),
                 env: entry.env.clone(),
                 config: entry.pushed(),
                 local: true,
@@ -722,24 +919,30 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
     }
     let agent = &global.agent;
     let holder = crate::config::key_holder(config)?;
-    for account in config.accounts.keys() {
-        if global.account.as_ref().is_some_and(|a| a != account) {
+    for space in config.accounts.keys() {
+        if wanted.is_some_and(|a| a != space) {
             continue;
         }
-        if config.bases(account, None).is_err() {
+        if config.bases(space, None).is_err() {
             continue;
         }
-        let seen = Client::among(config, account, holder.as_deref(), agent).and_then(|c| c.hosts());
+        let seen = Client::among(config, space, holder.as_deref(), agent).and_then(|c| c.hosts());
         match seen {
             Ok(list) => {
                 for found in list {
                     match rows.get_mut(&found.host) {
-                        Some(row) => row.worker = Some(found),
+                        Some(row) => {
+                            if found.project.is_some() {
+                                row.project = found.project.clone();
+                            }
+                            row.worker = Some(found);
+                        }
                         None => {
                             rows.insert(
                                 found.host.clone(),
                                 Row {
-                                    account: account.clone(),
+                                    space: space.clone(),
+                                    project: found.project.clone(),
                                     env: found.env.clone(),
                                     config: found.config.clone(),
                                     local: false,
@@ -751,11 +954,11 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
                 }
             }
             Err(why) => {
-                unreachable.insert(account.clone(), why);
+                unreachable.insert(space.clone(), why);
             }
         }
     }
-    let state = |row: &Row| match (&row.worker, unreachable.contains_key(&row.account)) {
+    let state = |row: &Row| match (&row.worker, unreachable.contains_key(&row.space)) {
         (Some(w), _) if row.local && w.env != row.env => "differs",
         (Some(_), _) if row.local => "ok",
         (Some(_), _) => "only on the Worker",
@@ -768,9 +971,12 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
             .map(|(host, row)| {
                 json!({
                     "host": host,
-                    "account": row.account,
+                    "space": row.space,
+                    "project": row.project,
                     "env": row.env,
                     "config": row.config,
+                    "masks": row.config["mask"].as_array().map_or(0, Vec::len),
+                    "capture": if row.config["capture"] == "off" { "off" } else { "on" },
                     "in_config": row.local,
                     "state": state(row),
                     "worker": row.worker,
@@ -780,31 +986,49 @@ fn hosts_list(config: &Config, global: &Global) -> Result<(), String> {
         return print_json(&json!({"hosts": hosts, "unreachable": unreachable}));
     }
     if rows.is_empty() {
-        println!("no hosts yet; p99 hosts add <host> --env <env>");
+        println!("no hosts yet; p99 hosts add <host> --project <name> --env <env>");
     } else {
+        let project = |r: &Row| r.project.clone().unwrap_or_else(|| "-".to_owned());
+        let masks = |r: &Row| r.config["mask"].as_array().map_or(0, Vec::len);
+        let capture = |r: &Row| {
+            if r.config["capture"] == "off" {
+                "off"
+            } else {
+                "on"
+            }
+        };
         let width = rows.keys().map(String::len).max().unwrap_or(4).max(4);
-        let account = rows
+        let space = rows
             .values()
-            .map(|r| r.account.len())
+            .map(|r| r.space.len())
+            .max()
+            .unwrap_or(5)
+            .max(5);
+        let projects = rows
+            .values()
+            .map(|r| project(r).chars().count())
             .max()
             .unwrap_or(7)
             .max(7);
         let env = rows.values().map(|r| r.env.len()).max().unwrap_or(3).max(3);
         println!(
-            "{:<width$}  {:<account$}  {:<env$}  STATE",
-            "HOST", "ACCOUNT", "ENV"
+            "{:<width$}  {:<space$}  {:<projects$}  {:<env$}  MASKS  CAPTURE  STATE",
+            "HOST", "SPACE", "PROJECT", "ENV"
         );
         for (host, row) in &rows {
             out!(
-                "{host:<width$}  {:<account$}  {:<env$}  {}",
-                row.account,
+                "{host:<width$}  {:<space$}  {:<projects$}  {:<env$}  {:>5}  {:<7}  {}",
+                row.space,
+                project(row),
                 row.env,
+                masks(row),
+                capture(row),
                 state(row)
             );
         }
     }
-    for (account, why) in &unreachable {
-        eprintln!("{account}: {why}");
+    for (space, why) in &unreachable {
+        eprintln!("{space}: {why}");
     }
     Ok(())
 }
@@ -823,10 +1047,20 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     if !valid_host(&host) {
         return Err(format!("{host} is not a host name; try example.com"));
     }
-    let account = match &global.account {
-        Some(name) => config.account(Some(name))?.0.to_owned(),
-        None => config.account(None)?.0.to_owned(),
-    };
+    let mut project = crate::card::project(&args.project)?;
+    let account = config.account(global.account.as_deref())?.0.to_owned();
+    if let Ok(client) = Client::for_account(config, &account, &global.agent)
+        && let Ok(view) = client.space()
+    {
+        match view
+            .projects
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(&project))
+        {
+            Some(found) => project = found.name.clone(),
+            None => return Err(missing_project(&project, &account)),
+        }
+    }
     let kept = config.hosts.get(&host).cloned().unwrap_or_default();
     config.hosts.insert(
         host.clone(),
@@ -836,10 +1070,18 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
             ..kept
         },
     );
+    if let Some(space) = config.accounts.get_mut(&account) {
+        space.place(&host, &project);
+    }
     config.save()?;
     crate::setup::add_route(config, &account, &host)?;
     let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
-    let entry = client.put_host(&host, &args.env, &config.hosts[&host].pushed())?;
+    let entry = client.put_host(
+        &host,
+        &args.env,
+        &config.hosts[&host].pushed(),
+        Some(&project),
+    )?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
     if args.kind.is_some() || current.is_none() {
@@ -856,10 +1098,21 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
         client.put_env(&env)?;
     }
     if global.json {
-        return print_json(&entry);
+        let mut value = serde_json::to_value(&entry).map_err(|e| e.to_string())?;
+        value["space"] = json!(account);
+        return print_json(&value);
     }
-    println!("added {host} to {account}, environment {}", args.env);
+    println!(
+        "added {host} to {account}, project {project}, environment {}",
+        args.env
+    );
     Ok(())
+}
+
+fn missing_project(project: &str, space: &str) -> String {
+    format!(
+        "no project is called {project} in the space {space}; p99 projects add \"{project}\" makes it"
+    )
 }
 
 fn hosts_remove(config: &mut Config, global: &Global, host: &str) -> Result<(), String> {
@@ -870,9 +1123,12 @@ fn hosts_remove(config: &mut Config, global: &Global, host: &str) -> Result<(), 
     let (client, account) = client_for(config, global, Some(&host))?;
     client.remove_host(&host)?;
     config.hosts.remove(&host);
+    if let Some(space) = config.accounts.get_mut(&account) {
+        space.unplace(&host);
+    }
     config.save()?;
     if global.json {
-        return print_json(&json!({"removed": host, "account": account}));
+        return print_json(&json!({"removed": host, "space": account}));
     }
     println!("removed {host} from {account}; its items stay, and so does its route in Cloudflare");
     Ok(())
@@ -910,6 +1166,40 @@ fn offset_of(raw: &str) -> Result<Offset, String> {
     })
 }
 
+pub const MASKS_MOST: usize = 50;
+pub const MASK_LONGEST: usize = 200;
+
+fn masks_of(raw: &[String]) -> Result<Vec<String>, String> {
+    let given: Vec<String> = raw.iter().map(|m| m.trim().to_owned()).collect();
+    if given.iter().any(|m| m.eq_ignore_ascii_case("none")) {
+        return if given.len() == 1 {
+            Ok(Vec::new())
+        } else {
+            Err("--mask none clears the list and goes alone".to_owned())
+        };
+    }
+    if given.iter().any(String::is_empty) {
+        return Err("a --mask selector is empty; --mask none clears the list".to_owned());
+    }
+    if let Some(long) = given.iter().find(|m| m.chars().count() > MASK_LONGEST) {
+        return Err(format!(
+            "a mask selector has at most {MASK_LONGEST} characters; {} has {}",
+            long.chars().take(24).collect::<String>() + "...",
+            long.chars().count()
+        ));
+    }
+    let mut kept: Vec<String> = Vec::new();
+    for mask in given {
+        if !kept.contains(&mask) {
+            kept.push(mask);
+        }
+    }
+    if kept.len() > MASKS_MOST {
+        return Err(format!("a host takes at most {MASKS_MOST} mask selectors"));
+    }
+    Ok(kept)
+}
+
 fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(), String> {
     let host = args.host.trim().to_ascii_lowercase();
     let entry = config
@@ -930,17 +1220,51 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
     }
     merge(&mut entry.theme, &args.theme)?;
     merge(&mut entry.strings, &args.string)?;
+    if !args.mask.is_empty() {
+        entry.mask = masks_of(&args.mask)?;
+    }
+    if let Some(capture) = &args.capture {
+        entry.capture = Some(capture.clone()).filter(|c| c == "off");
+    }
     if let Some(wanted) = &args.pitomd_link {
         entry.link = pitomd_link(crate::license::State::of(config.license.as_deref()), wanted)?;
     }
-    let (env, pushed) = (entry.env.clone(), entry.pushed());
-    config.save()?;
+    let (env, pushed, space) = (entry.env.clone(), entry.pushed(), entry.account.clone());
+    let mut project = args
+        .project
+        .as_deref()
+        .map(crate::card::project)
+        .transpose()?;
     let (client, _) = client_for(config, global, Some(&host))?;
-    let sent = client.put_host(&host, &env, &pushed)?;
+    if let Some(wanted) = &project {
+        let view = client.space().map_err(crate::card::refusal)?;
+        match view
+            .projects
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(wanted))
+        {
+            Some(found) => project = Some(found.name.clone()),
+            None => return Err(missing_project(wanted, &space)),
+        }
+    }
+    let mut sent = client.put_host(&host, &env, &pushed, None)?;
+    config.save()?;
+    if let Some(name) = &project {
+        sent = client
+            .move_host(&host, name)
+            .map_err(crate::card::refusal)?;
+        if let Some(entry) = config.accounts.get_mut(&space) {
+            entry.place(&host, name);
+        }
+        config.save()?;
+    }
     if global.json {
         return print_json(&sent);
     }
     println!("{host} updated and pushed");
+    if let Some(name) = &project {
+        println!("{host} is in the project {name} now; its items moved with it");
+    }
     if args.pitomd_link.as_deref() == Some("off") {
         println!("the 'by PITO.MD' link hides once the Worker carries this key: p99 deploy");
     }
@@ -955,31 +1279,121 @@ fn pitomd_link(state: crate::license::State, wanted: &str) -> Result<Option<bool
     }
 }
 
+fn account_for(
+    config: &Config,
+    scoped: &Global,
+    host: Option<&str>,
+    projects: &[String],
+) -> Result<String, String> {
+    match account_of(config, scoped, host) {
+        Ok(account) => Ok(account),
+        Err(why) => {
+            let hits: Vec<&String> = config
+                .accounts
+                .iter()
+                .filter(|(_, space)| {
+                    !projects.is_empty()
+                        && projects.iter().all(|p| space.project_named(p).is_some())
+                })
+                .map(|(slug, _)| slug)
+                .collect();
+            match hits.as_slice() {
+                [one] => Ok((*one).clone()),
+                _ => Err(why),
+            }
+        }
+    }
+}
+
+fn mapped(
+    config: &Config,
+    client: &Client,
+    account: &str,
+    hosts: &[String],
+) -> Result<Vec<String>, String> {
+    let view = client.space().map_err(crate::card::refusal)?;
+    let mut projects: Vec<String> = Vec::new();
+    for host in hosts {
+        let found = view
+            .projects
+            .iter()
+            .find(|p| p.hosts.iter().any(|h| h == host))
+            .map(|p| p.name.clone())
+            .or_else(|| {
+                config
+                    .accounts
+                    .get(account)
+                    .and_then(|space| space.project_of(host))
+                    .map(str::to_owned)
+            })
+            .ok_or_else(|| {
+                format!("{host} is in no project; p99 hosts set {host} --project <name>")
+            })?;
+        if !projects.contains(&found) {
+            projects.push(found);
+        }
+    }
+    Ok(projects)
+}
+
 fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), String> {
     let hosts: Vec<String> = args
         .hosts
         .iter()
         .map(|h| h.trim().to_ascii_lowercase())
         .collect();
-    let account = account_of(config, global, hosts.first().map(String::as_str))?;
+    let projects = args
+        .project
+        .iter()
+        .map(|p| crate::card::project(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !hosts.is_empty() && (!projects.is_empty() || global.account.as_deref() == Some(WHOLE)) {
+        return Err(
+            "a host list is the old way and cannot go with --project or a bare --space; name projects, or --space alone"
+                .into(),
+        );
+    }
+    if hosts.is_empty() && projects.is_empty() && global.account.is_none() {
+        return Err(
+            "say what the code grants: --space for the whole space, or --project <name> (repeat it)"
+                .into(),
+        );
+    }
+    let scoped = without_whole(global);
+    let first = hosts.first().map(String::as_str);
+    let account = account_for(config, &scoped, first, &projects)?;
     for host in &hosts {
         if let Some(entry) = config.hosts.get(host)
             && entry.account != account
         {
             return Err(format!(
-                "{host} is in the account {}, not {account}; a code covers one account",
+                "{host} is in the space {}, not {account}; a code covers one space",
                 entry.account
             ));
         }
     }
-    let (client, _) = client_for(config, global, hosts.first().map(String::as_str))?;
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(first);
+    let grant = if !hosts.is_empty() {
+        let projects = mapped(config, &client, &account, &hosts)?;
+        eprintln!(
+            "{}: a code grants projects now; {} became {}",
+            crate::NAME,
+            hosts.join(", "),
+            projects.join(", ")
+        );
+        Grant::of(projects)
+    } else if projects.is_empty() {
+        Grant::whole()
+    } else {
+        Grant::of(projects)
+    };
     let mine = crate::links::owner(config, &account, &args.email);
     let asked = crate::links::mailing(mine, args.no_mail, args.mail_me);
     let minted = client.mint(&NewCode {
         client_uid: crate::client::uid(),
         name: args.name.clone(),
         email: args.email.clone(),
-        hosts,
+        grant,
         manager: args.owner,
         totp: args.totp,
         mail: asked,
@@ -988,9 +1402,65 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         return Err("this invite was already minted; revoke it and invite again".into());
     }
     if global.json {
-        return print_json(&minted);
+        let mut value = serde_json::to_value(&minted).map_err(|e| e.to_string())?;
+        value["space"] = space_ref(config, &account);
+        return print_json(&value);
     }
     crate::links::report(&minted, mine, asked)
+}
+
+fn space_ref(config: &Config, slug: &str) -> Value {
+    let name = config.accounts.get(slug).map_or(slug, |s| s.title(slug));
+    json!({"slug": slug, "name": name})
+}
+
+fn grant_set(config: &Config, global: &Global, args: &GrantArgs) -> Result<(), String> {
+    let projects = args
+        .project
+        .iter()
+        .map(|p| crate::card::project(p))
+        .collect::<Result<Vec<_>, _>>()?;
+    let grant = if args.park {
+        Grant::of(Vec::new())
+    } else if !projects.is_empty() {
+        Grant::of(projects.clone())
+    } else if global.account.is_some() {
+        Grant::whole()
+    } else {
+        return Err(
+            "say what the code grants: --space for the whole space, --project <name> for some, or --park for nothing"
+                .into(),
+        );
+    };
+    let scoped = without_whole(global);
+    let account = account_for(config, &scoped, None, &projects)?;
+    let client = Client::for_account(config, &account, &global.agent)?;
+    let code = client
+        .set_grant(args.id, &grant)
+        .map_err(crate::card::refusal)?;
+    if global.json {
+        let mut value = serde_json::to_value(&code).map_err(|e| e.to_string())?;
+        value["space"] = space_ref(config, &account);
+        return print_json(&value);
+    }
+    let held = code.grant.clone().unwrap_or(grant);
+    if held.parked() {
+        out!(
+            "code {} of {} <{}> is parked: it opens nothing and is not revoked; no one was mailed",
+            code.id,
+            code.name,
+            code.email
+        );
+    } else {
+        out!(
+            "code {} of {} <{}> now grants {}; no one was mailed",
+            code.id,
+            code.name,
+            code.email,
+            held.words()
+        );
+    }
+    Ok(())
 }
 
 fn otpauth(email: &str, key: &str) -> String {
@@ -1041,13 +1511,18 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
         Some(InvitesAction::Delete(a)) => {
             return codes::delete(config, global, args.host.as_deref(), a);
         }
+        Some(InvitesAction::Set(a)) => return grant_set(config, global, a),
         None => {}
     }
     let mut codes = match demo(global) {
         Some(d) => d
             .codes()
             .into_iter()
-            .filter(|c| args.host.as_ref().is_none_or(|h| c.hosts.contains(h)))
+            .filter(|c| {
+                args.host
+                    .as_ref()
+                    .is_none_or(|h| c.hosts.contains(h) || c.reaches(h, config.project_of_host(h)))
+            })
             .collect(),
         None => client_for(config, global, args.host.as_deref())?
             .0
@@ -1070,14 +1545,14 @@ fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), S
             role.to_owned()
         };
         out!(
-            "{:>4}  {}  {} <{}>  {role}  ...{}  {}  hosts: {}  last used: {}",
+            "{:>4}  {}  {} <{}>  {role}  ...{}  {}  grant: {}  last used: {}",
             code.id,
             code_state(code),
             code.name,
             code.email,
             code.hint,
             when(&code.created_at),
-            code.hosts.join(", "),
+            code.reach(),
             code.last_used_at
                 .as_deref()
                 .map_or("never".to_owned(), when),
@@ -1165,6 +1640,10 @@ fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
                 .host
                 .as_ref()
                 .is_none_or(|h| s.host.as_ref() == Some(h))
+            && (args.project.is_empty()
+                || s.project
+                    .as_ref()
+                    .is_some_and(|p| args.project.iter().any(|w| w.eq_ignore_ascii_case(p))))
             && (!args.mine || s.reporter.email == crate::tui::demo::ME.1)
             && text.is_none_or(|t| s.title.to_lowercase().contains(&t))
             && args.label.iter().all(|l| {
@@ -1186,8 +1665,13 @@ fn demo_list(global: &Global, args: &ListArgs) -> Option<Vec<Summary>> {
 
 fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String> {
     if let Some(found) = demo_list(global, args) {
-        return listed(found, false, global);
+        return listed(found, false, global, Vec::new());
     }
+    let projects = args
+        .project
+        .iter()
+        .map(|p| crate::card::project(p))
+        .collect::<Result<Vec<_>, _>>()?;
     let accounts: Vec<String> = if args.all && global.account.is_none() {
         config.accounts.keys().cloned().collect()
     } else {
@@ -1195,7 +1679,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     };
     let holder = crate::config::key_holder(config)?;
     if accounts.is_empty() {
-        return Err("no account yet; run p99 setup".into());
+        return Err("no space yet; run p99 setup".into());
     }
     let host = if args.all || args.host.is_none() {
         Some("*".to_owned())
@@ -1220,6 +1704,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 q: args.query.clone(),
                 cursor: cursor.clone(),
                 host: host.clone(),
+                project: projects.clone(),
                 label: args.label.iter().cloned().collect(),
                 limit: (limit - taken).min(100) as i64,
             };
@@ -1238,7 +1723,8 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         more |= cursor.is_some();
     }
     more |= newest(&mut found, limit);
-    listed(found, more, global)
+    let spaces = accounts.iter().map(|a| space_ref(config, a)).collect();
+    listed(found, more, global, spaces)
 }
 
 fn newest(found: &mut Vec<Summary>, limit: usize) -> bool {
@@ -1248,9 +1734,20 @@ fn newest(found: &mut Vec<Summary>, limit: usize) -> bool {
     cut
 }
 
-fn listed(found: Vec<Summary>, more: bool, global: &Global) -> Result<(), String> {
+fn listed(
+    found: Vec<Summary>,
+    more: bool,
+    global: &Global,
+    mut spaces: Vec<Value>,
+) -> Result<(), String> {
     if global.json {
-        return print_json(&json!({"issues": found, "more": more}));
+        let mut value = json!({"issues": found, "more": more});
+        if spaces.len() == 1 {
+            value["space"] = spaces.remove(0);
+        } else if !spaces.is_empty() {
+            value["spaces"] = Value::Array(spaces);
+        }
+        return print_json(&value);
     }
     if found.is_empty() {
         println!("no items");
@@ -1828,5 +2325,60 @@ mod tests {
         assert_eq!(found[0].key, "BUG-2");
         let mut none: Vec<Summary> = Vec::new();
         assert!(!newest(&mut none, 1));
+    }
+
+    fn masks(raw: &[&str]) -> Result<Vec<String>, String> {
+        super::masks_of(&raw.iter().map(|m| (*m).to_owned()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn masks_are_trimmed_deduplicated_and_none_clears() {
+        assert_eq!(
+            masks(&[" #a ", ".b, .c", "#a"]).unwrap(),
+            ["#a", ".b, .c"].map(String::from)
+        );
+        assert_eq!(masks(&["none"]).unwrap(), Vec::<String>::new());
+        assert_eq!(masks(&["NONE"]).unwrap(), Vec::<String>::new());
+        assert!(masks(&["none", "#a"]).is_err());
+        assert!(masks(&[" "]).is_err());
+    }
+
+    #[test]
+    fn masks_are_held_to_fifty_selectors_of_two_hundred_characters() {
+        let many: Vec<String> = (0..50).map(|n| format!(".m{n}")).collect();
+        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
+        assert_eq!(masks(&refs).unwrap().len(), 50);
+        let mut over = refs.clone();
+        over.push(".one-more");
+        assert_eq!(
+            masks(&over).unwrap_err(),
+            "a host takes at most 50 mask selectors"
+        );
+        let edge = "a".repeat(200);
+        assert!(masks(&[edge.as_str()]).is_ok());
+        let long = "a".repeat(201);
+        assert!(
+            masks(&[long.as_str()])
+                .unwrap_err()
+                .starts_with("a mask selector has at most 200 characters")
+        );
+    }
+
+    #[test]
+    fn a_host_pushes_its_masks_and_only_capture_off() {
+        let host = Host {
+            mask: vec!["#a".into()],
+            capture: Some("off".into()),
+            ..Host::default()
+        };
+        let pushed = host.pushed();
+        assert_eq!(pushed["mask"], serde_json::json!(["#a"]));
+        assert_eq!(pushed["capture"], "off");
+        let on = Host {
+            capture: Some("on".into()),
+            ..Host::default()
+        };
+        assert!(on.pushed().get("capture").is_none());
+        assert!(on.pushed().get("mask").is_none());
     }
 }

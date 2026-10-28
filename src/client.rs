@@ -10,9 +10,9 @@ use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
 use crate::wire::{
-    Attachment, Build, Change, Code, Comment, Download, EnvEntry, HostEntry, ImportFinish,
+    Attachment, Build, Change, Code, Comment, Download, EnvEntry, Grant, HostEntry, ImportFinish,
     ImportReport, Issue, IssueList, LabelEntry, ListQuery, Member, Minted, MoveTo, MovedCard,
-    NewCode, NewIssue, Thread,
+    NewCode, NewIssue, SpaceView, Thread,
 };
 
 const KEY_ID: &str = "p99";
@@ -69,14 +69,14 @@ impl Client {
         let entry = config
             .accounts
             .get(account)
-            .ok_or_else(|| format!("no account is called {account}"))?;
+            .ok_or_else(|| format!("no space is called {account}"))?;
         let key = crate::config::key(entry, holder == Some(account))?.into_bytes();
         let access = match (&entry.access_client_id, &entry.access_client_secret) {
             (None, None) => None,
             (Some(id), Some(secret)) => Some((id.clone(), crate::config::secret(secret)?)),
             _ => {
                 return Err(format!(
-                    "the account {account} needs both access_client_id and access_client_secret, or neither"
+                    "the space {account} needs both access_client_id and access_client_secret, or neither"
                 ));
             }
         };
@@ -145,6 +145,7 @@ impl Client {
             ("limit", Some(q.limit.clamp(1, 100).to_string())),
         ];
         pairs.extend(q.label.iter().map(|l| ("label", Some(l.clone()))));
+        pairs.extend(q.project.iter().map(|p| ("project", Some(p.clone()))));
         let pq = format!("/v1/issues{}", query(&pairs));
         self.json("GET", &pq, None)
     }
@@ -171,14 +172,6 @@ impl Client {
             &format!("/v1/board{}", crate::one_board::query(q)),
             None,
         )
-    }
-
-    pub fn old_boards(&self) -> Result<Value, String> {
-        let raw: Value = self.json("GET", &self.scoped("/v1/boards"), None)?;
-        if raw.get("deprecated").is_none() {
-            return Err(crate::one_board::OLD_WORKER.to_owned());
-        }
-        Ok(raw)
     }
 
     pub fn waiting(&self) -> Result<crate::one_board::Waiting, String> {
@@ -264,9 +257,37 @@ impl Client {
         field(list, "hosts")
     }
 
-    pub fn put_host(&self, host: &str, env: &str, config: &Value) -> Result<HostEntry, String> {
+    pub fn put_host(
+        &self,
+        host: &str,
+        env: &str,
+        config: &Value,
+        project: Option<&str>,
+    ) -> Result<HostEntry, String> {
         let pq = format!("/v1/hosts/{}", segment(host)?);
-        self.json("PUT", &pq, Some(json!({"env": env, "config": config})))
+        let mut body = json!({"env": env, "config": config});
+        if let Some(project) = project {
+            body["project"] = json!(project);
+        }
+        self.json("PUT", &pq, Some(body))
+    }
+
+    pub fn move_host(&self, host: &str, project: &str) -> Result<HostEntry, String> {
+        let pq = format!("/v1/hosts/{}", segment(host)?);
+        self.json("PATCH", &pq, Some(json!({"project": project})))
+    }
+
+    pub fn space(&self) -> Result<SpaceView, String> {
+        self.json("GET", "/v1/space", None)
+    }
+
+    pub fn add_project(&self, name: &str) -> Result<Value, String> {
+        self.json("POST", "/v1/projects", Some(json!({"name": name})))
+    }
+
+    pub fn rename_project(&self, from: &str, to: &str) -> Result<Value, String> {
+        let pq = format!("/v1/projects/{}", encode(from));
+        self.json("PATCH", &pq, Some(json!({"name": to})))
     }
 
     pub fn remove_host(&self, host: &str) -> Result<(), String> {
@@ -300,6 +321,14 @@ impl Client {
     pub fn mint(&self, code: &NewCode) -> Result<Minted, String> {
         let body = serde_json::to_value(code).map_err(|e| e.to_string())?;
         self.json("POST", "/v1/codes", Some(body))
+    }
+
+    pub fn set_grant(&self, id: i64, grant: &Grant) -> Result<Code, String> {
+        self.json(
+            "PATCH",
+            &format!("/v1/codes/{id}"),
+            Some(json!({"grant": grant})),
+        )
     }
 
     pub fn relink(&self, id: i64, relink: &crate::wire::Relink) -> Result<Minted, String> {
@@ -565,7 +594,7 @@ impl Client {
                 crate::wire::clean(&to)
             ),
             None => format!(
-                "every host of the account {} is behind Cloudflare Access, which answered with its login; set `url` for the account to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
+                "every host of the space {} is behind Cloudflare Access, which answered with its login; set `url` for the space to a host that isn't, or set access_client_id and access_client_secret (docs/config.md)",
                 self.account
             ),
         }
@@ -1045,7 +1074,7 @@ mod tests {
             .json::<Value>("GET", "/v1/hosts", None)
             .unwrap_err();
         assert!(
-            said.starts_with("every host of the account main is behind Cloudflare Access"),
+            said.starts_with("every host of the space main is behind Cloudflare Access"),
             "{said}"
         );
     }

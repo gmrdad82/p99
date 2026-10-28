@@ -5,7 +5,7 @@ sidebar:
   order: 5
 ---
 
-An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same account key. What it writes is marked: its items, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (pci)` in `p99 show`, `via pci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
+An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same space key. What it writes is marked: its items, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (pci)` in `p99 show`, `via pci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
 
 ## Mark an agent's commands
 
@@ -17,7 +17,7 @@ Any one of these marks the commands:
 | `--agent=<label>` | one command, with a label that says which agent (the `=` is needed) |
 | `P99_AGENT=<label>` in the environment | every command of that shell or process, with the label; `1` or `true` marks with no label, `0` or `false` turns the mark off, empty is as if unset |
 | `agent = true` in the config's `[me]` table | every command; `P99_AGENT=0` (or `false`) turns it off for one shell |
-| `agent = true` in `[accounts.<name>.me]` | every command on that account; `P99_AGENT=0` (or `false`) turns it off for one shell |
+| `agent = true` in `[spaces.<name>.me]` | every command on that space; `P99_AGENT=0` (or `false`) turns it off for one shell |
 
 `--agent=<label>` wins over `P99_AGENT`, and a bare `--agent` keeps `P99_AGENT`'s label. A label has up to 80 characters (longer ones are cut, control characters dropped) and shows in the thread's details, so you can tell which agent did what. Give the agent `P99_AGENT` in the environment it runs in, so it can't forget the flag:
 

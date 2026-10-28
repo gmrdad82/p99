@@ -122,6 +122,33 @@ fn list_json_is_the_issues_and_whether_more_follow() {
 }
 
 #[test]
+fn list_json_names_the_space_it_read() {
+    let h = home("list-json-space");
+    let answer = h.p99(&["list", "--json"]).json();
+    assert_eq!(answer["space"], json!({"slug": "main", "name": "PITO MD"}));
+    assert!(answer.get("spaces").is_none());
+}
+
+#[test]
+fn list_takes_project_repeatedly_and_sends_each_one() {
+    let h = home("list-projects");
+    h.p99(&["list", "--project", "Shop", "--project", "  Blog  "])
+        .ok();
+    let call = h.stub.call("GET", "/_p99/v1/issues");
+    assert_eq!(call.params("project"), ["Shop", "Blog"]);
+    let bare = home("list-no-projects");
+    bare.p99(&["list"]).ok();
+    assert!(
+        bare.stub
+            .call("GET", "/_p99/v1/issues")
+            .params("project")
+            .is_empty()
+    );
+    h.p99(&["list", "--project", "  "])
+        .refused("a project name has 1 to 40 characters");
+}
+
+#[test]
 fn list_follows_the_cursor_until_the_limit_and_says_more_follow() {
     let h = Home::new("list-pages", |req: &Req| {
         if !req.is("GET", "/_p99/v1/issues") {
@@ -298,14 +325,14 @@ fn a_worker_that_is_gone_cannot_be_reached() {
 }
 
 #[test]
-fn list_without_a_config_or_with_an_unknown_account_says_what_to_do() {
+fn list_without_a_config_or_with_an_unknown_space_says_what_to_do() {
     let h = home("list-noconfig");
     std::fs::remove_file(h.file()).unwrap();
-    h.p99(&["list"]).refused("no account yet; run p99 setup");
+    h.p99(&["list"]).refused("no space yet; run p99 setup");
     assert!(h.stub.seen().is_empty());
     let h = home("list-unknown");
-    h.p99(&["list", "--account", "work"])
-        .refused("no account is called work");
+    h.p99(&["list", "--space", "work"])
+        .refused("no space is called work");
     assert!(h.stub.seen().is_empty());
 }
 

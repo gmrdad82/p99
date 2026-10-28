@@ -1,5 +1,5 @@
 ---
-title: Set up an account
+title: Set up a space
 description: Run p99 setup to put P99 on a Cloudflare account, with the API token's permissions and every question it asks.
 sidebar:
   order: 1
@@ -31,7 +31,7 @@ p99 setup
 
 The steps and what each asks:
 
-1. **You.** Your name, as P99 shows it, and your e-mail, which becomes the account's first Owner. The CLI and the TUI act as you. The first time, they go to `[me]`; when you add another account, setup asks whether you act as that same person there, and a different name or e-mail (or `--name` and `--email` that differ from `[me]`) goes to that account's `[accounts.<name>.me]` ([the configuration](../reference/formats.md#configuration)).
+1. **You.** Your name, as P99 shows it, and your e-mail, which becomes the account's first Owner. The CLI and the TUI act as you. The first time, they go to `[me]`; when you add another account, setup asks whether you act as that same person there, and a different name or e-mail (or `--name` and `--email` that differ from `[me]`) goes to that account's `[spaces.<name>.me]` ([the configuration](../reference/formats.md#configuration)).
 2. **The Cloudflare token.** Pasted without echo. When the token reaches several accounts, setup lists them and asks which one.
 3. **The D1 database** `p99`, which keeps items, comments, events, codes, hosts and environments.
 4. **The schema.** Migrations are applied in order and recorded in `d1_migrations`, as wrangler records them.
@@ -84,11 +84,11 @@ p99 setup --yes --name "Ada Lovelace" --email ada@example.com \
 p99 email set --provider resend --key-ref op://vault/item/field --from "P99 <p99@example.com>"
 ```
 
-`--key-ref` names where the key lives: `op://vault/item/field` reads it through the 1Password CLI, `env:NAME` from the environment. P99 reads the key, checks with Resend that the sender's domain is verified, puts the key in the Worker as its secret `RESEND_API_KEY` and the sender in the database; the key never touches a file. A key made for sending only can't list domains: P99 then says it couldn't check, saves it anyway, and `p99 email show` keeps that note. `p99 email show` prints the provider, the sender and whether the Worker holds a key (`--json` too), and `p99 email off` turns mail off and removes the key from the Worker. Each takes `--account`.
+`--key-ref` names where the key lives: `op://vault/item/field` reads it through the 1Password CLI, `env:NAME` from the environment. P99 reads the key, checks with Resend that the sender's domain is verified, puts the key in the Worker as its secret `RESEND_API_KEY` and the sender in the database; the key never touches a file. A key made for sending only can't list domains: P99 then says it couldn't check, saves it anyway, and `p99 email show` keeps that note. `p99 email show` prints the provider, the sender and whether the Worker holds a key (`--json` too), and `p99 email off` turns mail off and removes the key from the Worker. Each takes `--space`.
 
-## More than one account
+## More than one space
 
-Run `p99 setup --account <name>` with a token for another Cloudflare account: it adds that account beside the first, and the others stay as they are. Every command then takes `--account <name>`, and a command that names a host uses that host's account. Run `p99 setup` again at any time to add hosts or finish a setup that stopped; it picks up the account it finds in the config.
+Run `p99 setup --space <slug>` with a token for another Cloudflare account: it adds that space beside the first, and the others stay as they are. Every command then takes `--space <slug>`, and a command that names a host uses that host's account. Run `p99 setup` again at any time to add hosts or finish a setup that stopped; it picks up the account it finds in the config.
 
 ## Next
 

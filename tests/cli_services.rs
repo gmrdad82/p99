@@ -919,7 +919,7 @@ fn email_set_checks_the_sender_stores_it_and_hands_the_key_to_the_worker() {
     assert_eq!(
         out.lines(),
         [
-            "mail is on for the account main: Resend, from P99 <p99@example.com>",
+            "mail is on for the space main: Resend, from P99 <p99@example.com>",
             "the key is the Worker's secret RESEND_API_KEY",
         ]
     );
@@ -954,7 +954,7 @@ fn email_set_checks_the_sender_stores_it_and_hands_the_key_to_the_worker() {
     );
     assert_eq!(
         out.json(),
-        json!({"account": "main", "on": true, "provider": "resend", "from": "p99@example.com", "note": null})
+        json!({"space": "main", "on": true, "provider": "resend", "from": "p99@example.com", "note": null})
     );
 }
 
@@ -1091,10 +1091,10 @@ fn email_set_on_an_old_database_says_to_deploy_first() {
         ],
         &[("P99_TEST_RESEND", "re_example")],
     )
-    .refused("the account's database has no mail settings yet; run p99 deploy first");
+    .refused("the space's database has no mail settings yet; run p99 deploy first");
     assert!(h.stub.calls("PUT", SECRETS).is_empty());
     h.p99(&["email", "show"])
-        .refused("the account's database has no mail settings yet; run p99 deploy first");
+        .refused("the space's database has no mail settings yet; run p99 deploy first");
 }
 
 #[test]
@@ -1119,7 +1119,7 @@ fn email_set_moves_the_old_config_mail_lines_out_of_the_config() {
         &[("P99_TEST_RESEND", "re_example")],
     )
     .ok();
-    let account = &h.toml()["accounts"]["main"];
+    let account = &h.toml()["spaces"]["main"];
     assert!(account.get("resend_key").is_none());
     assert!(account.get("mail_from").is_none());
     assert_eq!(account["key"].as_str(), Some(stub::KEY));
@@ -1132,12 +1132,12 @@ fn email_off_stores_off_and_drops_the_key() {
     out.ok();
     assert_eq!(
         out.stdout,
-        "mail is off for the account main, and the Worker no longer holds a mail key\n"
+        "mail is off for the space main, and the Worker no longer holds a mail key\n"
     );
     assert_eq!(d1(&h)[0].json()["params"], json!(["off", null, null]));
     h.stub.call("DELETE", &format!("{SECRETS}/RESEND_API_KEY"));
     let answer = h.p99(&["email", "off", "--json"]).json();
-    assert_eq!(answer, json!({"account": "main", "on": false}));
+    assert_eq!(answer, json!({"space": "main", "on": false}));
 }
 
 #[test]
@@ -1158,7 +1158,7 @@ fn email_show_reads_the_database_the_secret_and_an_old_binding() {
     assert_eq!(
         out.lines(),
         [
-            "account   main",
+            "space     main",
             "mail      on",
             "provider  resend",
             "from      P99 <p99@example.com>",
@@ -1185,7 +1185,7 @@ fn email_show_reads_the_database_the_secret_and_an_old_binding() {
     assert_eq!(
         out.lines(),
         [
-            "account   main",
+            "space     main",
             "mail      off",
             "provider  resend",
             "from      Old <old@example.com>",
@@ -1210,11 +1210,11 @@ fn email_show_reads_the_database_the_secret_and_an_old_binding() {
 }
 
 #[test]
-fn email_without_an_account_says_run_setup() {
+fn email_without_a_space_says_run_setup() {
     let h = home("email-none");
     std::fs::remove_file(h.file()).unwrap();
     h.p99(&["email", "show"])
-        .refused("no account yet; run p99 setup");
+        .refused("no space yet; run p99 setup");
 }
 
 #[test]
@@ -1225,7 +1225,7 @@ fn app_prints_the_page_address_from_the_config_or_the_workers_dev_subdomain() {
     assert_eq!(out.stdout, "https://p99.example.workers.dev/\n");
     assert_eq!(
         h.p99(&["app", "--json"]).json(),
-        json!({"account": "main", "app": "https://p99.example.workers.dev/", "own": false})
+        json!({"space": "main", "app": "https://p99.example.workers.dev/", "own": false})
     );
     let stub = Stub::new(fake::any);
     let own = Home::with_config(
@@ -1250,7 +1250,7 @@ fn app_prints_the_page_address_from_the_config_or_the_workers_dev_subdomain() {
         }
     });
     none.p99(&["app"]).refused(
-        "the account has no workers.dev subdomain, so the P99 page has no address; pick one in the Cloudflare dashboard (Workers & Pages) or set app = \"<host>\" for the account in the config, then run p99 deploy",
+        "the Cloudflare account has no workers.dev subdomain, so the P99 page has no address; pick one in the Cloudflare dashboard (Workers & Pages) or set app = \"<host>\" for the space in the config, then run p99 deploy",
     );
 }
 

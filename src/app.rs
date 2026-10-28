@@ -4,7 +4,7 @@ use crate::cli::Global;
 use crate::cloudflare::Cloudflare;
 use crate::config::{Account, Config};
 
-pub const NO_SUBDOMAIN: &str = "the account has no workers.dev subdomain, so the P99 page has no address; pick one in the Cloudflare dashboard (Workers & Pages) or set app = \"<host>\" for the account in the config, then run p99 deploy";
+pub const NO_SUBDOMAIN: &str = "the Cloudflare account has no workers.dev subdomain, so the P99 page has no address; pick one in the Cloudflare dashboard (Workers & Pages) or set app = \"<host>\" for the space in the config, then run p99 deploy";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Address {
@@ -59,7 +59,7 @@ pub fn run(global: &Global) -> Result<(), String> {
     if global.json {
         println!(
             "{}",
-            json!({ "account": name, "app": found.url(), "own": matches!(found, Address::Own(_)) })
+            json!({ "space": name, "app": found.url(), "own": matches!(found, Address::Own(_)) })
         );
     } else {
         println!("{}", found.url());

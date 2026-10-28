@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::card::{Card, Lane, Person, Source};
 
 pub const DEPRECATED: &str =
-    "p99 boards is deprecated: one board per account since 1.11; p99 board prints it";
+    "p99 boards is deprecated: one board per space since 1.11; p99 board prints it";
 pub const OLD_WORKER: &str =
     "this Worker still has a board per person; run p99 deploy for the one board";
 pub const NO_LANES: &str = "this board has no lanes yet; run p99 deploy";
@@ -49,23 +49,6 @@ pub struct OneBoard {
     pub board: Lanes,
     #[serde(default)]
     pub cards: Vec<BoardCard>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct OldBoards {
-    pub deprecated: String,
-    pub board: Lanes,
-    #[serde(default)]
-    pub cards: Vec<BoardCard>,
-}
-
-impl OldBoards {
-    pub fn one(self) -> OneBoard {
-        OneBoard {
-            board: self.board,
-            cards: self.cards,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -393,21 +376,6 @@ mod tests {
             board_lines(&stray_only),
             [format!("  {:<9} {:<12} FEAT-3 title  in New", "FEAT-3", "")]
         );
-    }
-
-    #[test]
-    fn the_old_boards_answer_reads_as_the_one_board_and_ignores_an_old_archive_list() {
-        let old: OldBoards = serde_json::from_value(serde_json::json!({
-            "deprecated": "one board per account since 1.11; read /board",
-            "board": {"lanes": [{"word": "new", "label": "New", "closes": false}]},
-            "cards": [],
-            "archived": [{"id": 2, "name": "Web", "archived": true}]
-        }))
-        .unwrap();
-        let one = old.one();
-        assert_eq!(one.board.lanes.len(), 1);
-        assert!(one.cards.is_empty());
-        assert!(board_lines(&one).iter().all(|l| !l.contains("archived")));
     }
 
     #[test]

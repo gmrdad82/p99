@@ -7,7 +7,7 @@ p99 import ./bundle --host example.com --dry-run
 p99 import ./bundle --host example.com
 ```
 
-`--host` names a host P99 already serves (`p99 hosts add` first); every imported item belongs to it. `--json` prints the summary as JSON and sends the progress lines to standard error. Imports sign with the account's own key, so they run from the CLI only, and the daily limits never apply to them.
+`--host` names a host P99 already serves (`p99 hosts add` first); every imported item belongs to it. `--json` prints the summary as JSON and sends the progress lines to standard error. Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them.
 
 ## The bundle
 
@@ -91,7 +91,7 @@ The command ends with a summary (JSON with `--json`) and exits with an error whe
 
 ## Numbering
 
-P99 keys every item `<PREFIX>-<number>` over one numbering for all kinds (`BUG` `FEAT` `IMP` `Q` `TASK`). An imported item keeps its number, so a bundle must not use one number twice, even across kinds. New items continue above the highest number in the account: after importing `BUG-7`, the next item filed is 8 or higher. A number already held by an item with another title is a conflict; import into a fresh account, or renumber the bundle, to avoid them.
+P99 keys every item `<PREFIX>-<number>` over one numbering for all kinds (`BUG` `FEAT` `IMP` `Q` `TASK`). An imported item keeps its number, so a bundle must not use one number twice, even across kinds. New items continue above the highest number in the space: after importing `BUG-7`, the next item filed is 8 or higher. A number already held by an item with another title is a conflict; import into a fresh space, or renumber the bundle, to avoid them.
 
 ## The routes
 

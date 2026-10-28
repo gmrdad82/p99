@@ -479,11 +479,31 @@ pub fn scratch(name: &str) -> PathBuf {
     dir
 }
 
+pub fn project_of(host: &str) -> &'static str {
+    if host == "shop.example.com" {
+        "Shop"
+    } else {
+        "Blog"
+    }
+}
+
+pub fn projects_of(hosts: &[&str]) -> Vec<&'static str> {
+    let mut projects: Vec<&'static str> = Vec::new();
+    for host in hosts {
+        let project = project_of(host);
+        if !projects.contains(&project) {
+            projects.push(project);
+        }
+    }
+    projects
+}
+
 pub fn code(id: i64, name: &str, email: &str, hosts: &[&str]) -> Value {
     json!({
         "id": id,
         "name": name,
         "email": email,
+        "grant": {"projects": projects_of(hosts)},
         "hosts": hosts,
         "manager": false,
         "hint": "k3x9",
@@ -537,7 +557,7 @@ pub fn thread(id: i64, title: &str) -> Value {
 }
 
 pub fn host_entry(host: &str, env: &str) -> Value {
-    json!({"host": host, "env": env, "config": {}, "created_at": "2026-10-01T09:30:00.000Z"})
+    json!({"host": host, "env": env, "config": {}, "project": project_of(host), "created_at": "2026-10-01T09:30:00.000Z"})
 }
 
 pub fn minted(id: i64, name: &str, email: &str, hosts: &[&str], mail: Option<&str>) -> Value {

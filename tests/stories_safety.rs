@@ -169,7 +169,7 @@ fn home(base: &str, access: &[(&str, &str)]) -> Home {
         .map(|(k, v)| format!("{k} = \"{v}\"\n"))
         .collect();
     let text = format!(
-        "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n\n[accounts.main]\naccount_id = \"0000\"\ntoken = \"\"\nkey = \"{KEY}\"\nurl = \"{base}\"\n{pairs}\n[hosts.\"example.com\"]\naccount = \"main\"\n"
+        "[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n\n[spaces.main]\naccount_id = \"0000\"\ntoken = \"\"\nkey = \"{KEY}\"\nurl = \"{base}\"\n{pairs}\n[hosts.\"example.com\"]\nspace = \"main\"\n"
     );
     let config = dir.join("config.toml");
     fs::write(&config, text).unwrap();
