@@ -143,7 +143,8 @@ pub fn render(out: &mut String, plan: &Value) {
             "  events and lanes can't be counted until the steps before 0016 have run, so the deploy checks the items, comments and attachments\n",
         ),
     }
-    out.push_str("  the deploy counts again inside 0017: if any count differs, 0017 rolls back, nothing is deleted, and the Worker is not uploaded\n");
+    out.push_str("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n");
+    out.push_str("  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n");
 }
 
 fn checks(plan: &Value) -> Vec<(String, i64, String)> {
@@ -216,7 +217,7 @@ pub fn refusal(plan: &Value, message: &str) -> Option<String> {
         None => format!("the {name}"),
     };
     Some(format!(
-        "the count check stopped 0017: {what} no longer count {want} as the plan said, so 0017 rolled back: nothing is deleted and the Worker is not uploaded; read `p99 migrate --plan` again"
+        "the count check stopped 0017: {what} no longer count {want} as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again"
     ))
 }
 
@@ -308,7 +309,7 @@ mod tests {
         let out = rendered(&webram());
         assert_eq!(
             out,
-            "\nCount check\n  before: 70 items, 140 comments, 35 attachments, 210 events\n  before, by label: Doing 1, Inbox 69\n  after:  70 items, 140 comments, 35 attachments, 280 events\n  after, by lane: New 69, In progress 1\n  the events grow by the 70 migrated label events and by nothing else\n  the deploy counts again inside 0017: if any count differs, 0017 rolls back, nothing is deleted, and the Worker is not uploaded\n"
+            "\nCount check\n  before: 70 items, 140 comments, 35 attachments, 210 events\n  before, by label: Doing 1, Inbox 69\n  after:  70 items, 140 comments, 35 attachments, 280 events\n  after, by lane: New 69, In progress 1\n  the events grow by the 70 migrated label events and by nothing else\n  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"
         );
         let one = json!({"count_check": shape(&json!({"items": 1, "comments": 1, "attachments": 1, "events": 1}), Some(&[]), Some(&[lane(6, 1, 1)]))});
         let out = rendered(&one);
@@ -377,7 +378,7 @@ mod tests {
                 "CHECK constraint failed: count_check_comments: SQLITE_CONSTRAINT"
             )
             .unwrap(),
-            "the count check stopped 0017: the comments no longer count 140 as the plan said, so 0017 rolled back: nothing is deleted and the Worker is not uploaded; read `p99 migrate --plan` again"
+            "the count check stopped 0017: the comments no longer count 140 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again"
         );
         assert!(
             refusal(&plan, "CHECK constraint failed: count_check_lane_0")

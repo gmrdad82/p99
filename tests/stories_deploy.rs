@@ -103,11 +103,12 @@ fn refused(status: u16, code: i64, message: &str) -> (u16, Value) {
     )
 }
 
-fn recorded(sql: &str) -> Option<String> {
+fn recorded(sql: &str) -> Vec<String> {
     let start = "INSERT INTO d1_migrations (name) VALUES ('";
-    let at = sql.find(start)? + start.len();
-    let rest = &sql[at..];
-    Some(rest[..rest.find("')")?].to_owned())
+    sql.split(start)
+        .skip(1)
+        .filter_map(|rest| rest.find("')").map(|end| rest[..end].to_owned()))
+        .collect()
 }
 
 fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
@@ -127,11 +128,12 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
         cf.table = true;
         return rows(json!([]));
     }
-    if let Some(name) = recorded(&sql) {
+    let names = recorded(&sql);
+    if !names.is_empty() {
         if !cf.table {
             return refused(400, 7500, "no such table: d1_migrations: SQLITE_ERROR");
         }
-        if cf.fail.as_deref() == Some(name.as_str()) {
+        if names.iter().any(|n| cf.fail.as_deref() == Some(n.as_str())) {
             return refused(
                 400,
                 7500,
@@ -139,7 +141,7 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
                     .unwrap_or("near \"github\": syntax error: SQLITE_ERROR"),
             );
         }
-        cf.applied.push(name);
+        cf.applied.extend(names);
         return rows(json!([]));
     }
     if sql.starts_with("INSERT OR IGNORE INTO mail ") {
@@ -473,7 +475,7 @@ impl Home {
     fn inserted(&self) -> Vec<String> {
         self.calls()
             .iter()
-            .filter_map(|c| c.sql().and_then(|s| recorded(&s)))
+            .flat_map(|c| c.sql().map(|s| recorded(&s)).unwrap_or_default())
             .collect()
     }
 
@@ -755,11 +757,11 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
         .expect("the migrations table was never made");
     let first = calls
         .iter()
-        .position(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .position(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let upload = calls.iter().position(Call::upload).expect("no upload");
     assert!(table < first && last < upload);
@@ -1195,13 +1197,17 @@ fn an_account_at_0016_counts_before_and_after_and_a_count_that_differs_inside_00
     assert_eq!(out.code, Some(1));
     assert_eq!(
         out.stderr,
-        "p99: the count check stopped 0017: the comments no longer count 4 as the plan said, so 0017 rolled back: nothing is deleted and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+        "p99: the count check stopped 0017: the comments no longer count 4 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again\n"
     );
     let guarded: Vec<String> = h
         .calls()
         .iter()
         .filter_map(Call::sql)
-        .filter(|sql| recorded(sql).as_deref() == Some("0017_delete_archived.sql"))
+        .filter(|sql| {
+            recorded(sql)
+                .iter()
+                .any(|n| n == "0017_delete_archived.sql")
+        })
         .collect();
     assert_eq!(guarded.len(), 1);
     let at = guarded[0]
@@ -1220,6 +1226,46 @@ fn an_account_at_0016_counts_before_and_after_and_a_count_that_differs_inside_00
     }
     assert!(h.upload().is_none());
     assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&plan, &out], &[]);
+}
+
+#[test]
+fn an_account_at_0015_refused_by_the_count_check_rolls_0016_back_with_0017_and_its_old_worker_keeps_its_boards()
+ {
+    let mut rows = count_rows();
+    rows.extend(v110_rows());
+    rows.extend(v19_rows());
+    let mut cf = live(&SHIPPED[..15], rows);
+    cf.fail = Some("0017_delete_archived.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: count_check_events: SQLITE_CONSTRAINT");
+    let h = home("count-check-0015", &plain_config(), cf);
+
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    assert!(plan.stdout.contains("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"), "{}", plan.stdout);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &plan_hash(&plan.stdout)]);
+    assert_eq!(out.code, Some(1));
+    assert_eq!(
+        out.stderr,
+        "p99: the count check stopped 0017: the events no longer count 11 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+    );
+    let sent: Vec<String> = h
+        .calls()
+        .iter()
+        .filter_map(Call::sql)
+        .filter(|sql| !recorded(sql).is_empty())
+        .collect();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(recorded(&sent[0]), names(&SHIPPED[15..]));
+    let at = |what: &str| sent[0].find(what).unwrap_or_else(|| panic!("{what}"));
+    assert!(at("VALUES ('0016_one_board.sql')") < at("DROP TABLE IF EXISTS archived"));
+    assert!(at("DROP TABLE IF EXISTS archived") < at("CREATE TABLE count_check"));
+    assert!(at("CREATE TABLE count_check") < at("VALUES ('0017_delete_archived.sql')"));
+    assert!(h.upload().is_none());
+    assert_eq!(h.applied(), names(&SHIPPED[..15]));
+    assert!(!out.stdout.contains("applied 0016"), "{}", out.stdout);
     never_shows_a_secret(&[&plan, &out], &[]);
 }
 
@@ -1402,7 +1448,7 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 
@@ -1735,7 +1781,7 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 
@@ -1855,7 +1901,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 }
@@ -1932,7 +1978,7 @@ fn the_mail_sender_in_the_config_moves_only_with_an_accepted_deploy_and_only_onc
             .unwrap()
     };
     let mail = sql_at(&|s| s.starts_with("INSERT OR IGNORE INTO mail "));
-    assert!(mail > sql_at(&|s| recorded(s).as_deref() == Some("0008_mail.sql")));
+    assert!(mail > sql_at(&|s| recorded(s).iter().any(|n| n == "0008_mail.sql")));
     assert!(mail > calls.iter().position(Call::upload).unwrap());
 
     h.forget();
@@ -2197,7 +2243,7 @@ fn a_p99_page_on_its_own_host_gets_its_route_after_the_migrations() {
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     let added = calls
         .iter()
@@ -2242,7 +2288,7 @@ fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0015_with_
     let calls = h.calls();
     let last = calls
         .iter()
-        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .rposition(|c| c.sql().is_some_and(|s| !recorded(&s).is_empty()))
         .unwrap();
     assert!(calls.iter().position(Call::upload).unwrap() > last);
 }

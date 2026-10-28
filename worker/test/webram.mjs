@@ -246,30 +246,37 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     );
   });
 
-  await check("[webram] a count that differs after 0017 refuses the deploy: 0017 rolls back, nothing is deleted or uploaded, and the next plan runs 0017 alone", async () => {
+  await check("[webram] a count that differs after 0017 refuses the deploy: 0016 and 0017 roll back together, the 1.10 Worker still running reads its boards as before, nothing is uploaded, and the next plan runs both again", async () => {
     const db = fixture();
     const p = await plan();
     const comments = n(db, "SELECT count(*) AS n FROM comments");
     db.exec("CREATE TRIGGER lose_a_note AFTER DELETE ON boards BEGIN DELETE FROM comments WHERE id = (SELECT max(id) FROM comments WHERE internal = 1); END;");
+    const was = dumpSql(db);
+    const columns = [21, 22, 23].map((board) => ["Inbox", "Doing", "Review", "Done"].map((name) => columnOrder(db, board, name)));
+    assert.equal(columns[1][0].length, 69);
     const uploads = state.uploads;
+    state.sql = [];
     const refused = await run(["deploy", "--no-check", "--accept-plan", p.hash]);
     assert.equal(refused.status, 1);
     assert.equal(
       refused.stderr,
-      `p99: the count check stopped 0017: the comments no longer count ${comments} as the plan said, so 0017 rolled back: nothing is deleted and the Worker is not uploaded; read \`p99 migrate --plan\` again\n`,
+      `p99: the count check stopped 0017: the comments no longer count ${comments} as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it and the Worker is not uploaded; read \`p99 migrate --plan\` again\n`,
     );
     assert.equal(state.uploads, uploads);
-    assert.deepEqual(all(db, "SELECT name FROM d1_migrations WHERE name >= '0016'").map((r) => r.name), ["0016_one_board.sql"]);
-    assert.equal(n(db, "SELECT count(*) AS n FROM comments"), comments);
-    assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 0"), 3);
-    assert.equal(n(db, "SELECT count(*) AS n FROM sqlite_master WHERE name = 'archived'"), 1);
+    const sent = writes().filter((sql) => sql.includes("INSERT INTO d1_migrations"));
+    assert.equal(sent.length, 1);
+    assert.ok(sent[0].indexOf("('0016_one_board.sql')") < sent[0].indexOf("CREATE TABLE count_check"));
+    assert.equal(dumpSql(db), was);
+    assert.deepEqual(all(db, "SELECT name FROM d1_migrations WHERE name >= '0016'"), []);
+    assert.deepEqual([21, 22, 23].map((board) => ["Inbox", "Doing", "Review", "Done"].map((name) => columnOrder(db, board, name))), columns);
+    assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 1"), 0);
     assert.equal(n(db, "SELECT count(*) AS n FROM sqlite_master WHERE name LIKE 'prune\\_%' ESCAPE '\\' OR name = 'count_check'"), 0);
 
     db.exec("DROP TRIGGER lose_a_note;");
     const next = await plan();
-    assert.deepEqual(next.plan.pending, ["0017_delete_archived.sql"]);
-    assert.deepEqual(next.plan.count_check.after.lanes.filter((l) => l.items > 0).map((l) => [l.lane, l.items]), [["New", 69], ["In progress", 1], ["Done", 3]]);
-    assert.equal(next.plan.count_check.after.events, next.plan.count_check.before.events);
+    assert.deepEqual(next.plan.pending, ["0016_one_board.sql", "0017_delete_archived.sql"]);
+    assert.deepEqual(next.plan.count_check, p.plan.count_check);
+    assert.equal(next.hash, p.hash);
     const ok = await run(["deploy", "--no-check", "--accept-plan", next.hash]);
     assert.equal(ok.status, 0, ok.stderr);
     assert.equal(n(db, "SELECT count(*) AS n FROM comments"), comments);
@@ -285,8 +292,10 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     );
     const refused = await run(["deploy", "--no-check", "--accept-plan", p.hash]);
     assert.equal(refused.status, 1);
-    assert.match(refused.stderr, /^p99: the count check stopped 0017: the items in New no longer count 69 as the plan said, so 0017 rolled back: nothing is deleted/);
+    assert.match(refused.stderr, /^p99: the count check stopped 0017: the items in New no longer count 69 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it/);
     assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 0"), 3);
+    assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 1"), 0);
+    assert.deepEqual(all(db, "SELECT name FROM d1_migrations WHERE name >= '0016'"), []);
     assert.equal(writes().some((sql) => sql.includes("count_check_lane_0")), true);
   });
 }

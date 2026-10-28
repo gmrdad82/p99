@@ -788,20 +788,31 @@ fn apply(cf: &Cloudflare, entry: &Account, steps: Steps) -> Result<Migrated, Str
         done("every migration is applied");
     }
     let guard = steps.plan.as_ref().and_then(crate::counts::guard);
+    let mut batches: Vec<Vec<(&str, String)>> = Vec::new();
     for (name, sql) in steps.todo {
         let sql = match &guard {
             Some(guard) if name.starts_with("0017_") => format!("{}\n{guard}", sql.trim_end()),
             _ => sql.to_owned(),
         };
-        if let Err(e) = cf.query(account, db, &migration_sql(name, &sql), &[]) {
+        let step = (name, migration_sql(name, &sql));
+        match batches.last_mut() {
+            Some(last) if guard.is_some() => last.push(step),
+            _ => batches.push(vec![step]),
+        }
+    }
+    for batch in batches {
+        let sql: Vec<&str> = batch.iter().map(|(_, sql)| sql.as_str()).collect();
+        if let Err(e) = cf.query(account, db, &sql.join("\n"), &[]) {
             return Err(steps
                 .plan
                 .as_ref()
                 .and_then(|plan| crate::counts::refusal(plan, &e.message))
                 .unwrap_or(e.message));
         }
-        done(&format!("applied {name}"));
-        out.applied.push(name.to_owned());
+        for (name, _) in batch {
+            done(&format!("applied {name}"));
+            out.applied.push(name.to_owned());
+        }
     }
     Ok(out)
 }

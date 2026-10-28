@@ -69,11 +69,12 @@ fn listed(items: Vec<Value>) -> Reply {
     }))
 }
 
-fn recorded(sql: &str) -> Option<String> {
+fn recorded(sql: &str) -> Vec<String> {
     let start = "INSERT INTO d1_migrations (name) VALUES ('";
-    let at = sql.find(start)? + start.len();
-    let rest = &sql[at..];
-    Some(rest[..rest.find("')")?].to_owned())
+    sql.split(start)
+        .skip(1)
+        .filter_map(|rest| rest.find("')").map(|end| rest[..end].to_owned()))
+        .collect()
 }
 
 fn metadata(body: &str) -> Value {
@@ -98,7 +99,7 @@ fn d1(cf: &mut Cloud, sql: &str) -> Reply {
     if sql.starts_with("CREATE TABLE IF NOT EXISTS d1_migrations") {
         cf.table = true;
     }
-    if let Some(name) = recorded(sql) {
+    for name in recorded(sql) {
         cf.applied.push(name);
     }
     rows(json!([]))
@@ -324,7 +325,7 @@ fn sqls(h: &Home) -> Vec<(String, Value)> {
 }
 
 fn inserted(h: &Home) -> Vec<String> {
-    sqls(h).iter().filter_map(|(s, _)| recorded(s)).collect()
+    sqls(h).iter().flat_map(|(s, _)| recorded(s)).collect()
 }
 
 fn cf_writes(h: &Home) -> Vec<String> {
@@ -554,9 +555,9 @@ fn running_setup_again_finds_everything_there_and_changes_nothing_it_made() {
         );
     }
     assert!(
-        !later
-            .iter()
-            .any(|r| r.json()["sql"].as_str().and_then(recorded).is_some()),
+        !later.iter().any(|r| r.json()["sql"]
+            .as_str()
+            .is_some_and(|s| !recorded(s).is_empty())),
         "a migration was applied twice"
     );
     let secrets: Vec<String> = later
@@ -1210,13 +1211,12 @@ fn deploy_accept_plan_takes_the_right_hash_in_any_case_and_refuses_a_wrong_one()
     let stale = h.p99(&["deploy", "--json", "--accept-plan", &hash]);
     stale.ok();
     assert!(stale.json()["migrations"].get("accepted").is_none());
-    assert!(
-        !h.stub
-            .seen()
-            .iter()
-            .skip(seen)
-            .any(|r| r.json()["sql"].as_str().and_then(recorded).is_some())
-    );
+    let after = h.stub.seen();
+    assert!(!after.iter().skip(seen).any(|r| {
+        r.json()["sql"]
+            .as_str()
+            .is_some_and(|s| !recorded(s).is_empty())
+    }));
 }
 
 #[cfg(unix)]
