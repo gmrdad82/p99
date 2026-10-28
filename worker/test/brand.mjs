@@ -74,4 +74,25 @@ export async function hideableLinkChecks({ call, browse, mint, check, here, plac
       assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
     }
   });
+
+  await check("a deploy bound LICENSE_LINK=hideable reaches the panel: the served panel drops the link on the host that turned it off and keeps it elsewhere", async () => {
+    const served = await call("GET", "/_p99/panel.js?v=dev");
+    assert.equal(served.status, 200);
+    const source = await served.response.text();
+    assert.match(source, /me && me\.link === false \? null : h\("a", \{ class: "p99-by"/);
+    const env = (await call("GET", "/_p99/v1/hosts")).json.hosts.find((h) => h.host === here).env;
+    const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
+    try {
+      assert.equal((await browse("GET", "/me", ada.secret)).json.link, true);
+      assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: { ...placement, link: false } } })).status, 200);
+      const hidden = await browse("GET", "/me", ada.secret);
+      assert.equal(hidden.status, 200, JSON.stringify(hidden.json));
+      assert.equal(hidden.json.link, false);
+      assert.equal(hidden.json.host, here);
+      assert.equal((await call("GET", `/_p99/badges/${hidden.json.license}.svg?v=dev`)).status, 200);
+    } finally {
+      assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
+    }
+    assert.equal((await browse("GET", "/me", ada.secret)).json.link, true);
+  });
 }
