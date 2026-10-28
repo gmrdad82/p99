@@ -164,7 +164,10 @@ function noteOf(raw) {
   return text;
 }
 
-export function refuseAgentClose(c, row, to) {
+export const AGENT_CLOSES = ["duplicate", "abandoned"];
+
+export function refuseAgentClose(c, row, to, resolution) {
+  if (AGENT_CLOSES.includes(resolution)) return to;
   if (c.actor && c.actor.agent && row && row.project !== null && row.project !== undefined && to && to.closes) K.fail(403, PERSON_CLOSES);
   return to;
 }

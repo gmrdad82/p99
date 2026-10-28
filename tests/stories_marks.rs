@@ -72,8 +72,23 @@ fn the_one_board_shows_cards_and_plain_items_side_by_side() {
     for key in ["TASK-24", "BUG-25", "BUG-26", "FEAT-9", "Q-10", "IMP-5"] {
         assert!(screen.contains(key), "{key} not on the board:\n{screen}");
     }
-    assert!(screen.contains("Mobile"), "{screen}");
-    assert!(screen.contains("Storefr"), "{screen}");
+    assert!(screen.contains("─ Mobile… ─"), "{screen}");
+}
+
+#[test]
+fn a_card_foot_too_narrow_for_its_project_cuts_after_a_whole_word_never_mid_word() {
+    let screen = dump("120x34", "tab");
+    assert!(screen.contains("─ Mobile… ─"), "{screen}");
+    assert!(!screen.contains("Mobile a…"), "{screen}");
+    assert!(!screen.contains("Storefr"), "{screen}");
+    assert!(screen.contains("─ … ─"), "{screen}");
+}
+
+#[test]
+fn a_wide_board_shows_each_card_project_in_full() {
+    let screen = dump("160x40", "tab");
+    assert!(screen.contains("─ Mobile app ─"), "{screen}");
+    assert!(screen.contains("─ Storefront ─"), "{screen}");
 }
 
 #[test]

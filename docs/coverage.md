@@ -328,7 +328,7 @@ The Worker: **96.87% of lines** of worker/src, from 334 checks with none known r
 
 The browser (`npm run coverage`, then the filter story under the same hook): **88.98% of lines** of worker/src/web, up from 87.03%. board.js is at 92.80% of 792, panel.js at 89.78% of 1,986, app.js at 79.14% of 350, and the loader by bytes at 95.65%. Every check passed: capture, manage, mobile, search and swap, the widget stories 260 of 260, the board stories 62 of 62, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
 
-Both JavaScript passes now write lcov.info beside their table (worker/.wrangler/coverage, tmp/browser-coverage), so `pci loop coverage` reads the JavaScript lines too. On this train's changed lines against origin/main it reads 76% (2,264 of 2,969); 662 of those lines are the browser checks in render/web themselves, which no coverage pass can run, and without them it reads 98.2% (2,264 of 2,306).
+Both JavaScript passes now write lcov.info beside their table (worker/.wrangler/coverage, tmp/browser-coverage), so `dispatch loop coverage` reads the JavaScript lines too. On this train's changed lines against origin/main it reads 76% (2,264 of 2,969); 662 of those lines are the browser checks in render/web themselves, which no coverage pass can run, and without them it reads 98.2% (2,264 of 2,306).
 
 The bugs this round's runs found: the fold plan's label query dropped every custom column when the Cards board was reset or filled (a label with no role made `l.role = 'done'` NULL), so its preview left out what 0016 then moved; a fold check now compares the plan's queries with what 0016 moved. The import manager check counted Sophie as existing because the needs-you checks mint her as an Owner, and main's import story still read the manager wording.
 
@@ -352,7 +352,7 @@ The Worker: **96.92% of lines** of worker/src, from 336 checks with none known r
 
 The browser (`npm run coverage`, then the filter story under the same hook): **88.61% of lines** of worker/src/web (round 2: 88.98%; panel.js lost the lines of the dropped filter choice). board.js is at 93.17% of 791, panel.js at 89.12% of 1,985, app.js at 79.14% of 350, and the loader by bytes at 98.51%. Every check passed: capture, manage, mobile, search and swap, the widget stories 263 of 263, the board stories 69 of 69, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
 
-`pci loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2269/2269)". The tool leaves out the browser checks in render/web by the repo's `[loop.untestable]` entry and the tests themselves, and names each file it left out.
+`dispatch loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2269/2269)". The tool leaves out the browser checks in render/web by the repo's `[loop.untestable]` entry and the tests themselves, and names each file it left out.
 
 The bugs this round's runs found: none in shipped code. The board check's helper waited for more than five cards, which the Projects board it now opens doesn't hold. Two lines in src/tui/waiting.rs that the tool scored 0 turned out to be the false branch of the events a thread opened from `w` settles: no test sent it a refused reply or label list, and one now does.
 
@@ -374,7 +374,7 @@ The Worker: **97.01% of lines** of worker/src, from 337 checks with none known r
 
 The browser: **88.61% of lines** of worker/src/web, unchanged, and every check passed: capture, manage, mobile, search and swap, the widget stories 263 of 263, the board stories 69 of 69, the board against the Worker 28 of 28, the app page 18 of 18, and the filter story.
 
-`pci loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2270/2270)".
+`dispatch loop coverage tmp/lcov.info worker/.wrangler/coverage/lcov.info tmp/browser-coverage/lcov.info`, against origin/main, prints: "Changed-line coverage: 100% (2270/2270)".
 
 The bugs this round found: the one board's move still used the guard w211 replaced, so a losing move into the same lane could write its order key over the winner's, and the second of two same-lane reorders landed too; a reply leaving Needs you had the same key flaw; two project sets at once both landed, each with its own event. Each now has a race test that fails without its guard.
 

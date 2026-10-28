@@ -475,7 +475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -908,7 +908,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "p99"
-version = "1.11.2"
+version = "1.12.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
@@ -990,8 +990,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pito-footer"
-version = "1.0.1"
-source = "git+https://github.com/gmrdad82/pito-footer?tag=v1.0.1#94bfe1a0a2508181b5d420ea85c18bfc6779404b"
+version = "1.1.0"
+source = "git+https://github.com/gmrdad82/pito-footer?tag=v1.1.0#e7cb3731ed7f7440085e84382f6b6242c9f03673"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1021,8 +1021,8 @@ dependencies = [
 
 [[package]]
 name = "pito-list"
-version = "1.1.1"
-source = "git+https://github.com/gmrdad82/pito-list?tag=v1.1.1#9920429f9d07cc272073af170972cbf38e1aab33"
+version = "1.2.0"
+source = "git+https://github.com/gmrdad82/pito-list?tag=v1.2.0#cce8b5b549dcd9786bbb370a7cae0da3a8e380ea"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1032,8 +1032,8 @@ dependencies = [
 
 [[package]]
 name = "pito-tui"
-version = "1.3.0"
-source = "git+https://github.com/gmrdad82/pito-tui?tag=v1.3.0#cb58c0efca83489c0133d4742645f8069eb4601a"
+version = "1.4.0"
+source = "git+https://github.com/gmrdad82/pito-tui?tag=v1.4.0#00da5b4779716b30b62822eb51c97af146fd5ea8"
 dependencies = [
  "crossterm",
  "pito-footer",
@@ -1219,7 +1219,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

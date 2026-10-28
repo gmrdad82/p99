@@ -200,7 +200,6 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     for (const body of [
       { title: "Renamed by an agent", status: "done" },
       { kind: "bug", assignee: null, body: "New details", status: "done" },
-      { resolution: "abandoned", title: "Abandoned by an agent" },
     ]) {
       const mixed = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body });
       assert.equal(mixed.status, 403, JSON.stringify(body));
@@ -490,30 +489,46 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await issue(item)).issue.project, null);
   });
 
-  await check("merging a card closes it, so only a person merges one; an agent's refused merge leaves nothing behind", async () => {
+  await check("an agent merges a card into another card as a duplicate, and the card says an agent closed it", async () => {
     const target = (await file({ title: "Merge target" })).json.card.key;
     const source = (await file({ title: "Merge source" })).json.card.key;
     const loose = await plain("A plain duplicate");
     const merge = (items, actor) => call("POST", "/_p99/v1/merge", { actor, body: { items, into: target } });
-    const refused = await merge([loose, source], graceBot);
-    assert.equal(refused.status, 403);
-    assert.equal(refused.json.message, PERSON_CLOSES);
-    for (const key of [source, loose, target]) {
-      const stored = await issue(key);
-      assert.equal(stored.issue.duplicate_of, null, key);
-      assert.equal(stored.issue.closed_at, null, key);
-      assert.equal(stored.events.some((ev) => ev.kind === "merge"), false, key);
-    }
-    const byAgent = await merge([loose], graceBot);
+    const byAgent = await merge([loose, source], graceBot);
     assert.equal(byAgent.status, 200, JSON.stringify(byAgent.json));
-    assert.deepEqual(byAgent.json.merged, [loose]);
-    const byPerson = await merge([source], ada);
-    assert.equal(byPerson.status, 200, JSON.stringify(byPerson.json));
-    assert.deepEqual(byPerson.json.merged, [source]);
+    assert.deepEqual([...byAgent.json.merged].sort(), [loose, source].sort());
     const merged = await issue(source);
     assert.equal(merged.issue.resolution, "duplicate");
     assert.equal(merged.issue.duplicate_of, target);
     assert.ok(merged.issue.closed_at);
+    const card = (await call("GET", `/_p99/v1/cards/${source}`, { actor: ada })).json.card;
+    assert.equal(card.changed_by.agent, true);
+    assert.equal(card.changed_by.via, "pci·splicer·writer");
+  });
+
+  await check("an agent closes a card as abandoned or as a duplicate of another card, shown as an agent, and still never as done", async () => {
+    const target = (await file({ title: "The story card" })).json.card.key;
+    const dropped = (await file({ title: "Dropped by an agent" })).json.card.key;
+    const folded = (await file({ title: "Folded into the story" })).json.card.key;
+    const abandon = await call("PATCH", `/_p99/v1/issues/${dropped}`, { actor: graceBot, body: { resolution: "abandoned" } });
+    assert.equal(abandon.status, 200, JSON.stringify(abandon.json));
+    let stored = await issue(dropped);
+    assert.equal(stored.issue.resolution, "abandoned");
+    assert.ok(stored.issue.closed_at);
+    let card = (await call("GET", `/_p99/v1/cards/${dropped}`, { actor: ada })).json.card;
+    assert.equal(card.changed_by.agent, true);
+    const dup = await call("PATCH", `/_p99/v1/issues/${folded}`, { actor: graceBot, body: { duplicate_of: target } });
+    assert.equal(dup.status, 200, JSON.stringify(dup.json));
+    stored = await issue(folded);
+    assert.equal(stored.issue.resolution, "duplicate");
+    assert.equal(stored.issue.duplicate_of, target);
+    card = (await call("GET", `/_p99/v1/cards/${folded}`, { actor: ada })).json.card;
+    assert.equal(card.changed_by.agent, true);
+    assert.equal(card.changed_by.name, "Grace Hopper");
+    const done = await status(target, "done", graceBot);
+    assert.equal(done.status, 403);
+    assert.equal(done.json.message, PERSON_CLOSES);
+    assert.equal((await issue(target)).issue.closed_at, null);
   });
 
   await check("a lane that closes by mistake still leaves done the only close of a card", async () => {

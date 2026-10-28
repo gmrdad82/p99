@@ -1878,7 +1878,7 @@ async function postMerge(c) {
   });
   const folded = (r) => r.duplicate_of === into && !r.open && r.resolution === "duplicate";
   const moving = sources.filter((r) => !folded(r));
-  for (const row of moving) refuseAgentClose(c, row, { closes: 1 });
+  for (const row of moving) refuseAgentClose(c, row, { closes: 1 }, "duplicate");
   const actor = c.actor.email;
   const statements = [];
   for (const row of moving) {
@@ -1973,7 +1973,7 @@ async function patchIssue(c, rawKey) {
   const closing = wanted !== undefined && wanted !== null && (row.open || wanted !== row.resolution || duplicateOf !== row.duplicate_of);
   if (reopening && !c.manager && !(reporter && row.resolution === "fixed" && (role ?? "inbox") === "inbox")) fail(403, "this change is not allowed");
   if (closing && !c.manager && !(reporter && wanted === "abandoned" && row.open)) fail(403, "this change is not allowed");
-  if (closing) refuseAgentClose(c, row, { closes: 1 });
+  if (closing) refuseAgentClose(c, row, { closes: 1 }, wanted);
 
   const written = await writePatch(c, rawKey, row, has, next, { actor: c.actor.email, now: c.now, agent: agentOf(c), via: viaOf(c) });
   if (written.changed.length > 0) push(c, "change", written.row, { what: written.changed });
