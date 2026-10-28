@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 use std::cell::Cell;
+use std::fmt::Write;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -23,6 +24,7 @@ pub struct Badge {
     now: Option<Instant>,
     drawn: usize,
     parts: Vec<Span>,
+    spare: String,
     waiting: Rc<Cell<u64>>,
     counted: u64,
     wait: [Style; 2],
@@ -64,6 +66,7 @@ impl Badge {
             now: None,
             drawn: usize::MAX,
             parts: Vec::with_capacity(8),
+            spare: String::with_capacity(24),
             waiting: Rc::new(Cell::new(0)),
             counted: 0,
             wait,
@@ -83,6 +86,7 @@ impl Badge {
             now: None,
             drawn: 0,
             parts: Vec::new(),
+            spare: String::new(),
             waiting: Rc::new(Cell::new(0)),
             counted: 0,
             wait: [Style::new(); 2],
@@ -132,7 +136,11 @@ impl Badge {
         }
         self.drawn = shown;
         self.counted = waiting;
-        self.parts.clear();
+        for (text, _) in self.parts.drain(..) {
+            if let Cow::Owned(owned) = text {
+                self.spare = owned;
+            }
+        }
         let mut left = shown;
         for (text, style) in self.pieces() {
             let end = text
@@ -160,8 +168,10 @@ impl Badge {
             };
             self.parts.push((Cow::Borrowed(" "), Style::new()));
             self.parts.push((Cow::Borrowed(caps[0]), cap));
-            self.parts
-                .push((Cow::Owned(format!("{waiting} waiting")), pill));
+            let mut label = std::mem::take(&mut self.spare);
+            label.clear();
+            let _ = write!(label, "{waiting} waiting");
+            self.parts.push((Cow::Owned(label), pill));
             self.parts.push((Cow::Borrowed(caps[1]), cap));
         }
     }
@@ -341,6 +351,46 @@ mod tests {
         }
         let after: Vec<_> = badge.parts().iter().map(|(t, _)| t.as_ptr()).collect();
         assert_eq!(before, after);
+    }
+
+    #[test]
+    fn a_changing_count_writes_into_the_same_buffer_and_easing_keeps_it() {
+        let mut badge = settled(State::Owner, &palette());
+        let counter = badge.counter();
+        let frame = Instant::now() + EASE * 4;
+        counter.set(5);
+        badge.moment(frame);
+        let first = badge.parts()[5].0.as_ptr();
+        for count in [6, 7, 12, 3, 9] {
+            counter.set(count);
+            badge.moment(frame);
+            assert_eq!(badge.parts()[5].0.as_ptr(), first, "{count}");
+            assert_eq!(badge.parts()[5].0, format!("{count} waiting"));
+        }
+        counter.set(0);
+        badge.moment(frame);
+        assert!(
+            badge
+                .parts()
+                .iter()
+                .all(|(text, _)| matches!(text, Cow::Borrowed(_)))
+        );
+        counter.set(4);
+        badge.moment(frame);
+        assert_eq!(badge.parts()[5].0.as_ptr(), first);
+    }
+
+    #[test]
+    fn a_pill_easing_in_with_a_count_waiting_allocates_once_for_the_whole_run() {
+        let mut badge = Badge::new(State::Studio, &palette());
+        badge.counter().set(2);
+        let start = Instant::now();
+        let held = badge.spare.as_ptr();
+        for step in 0..=40 {
+            badge.moment(start + EASE * step / 20);
+        }
+        assert_eq!(text(&badge), "▐Studio▌ ▐2 waiting▌");
+        assert_eq!(badge.parts()[5].0.as_ptr(), held);
     }
 
     #[test]
