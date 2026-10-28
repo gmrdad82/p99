@@ -123,8 +123,6 @@ const LANE_SQL = [
   `UPDATE statuses SET name = 'Building' WHERE key = 'doing';`,
 ].join("\n");
 
-const TAG_COUNT = `SELECT count(DISTINCT il.item_id) AS n FROM item_labels il JOIN items i ON i.id = il.item_id WHERE il.label_id <> i.label_id`;
-
 const sent = [];
 
 function fakeResend() {
@@ -926,8 +924,7 @@ async function run() {
     const labels = (await call("GET", "/_p99/v1/labels")).json.labels;
     assert.deepEqual(labels.map((l) => [l.name, l.closes]), LANE_NAMES.map((name) => [name, name === "Done"]));
     assert.equal(labels.some((l) => l.name === "legacy tag"), false);
-    assert.equal(await d1count("SELECT count(*) AS n FROM item_labels WHERE item_id IN (951, 952)"), 3);
-    assert.equal(await d1count(TAG_COUNT), 2);
+    assert.equal(await d1count("SELECT count(*) AS n FROM sqlite_master WHERE name = 'item_labels'"), 0);
   });
 
   const boss = await mint("Grace Hopper", "grace@example.com", [here], true);

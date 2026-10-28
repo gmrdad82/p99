@@ -15,7 +15,7 @@ const ACCESS: &str = "access-secret-Ub4Ne8Rk2Xo6";
 const LICENSE: &str = "p99-licence-Vz5Mi3Qa7Ld9";
 const HOOK: &str = "https://hooks.slack.com/services/T0EXAMPLE/B0EXAMPLE/Xy7Kp3Wm9QrTe2";
 
-const SHIPPED: [&str; 16] = [
+const SHIPPED: [&str; 17] = [
     "0001_p99.sql",
     "0002_code_uid.sql",
     "0003_code_totp.sql",
@@ -32,6 +32,7 @@ const SHIPPED: [&str; 16] = [
     "0014_backup_cut.sql",
     "0015_cards.sql",
     "0016_one_board.sql",
+    "0018_spaces.sql",
 ];
 
 #[derive(Debug, Clone)]
@@ -78,6 +79,7 @@ struct Cf {
     applied: Vec<String>,
     rows: Vec<(&'static str, Value)>,
     fail: Option<String>,
+    fail_with: Option<&'static str>,
     mail: Option<String>,
     denied: bool,
     deny: Option<&'static str>,
@@ -108,6 +110,16 @@ fn recorded(sql: &str) -> Option<String> {
     Some(rest[..rest.find("')")?].to_owned())
 }
 
+fn recorded_all(sql: &str) -> Vec<String> {
+    let start = "INSERT INTO d1_migrations (name) VALUES ('";
+    sql.match_indices(start)
+        .filter_map(|(at, _)| {
+            let rest = &sql[at + start.len()..];
+            Some(rest[..rest.find("')")?].to_owned())
+        })
+        .collect()
+}
+
 fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
     let sql = serde_json::from_str::<Value>(body)
         .ok()
@@ -125,14 +137,23 @@ fn d1(cf: &mut Cf, body: &str) -> (u16, Value) {
         cf.table = true;
         return rows(json!([]));
     }
-    if let Some(name) = recorded(&sql) {
+    let batch = recorded_all(&sql);
+    if !batch.is_empty() {
         if !cf.table {
             return refused(400, 7500, "no such table: d1_migrations: SQLITE_ERROR");
         }
-        if cf.fail.as_deref() == Some(name.as_str()) {
-            return refused(400, 7500, "near \"github\": syntax error: SQLITE_ERROR");
+        if batch
+            .iter()
+            .any(|name| cf.fail.as_deref() == Some(name.as_str()))
+        {
+            return refused(
+                400,
+                7500,
+                cf.fail_with
+                    .unwrap_or("near \"github\": syntax error: SQLITE_ERROR"),
+            );
         }
-        cf.applied.push(name);
+        cf.applied.extend(batch);
         return rows(json!([]));
     }
     if sql.starts_with("INSERT OR IGNORE INTO mail ") {
@@ -466,7 +487,8 @@ impl Home {
     fn inserted(&self) -> Vec<String> {
         self.calls()
             .iter()
-            .filter_map(|c| c.sql().and_then(|s| recorded(&s)))
+            .filter_map(Call::sql)
+            .flat_map(|s| recorded_all(&s))
             .collect()
     }
 
@@ -842,17 +864,21 @@ fn a_fresh_database_gets_every_migration_once_in_order_before_the_worker_goes_up
 }
 
 #[test]
-fn an_account_already_at_0016_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
-    let h = home("at-0016", &plain_config(), live(&SHIPPED, v19_rows()));
+fn an_account_already_at_0018_deploys_with_no_hash_applies_nothing_and_keeps_every_secret() {
+    let h = home("at-0018", &plain_config(), live(&SHIPPED, v19_rows()));
 
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(plan.stdout.contains("nothing to migrate"));
     assert!(plan.stdout.contains("deploy needs no --accept-plan"));
+    assert!(!plan.stdout.contains("Old tags"), "{}", plan.stdout);
+    assert!(!plan.stdout.contains("old tags"), "{}", plan.stdout);
     assert!(
-        plan.stdout.contains(": 2 tags on 3 items"),
-        "{}",
-        plan.stdout
+        h.calls()
+            .iter()
+            .filter_map(Call::sql)
+            .all(|sql| !sql.contains("item_labels")),
+        "an account past 0018 still reads the old tags"
     );
     h.forget();
 
@@ -942,7 +968,7 @@ fn v110_rows() -> Vec<(&'static str, Value)> {
 }
 
 #[test]
-fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only_0016() {
+fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016_and_0018() {
     let mut rows = v110_rows();
     rows.extend(v19_rows());
     let h = home("at-0015", &plain_config(), live(&SHIPPED[..15], rows));
@@ -950,7 +976,7 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0016_one_board.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0016_one_board.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -965,7 +991,10 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0016_one_board.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0016_one_board.sql, 0018_spaces.sql\n"),
+        "{text}"
+    );
     assert!(text.contains("\nOne board per account (0016)\n"), "{text}");
     assert!(text.contains("  the Cards board gets Needs you as lane 4; its cards stay where they are: New, Planned, In progress, Needs you, Stuck, Landed, Done\n"), "{text}");
     assert!(
@@ -996,7 +1025,10 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_only
 
     let json = h.run(&["migrate", "--plan", "--json"]).json();
     assert_eq!(json["hash"], hash);
-    assert_eq!(json["plan"]["pending"], json!(["0016_one_board.sql"]));
+    assert_eq!(
+        json["plan"]["pending"],
+        json!(["0016_one_board.sql", "0018_spaces.sql"])
+    );
     assert_eq!(json["plan"]["one_board"]["cards_board"], "insert");
     assert_eq!(json["plan"]["one_board"]["unplaced"], 2);
     assert_eq!(json["plan"]["one_board"]["labels"][2]["to"], "in-progress");
@@ -1078,7 +1110,10 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("  pending: 0016_one_board.sql\n"), "{text}");
+    assert!(
+        text.contains("  pending: 0016_one_board.sql, 0018_spaces.sql\n"),
+        "{text}"
+    );
     assert!(
         text.contains("  the Cards board is made, owned by the oldest Owner, with seven lanes"),
         "{text}"
@@ -1124,7 +1159,7 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
         let why = if args.len() == 3 {
             "--accept-plan takes the 64-character hash"
         } else {
-            "p99: 0016_one_board.sql change this account's data"
+            "p99: 0016_one_board.sql, 0018_spaces.sql change this account's data"
         };
         let out = h.refuses_and_changes_nothing(&args, why);
         assert!(!out.all().contains("applied 0014"), "{}", out.all());
@@ -1215,7 +1250,7 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
     assert!(text.starts_with("Migration plan for the account main\n"));
     assert!(
         text.contains(
-            "  pending: 0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql\n"
         ),
         "{text}"
     );
@@ -1262,7 +1297,8 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
             "0011_lanes.sql",
             "0012_people.sql",
             "0013_app.sql",
-            "0016_one_board.sql"
+            "0016_one_board.sql",
+            "0018_spaces.sql"
         ])
     );
     assert_eq!(json["plan"]["account_id"], "acc1");
@@ -1282,7 +1318,7 @@ fn migrate_plan_on_a_1_8_schema_names_every_decision_a_manager_must_answer() {
     let text = &out.stdout;
     assert!(
         text.contains(
-            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql\n"
         ),
         "{text}"
     );
@@ -1379,7 +1415,7 @@ fn deploy_on_1_8_without_the_hash_refuses_cleanly_and_changes_nothing() {
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -1486,7 +1522,7 @@ fn deploy_with_the_plan_hash_applies_exactly_the_pending_migrations_in_order() {
 }
 
 #[test]
-fn a_1_7_account_with_its_hash_gets_0004_to_0016_in_order() {
+fn a_1_7_account_with_its_hash_gets_0004_to_0018_in_order() {
     let mut cf = live(&SHIPPED[..3], v17_rows());
     cf.tag = None;
     let h = home("accept-17", &plain_config(), cf);
@@ -1561,7 +1597,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(
         plan.stdout.contains(
-            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"
+            "  pending: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql\n"
         ),
         "{}",
         plan.stdout
@@ -1582,7 +1618,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
 
     let out = h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql change this account's data",
     );
     assert!(!out.stderr.contains("applied 0005"), "{}", out.stderr);
     assert_eq!(h.applied(), names(&SHIPPED[..4]));
@@ -1608,7 +1644,7 @@ fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
         live(&SHIPPED[..4], half_rows()),
     );
     let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
-    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data";
+    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql change this account's data";
     let changed = "the plan changed since that hash was taken";
     h.refuses_and_changes_nothing(&["deploy"], gated);
     h.refuses_and_changes_nothing(&["deploy", "--json"], gated);
@@ -1957,7 +1993,7 @@ fn a_p99_page_on_its_own_host_gets_its_route_after_the_migrations() {
 }
 
 #[test]
-fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0015_with_its_hash() {
+fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0018_with_its_hash() {
     let mut cf = live(&SHIPPED[..1], v17_rows());
     cf.tag = None;
     let h = home("only-0001", &plain_config(), cf);
@@ -1991,12 +2027,13 @@ fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0015_with_
 fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     let mut rows = v18_rows();
     rows.extend(v19_rows());
+    rows.push(("AS old_tags", json!([{ "old_tags": 3, "tagged": 2 }])));
     let h = home("half-0011", &plain_config(), live(&SHIPPED[..11], rows));
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
         out.stderr.contains(
-            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data"
+            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql change this account's data"
         ),
         "{}",
         out.stderr
@@ -2006,13 +2043,20 @@ fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     assert!(
-        plan.stdout
-            .contains("  pending: 0012_people.sql, 0013_app.sql, 0016_one_board.sql\n"),
+        plan.stdout.contains(
+            "  pending: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql\n"
+        ),
         "{}",
         plan.stdout
     );
     assert!(!plan.stdout.contains("States become labels"));
-    assert!(plan.stdout.contains(": 2 tags on 3 items"));
+    assert!(
+        plan.stdout.contains(
+            "  old tags (item_labels, which nothing reads): 3 rows on 2 items; 0018 drops the table\n"
+        ),
+        "{}",
+        plan.stdout
+    );
     let hash = plan_hash(&plan.stdout);
     h.forget();
     let done = h.run(&["deploy", "--accept-plan", &hash]);
@@ -2044,7 +2088,7 @@ fn a_migration_that_fails_midway_stops_before_the_upload_and_the_account_resumes
     h.cf.lock().unwrap().fail = None;
     h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0018_spaces.sql change this account's data",
     );
     assert_eq!(h.applied(), names(&SHIPPED[..6]));
 
@@ -2173,4 +2217,368 @@ fn a_config_others_can_read_is_refused_before_any_call_and_names_no_secret() {
     );
     assert!(h.calls().is_empty());
     never_shows_a_secret(&[&out], &[]);
+}
+
+fn spaces_config() -> String {
+    format!(
+        "license = \"{LICENSE}\"\n\n{}[accounts.main.projects]\n\"Example site\" = [\"example.com\", \"dev.example.com\"]\nLicences = [\"licence.example.com\"]\n\n[hosts.\"example.com\"]\naccount = \"main\"\n",
+        account("main", "db1", TOKEN).replace(
+            "[accounts.main]\n",
+            "[accounts.main]\nname = \"Example Co\"\n"
+        )
+    )
+}
+
+fn spaces_rows() -> Vec<(&'static str, Value)> {
+    vec![
+        (
+            "SELECT host FROM hosts ORDER BY host",
+            json!([{ "host": "dev.example.com" }, { "host": "example.com" }, { "host": "shop.example.com" }]),
+        ),
+        (
+            "AS named, host",
+            json!([
+                { "named": null, "host": "example.com", "items": 5, "open": 2 },
+                { "named": "Roadmap", "host": "example.com", "items": 3, "open": 3 },
+                { "named": null, "host": "shop.example.com", "items": 4, "open": 1 },
+                { "named": null, "host": "old.example.com", "items": 1, "open": 0 }
+            ]),
+        ),
+        (
+            "SELECT id, kind, host FROM items",
+            json!([{ "id": 9, "kind": "bug", "host": "old.example.com" }]),
+        ),
+        (
+            "hosts_json, manager, revoked_at FROM codes",
+            json!([
+                { "id": 1, "name": "Ada Lovelace", "email": "ada@example.com", "hosts_json": "[\"dev.example.com\",\"example.com\",\"shop.example.com\"]", "manager": 1, "revoked_at": null },
+                { "id": 2, "name": "Grace Hopper", "email": "grace@example.com", "hosts_json": "[\"example.com\"]", "manager": 0, "revoked_at": null },
+                { "id": 3, "name": "Jo", "email": "jo@example.com", "hosts_json": "[\"shop.example.com\"]", "manager": 0, "revoked_at": null }
+            ]),
+        ),
+        (
+            "AS codes, (SELECT count(*) FROM items)",
+            json!([{ "codes": 3, "items": 13, "open": 6, "comments": 4, "events": 20, "attachments": 1 }]),
+        ),
+        ("AS old_tags", json!([{ "old_tags": 2, "tagged": 1 }])),
+    ]
+}
+
+fn sent_0018(h: &Home) -> String {
+    let batches: Vec<String> = h
+        .calls()
+        .iter()
+        .filter_map(Call::sql)
+        .filter(|sql| recorded_all(sql).iter().any(|n| n == "0018_spaces.sql"))
+        .collect();
+    assert_eq!(batches.len(), 1, "{batches:?}");
+    batches[0].clone()
+}
+
+#[test]
+fn an_account_at_0016_plans_its_projects_hosts_and_grants_and_its_hash_applies_0018_once_keeping_every_count()
+ {
+    let h = home(
+        "spaces",
+        &spaces_config(),
+        live(&SHIPPED[..16], spaces_rows()),
+    );
+
+    let out = h.run(&["deploy"]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr.ends_with("p99: 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        "{}",
+        out.stderr
+    );
+    assert!(h.writes().is_empty(), "{:?}", h.writes());
+    assert!(h.upload().is_none());
+
+    h.forget();
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(0), "{}", plan.stderr);
+    let text = &plan.stdout;
+    assert!(
+        h.calls().iter().all(|c| !c.writes()),
+        "the plan wrote: {:?}",
+        h.writes()
+    );
+    for want in [
+        "  pending: 0018_spaces.sql\n",
+        "\nSpaces and projects (0018): the space main, shown as Example Co\n",
+        "    Example site: dev.example.com, example.com; 5 items (2 open)\n",
+        "    Licences: no host; 0 items (0 open)\n",
+        "    shop.example.com: shop.example.com; 4 items (1 open)\n",
+        "    Roadmap: no host; 3 items (3 open), 3 cards named it\n",
+        "    example.com -> Example site\n",
+        "    shop.example.com -> shop.example.com, a project of its own: [spaces.main.projects] doesn't list it\n",
+        "  items on hosts the space no longer has:\n    old.example.com: 1 item -> no project\n",
+        "    #1 Ada Lovelace <ada@example.com>, Owner: the whole space\n",
+        "    #2 Grace Hopper <grace@example.com>: the project Example site, so it now also reaches dev.example.com\n",
+        "    #3 Jo <jo@example.com>: the project shop.example.com\n",
+        "  old tags (item_labels, which nothing reads): 2 rows on 1 item; 0018 drops the table\n",
+        "\nCount check (0018)\n  before: 13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  cards by project before: Roadmap 3\n  after:  13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  items by project after: Example site 5, Licences 0, shop.example.com 4, Roadmap 3\n",
+        "  - the host shop.example.com isn't in [spaces.main.projects]: 0018 makes it a project of its own, called shop.example.com; list it there under another project to put it in that one\n",
+        "  - BUG-9 is on old.example.com, which is no host of the space, and names no project: 0018 leaves it in no project; list old.example.com under a project in [spaces.main.projects] to give it one\n",
+    ] {
+        assert!(text.contains(want), "{want}\n{text}");
+    }
+    let hash = plan_hash(text);
+    assert_eq!(plan_hash(&h.run(&["migrate", "--plan"]).stdout), hash);
+
+    let json = h.run(&["migrate", "--plan", "--json"]).json();
+    assert_eq!(json["hash"], hash);
+    let spaces = &json["plan"]["spaces"];
+    assert_eq!(json["plan"]["pending"], json!(["0018_spaces.sql"]));
+    assert_eq!(json["plan"]["decisions"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        spaces["hosts"],
+        json!([
+            { "host": "dev.example.com", "project": "Example site", "mapped": true },
+            { "host": "example.com", "project": "Example site", "mapped": true },
+            { "host": "shop.example.com", "project": "shop.example.com", "mapped": false }
+        ])
+    );
+    assert_eq!(
+        spaces["codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["grant"].clone())
+            .collect::<Vec<_>>(),
+        [
+            json!({ "space": true }),
+            json!({ "projects": ["Example site"] }),
+            json!({ "projects": ["shop.example.com"] })
+        ]
+    );
+    for key in [
+        "items",
+        "open",
+        "comments",
+        "events",
+        "attachments",
+        "codes",
+    ] {
+        assert_eq!(
+            spaces["counts"]["before"][key], spaces["counts"]["after"][key],
+            "{key}"
+        );
+    }
+    assert_eq!(
+        spaces["without"],
+        json!([{ "host": "old.example.com", "items": ["BUG-9"] }])
+    );
+
+    h.forget();
+    let done = h.run(&["deploy", "--json", "--accept-plan", &hash]);
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    let report = done.json();
+    assert_eq!(report["migrations"]["accepted"], hash);
+    assert_eq!(report["migrations"]["applied"], json!(["0018_spaces.sql"]));
+    assert!(report["migrations"].get("parked").is_none());
+    assert_eq!(h.inserted(), names(&SHIPPED[16..]));
+    assert_eq!(h.applied(), names(&SHIPPED));
+    let sql = sent_0018(&h);
+    for want in [
+        "('project', 'Example site', NULL)",
+        "('project', 'Licences', NULL)",
+        "('project', 'shop.example.com', NULL)",
+        "('project', 'Roadmap', NULL)",
+        "('host', 'dev.example.com', 'Example site')",
+        "('host', 'example.com', 'Example site')",
+        "('host', 'shop.example.com', 'shop.example.com')",
+        r#"('grant', '1', '{"space":true}')"#,
+        r#"('grant', '2', '{"projects":["Example site"]}')"#,
+        r#"('grant', '3', '{"projects":["shop.example.com"]}')"#,
+        "DROP TABLE IF EXISTS item_labels;",
+    ] {
+        assert!(sql.contains(want), "{want}\n{sql}");
+    }
+    assert!(!sql.contains("old.example.com"), "{sql}");
+    let at = |what: &str| sql.find(what).unwrap_or_else(|| panic!("{what}"));
+    assert!(at("INSERT INTO spaces_plan") < at("CREATE TABLE projects"));
+    assert!(at("CREATE TABLE projects") < at("CONSTRAINT spaces_kept_items CHECK (items >= 0)"));
+    assert!(
+        at("CONSTRAINT spaces_kept_cards CHECK (cards >= 0)") < at("INSERT INTO d1_migrations")
+    );
+    let calls = h.calls();
+    let last = calls
+        .iter()
+        .rposition(|c| c.sql().is_some_and(|s| recorded(&s).is_some()))
+        .unwrap();
+    let upload = calls.iter().position(Call::upload).expect("no upload");
+    assert!(upload > last);
+    let bound = metadata(&calls[upload])["bindings"].clone();
+    let text_of = |name: &str| {
+        bound
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|b| b["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is not bound"))["text"]
+            .clone()
+    };
+    assert_eq!(text_of("SPACE"), "main");
+    assert_eq!(text_of("SPACE_NAME"), "Example Co");
+
+    for args in [
+        vec!["deploy"],
+        vec!["deploy", "--accept-plan", hash.as_str()],
+    ] {
+        h.forget();
+        let again = h.run(&args);
+        assert_eq!(again.code, Some(0), "{args:?}: {}", again.stderr);
+        assert!(h.inserted().is_empty(), "{args:?}");
+        assert_eq!(h.applied(), names(&SHIPPED), "{args:?}");
+        assert!(
+            h.writes()
+                .iter()
+                .filter(|w| w.starts_with("D1 "))
+                .all(|w| w.starts_with("D1 CREATE TABLE IF NOT EXISTS d1_migrations")),
+            "{args:?}: {:?}",
+            h.writes()
+        );
+    }
+    let after = h.run(&["migrate", "--plan"]);
+    assert!(
+        after.stdout.contains("nothing to migrate"),
+        "{}",
+        after.stdout
+    );
+    assert!(
+        !after.stdout.contains("Spaces and projects"),
+        "{}",
+        after.stdout
+    );
+    never_shows_a_secret(&[&out, &plan, &done, &after], &[]);
+}
+
+#[test]
+fn deploy_park_gives_a_listed_code_no_grant_mails_nobody_and_only_while_0018_is_pending() {
+    let h = home(
+        "spaces-park",
+        &spaces_config(),
+        live(&SHIPPED[..16], spaces_rows()),
+    );
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+
+    let out = h.refuses_and_changes_nothing(
+        &["deploy", "--accept-plan", &hash, "--park", "2", "--park", "7"],
+        "--park 7: no code with that id in this space; `p99 migrate --plan` lists every code with its id",
+    );
+    assert!(!out.all().contains("applied"), "{}", out.all());
+    h.refuses_and_changes_nothing(
+        &["deploy", "--park", "2"],
+        "0018_spaces.sql change this account's data",
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+
+    h.forget();
+    let done = h.run(&[
+        "deploy",
+        "--json",
+        "--accept-plan",
+        &hash,
+        "--park",
+        "2",
+        "--park",
+        "3",
+    ]);
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    assert_eq!(done.json()["migrations"]["parked"], json!([2, 3]));
+    assert!(
+        done.stderr.contains(
+            "  ok  parked #2, #3: no grant, nothing opens for them, and nobody was mailed\n"
+        ),
+        "{}",
+        done.stderr
+    );
+    let sql = sent_0018(&h);
+    for want in [
+        r#"('grant', '1', '{"space":true}')"#,
+        r#"('grant', '2', '{"projects":[]}')"#,
+        r#"('grant', '3', '{"projects":[]}')"#,
+    ] {
+        assert!(sql.contains(want), "{want}\n{sql}");
+    }
+    assert!(!sql.contains(r#"["Example site"]"#), "{sql}");
+    let calls = h.calls();
+    assert!(
+        calls
+            .iter()
+            .filter_map(Call::sql)
+            .all(|s| !s.contains("INTO mail") && !s.contains("mail_optouts")),
+        "a parked code was mailed"
+    );
+    assert!(
+        calls.iter().all(|c| c.path.starts_with("/accounts/")
+            || c.path.starts_with("/zones")
+            || c.path.ends_with("/_p99/health")),
+        "deploy called beyond Cloudflare: {:?}",
+        calls.iter().map(|c| c.path.clone()).collect::<Vec<_>>()
+    );
+    assert!(h.cf.lock().unwrap().mail.is_none());
+    assert_eq!(h.applied(), names(&SHIPPED));
+
+    h.refuses_and_changes_nothing(
+        &["deploy", "--park", "2"],
+        "--park parks a code only in the deploy that applies 0018; after it, `p99 invites set <id> --park` does it",
+    );
+    never_shows_a_secret(&[&out, &done], &[]);
+}
+
+#[test]
+fn a_count_that_would_drop_inside_0018_rolls_it_back_and_the_worker_is_not_uploaded() {
+    let mut cf = live(&SHIPPED[..16], spaces_rows());
+    cf.fail = Some("0018_spaces.sql".into());
+    cf.fail_with = Some("CHECK constraint failed: spaces_kept_comments: SQLITE_CONSTRAINT");
+    let h = home("spaces-count", &spaces_config(), cf);
+    let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
+
+    h.forget();
+    let out = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(out.code, Some(1));
+    assert!(
+        out.stderr.ends_with(
+            "p99: the count check stopped 0018: it would have left fewer comments than before, so 0018_spaces.sql rolled back: none of it is written and the Worker is not uploaded; read `p99 migrate --plan` again\n"
+        ),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    assert!(h.upload().is_none());
+    assert!(
+        !h.calls().iter().any(|c| c.method != "GET"
+            && (c.path.ends_with("/secrets") || c.path.ends_with("/schedules"))),
+        "the deploy went on after the count check"
+    );
+
+    h.cf.lock().unwrap().fail_with = Some("near \"projects\": syntax error: SQLITE_ERROR");
+    let other = h.run(&["deploy", "--accept-plan", &hash]);
+    assert_eq!(other.code, Some(1));
+    assert!(
+        other.stderr.contains("near \"projects\": syntax error"),
+        "{}",
+        other.stderr
+    );
+    assert!(!other.stderr.contains("count check"), "{}", other.stderr);
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
+    never_shows_a_secret(&[&out, &other], &[]);
+}
+
+#[test]
+fn a_config_that_puts_one_host_in_two_projects_stops_the_plan_and_the_deploy_writing_nothing() {
+    let config = spaces_config().replace(
+        "Licences = [\"licence.example.com\"]",
+        "Licences = [\"licence.example.com\", \"Example.com\"]",
+    );
+    let h = home("spaces-twice", &config, live(&SHIPPED[..16], spaces_rows()));
+    let said = "[spaces.main.projects] puts example.com in both Example site and Licences: a host belongs to one project";
+    let plan = h.run(&["migrate", "--plan"]);
+    assert_eq!(plan.code, Some(1));
+    assert!(plan.stderr.contains(said), "{}", plan.stderr);
+    assert!(plan.stdout.is_empty(), "{}", plan.stdout);
+    h.refuses_and_changes_nothing(&["deploy", "--accept-plan", &"0".repeat(64)], said);
+    assert_eq!(h.applied(), names(&SHIPPED[..16]));
 }

@@ -94,6 +94,55 @@ INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, intern
   (3, 'owner@example.com', 1, 'title', '{"from":"a","to":"b"}', 0, ${AT});
 `;
 
+const LOCAL_CONFIG = [
+  'default_account = "local"',
+  "[me]",
+  'name = "Ada Lovelace"',
+  'email = "ada@example.com"',
+  "[accounts.local]",
+  'account_id = "acc"',
+  'database_id = "db"',
+  'token = ""',
+  'key = "unused"',
+  'url = "https://p99.example.com/_p99"',
+  "",
+].join("\n");
+
+const SPACES_CONFIG = LOCAL_CONFIG.replace("[accounts.local]\n", '[accounts.local]\nname = "Example Co"\n') +
+  ['[accounts.local.projects]', '"Example site" = ["example.com", "dev.example.com"]', ""].join("\n");
+
+const SEED_112 = `
+INSERT INTO hosts (host, env, config_json, created_at) VALUES
+  ('example.com', 'production', '{}', ${AT}),
+  ('dev.example.com', 'production', '{}', ${AT}),
+  ('shop.example.com', 'production', '{}', ${AT});
+INSERT INTO codes (id, hash, hint, name, email, hosts_json, manager, created_at, created_by) VALUES
+  (1, 'h1', 'a', 'Ada Lovelace', 'ada@example.com', '["example.com","dev.example.com","shop.example.com"]', 1, ${AT}, 'setup'),
+  (2, 'h2', 'b', 'Grace Hopper', 'grace@example.com', '["example.com"]', 0, ${AT}, 'ada@example.com'),
+  (3, 'h3', 'c', 'Jo', 'jo@example.com', '["shop.example.com"]', 0, ${AT}, 'ada@example.com');
+${[
+  [1, "bug", "example.com", null, 1],
+  [2, "feature", "example.com", "Roadmap", 1],
+  [3, "task", "shop.example.com", "roadmap", 0],
+  [4, "bug", "shop.example.com", null, 1],
+  [5, "question", "old.example.com", null, 1],
+]
+  .map(
+    ([id, kind, host, project, open]) => `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
+  reporter_email, reporter_name, reporter_json, context_json, marks_json, search_text, activity_at, public_activity_at, created_at, updated_at,
+  closed_at, resolution, project)
+  VALUES (${id}, 'seed-${id}', '${kind}', (SELECT id FROM labels WHERE name = '${open ? "New" : "Done"}'), ${open}, 'Item ${id}', '', 'production', '${host}',
+  'https://${host}/', '/', '', 'ada@example.com', 'Ada Lovelace', '{}', '{}', '[]', 'item ${id}', ${AT}, ${AT}, ${AT}, ${AT},
+  ${open ? "NULL" : AT}, ${open ? "NULL" : "'fixed'"}, ${project ? `'${project}'` : "NULL"});`,
+  )
+  .join("\n")}
+INSERT INTO comments (item_id, client_uid, author_email, author_name, author_manager, body, internal, origin_env, author_agent, created_at)
+  VALUES (1, 'seed-c1', 'grace@example.com', 'Grace Hopper', 0, 'Seen it.', 0, 'production', 0, ${AT});
+INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, internal, at) VALUES
+  (1, 'ada@example.com', 0, 'title', '{"from":"a","to":"b"}', 0, ${AT});
+INSERT INTO item_labels (item_id, label_id) SELECT 1, id FROM labels WHERE name = 'New';
+`;
+
 function binary(root) {
   if (process.env.P99_BIN) return process.env.P99_BIN;
   const built = ["release", "debug"]
@@ -187,22 +236,7 @@ export async function migrateChecks({ check, root, work }) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "home"), { recursive: true });
   const config = join(dir, "config.toml");
-  writeFileSync(
-    config,
-    [
-      'default_account = "local"',
-      "[me]",
-      'name = "Ada Lovelace"',
-      'email = "ada@example.com"',
-      "[accounts.local]",
-      'account_id = "acc"',
-      'database_id = "db"',
-      'token = ""',
-      'key = "unused"',
-      'url = "https://p99.example.com/_p99"',
-      "",
-    ].join("\n"),
-  );
+  writeFileSync(config, LOCAL_CONFIG);
   chmodSync(config, 0o600);
   const state = { db: d1(root, "0011"), sql: [], uploads: 0 };
   state.db.exec(SEED_18);
@@ -249,7 +283,7 @@ export async function migrateChecks({ check, root, work }) {
       first = await plan();
       const p = first.plan;
       assert.equal(first.hash, createHash("sha256").update(canonical(p)).digest("hex"));
-      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016"]);
+      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016", "0018"]);
       assert.deepEqual(
         p.labels.map((l) => [l.status, l.label, l.open, l.items]),
         [["inbox", "Inbox", 4, 4], ["doing", "Doing", 1, 1], ["review", "QA", 1, 1], ["done", "Done", 0, 1]],
@@ -271,7 +305,12 @@ export async function migrateChecks({ check, root, work }) {
       assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items]), [["BUG", 3], ["FEAT", 1], ["IMP", 1], ["Q", 1], ["TASK", 1]]);
       assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
       assert.equal(p.url, "https://p99.example.com/_p99");
-      assert.equal(p.decisions.length, 5, p.decisions.join("\n"));
+      assert.equal(p.decisions.length, 7, p.decisions.join("\n"));
+      assert.deepEqual(
+        p.spaces.hosts.map((h) => [h.host, h.project, h.mapped]),
+        [["example.com", "example.com", false], ["shop.example.com", "shop.example.com", false]],
+      );
+      assert.deepEqual(p.spaces.old_tags, { rows: 4, items: 4 });
       assert.doesNotMatch(p.decisions.join("\n"), /a person may have/);
       assert.match(p.people.digest, /^[0-9a-f]{64}$/);
       assert.equal((await plan()).hash, first.hash);
@@ -312,8 +351,16 @@ export async function migrateChecks({ check, root, work }) {
       const again = await run(["deploy", "--no-check"]);
       assert.equal(again.status, gatedBundled(bundled) ? 0 : 1, again.stderr);
       const past = (await plan()).plan;
-      assert.deepEqual(past.old_tags, { items: now.plan.tagged, tags: now.plan.tags.length });
-      assert.match((await run(["migrate", "--plan"])).stdout, new RegExp(`Old tags beyond the label .*: ${now.plan.tags.length} tags? on ${now.plan.tagged} items?\n`));
+      assert.equal(past.old_tags, undefined);
+      assert.equal(past.spaces, undefined);
+      assert.equal(state.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'item_labels'").get().n, 0);
+      assert.doesNotMatch((await run(["migrate", "--plan"])).stdout, /old tags|Old tags/);
+      const homes = state.db.prepare("SELECT h.host, p.name FROM hosts h JOIN projects p ON p.id = h.project_id ORDER BY h.host").all().map((r) => [r.host, r.name]);
+      assert.deepEqual(homes, now.plan.spaces.hosts.map((h) => [h.host, h.project]));
+      for (const project of now.plan.spaces.projects) {
+        const held = state.db.prepare("SELECT count(*) AS n FROM items i JOIN projects p ON p.id = i.project_id WHERE p.name = ?").get(project.name).n;
+        assert.equal(held, project.items, project.name);
+      }
       state.db = d1(root, null);
       const fresh = await run(["deploy", "--no-check"]);
       assert.equal(fresh.status, 0, fresh.stderr);
@@ -327,7 +374,7 @@ export async function migrateChecks({ check, root, work }) {
       old = await plan();
       const p = old.plan;
       assert.equal(old.hash, createHash("sha256").update(canonical(p)).digest("hex"));
-      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0004", "0011", "0012", "0013", "0016"]);
+      assert.deepEqual(p.pending.map((n) => n.slice(0, 4)), ["0004", "0011", "0012", "0013", "0016", "0018"]);
       assert.deepEqual(
         p.statuses.map((s) => [s.status, s.label, s.stage, s.open, s.items]),
         [
@@ -352,7 +399,12 @@ export async function migrateChecks({ check, root, work }) {
       assert.deepEqual(p.agents.map((a) => [a.email, a.shown]), [["ada@example.com", "@ada.lovelace 🤖"], ["owner@example.com", null]]);
       assert.deepEqual(p.kinds.map((k) => [k.prefix, k.items, k.open]), [["BUG", 5, 2], ["FEAT", 1, 1], ["IMP", 1, 0], ["Q", 1, 1], ["TASK", 1, 1]]);
       assert.deepEqual(p.hosts[0], { host: "example.com", env: "production", above: "#footer", off: ["/admin"] });
-      assert.equal(p.decisions.length, 3, p.decisions.join("\n"));
+      assert.equal(p.decisions.length, 6, p.decisions.join("\n"));
+      assert.match(p.decisions.join("\n"), /BUG-9 is on old\.example\.com, which is no host of the space, and names no project/);
+      assert.deepEqual(
+        p.spaces.codes.map((c) => [c.id, c.grant]),
+        [[1, { space: true }], [2, { space: true }], [3, { projects: ["example.com"] }], [4, { projects: ["example.com"] }]],
+      );
       assert.match(p.decisions.join("\n"), /old\.example\.com, which their code doesn't cover/);
       const text = await run(["migrate", "--plan"]);
       assert.match(text.stdout, /new {10}-> Inbox {3}received {5}2 open, 2 in all\n/);
@@ -446,7 +498,7 @@ export async function migrateChecks({ check, root, work }) {
       assert.deepEqual(applied(), ["0001", "0002", "0003", "0004"]);
       assert.equal(state.uploads, uploads);
       const now = await plan();
-      assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016"]);
+      assert.deepEqual(now.plan.pending.map((n) => n.slice(0, 4)), ["0011", "0012", "0013", "0016", "0018"]);
       assert.deepEqual(applied(), ["0001", "0002", "0003", "0004"]);
       const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", now.hash]);
       assert.equal(ok.status, 0, ok.stderr);
@@ -456,6 +508,123 @@ export async function migrateChecks({ check, root, work }) {
       assert.equal(state.uploads, uploads + 1);
       assert.deepEqual((await plan()).plan.pending, []);
     });
+
+    await check("a 1.12 space plans 0018 with SELECTs only, a count that drops rolls it back, and its hash makes the projects, grants and parks the plan named, once", async () => {
+      writeFileSync(config, SPACES_CONFIG);
+      chmodSync(config, 0o600);
+      try {
+        state.db = d1(root, "0018");
+        state.db.exec(SEED_112);
+        const p = await plan();
+        assert.deepEqual(p.plan.pending, ["0018_spaces.sql"]);
+        const s = p.plan.spaces;
+        assert.equal(s.name, "Example Co");
+        assert.deepEqual(
+          s.projects.map((x) => [x.name, x.hosts, x.items, x.open, x.cards]),
+          [
+            ["Example site", ["dev.example.com", "example.com"], 1, 1, 0],
+            ["shop.example.com", ["shop.example.com"], 1, 1, 0],
+            ["Roadmap", [], 2, 1, 2],
+          ],
+        );
+        assert.deepEqual(s.codes.map((c) => [c.id, c.grant, c.gains]), [
+          [1, { space: true }, []],
+          [2, { projects: ["Example site"] }, ["dev.example.com"]],
+          [3, { projects: ["shop.example.com"] }, []],
+        ]);
+        assert.deepEqual(s.without, [{ host: "old.example.com", items: ["Q-5"] }]);
+        assert.equal(p.plan.decisions.length, 2, p.plan.decisions.join("\n"));
+        assert.match(p.plan.decisions[0], /^the host shop\.example\.com isn't in \[spaces\.local\.projects\]/);
+        assert.deepEqual(s.counts.before, { items: 5, open: 4, comments: 1, events: 1, attachments: 0, codes: 3, cards: [{ project: "Roadmap", items: 2 }] });
+        assert.deepEqual(s.counts.after.projects, [
+          { project: "Example site", items: 1 },
+          { project: "shop.example.com", items: 1 },
+          { project: "Roadmap", items: 2 },
+        ]);
+        const text = (await run(["migrate", "--plan"])).stdout;
+        assert.match(text, /\nSpaces and projects \(0018\): the space local, shown as Example Co\n/);
+        assert.match(text, /\nCount check \(0018\)\n/);
+
+        const table = (name) => state.db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = ?").get(name).n;
+        const snapshot = () => ["hosts", "items", "codes", "comments", "events", "item_labels"].map((t) => state.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
+        const before = snapshot();
+        const uploads = state.uploads;
+        state.sql = [];
+        const bare = await run(["deploy", "--no-check", "--park", "3"]);
+        assert.equal(bare.status, 1);
+        assert.match(bare.stderr, /p99: 0018_spaces\.sql change this account's data: .*--accept-plan <hash>\n$/);
+        const unknown = await run(["deploy", "--no-check", "--accept-plan", p.hash, "--park", "9"]);
+        assert.equal(unknown.status, 1);
+        assert.match(unknown.stderr, /--park 9: no code with that id in this space/);
+        assert.deepEqual(writes(), []);
+
+        state.db.exec("CREATE TEMP TRIGGER lose_a_comment AFTER UPDATE ON items BEGIN DELETE FROM comments; END;");
+        const lost = await run(["deploy", "--no-check", "--accept-plan", p.hash]);
+        state.db.exec("DROP TRIGGER lose_a_comment;");
+        assert.equal(lost.status, 1);
+        assert.ok(
+          lost.stderr.endsWith(
+            "p99: the count check stopped 0018: it would have left fewer comments than before, so 0018_spaces.sql rolled back: none of it is written and the Worker is not uploaded; read `p99 migrate --plan` again\n",
+          ),
+          lost.stderr,
+        );
+        assert.deepEqual(snapshot(), before);
+        assert.equal(table("projects"), 0);
+        assert.equal(table("spaces_plan"), 0);
+        assert.equal(state.db.prepare("SELECT count(*) AS n FROM d1_migrations WHERE name = '0018_spaces.sql'").get().n, 0);
+        assert.equal(state.uploads, uploads);
+
+        state.sql = [];
+        const ok = await run(["--json", "deploy", "--no-check", "--accept-plan", p.hash, "--park", "3"]);
+        assert.equal(ok.status, 0, ok.stderr);
+        const report = JSON.parse(ok.stdout);
+        assert.deepEqual(report.migrations.applied, ["0018_spaces.sql"]);
+        assert.deepEqual(report.migrations.parked, [3]);
+        assert.match(ok.stderr, /parked #3: no grant, nothing opens for them, and nobody was mailed/);
+        assert.equal(state.uploads, uploads + 1);
+        assert.deepEqual(writes().filter((sql) => /\bmail\b|INTO mail/.test(sql)), []);
+        assert.deepEqual(state.db.prepare("SELECT id, name FROM projects ORDER BY id").all().map((r) => [r.id, r.name]), [
+          [1, "Example site"],
+          [2, "shop.example.com"],
+          [3, "Roadmap"],
+        ]);
+        assert.deepEqual(
+          state.db.prepare("SELECT h.host, p.name FROM hosts h JOIN projects p ON p.id = h.project_id ORDER BY h.host").all().map((r) => [r.host, r.name]),
+          [["dev.example.com", "Example site"], ["example.com", "Example site"], ["shop.example.com", "shop.example.com"]],
+        );
+        assert.deepEqual(
+          state.db.prepare("SELECT i.id, p.name, i.project FROM items i LEFT JOIN projects p ON p.id = i.project_id ORDER BY i.id").all().map((r) => [r.id, r.name, r.project]),
+          [[1, "Example site", null], [2, "Roadmap", "Roadmap"], [3, "Roadmap", "roadmap"], [4, "shop.example.com", null], [5, null, null]],
+        );
+        assert.deepEqual(state.db.prepare("SELECT id, grant_json, hosts_json FROM codes ORDER BY id").all().map((r) => [r.id, r.grant_json, r.hosts_json]), [
+          [1, '{"space":true}', '["dev.example.com","example.com","shop.example.com"]'],
+          [2, '{"projects":[1]}', '["dev.example.com","example.com"]'],
+          [3, '{"projects":[]}', "[]"],
+        ]);
+        for (const key of ["items", "comments", "events", "attachments", "codes"]) {
+          assert.equal(state.db.prepare(`SELECT count(*) AS n FROM ${key}`).get().n, s.counts.before[key], key);
+        }
+        assert.equal(state.db.prepare("SELECT count(*) AS n FROM items WHERE open = 1").get().n, s.counts.before.open);
+        for (const gone of ["item_labels", "spaces_plan", "spaces_count", "spaces_kept"]) assert.equal(table(gone), 0, gone);
+        assert.equal(state.db.prepare("SELECT count(*) AS n FROM settings").get().n, 0);
+        assert.equal(state.db.prepare("SELECT count(*) AS n FROM pragma_table_info('people') WHERE name = 'avatar'").get().n, 1);
+
+        const made = () => ["projects", "hosts", "items", "codes", "d1_migrations"].map((t) => state.db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all());
+        const once = made();
+        const again = await run(["deploy", "--no-check", "--accept-plan", p.hash, "--park", "2"]);
+        assert.equal(again.status, 1);
+        assert.match(again.stderr, /--park parks a code only in the deploy that applies 0018/);
+        const twice = await run(["deploy", "--no-check", "--accept-plan", p.hash]);
+        assert.equal(twice.status, 0, twice.stderr);
+        assert.deepEqual(made(), once);
+        const after = await plan();
+        assert.deepEqual(after.plan.pending, []);
+        assert.equal(after.plan.spaces, undefined);
+      } finally {
+        writeFileSync(config, LOCAL_CONFIG);
+        chmodSync(config, 0o600);
+      }
+    });
   } finally {
     server.close();
     server.closeAllConnections();
@@ -463,5 +632,5 @@ export async function migrateChecks({ check, root, work }) {
 }
 
 function gatedBundled(bundled) {
-  return ["0011", "0012", "0013", "0016"].every((g) => bundled.some((n) => n.startsWith(`${g}_`)));
+  return ["0011", "0012", "0013", "0016", "0018"].every((g) => bundled.some((n) => n.startsWith(`${g}_`)));
 }
