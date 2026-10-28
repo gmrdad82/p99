@@ -14,6 +14,8 @@ pub const Q_FOLD: &str = include_str!("counts/fold.sql");
 
 pub const Q_PRUNE: &str = include_str!("counts/prune.sql");
 
+pub const Q_LANE: &str = include_str!("counts/lane.sql");
+
 const KEPT: [&str; 3] = ["items", "comments", "attachments"];
 
 const GUARD: &str = "count_check";
@@ -172,9 +174,7 @@ fn checks(plan: &Value) -> Vec<(String, i64, String)> {
         out.push((
             format!("lane_{at}"),
             count(row, "items"),
-            format!(
-                "(SELECT count(*) FROM items i JOIN board_columns bc ON bc.label_id = i.label_id JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1 AND (SELECT count(*) FROM board_columns o JOIN boards ob ON ob.id = o.board_id WHERE ob.cards = 1 AND o.position < bc.position) = {at})"
-            ),
+            Q_LANE.trim_end().replace("{lane}", &at.to_string()),
         ));
     }
     out
@@ -254,6 +254,9 @@ mod tests {
                 assert!(!sql.contains(word), "{sql}");
             }
         }
+        assert!(Q_LANE.starts_with("(SELECT ") && Q_LANE.trim_end().ends_with("= {lane})"));
+        assert_eq!(Q_LANE.matches("{lane}").count(), 1);
+        assert!(!Q_LANE.contains(';'));
         let uncarded = Q_FOLD.replace("b.cards", "0");
         assert!(!uncarded.contains(".cards"), "{uncarded}");
         assert!(uncarded.starts_with("SELECT ") && !uncarded.contains(';'));

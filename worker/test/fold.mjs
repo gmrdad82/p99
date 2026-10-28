@@ -60,13 +60,13 @@ export function label(name) {
   return `(SELECT id FROM labels WHERE name = '${name}')`;
 }
 
-export function item(id, name, { open = 1, resolution = null, project = null, host = "example.com", day = 1, kind = "bug", assignee = null } = {}) {
+export function item(id, name, { open = 1, resolution = null, project = null, host = "example.com", day = 1, kind = "bug", assignee = null, v19 = false } = {}) {
   return `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
     reporter_email, reporter_name, reporter_json, reporter_agent, assignee, context_json, marks_json, search_text, activity_at, public_activity_at,
-    created_at, updated_at, closed_at, resolution, project)
+    created_at, updated_at, closed_at, resolution${v19 ? "" : ", project"})
     VALUES (${id}, 'fold-${id}', '${kind}', ${label(name)}, ${open}, 'Item ${id}', '', 'production', '${host}', 'https://${host}/', '/', '',
     'grace@example.com', 'Grace Hopper', '{}', 0, ${assignee ? `'${assignee}'` : "NULL"}, '{}', '[]', 'item ${id}', ${AT(day)}, ${AT(day)},
-    ${AT(day)}, ${AT(day)}, ${open ? "NULL" : AT(day)}, ${resolution ? `'${resolution}'` : "NULL"}, ${project ? `'${project}'` : "NULL"});`;
+    ${AT(day)}, ${AT(day)}, ${open ? "NULL" : AT(day)}, ${resolution ? `'${resolution}'` : "NULL"}${v19 ? "" : `, ${project ? `'${project}'` : "NULL"}`});`;
 }
 
 export function column(board, name, position) {
@@ -418,6 +418,88 @@ export async function foldChecks({ check, root }) {
       assert.ok(listed.includes("Triage") && listed.includes("Shipped"), `${how}: ${listed}`);
       assert.ok(unplaced > 0, how);
     }
+  });
+
+  await check("[fold] the count check's prediction, read before 0016, is what 0016 and 0017 then leave in every lane and in the events, for each Cards board shape and for a 1.9 account", async () => {
+    const read = (name) => readFileSync(join(root, "..", "src", "counts", `${name}.sql`), "utf8");
+    const [foldSql, totals, laneSql] = ["fold", "totals", "lane"].map(read);
+    const prune = readFileSync(join(root, "migrations", "0017_delete_archived.sql"), "utf8");
+    const predicted = (db, sql) => {
+      const before = { ...db.prepare(totals).get() };
+      const rows = db.prepare(sql).all();
+      const moved = rows.reduce((sum, r) => sum + r.moved, 0);
+      const lanes = LANE_NAMES.map((_, at) => rows.find((r) => r.lane === at)?.items ?? 0);
+      assert.equal(lanes.reduce((sum, n) => sum + n, 0), before.items);
+      return { want: { ...before, events: before.events + moved, lanes }, moved };
+    };
+    const deployed = (db, before = "") => {
+      db.exec("BEGIN");
+      try {
+        db.exec(before);
+        fold(root, db);
+        db.exec(prune);
+        db.exec("COMMIT");
+      } catch (error) {
+        db.exec("ROLLBACK");
+        throw error;
+      }
+      const lanes = LANE_NAMES.map((_, at) => db.prepare(`SELECT ${laneSql.trim().replaceAll("{lane}", String(at))} AS n`).get().n);
+      return { ...db.prepare(totals).get(), lanes };
+    };
+    const keep = `INSERT INTO labels (name, color, created_at, closes) VALUES ('Needs you', '#e0823d', ${AT(4)}, 0);
+      UPDATE board_columns SET position = position + 1 WHERE board_id = 14 AND position >= 3; ${column(14, "Needs you", 3)}
+      ${item(15, "Needs you", { day: 4 })} ${place(14, 15, "Needs you", "a0")} ${item(16, "Landed", { open: 0, resolution: "fixed", day: 4 })}`;
+    const odd = `UPDATE labels SET name = 'Next up' WHERE name = 'Planned'; DELETE FROM board_columns WHERE board_id = 14 AND label_id = ${label("Stuck")};
+      ${item(15, "Next up", { day: 4 })} ${place(14, 15, "Next up", "a0")}`;
+    for (const [how, extra, columns] of [
+      ["make", "DELETE FROM board_positions WHERE board_id = 14; DELETE FROM board_columns WHERE board_id = 14; DELETE FROM boards WHERE id = 14;", null],
+      ["fill", "DELETE FROM board_columns WHERE board_id = 14;", 0],
+      ["insert", "", 6],
+      ["insert, a renamed lane", "UPDATE labels SET name = 'Next up' WHERE name = 'Planned';", 6],
+      ["reset, six with Needs you", "UPDATE labels SET name = 'Needs you' WHERE name = 'Stuck';", 6],
+      ["reset, odd columns", odd, 5],
+      ["keep", keep, 7],
+    ]) {
+      const db = seeded(root, extra);
+      const cards = db.prepare("SELECT count(*) AS n FROM board_columns bc JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1").get().n;
+      const board = db.prepare("SELECT count(*) AS n FROM boards WHERE cards = 1").get().n;
+      assert.deepEqual([board, cards], columns === null ? [0, 0] : [1, columns], how);
+      const { want, moved } = predicted(db, foldSql);
+      assert.ok(moved > 0 && moved < want.items, `${how}: ${moved}`);
+      assert.deepEqual(deployed(db), want, how);
+    }
+
+    const v19 = migrated(root, "0014");
+    v19.exec(
+      [
+        `INSERT INTO codes (id, hash, hint, name, email, hosts_json, manager, created_at, created_by, revoked_at) VALUES
+          (2, 'h2', 'b', 'Ada Lovelace', 'ada@example.com', '["*"]', 1, ${AT(1)}, 'setup', NULL);`,
+        `INSERT INTO labels (name, color, created_at, closes) VALUES ('QA ready', '#539bf5', ${AT(1)}, 0), ('Triage', '#986ee2', ${AT(1)}, 0), ('Shipped', '#57ab5a', ${AT(1)}, 1);`,
+        `INSERT INTO boards (id, name, host, owner, created_at, updated_at) VALUES (11, 'Ada''s board', NULL, 'ada@example.com', ${AT(1)}, ${AT(1)}),
+          (12, 'Grace''s board', 'example.com', 'grace@example.com', ${AT(2)}, ${AT(2)});`,
+        ...["Inbox", "Doing", "QA ready", "Done"].map((name, at) => column(11, name, at)),
+        ...["Triage", "Doing", "Review", "Shipped"].map((name, at) => column(12, name, at)),
+        item(1, "Inbox", { v19: true }),
+        item(2, "Doing", { v19: true }),
+        item(3, "Review", { v19: true }),
+        item(4, "Done", { open: 0, resolution: "fixed", v19: true }),
+        item(5, "QA ready", { v19: true }),
+        item(6, "Triage", { v19: true }),
+        item(7, "Shipped", { open: 0, resolution: "abandoned", v19: true }),
+        item(13, "Done", { day: 3, v19: true }),
+        item(15, "Shipped", { day: 2, v19: true }),
+        place(11, 1, "Inbox", "a0"),
+        place(11, 4, "Done", "a0"),
+        place(12, 6, "Triage", "a0"),
+      ].join("\n"),
+    );
+    assert.equal(v19.prepare("SELECT count(*) AS n FROM pragma_table_info('boards') WHERE name = 'cards'").get().n, 0);
+    assert.throws(() => v19.prepare(foldSql).all(), /no such column/);
+    const uncarded = foldSql.replaceAll("b.cards", "0");
+    const { want, moved } = predicted(v19, uncarded);
+    assert.ok(moved > 0 && moved < want.items, String(moved));
+    const cut = ["0014_backup_cut.sql", "0015_cards.sql"].map((f) => readFileSync(join(root, "migrations", f), "utf8")).join("\n");
+    assert.deepEqual(deployed(v19, cut), want);
   });
 
   await check("[fold] running 0016 twice changes nothing the second time", async () => {

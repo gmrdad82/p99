@@ -1,0 +1,1 @@
+(SELECT count(*) FROM items i JOIN board_columns bc ON bc.label_id = i.label_id JOIN boards b ON b.id = bc.board_id WHERE b.cards = 1 AND (SELECT count(*) FROM board_columns o JOIN boards ob ON ob.id = o.board_id WHERE ob.cards = 1 AND o.position < bc.position) = {lane})
