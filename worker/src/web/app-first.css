@@ -1,7 +1,11 @@
-:root { --p99-accent: #3b7dd8; color-scheme: light dark; }
+:root { --p99-accent: #3b7dd8; --app-bar: 64px; color-scheme: light dark; }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scrollbar-gutter: stable; scrollbar-width: thin; scrollbar-color: var(--p99-scroll-thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--p99-scroll-thumb) padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--p99-scroll-hover); }
 body {
   min-height: 100vh;
   min-height: 100dvh;
