@@ -179,7 +179,7 @@ pub struct SetupArgs {
     #[arg(
         long = "host",
         value_name = "host[=env[:kind]]",
-        help = "a host this account serves, with its environment and kind (production:release by default); repeat it"
+        help = "a host this space serves, with its environment and kind (production:release by default); repeat it"
     )]
     pub hosts: Vec<String>,
     #[arg(
@@ -218,7 +218,7 @@ pub struct SetupArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct DeployArgs {
-    #[arg(long, help = "skip the health check of the account's hosts")]
+    #[arg(long, help = "skip the health check of the space's hosts")]
     pub no_check: bool,
     #[arg(
         long,
@@ -556,7 +556,7 @@ impl Session<'_> {
             }
             while !config.me.email.contains('@') {
                 config.me.email = self.ask.line(
-                    "Your e-mail (it becomes the account's first Owner)",
+                    "Your e-mail (it becomes the space's first Owner)",
                     None,
                     "--email",
                 )?;
@@ -570,15 +570,15 @@ impl Session<'_> {
             let who = format!("{} <{}>", config.me.name, config.me.email);
             if !self
                 .ask
-                .confirm(&format!("Act as {who} on this account?"), true)?
+                .confirm(&format!("Act as {who} in this space?"), true)?
             {
                 name = Some(self.ask.line(
-                    "Your name on this account, as P99 shows it",
+                    "Your name in this space, as P99 shows it",
                     Some(&config.me.name),
                     "--name",
                 )?);
                 email = Some(self.ask.line(
-                    "Your e-mail on this account (it becomes its first Owner)",
+                    "Your e-mail in this space (it becomes its first Owner)",
                     None,
                     "--email",
                 )?);
@@ -602,7 +602,7 @@ impl Session<'_> {
             .contains('@')
         {
             over.email = Some(self.ask.line(
-                "Your e-mail on this account (it becomes its first Owner)",
+                "Your e-mail in this space (it becomes its first Owner)",
                 None,
                 "--email",
             )?);
@@ -1378,7 +1378,7 @@ pub fn add_route(config: &Config, account: &str, host: &str) -> Result<(), Strin
     let entry = config
         .accounts
         .get(account)
-        .ok_or_else(|| format!("no account is called {account}"))?;
+        .ok_or_else(|| format!("no space is called {account}"))?;
     let cf = Cloudflare::new(&crate::config::token(entry)?);
     let zones = cf.zones(&entry.account_id)?;
     for line in route(
@@ -1515,7 +1515,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         1,
         total,
         "You",
-        "P99 acts as you in the CLI and the TUI, and your e-mail is the account's first Owner.",
+        "P99 acts as you in the CLI and the TUI, and your e-mail is the space's first Owner.",
     );
     let name = match &global.account {
         Some(name) => name.clone(),
@@ -1523,11 +1523,11 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         None => {
             let names: Vec<&str> = config.accounts.keys().map(String::as_str).collect();
             say!(
-                "      The config has the account{} {}. Name one to continue its setup, or a new name to add an account.",
+                "      The config has the space{} {}. Name one to continue its setup, or a new name to add a space.",
                 if names.len() == 1 { "" } else { "s" },
                 names.join(", ")
             );
-            s.ask.line("Account name", None, "--account")?
+            s.ask.line("Space name", None, "--space")?
         }
     };
     if !name
@@ -1535,7 +1535,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
     {
         return Err(format!(
-            "{name}: use letters, digits, - and _ in an account name"
+            "{name}: use letters, digits, - and _ in a space name"
         ));
     }
     let me = s.me(&mut config, &name)?;
@@ -1543,10 +1543,10 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         entry.me = me.clone();
     }
     if config.accounts.contains_key(&name) {
-        note(&format!("continuing the setup of the account {name}"));
+        note(&format!("continuing the setup of the space {name}"));
     } else {
         note(&format!(
-            "adding the account {name}; other accounts stay as they are"
+            "adding the space {name}; other spaces stay as they are"
         ));
     }
     config.save()?;
@@ -1637,7 +1637,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         6,
         total,
         "The key",
-        "The CLI and the TUI sign every request with the account's key; the Worker holds\nthe same key as its secret KEY_P99.",
+        "The CLI and the TUI sign every request with the space's key; the Worker holds\nthe same key as its secret KEY_P99.",
     );
     if account.key.is_empty() {
         let given = match args.key_from.as_deref() {
@@ -1663,7 +1663,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             }
         }
     } else {
-        done("the account has its key");
+        done("the space has its key");
     }
     save(&mut config, &account)?;
 
@@ -1728,7 +1728,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         8,
         total,
         "The Worker",
-        "One Worker serves every host of the account. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION, LICENSE_STATE, LICENSE_LINK, HUB) and its secrets (KEY_P99, MANAGERS, and\nCODE_PEPPER, which keys the stored hashes of the personal codes so the database alone can't\nrecover one).",
+        "One Worker serves every host of the space. It is uploaded with its bindings (DB, BUCKET,\nRATE, VERSION, LICENSE_STATE, LICENSE_LINK, SPACE, SPACE_NAME, BUILD_DATE, HUB) and its secrets (KEY_P99, MANAGERS, and\nCODE_PEPPER, which keys the stored hashes of the personal codes so the database alone can't\nrecover one).",
     );
     let existing = cf.bindings(&id, &account.worker)?;
     if let Some(bindings) = &existing
@@ -1809,7 +1809,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
             say!("      Leave it blank to add hosts later with p99 hosts add.");
         }
         let answer = s.ask.line(
-            "Hosts this account serves, comma separated",
+            "Hosts this space serves, comma separated",
             Some(default.as_str()),
             "--host",
         )?;
@@ -1844,7 +1844,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
     for spec in &specs {
         if let Some(other) = config.hosts.get(&spec.host).filter(|h| h.account != name) {
             say!(
-                "  !!  {} belongs to the account {}; skipped",
+                "  !!  {} belongs to the space {}; skipped",
                 spec.host,
                 other.account
             );
@@ -1888,7 +1888,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         say!("\nChecking the hosts answer this version:");
         checked = health(&hosts);
     }
-    say!("\nThe account {name} is set up:");
+    say!("\nThe space {name} is set up:");
     say!("  Cloudflare account  {}", account.account_id);
     say!("  Worker              {} ({VERSION})", account.worker);
     say!(
@@ -1989,7 +1989,7 @@ fn deploy_into(
     report.worker = account.worker.clone();
     let cf = Cloudflare::new(&crate::config::token(account)?);
     let id = &account.account_id;
-    say!("Deploying P99 {VERSION} to the account {name} ({id}):");
+    say!("Deploying P99 {VERSION} to the space {name} ({id}):");
     let bindings = cf.bindings(id, &account.worker)?.ok_or_else(|| {
         format!(
             "the account has no Worker called {}; run p99 setup",

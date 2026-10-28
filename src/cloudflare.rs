@@ -572,7 +572,7 @@ fn account_api<'a>(
     let entry = config
         .accounts
         .get(account)
-        .ok_or_else(|| format!("no account is called {account}"))?;
+        .ok_or_else(|| format!("no space is called {account}"))?;
     Ok((Cloudflare::new(&crate::config::token(entry)?), entry))
 }
 

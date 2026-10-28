@@ -369,8 +369,8 @@ fn a_fresh_account_gets_its_database_bucket_schema_worker_secrets_and_route_in_o
     out.ok();
 
     let config = h.toml();
-    let main = &config["accounts"]["main"];
-    assert_eq!(config["default_account"].as_str(), Some("main"));
+    let main = &config["spaces"]["main"];
+    assert_eq!(config["default_space"].as_str(), Some("main"));
     assert_eq!(config["me"]["name"].as_str(), Some("Ada Lovelace"));
     assert_eq!(config["me"]["email"].as_str(), Some("ada@example.com"));
     assert_eq!(main["account_id"].as_str(), Some("acc1"));
@@ -379,7 +379,7 @@ fn a_fresh_account_gets_its_database_bucket_schema_worker_secrets_and_route_in_o
     let key = main["key"].as_str().unwrap().to_owned();
     assert!(is_hex(&key), "{key}");
     assert_eq!(
-        config["hosts"]["shop.example.com"]["account"].as_str(),
+        config["hosts"]["shop.example.com"]["space"].as_str(),
         Some("main")
     );
     #[cfg(unix)]
@@ -447,7 +447,7 @@ fn a_fresh_account_gets_its_database_bucket_schema_worker_secrets_and_route_in_o
         "  ok  rate-limiting namespace 1002 (the account's other Workers use 1001)",
         "  ok  added the route shop.example.com/_p99/* → p99",
         "  ok  shop.example.com serves the environment production (release)",
-        "The account main is set up:",
+        "The space main is set up:",
         "  host                shop.example.com (production)",
         "  mail                off",
         "  p99 invite shop.example.com --name \"Ada Lovelace\" --email ada@example.com",
@@ -533,7 +533,7 @@ fn running_setup_again_finds_everything_there_and_changes_nothing_it_made() {
         &[
             "setup",
             "--yes",
-            "--account",
+            "--space",
             "main",
             "--host",
             "shop.example.com",
@@ -586,11 +586,11 @@ fn running_setup_again_finds_everything_there_and_changes_nothing_it_made() {
     drop(state);
 
     for line in [
-        "  --  continuing the setup of the account main",
+        "  --  continuing the setup of the space main",
         "  ok  D1 database p99 (db-made) is there",
         "  ok  every migration is applied",
         "  ok  R2 bucket p99 is there",
-        "  ok  the account has its key",
+        "  ok  the space has its key",
         "  ok  secret MANAGERS is kept as it is",
         "  ok  secret CODE_PEPPER is kept as it is",
         "  ok  the route shop.example.com/_p99/* is there",
@@ -616,7 +616,7 @@ fn a_database_and_bucket_already_there_are_adopted_not_made_again() {
     let out = setup(&h, &["--no-mail"]);
     out.ok();
     assert_eq!(
-        h.toml()["accounts"]["main"]["database_id"].as_str(),
+        h.toml()["spaces"]["main"]["database_id"].as_str(),
         Some("db-kept")
     );
     assert!(
@@ -655,7 +655,7 @@ fn a_database_and_bucket_already_there_are_adopted_not_made_again() {
         &["--database", "notes", "--bucket", "photos", "--no-mail"],
     )
     .ok();
-    let main = &h.toml()["accounts"]["main"];
+    let main = &h.toml()["spaces"]["main"];
     assert_eq!(main["database_id"].as_str(), Some("db-else"));
     assert_eq!(main["bucket"].as_str(), Some("photos"));
     assert!(
@@ -825,7 +825,7 @@ fn each_setup_refusal_is_one_line_and_makes_nothing_on_cloudflare() {
             fresh(),
             vec!["setup", "--yes", "--name", "Ada Lovelace"],
             true,
-            "Your e-mail (it becomes the account's first Owner): give it with --email",
+            "Your e-mail (it becomes the space's first Owner): give it with --email",
         ),
         (
             "refuse-no-name",
@@ -847,9 +847,9 @@ fn each_setup_refusal_is_one_line_and_makes_nothing_on_cloudflare() {
         (
             "refuse-account-name",
             fresh(),
-            me(&["--account", "my acct"]),
+            me(&["--space", "my acct"]),
             true,
-            "my acct: use letters, digits, - and _ in an account name",
+            "my acct: use letters, digits, - and _ in a space name",
         ),
     ];
     for (name, cloud, args, token, said) in cases {
@@ -919,7 +919,7 @@ fn a_worker_of_the_same_name_on_another_database_is_left_alone() {
     assert!(h.stub.calls("PUT", UPLOAD).is_empty());
     assert!(cf.lock().unwrap().secrets.is_empty());
     assert_eq!(cf.lock().unwrap().binding("DB")["database_id"], "db-other");
-    let main = &h.toml()["accounts"]["main"];
+    let main = &h.toml()["spaces"]["main"];
     assert_eq!(main["database_id"].as_str(), Some("db-made"));
     assert_eq!(
         h.stub.calls("POST", "/cf/accounts/acc1/d1/database").len(),
@@ -932,7 +932,7 @@ fn a_worker_of_the_same_name_on_another_database_is_left_alone() {
         &[
             "setup",
             "--yes",
-            "--account",
+            "--space",
             "main",
             "--no-mail",
             "--worker",
@@ -1312,7 +1312,7 @@ esac
         out.ok();
 
         let config = h.toml();
-        let main = &config["accounts"]["main"];
+        let main = &config["spaces"]["main"];
         assert_eq!(
             main["token"].as_str(),
             Some(&format!("{SCHEME}vlt1/item1/credential") as &str)
@@ -1390,7 +1390,7 @@ esac
             &bin,
             false,
             &[
-                "--account",
+                "--space",
                 "main",
                 "--host",
                 "shop.example.com",
@@ -1413,7 +1413,7 @@ esac
             "{calls:?}"
         );
         assert!(
-            again.stdout.contains("  ok  the account has its key"),
+            again.stdout.contains("  ok  the space has its key"),
             "{}",
             again.stdout
         );
@@ -1442,11 +1442,11 @@ esac
         run(&h, &bin, true, &["--vault", "Example", "--no-mail"]).ok();
         let config = h.toml();
         assert_eq!(
-            config["accounts"]["main"]["token"].as_str(),
+            config["spaces"]["main"]["token"].as_str(),
             Some(&format!("{SCHEME}Example/item1/credential") as &str)
         );
         assert_eq!(
-            config["accounts"]["main"]["key"].as_str(),
+            config["spaces"]["main"]["key"].as_str(),
             Some(&format!("{SCHEME}Example/item2/credential") as &str)
         );
     }
@@ -1463,7 +1463,7 @@ esac
         )
         .ok();
         assert!(asked(&bin).is_empty(), "{:?}", asked(&bin));
-        assert_eq!(h.toml()["accounts"]["main"]["token"].as_str(), Some(TOKEN));
+        assert_eq!(h.toml()["spaces"]["main"]["token"].as_str(), Some(TOKEN));
     }
 
     #[test]
@@ -1530,15 +1530,15 @@ fn a_new_account_set_up_as_someone_else_asks_their_name_and_the_email_that_becom
 {
     let (h, _) = configured("setup-someone-else", fresh());
     let out = h.run(
-        &["setup", "--account", "work", "--no-mail"],
+        &["setup", "--space", "work", "--no-mail"],
         &[],
         Some("n\nGrace Hopper\ngrace@example.com\n"),
     );
     out.refused("Paste the token: an answer is needed");
     for asked in [
-        "Act as Ada Lovelace <ada@example.com> on this account? [Y/n]: ",
-        "Your name on this account, as P99 shows it [Ada Lovelace]: ",
-        "Your e-mail on this account (it becomes its first Owner): ",
+        "Act as Ada Lovelace <ada@example.com> in this space? [Y/n]: ",
+        "Your name in this space, as P99 shows it [Ada Lovelace]: ",
+        "Your e-mail in this space (it becomes its first Owner): ",
         "Paste the token (hidden): ",
     ] {
         assert!(out.stdout.contains(asked), "{asked}:\n{}", out.stdout);
@@ -1552,10 +1552,10 @@ fn a_new_account_whose_email_has_no_at_sign_refuses_with_yes_and_names_the_first
     let text = home::config(&stub.base).replace("email = \"ada@example.com\"", "email = \"ada\"");
     let h = Home::with_config("setup-email-no-at", stub, &text);
     let out = h.p99_env(
-        &["setup", "--yes", "--account", "work", "--no-mail"],
+        &["setup", "--yes", "--space", "work", "--no-mail"],
         &[("P99_TOKEN", TOKEN)],
     );
-    out.refused("Your e-mail on this account (it becomes its first Owner): give it with --email");
+    out.refused("Your e-mail in this space (it becomes its first Owner): give it with --email");
     assert!(!out.stdout.contains("Act as"), "{}", out.stdout);
     assert!(h.stub.seen().is_empty());
     assert!(h.config().contains("email = \"ada\""), "{}", h.config());
@@ -1592,7 +1592,7 @@ mod sources {
         let mut args = vec![
             "setup",
             "--yes",
-            "--account",
+            "--space",
             "main",
             "--host",
             "shop.example.com",
@@ -1632,7 +1632,7 @@ mod sources {
             &[],
         );
         first.ok();
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert_eq!(main["token"]["file"].as_str(), Some(path.as_str()));
         assert!(!h.config().contains(TOKEN), "{}", h.config());
         every_cloudflare_call_carried_the_token(&h);
@@ -1657,7 +1657,7 @@ mod sources {
             &[("CF_STORY_TOKEN", TOKEN)],
         );
         out.ok();
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert_eq!(main["token"]["env"].as_str(), Some("CF_STORY_TOKEN"));
         assert!(!h.config().contains(TOKEN), "{}", h.config());
         every_cloudflare_call_carried_the_token(&h);
@@ -1676,7 +1676,7 @@ mod sources {
         let spec = format!("command:sh {script}");
         let out = run(&h, &["--token", &spec, "--no-mail"], &[]);
         out.ok();
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         let words: Vec<&str> = main["token"]["command"]
             .as_array()
             .unwrap()
@@ -1754,7 +1754,7 @@ mod sources {
         );
         out.ok();
         assert_eq!(out.json()["key"], "file");
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert_eq!(main["key"]["file"].as_str(), Some(path.as_str()));
         assert!(!h.config().contains(OWN_KEY), "{}", h.config());
         assert_eq!(secret_of(&cf, "KEY_P99").as_deref(), Some(OWN_KEY));
@@ -1775,7 +1775,7 @@ mod sources {
         );
         assert_eq!(secret_of(&cf, "KEY_P99").as_deref(), Some(OWN_KEY));
         assert_eq!(
-            h.toml()["accounts"]["main"]["key"]["env"].as_str(),
+            h.toml()["spaces"]["main"]["key"]["env"].as_str(),
             Some("P99_STORY_OWN_KEY")
         );
     }
@@ -1806,7 +1806,7 @@ mod sources {
             &[("P99_TOKEN", TOKEN)],
         );
         out.ok();
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert!(is_hex(main["key"].as_str().unwrap()));
         assert!(main.get("resend_key").is_none(), "{}", h.config());
         assert!(!h.config().contains(RESEND));
@@ -1839,7 +1839,7 @@ mod sources {
             Some(format!("Bearer {RESEND}").as_str())
         );
         assert_eq!(secret_of(&cf, "RESEND_API_KEY").as_deref(), Some(RESEND));
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert_eq!(main["resend_key"]["file"].as_str(), Some(path.as_str()));
         assert!(!h.config().contains(RESEND), "{}", h.config());
         assert!(
@@ -1880,8 +1880,8 @@ mod sources {
         let first = setup(&h, &["--host", "shop.example.com", "--no-mail"]);
         first.ok();
         let config = h.toml();
-        assert_eq!(config["accounts"]["main"]["token"].as_str(), Some(TOKEN));
-        let key = config["accounts"]["main"]["key"]
+        assert_eq!(config["spaces"]["main"]["token"].as_str(), Some(TOKEN));
+        let key = config["spaces"]["main"]["key"]
             .as_str()
             .unwrap()
             .to_owned();
@@ -1926,11 +1926,11 @@ mod sources {
             assert!(out.stdout.contains(asked), "{asked}:\n{}", out.stdout);
         }
         assert_eq!(
-            h.toml()["accounts"]["main"]["token"]["env"].as_str(),
+            h.toml()["spaces"]["main"]["token"]["env"].as_str(),
             Some("CF_STORY_TOKEN")
         );
         assert!(is_hex(
-            h.toml()["accounts"]["main"]["key"].as_str().unwrap()
+            h.toml()["spaces"]["main"]["key"].as_str().unwrap()
         ));
         assert!(secret_of(&cf, "KEY_P99").is_some());
         every_cloudflare_call_carried_the_token(&h);
@@ -1961,7 +1961,7 @@ mod sources {
             "{}",
             out.stdout
         );
-        let main = h.toml()["accounts"]["main"].clone();
+        let main = h.toml()["spaces"]["main"].clone();
         assert_eq!(main["token"]["command"][0].as_str(), Some("sh"));
         assert_eq!(main["token"]["command"][1].as_str(), Some(script.as_str()));
         assert!(!h.config().contains(TOKEN));
