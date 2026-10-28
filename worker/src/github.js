@@ -1,4 +1,5 @@
 import { LABEL_COLUMNS, LABEL_JOIN, closeItem } from "./boards.js";
+import { EVERYWHERE } from "./grants.js";
 
 const GITHUB_API = "https://api.github.com";
 const PREFIXES = new Set(["BUG", "FEAT", "IMP", "Q", "TASK"]);
@@ -235,6 +236,7 @@ export async function githubDelivery(request, env, ctx, url) {
     actor: GITHUB_ACTOR,
     manager: true,
     scope: { all: false, host: hostRow.host },
+    reach: EVERYWHERE,
     hostRow,
     actionEnv: null,
     now: new Date().toISOString(),

@@ -1,3 +1,4 @@
+import { grantOf, reachOf, reachesHost } from "./grants.js";
 import { escapeHtml, palette } from "./mail.js";
 
 const encoder = new TextEncoder();
@@ -256,12 +257,12 @@ export async function optedOut(DB, mails) {
   return new Set(results.map((r) => `${r.item_id} ${r.email}`));
 }
 
-export async function reporterCodes(env, wanted) {
+export async function reporterCodes(env, wanted, dir) {
   const emails = [...new Set(wanted.map((m) => m.to))];
   const found = new Map();
   if (emails.length === 0) return found;
   const { results } = await env.DB.prepare(
-    `SELECT email, hosts_json, sealed_code FROM codes
+    `SELECT email, hosts_json, grant_json, sealed_code FROM codes
      WHERE revoked_at IS NULL AND sealed_code IS NOT NULL AND email IN (SELECT value FROM json_each(?1))
      ORDER BY id DESC`,
   )
@@ -272,14 +273,7 @@ export async function reporterCodes(env, wanted) {
     if (found.has(slot)) continue;
     let code = null;
     for (const row of results) {
-      if (row.email !== m.to) continue;
-      let hosts;
-      try {
-        hosts = JSON.parse(row.hosts_json);
-      } catch {
-        continue;
-      }
-      if (!Array.isArray(hosts) || !hosts.includes(m.host)) continue;
+      if (row.email !== m.to || !reachesHost(reachOf(grantOf(row, dir), dir), dir, m.host)) continue;
       code = await openCode(env, row.sealed_code);
       if (code) break;
     }
