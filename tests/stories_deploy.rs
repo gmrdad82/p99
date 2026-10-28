@@ -357,13 +357,13 @@ impl Drop for Home {
 
 fn account(name: &str, database: &str, token: &str) -> String {
     format!(
-        "[accounts.{name}]\naccount_id = \"acc1\"\ntoken = \"{token}\"\ndatabase_id = \"{database}\"\nkey = \"{KEY}\"\nresend_key = \"{RESEND}\"\naccess_client_id = \"id.access\"\naccess_client_secret = \"{ACCESS}\"\n\n"
+        "[spaces.{name}]\naccount_id = \"acc1\"\ntoken = \"{token}\"\ndatabase_id = \"{database}\"\nkey = \"{KEY}\"\nresend_key = \"{RESEND}\"\naccess_client_id = \"id.access\"\naccess_client_secret = \"{ACCESS}\"\n\n"
     )
 }
 
 fn plain_config() -> String {
     format!(
-        "license = \"{LICENSE}\"\n\n{}[hosts.\"example.com\"]\naccount = \"main\"\n",
+        "license = \"{LICENSE}\"\n\n{}[hosts.\"example.com\"]\nspace = \"main\"\n",
         account("main", "db1", TOKEN)
     )
 }
@@ -966,7 +966,7 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -1085,7 +1085,7 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0017_delete_archived.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0017_delete_archived.sql, 0018_spaces.sql change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -1440,7 +1440,7 @@ fn an_account_at_0013_plans_without_the_cards_column_and_takes_0014_to_0016_in_o
         let why = if args.len() == 3 {
             "--accept-plan takes the 64-character hash"
         } else {
-            "p99: 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data"
+            "p99: 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data"
         };
         let out = h.refuses_and_changes_nothing(&args, why);
         assert!(!out.all().contains("applied 0014"), "{}", out.all());
@@ -1528,7 +1528,7 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
     let out = h.run(&["migrate", "--plan"]);
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     let text = &out.stdout;
-    assert!(text.starts_with("Migration plan for the account main\n"));
+    assert!(text.starts_with("Migration plan for the space main\n"));
     assert!(
         text.contains(
             "  pending: 0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql\n"
@@ -1697,7 +1697,7 @@ fn deploy_on_1_8_without_the_hash_refuses_cleanly_and_changes_nothing() {
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -1819,24 +1819,24 @@ fn a_1_7_account_with_its_hash_gets_0004_to_0018_in_order() {
 }
 
 #[test]
-fn a_hash_taken_on_one_account_never_unlocks_another() {
+fn a_hash_taken_on_one_space_never_unlocks_another() {
     let config = format!(
-        "{}{}[hosts.\"example.com\"]\naccount = \"main\"\n",
+        "{}{}[hosts.\"example.com\"]\nspace = \"main\"\n",
         account("main", "db1", TOKEN),
         account("other", "db2", TOKEN)
     );
     let h = home("cross", &config, live(&SHIPPED[..10], v18_rows()));
     let main = h
-        .run(&["migrate", "--plan", "--json", "--account", "main"])
+        .run(&["migrate", "--plan", "--json", "--space", "main"])
         .json();
     let other = h
-        .run(&["migrate", "--plan", "--json", "--account", "other"])
+        .run(&["migrate", "--plan", "--json", "--space", "other"])
         .json();
     assert_ne!(main["hash"], other["hash"]);
     h.forget();
     let out = h.run(&[
         "deploy",
-        "--account",
+        "--space",
         "other",
         "--accept-plan",
         main["hash"].as_str().unwrap(),
@@ -1900,7 +1900,7 @@ fn an_account_stopped_between_0004_and_0005_plans_read_only_and_takes_every_late
 
     let out = h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data",
     );
     assert!(!out.stderr.contains("applied 0005"), "{}", out.stderr);
     assert_eq!(h.applied(), names(&SHIPPED[..4]));
@@ -1926,7 +1926,7 @@ fn every_refusal_on_an_account_stopped_after_0004_leaves_it_as_it_was() {
         live(&SHIPPED[..4], half_rows()),
     );
     let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
-    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data";
+    let gated = "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data";
     let changed = "the plan changed since that hash was taken";
     h.refuses_and_changes_nothing(&["deploy"], gated);
     h.refuses_and_changes_nothing(&["deploy", "--json"], gated);
@@ -1963,7 +1963,7 @@ fn the_mail_sender_in_the_config_moves_only_with_an_accepted_deploy_and_only_onc
     let hash = plan_hash(&h.run(&["migrate", "--plan"]).stdout);
     let moved = "the mail sender moved from the config to the database";
 
-    let out = h.refuses_and_changes_nothing(&["deploy"], "change this account's data");
+    let out = h.refuses_and_changes_nothing(&["deploy"], "change this space's data");
     assert!(!out.all().contains(moved), "{}", out.all());
     assert!(
         !h.calls()
@@ -2171,7 +2171,7 @@ fn with_hosts(app: &str, hosts: &[&str]) -> String {
         account("main", "db1", TOKEN)
     );
     for host in hosts {
-        config.push_str(&format!("[hosts.\"{host}\"]\naccount = \"main\"\n"));
+        config.push_str(&format!("[hosts.\"{host}\"]\nspace = \"main\"\n"));
     }
     config
 }
@@ -2284,7 +2284,7 @@ fn an_account_on_0001_alone_refuses_writing_nothing_and_takes_0002_to_0018_with_
     assert!(h.writes().is_empty(), "{:?}", h.writes());
     let hash = plan_hash(&plan.stdout);
 
-    let out = h.refuses_and_changes_nothing(&["deploy"], "change this account's data");
+    let out = h.refuses_and_changes_nothing(&["deploy"], "change this space's data");
     assert!(!out.stderr.contains("0002_code_uid.sql"), "{}", out.stderr);
     h.refuses_and_changes_nothing(
         &["deploy", "--accept-plan", &"0".repeat(64)],
@@ -2315,7 +2315,7 @@ fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     assert_eq!(out.code, Some(1));
     assert!(
         out.stderr.contains(
-            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data"
+            "p99: 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data"
         ),
         "{}",
         out.stderr
@@ -2369,7 +2369,7 @@ fn a_migration_that_fails_midway_stops_before_the_upload_and_the_account_resumes
     h.cf.lock().unwrap().fail = None;
     h.refuses_and_changes_nothing(
         &["deploy"],
-        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data",
+        "0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data",
     );
     assert_eq!(h.applied(), names(&SHIPPED[..6]));
 
@@ -2502,10 +2502,10 @@ fn a_config_others_can_read_is_refused_before_any_call_and_names_no_secret() {
 
 fn spaces_config() -> String {
     format!(
-        "license = \"{LICENSE}\"\n\n{}[accounts.main.projects]\n\"Example site\" = [\"example.com\", \"dev.example.com\"]\nLicences = [\"licence.example.com\"]\n\n[hosts.\"example.com\"]\naccount = \"main\"\n",
+        "license = \"{LICENSE}\"\n\n{}[spaces.main.projects]\n\"Example site\" = [\"example.com\", \"dev.example.com\"]\nLicences = [\"licence.example.com\"]\n\n[hosts.\"example.com\"]\nspace = \"main\"\n",
         account("main", "db1", TOKEN).replace(
-            "[accounts.main]\n",
-            "[accounts.main]\nname = \"Example Co\"\n"
+            "[spaces.main]\n",
+            "[spaces.main]\nname = \"Example Co\"\n"
         )
     )
 }
@@ -2568,7 +2568,7 @@ fn a_space_at_0017_plans_its_projects_hosts_and_grants_and_its_hash_applies_0018
     let out = h.run(&["deploy"]);
     assert_eq!(out.code, Some(1));
     assert!(
-        out.stderr.ends_with("p99: 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
+        out.stderr.ends_with("p99: 0018_spaces.sql change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>\n"),
         "{}",
         out.stderr
     );
@@ -2751,7 +2751,7 @@ fn deploy_park_gives_a_listed_code_no_grant_mails_nobody_and_only_while_0018_is_
     assert!(!out.all().contains("applied"), "{}", out.all());
     h.refuses_and_changes_nothing(
         &["deploy", "--park", "2"],
-        "0018_spaces.sql change this account's data",
+        "0018_spaces.sql change this space's data",
     );
     assert_eq!(h.applied(), names(&SHIPPED[..17]));
 

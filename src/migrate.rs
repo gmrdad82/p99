@@ -13,7 +13,7 @@ pub struct MigrateArgs {
     #[arg(
         long,
         required = true,
-        help = "print, read-only, what this version's data-changing migrations would do on the account, ending with the hash `p99 deploy --accept-plan` takes"
+        help = "print, read-only, what this version's data-changing migrations would do on the space, ending with the hash `p99 deploy --accept-plan` takes"
     )]
     pub plan: bool,
 }
@@ -122,7 +122,7 @@ pub fn gate(
     }
     let Some(given) = accept.map(|h| h.trim().to_ascii_lowercase()) else {
         return Err(format!(
-            "{} change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>",
+            "{} change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>",
             pending.join(", ")
         ));
     };
@@ -700,7 +700,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         .iter()
         .filter_map(|v| v.as_str().map(str::to_owned))
         .collect();
-    out.push_str(&format!("Migration plan for the account {account}\n"));
+    out.push_str(&format!("Migration plan for the space {account}\n"));
     if pending.is_empty() || plan.get("kinds").is_none() {
         out.push_str("  nothing to migrate: the database is new or already past every gated migration; deploy needs no --accept-plan\n");
         out.push_str(&format!("\nPlan hash: {hash}\n"));
@@ -745,7 +745,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             ));
         }
         out.push_str(&format!(
-            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the account's first Owner code that isn't revoked owns them; each column holds its cards newest first)\n"
+            "\nBoards (0004, then 0011): one home board per host with the four default columns, owned by {owner}\n  (1.7 had no boards, so the space's first Owner code that isn't revoked owns them; each column holds its cards newest first)\n"
         ));
         for row in list(&plan["boards"]) {
             out.push_str(&format!(
@@ -767,7 +767,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             ));
         }
         out.push_str(&format!(
-            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the account's first Owner code that isn't revoked owns them)\n"
+            "\nBoards (0011): each becomes its own board with the four default columns, owned by {owner}\n  (1.8 kept no board creator, so the space's first Owner code that isn't revoked owns them)\n"
         ));
         for row in list(&plan["boards"]) {
             let nest = row["parent"]
@@ -1179,7 +1179,7 @@ mod tests {
     fn the_plan_of_a_database_with_nothing_gated_says_so_and_ends_with_its_hash() {
         let plan = json!({"pending": [], "decisions": []});
         let out = render("main", &plan, "abc123");
-        assert!(out.starts_with("Migration plan for the account main\n"));
+        assert!(out.starts_with("Migration plan for the space main\n"));
         assert!(out.contains("nothing to migrate"));
         assert!(out.contains("deploy needs no --accept-plan"));
         assert!(out.ends_with("\nPlan hash: abc123\n"), "{out}");

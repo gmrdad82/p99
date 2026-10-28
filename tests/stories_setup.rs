@@ -1176,7 +1176,7 @@ fn deploy_accept_plan_takes_the_right_hash_in_any_case_and_refuses_a_wrong_one()
 
     let bare = h.p99(&["deploy"]);
     bare.refused(
-        "0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this account's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>",
+        "0004_boards.sql, 0011_lanes.sql, 0012_people.sql, 0013_app.sql, 0016_one_board.sql, 0017_delete_archived.sql, 0018_spaces.sql change this space's data: read `p99 migrate --plan`, answer its decisions, then run again with --accept-plan <hash>",
     );
     let wrong = h.p99(&["deploy", "--accept-plan", &"0".repeat(64)]);
     wrong.refused(

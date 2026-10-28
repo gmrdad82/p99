@@ -98,11 +98,11 @@ INSERT INTO events (item_id, actor_email, actor_agent, kind, detail_json, intern
 `;
 
 const LOCAL_CONFIG = [
-  'default_account = "local"',
+  'default_space = "local"',
   "[me]",
   'name = "Ada Lovelace"',
   'email = "ada@example.com"',
-  "[accounts.local]",
+  "[spaces.local]",
   'account_id = "acc"',
   'database_id = "db"',
   'token = ""',
@@ -111,8 +111,8 @@ const LOCAL_CONFIG = [
   "",
 ].join("\n");
 
-const SPACES_CONFIG = LOCAL_CONFIG.replace("[accounts.local]\n", '[accounts.local]\nname = "Example Co"\n') +
-  ['[accounts.local.projects]', '"Example site" = ["example.com", "dev.example.com"]', ""].join("\n");
+const SPACES_CONFIG = LOCAL_CONFIG.replace("[spaces.local]\n", '[spaces.local]\nname = "Example Co"\n') +
+  ['[spaces.local.projects]', '"Example site" = ["example.com", "dev.example.com"]', ""].join("\n");
 
 const SEED_112 = `
 INSERT INTO hosts (host, env, config_json, created_at) VALUES
@@ -614,7 +614,7 @@ export async function migrateChecks({ check, root, work }) {
         state.sql = [];
         const bare = await run(["deploy", "--no-check", "--park", "3"]);
         assert.equal(bare.status, 1);
-        assert.match(bare.stderr, /p99: 0018_spaces\.sql change this account's data: .*--accept-plan <hash>\n$/);
+        assert.match(bare.stderr, /p99: 0018_spaces\.sql change this space's data: .*--accept-plan <hash>\n$/);
         const unknown = await run(["deploy", "--no-check", "--accept-plan", p.hash, "--park", "9"]);
         assert.equal(unknown.status, 1);
         assert.match(unknown.stderr, /--park 9: no code with that id in this space/);

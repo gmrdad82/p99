@@ -67,17 +67,17 @@ export async function moveStories({ base, call, check, issueBody, here, keys, ro
       writeFileSync(
         config,
         [
-          'default_account = "local"',
+          'default_space = "local"',
           "[me]",
           `name = "${MARY.name}"`,
           `email = "${MARY.email}"`,
-          "[accounts.local]",
+          "[spaces.local]",
           'account_id = "local"',
           'token = ""',
           `key = "${keys.p99}"`,
           `url = "${proxy.url}/_p99"`,
           `[hosts."${here}"]`,
-          'account = "local"',
+          'space = "local"',
           "",
         ].join("\n"),
       );
