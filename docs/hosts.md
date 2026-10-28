@@ -18,7 +18,7 @@ P99 survives body swaps, so sites that navigate by replacing the body (htmx with
 
 `p99 setup` (or `p99 hosts add`) adds the Worker route `<host>/_p99/*` on the host's zone. A route runs before whatever else serves the host, a Pages project, a tunnel or another Worker on a Custom Domain, so P99 sits in front of them for that one path and never touches them. Setup adds only the route: an existing Custom Domain, Worker or Pages project on the host is detected, named and left as it is.
 
-A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie. They reach the Worker through any host of the account (the one a command names first, then the `production` hosts, then the rest), skip a host that answers with Access's login, and keep using the one that answered, so an account with one host outside Access needs nothing more. When every host is behind Access, give them one of two ways in. Either point the account's `url` at a host or a custom domain of the Worker that is not behind Access: the signed API answers on any address the Worker is mounted on, naming the host it means with `?host=`. Or create an Access service token for the application and set the account's `access_client_id` and `access_client_secret` (docs/config.md): every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Either way, P99's own signature still guards every request.
+A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie. They reach the Worker through any host of the space (the one a command names first, then the `production` hosts, then the rest), skip a host that answers with Access's login, and keep using the one that answered, so a space with one host outside Access needs nothing more. When every host is behind Access, give them one of two ways in. Either point the space's `url` at a host or a custom domain of the Worker that is not behind Access: the signed API answers on any address the Worker is mounted on, naming the host it means with `?host=`. Or create an Access service token for the application and set the space's `access_client_id` and `access_client_secret` (docs/config.md): every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`. Either way, P99's own signature still guards every request.
 
 ## Content-Security-Policy
 
@@ -40,7 +40,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 
 ## Host config
 
-`p99 hosts add <host> --env <env>` and the `[hosts."<host>"]` table in the config set:
+`p99 hosts add <host> --project <name> --env <env>` and the `[hosts."<host>"]` table in the config set:
 
 | Key | Meaning |
 | --- | --- |
@@ -50,8 +50,10 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `off` | path patterns (`*` matches one segment, `**` any) where P99 never loads |
 | `theme` | `--p99-*` custom properties without their prefix, `{ accent = "#3b7dd8" }`; a `dark` table inside it holds the dark-mode values, `{ dark = { base = "#1f2c3c" } }`; the P99 logo in the panel's head keeps its own colours and font. The page's "+" button takes the `accent`; in dark mode it falls back to P99's light blue (#8db8f0) unless the accent is a `#rgb` or `#rrggbb` colour that reaches 3:1 against the button |
 | `strings` | any of the panel's English words, by key |
+| `mask` | CSS selectors the panel blanks in every capture, besides anything marked `data-p99-redact`; at most 50, each at most 200 characters (`p99 hosts set <host> --mask '<selector>'`, repeated; `--mask none` clears them). The Worker refuses a selector that does not parse and says so |
+| `capture` | `on` (the default) or `off`: with `off` the panel files the text report with no screenshot and says so (`p99 hosts set <host> --capture off`) |
 | `feed` | `true` serves the host's feed of fixed items at `/_p99/feed` (`p99 feed on <host>`); off by default |
-| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the account's licence badge to everyone with a code |
+| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the space's licence badge to everyone with a code |
 
 ## Slack and Discord
 
@@ -73,8 +75,8 @@ p99 hooks remove example.com --discord
 
 ## Environments
 
-A host has one environment. A site with a production and a development address makes them two hosts in one account, each with its own environment (`production` as `release`, `dev` as `development`), so their items stay apart and share one numbering.
+A host has one environment. A site with a production and a development address makes them two hosts in one space, each with its own environment (`production` as `release`, `dev` as `development`), so their items stay apart and share one numbering.
 
 ## Cloudflare limits
 
-P99 keeps its state in D1 and R2 and never writes to KV. Its rate-limiting binding takes a `namespace_id` that `p99 setup` picks from the ones no other Worker in the account uses.
+P99 keeps its state in D1 and R2 and never writes to KV. Its rate-limiting binding takes a `namespace_id` that `p99 setup` picks from the ones no other Worker in the space uses.

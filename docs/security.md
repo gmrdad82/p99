@@ -1,6 +1,6 @@
 # Security of the P99 page
 
-The P99 page is the account's own address (`p99 app` prints it), where a person signs in with their e-mail and an authenticator code and reaches the panel of every site their codes cover. This page lists what it defends against and how. The sites' panel and the signed API are unchanged by it.
+The P99 page is the space's own address (`p99 app` prints it), where a person signs in with their e-mail and an authenticator code and reaches the panel of every site their codes cover. This page lists what it defends against and how. The sites' panel and the signed API are unchanged by it.
 
 ## Sign-in
 

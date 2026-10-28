@@ -7,13 +7,15 @@ sidebar:
 
 ![The codes screen of p99 tui: who can file on which hosts, active and revoked](../images/codes.png)
 
-P99 has no accounts and no sign-up. Each person you invite gets a **personal code**, 12 characters, for one or more hosts of one account. The "+" shows only in a browser that holds a code; everyone else sees nothing.
+P99 has no passwords and no sign-up. Each person you invite gets a **personal code**, 12 characters, that grants either the whole space or some of its projects. A code never names hosts: it reaches every host of a project it grants, so a host added to a project reaches everyone who holds that project at once. The "+" shows only in a browser that holds a code; everyone else sees nothing.
 
 ## Mint a code
 
 ```sh
-p99 invite example.com shop.example.com --name "Grace Hopper" --email grace@example.com
+p99 invite --project Shop --project Blog --name "Grace Hopper" --email grace@example.com
 ```
+
+`--space` alone grants the whole space; `--project` repeats, and with `--space <slug>` names which space when the config has several. Without a space named, P99 uses the one that holds the projects. A host list in place of the grant (`p99 invite example.com …`) still works: P99 grants the projects those hosts are in and says so.
 
 ```text
 Grace Hopper <grace@example.com>
@@ -29,14 +31,14 @@ That is the output when mail is off or you invite yourself; with mail on, the pe
 
 ## Access links
 
-With mail on for the account (`p99 email set`, in [Set up P99](setup.md)), `p99 invite` mails the person their link through the account's mail provider:
+With mail on for the space (`p99 email set`, in [Set up P99](setup.md)), `p99 invite` mails the person their link through the space's mail provider:
 
 ```text
 Grace Hopper <grace@example.com>
 mailed the link for example.com, shop.example.com to grace@example.com
 ```
 
-The mail has one "Open P99 on <host>" button for each host the code covers, sized for a phone, and its plain-text part lists each link as `https://<host>/#p99=<code>`. Replies go to the e-mail of whoever sent the invite. The authenticator key of a `--totp` code is never in the mail: the terminal prints it, for you to send apart. Add `--no-mail` to print the links in the terminal instead. When the account has no mail, or the mail doesn't go out, the terminal prints the links once with one line that says so.
+The mail has one "Open P99 on <host>" button for each host the code covers, sized for a phone, and its plain-text part lists each link as `https://<host>/#p99=<code>`. Replies go to the e-mail of whoever sent the invite. The authenticator key of a `--totp` code is never in the mail: the terminal prints it, for you to send apart. Add `--no-mail` to print the links in the terminal instead. When the space has no mail, or the mail doesn't go out, the terminal prints the links once with one line that says so.
 
 Your own links never go by mail: inviting the e-mail in your config's `[me]` prints them in the terminal, one line per host, and `--mail-me` also mails them to you. P99 writes them nowhere, so save them in your password manager if you keep them there.
 
@@ -49,7 +51,7 @@ p99 relink grace@example.com --host shop.example.com
 p99 relink --self
 ```
 
-`p99 relink` mints a new code for the same person, with the same name, e-mail, hosts and role, and revokes the old one in the same request, so there is no moment when both work or neither does. It mails the new link as `p99 invite` does (with `--no-mail` and `--mail-me` the same way), and the old link answers 401 from then on. Name the code by its id from `p99 invites`, or by the person's e-mail when they hold one code; `--host` picks the code that covers that host, and `--self` takes your own e-mail from the config. Items, comments and history follow the e-mail, so nothing is lost. A code with an authenticator keeps it: the new code gets the same secret, still encrypted in the Worker, so the person's app keeps giving the right 6-digit codes; each browser asks for one again, once. `--new-totp` gives the new code a new authenticator and prints its setup.
+`p99 relink` mints a new code for the same person, with the same name, e-mail, grant and role, and revokes the old one in the same request, so there is no moment when both work or neither does. It mails the new link as `p99 invite` does (with `--no-mail` and `--mail-me` the same way), and the old link answers 401 from then on. Name the code by its id from `p99 invites`, or by the person's e-mail when they hold one code; `--host` picks the code that covers that host, and `--self` takes your own e-mail from the config. Items, comments and history follow the e-mail, so nothing is lost. A code with an authenticator keeps it: the new code gets the same secret, still encrypted in the Worker, so the person's app keeps giving the right 6-digit codes; each browser asks for one again, once. `--new-totp` gives the new code a new authenticator and prints its setup.
 
 ### Open your own link
 
@@ -59,10 +61,10 @@ p99 link shop.example.com
 p99 link shop.example.com --print
 ```
 
-`p99 link` opens your link in the default browser, built from the `code` your config keeps for the account: the 12 characters inline (the config file at mode 600), or an `op://vault/item/field` reference that P99 reads through the 1Password CLI at that moment, as it reads a token or a key. P99 only reads it and never writes it there:
+`p99 link` opens your link in the default browser, built from the `code` your config keeps for the space: the 12 characters inline (the config file at mode 600), or an `op://vault/item/field` reference that P99 reads through the 1Password CLI at that moment, as it reads a token or a key. P99 only reads it and never writes it there:
 
 ```toml
-[accounts.main]
+[spaces.main]
 code = "op://vault/item/field"
 ```
 
@@ -73,10 +75,10 @@ With several hosts and none named, it asks which one in a terminal and lists the
 A code holder is a User: they file bugs, ideas, improvements and questions, and see and follow only what they reported. Add `--owner` to make the person an Owner, who sees and changes every item, files tasks, writes internal comments and runs the boards (`--manager` still works, as an alias):
 
 ```sh
-p99 invite example.com --name "Ada Lovelace" --email ada@example.com --owner
+p99 invite --space --name "Ada Lovelace" --email ada@example.com --owner
 ```
 
-The e-mail you gave `p99 setup` is an Owner from the start: it is in the Worker's `MANAGERS` secret, and so is anyone you add there. An account may have several Owners.
+The e-mail you gave `p99 setup` is an Owner from the start: it is in the Worker's `MANAGERS` secret, and so is anyone you add there. A space may have several Owners.
 
 Each code is limited to 120 requests a minute, and a User to 30 items, 200 comments and 100 MiB of files a day. Owners have no daily limits.
 
@@ -85,11 +87,14 @@ Each code is limited to 120 requests a minute, and a User to 30 items, 200 comme
 ```sh
 p99 invites
 p99 invites --host shop.example.com
+p99 invites set 3 --project Shop
+p99 invites set 3 --space
+p99 invites set 3 --park
 p99 codes --role owner
 ```
 
 ```text
-   1  active  Ada Lovelace <ada@example.com>  Owner  ...7k2q  2026-09-14 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
+   1  active  Ada Lovelace <ada@example.com>  Owner  ...7k2q  2026-09-14 12:00  grant: the whole space  last used: 2026-10-14 11:48
    2  revoked  Grace Hopper <grace@example.com>  User  ...3fpd  2026-09-19 12:00  hosts: shop.example.com  last used: 2026-09-22 12:00
    3  active  Grace Hopper <grace@example.com>  User  ...m9xa  2026-09-23 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
 ```
@@ -130,7 +135,7 @@ It asks for the code's last four characters, the ones `p99 invites` shows after 
 A code can ask for a 6-digit code from an authenticator app the first time each browser uses it. Mint it that way with `--totp`, or add an authenticator to a code someone already holds, keeping their link:
 
 ```sh
-p99 invite example.com --name "Grace Hopper" --email grace@example.com --totp
+p99 invite --project Shop --name "Grace Hopper" --email grace@example.com --totp
 p99 invites totp 3
 ```
 
@@ -153,7 +158,7 @@ p99 people rename grace@example.com grace.hopper@example.org
 moved grace@example.com to grace.hopper@example.org: 2 items, 0 assigned, 1 comments, 3 events, 0 attachments, 1 codes
 ```
 
-Everything under the old e-mail moves in one transaction on the whole account: items, assignments, comments, events, attachments and codes, with their authenticators and links unchanged. Set the new e-mail in your config's `[me]` too, so your own new work lands under it.
+Everything under the old e-mail moves in one transaction on the whole space: items, assignments, comments, events, attachments and codes, with their authenticators and links unchanged. Set the new e-mail in your config's `[me]` too, so your own new work lands under it.
 
 ## Next
 

@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-![One Worker serves every host of the account: each page loads /_p99/p99.js from its own origin, and the route on the zone sends only /_p99/* to the Worker, which keeps its data in D1 and R2](../images/architecture.png)
+![One Worker serves every host of the space: each page loads /_p99/p99.js from its own origin, and the route on the zone sends only /_p99/* to the Worker, which keeps its data in D1 and R2](../images/architecture.png)
 
 Each site P99 serves is a **host**: a hostname on one of your Cloudflare zones. The Worker answers on `https://<host>/_p99/*` through a Worker route, so your pages talk only to their own origin. Everything else on the host reaches your site as before.
 
@@ -14,13 +14,13 @@ Each site P99 serves is a **host**: a hostname on one of your Cloudflare zones. 
 `p99 setup` adds the hosts you name. To add one later:
 
 ```sh
-p99 hosts add shop.example.com --env production
-p99 hosts add dev.shop.example.com --env dev --kind development
+p99 hosts add shop.example.com --project Shop --env production
+p99 hosts add dev.shop.example.com --project Shop --env dev --kind development
 ```
 
-`hosts add` writes the host to your config, adds the route `<host>/_p99/*` on its zone and tells the Worker the host's environment. A new environment is a `release` unless `--kind development` says otherwise. A site with a production and a development address makes them two hosts with their own environments, so their items stay apart and share one numbering.
+`--project` is required: a host belongs to one project, reports filed on it land in that project, and the project must exist (`p99 projects add <name>` makes one). `hosts add` writes the host to your config, adds the route `<host>/_p99/*` on its zone and tells the Worker the host's environment. A new environment is a `release` unless `--kind development` says otherwise. A site with a production and a development address makes them two hosts with their own environments, so their items stay apart and share one numbering.
 
-`p99 hosts` lists every host with its account, environment and whether the Worker answers. `p99 hosts remove <host>` takes a host off the Worker and out of the config; its items stay, and so does its route in Cloudflare.
+`p99 hosts` lists every host with its space, project, environment, how many areas it masks, whether captures are on, and whether the Worker answers. `p99 hosts set <host> --project <name>` moves a host to another project, and its items move with it. `p99 spaces` lists the spaces in your config; `p99 projects` lists a space's projects with their hosts and counts, and `p99 projects add` and `p99 projects rename` change them. `p99 hosts remove <host>` takes a host off the Worker and out of the config; its items stay, and so does its route in Cloudflare.
 
 ## 2. Add the tag
 
@@ -68,10 +68,10 @@ Give the tag the page's nonce, and allow the `https://<host>/_p99/` path in `scr
 
 ## 6. Hosts behind Cloudflare Access
 
-A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie. They reach the Worker through any host of the account, skip one that answers with Access's login and keep the one that answered, so a public production host next to a private `dev` host needs nothing more. When every host of the account is behind Access, give them one of two ways in:
+A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser already carries the Access cookie, so the page's requests pass. The CLI, the TUI and `p99 announce` carry no cookie. They reach the Worker through any host of the space, skip one that answers with Access's login and keep the one that answered, so a public production host next to a private `dev` host needs nothing more. When every host of the space is behind Access, give them one of two ways in:
 
-- point the account's `url` in the config at an address of the Worker that is not behind Access, such as a custom domain of its own; or
-- create an Access service token for the application and set the account's `access_client_id` and `access_client_secret`: every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`.
+- point the space's `url` in the config at an address of the Worker that is not behind Access, such as a custom domain of its own; or
+- create an Access service token for the application and set the space's `access_client_id` and `access_client_secret`: every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`.
 
 Either way, P99's own signature still guards every request. `p99 setup` and `p99 deploy` report a host behind Access as such, not as a failed check.
 

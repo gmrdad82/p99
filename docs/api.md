@@ -101,7 +101,7 @@ The actor is `{"email","name","agent"?}`, `agent` `true` when an agent acts as t
 | `GET /_p99/v1/admin/backup-status` | Owners | the last and the running backup |
 | `GET /_p99/v1/board?project=&host=&source=&status=` | Owners | the one board, as [Boards](#boards) describes |
 | `GET /_p99/v1/boards`, `GET /_p99/v1/boards/{id}` | Owners | deprecated: the one board with the archived boards, or one archived board |
-| `POST /_p99/v1/boards`, `PUT` and `DELETE /_p99/v1/boards/{id}` | Owners | 410 `boards are one per account; see p99 board` |
+| `POST /_p99/v1/boards`, `PUT` and `DELETE /_p99/v1/boards/{id}` | Owners | 410 `boards are one per space; see p99 board` |
 | `POST /_p99/v1/move` | Owners | `{"key","from","to","before"?,"after"?,"resolution"?}`; 200 `{"card"}`, as [Boards](#boards) describes |
 | `GET /_p99/v1/cards?project=&status=&since=&source=&host=&limit=&cursor=` | Owners | `{"cards":[card],"next_cursor"}` in lane order, as [Cards](#cards) describes |
 | `GET /_p99/v1/cards/{key}` | Owners | `{"card","comments","events"}`: the card with its `body`, comments and events oldest first; a plain item answers 409 |
@@ -169,9 +169,9 @@ An account has one board. Its seven lanes are its columns, by position: `new`, `
 
 **Changed in 1.11.0:** each Owner's own boards folded into the one board. `0016_one_board.sql` does it once, and `p99 deploy` runs it only with `--accept-plan` (`p99 migrate --plan` shows it first). An item already in a lane stays there. Otherwise a closed item goes to Done with its resolution; an open one goes to New from Inbox, to Landed from Review, to In progress from Doing, and from any other label to In progress, so a reporter's stage stays as it was; an open item never goes to Done. Each moved item gets one internal `label` event `{"from","to","migrated":true}` with no actor, so its thread shows the old column's name and nothing counts as a change. Each lane keeps the order the items had on the oldest Owner's boards, then on the other boards in the order they were made, then newest first. The old boards, their columns and their order stay, archived and read-only; the old labels stay, archived, and no item carries them. A Cards board with six lanes gets Needs you as its fourth; a Cards board with any other number of columns, or six with one already called Needs you, is set to the seven lanes by name, and a card on a column that isn't one of them moves as any other item does. Deprecated:
 
-- `GET /boards` answers the `/board` answer plus `"deprecated":"one board per account since 1.11; read /board"` and `"archived":[{"id","name","owner":{"username"},"columns":[{"label","closes"}],"cards":[{"key","kind","title","label","assignee","order"}],"archived":true}]`, each old board with the items it showed at the fold under its old column names.
+- `GET /boards` answers the `/board` answer plus `"deprecated":"one board per space since 1.11; read /board"` and `"archived":[{"id","name","owner":{"username"},"columns":[{"label","closes"}],"cards":[{"key","kind","title","label","assignee","order"}],"archived":true}]`, each old board with the items it showed at the fold under its old column names.
 - `GET /boards/{id}` answers one archived board the same way; any other id is 404.
-- `POST /boards`, `PUT /boards/{id}` and `DELETE /boards/{id}` answer 410 `boards are one per account; see p99 board`.
+- `POST /boards`, `PUT /boards/{id}` and `DELETE /boards/{id}` answer 410 `boards are one per space; see p99 board`.
 
 ## Cards
 
