@@ -1,23 +1,9 @@
 # P99 reads config secrets through a password manager's CLI as a documented feature
-src/vault.rs:4 the reference scheme P99 reads secrets through
-src/vault.rs:5 the name of the tool P99 asks for in its error
-docs/config.md:65 the config docs explain secret references to users
-README.md:131 the README names password managers that take the authenticator setup
-docs/guides/invite.md:142 the invite guide tells users which password managers take the authenticator setup
-docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager
-docs/guides/github.md:22 the GitHub guide shows the secret-reference form the token is read through
-src/hooks.rs:50 the --url-ref help names the reference schemes it reads
-src/hooks.rs:132 the --url-ref error names the reference schemes it reads
-src/github.rs:33 the --token-ref help names the reference schemes it reads
-src/vault.rs:86 the reference error names the schemes P99 reads
-docs/guides/setup.md:84 the setup guide shows the secret-reference form the mail key is read through
-docs/guides/setup.md:87 the setup guide explains secret references for the mail key
-src/email.rs:41 the --key-ref help names the reference schemes it reads
-README.md:139 the access-links section shows the secret-reference form a config's code can take
-docs/guides/invite.md:62 the invite guide explains the code's secret-reference form
-docs/guides/invite.md:66 the invite guide shows the secret-reference form
-src/links.rs:192 the p99 link error names the reference form it reads
-worker/test/links.mjs:191 a fake op reference in the test that guards p99 link
+src/vault.rs:4 the reference scheme P99 still reads through the op command
+docs/config.md:71 the config docs name the one reference form P99 still reads through the op command
+tests/cli_vault.rs:18 a fake vault reference in the tests of the vault reference feature
+tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the op command
+tests/stories_setup.rs:1228 the reference scheme the setup vault stories build their fake references from
 commit/12e728646da1:6 the access-links commit message names the reference form p99 link reads
 commit/218d97340879:worker/test/run.mjs:600 a refused webhook URL with a user part, as waived at worker/test/run.mjs:601
 commit/218d97340879:README.md:127 the README line that names password managers taking the authenticator setup, as waived at README.md:127
@@ -34,8 +20,6 @@ commit/d5b0ac34faea:README.md:131 the documented secret-reference feature (vault
 commit/d5b0ac34faea:README.md:139 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
 commit/fb2e7ec61d26:README.md:131 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
 commit/fb2e7ec61d26:README.md:139 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
-docs/hosts.md:62 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
-docs/hosts.md:69 the documented secret-reference feature (vault references and password managers named for users), as waived at its current line
 commit/f96af6e35c30:.public-allow:28 a waiver reason that named the reference scheme, reworded in the next commit
 commit/f96af6e35c30:.public-allow:29 a waiver reason that named the reference scheme, reworded in the next commit
 commit/f96af6e35c30:.public-allow:30 a waiver reason that named the reference scheme, reworded in the next commit
@@ -47,12 +31,6 @@ commit/f96af6e35c30:.public-allow:35 a waiver reason that named the reference sc
 commit/f96af6e35c30:.public-allow:36 a waiver reason that named the reference scheme, reworded in the next commit
 commit/f96af6e35c30:.public-allow:37 a waiver reason that named the reference scheme, reworded in the next commit
 commit/f96af6e35c30:.public-allow:38 a waiver reason that named the reference scheme, reworded in the next commit
-tests/cli_vault.rs:18 a fake vault reference in the tests of the secret-reference feature
-tests/cli_vault.rs:119 the tests check the error that names the tool P99 reads secrets through
-tests/cli_vault.rs:136 the tests check the notice that names the tool P99 reads the key through
-tests/cli_vault.rs:141 the tests check the error that names the tool P99 reads secrets through
-tests/cli_admin.rs:1176 the tests check the p99 link error that names the reference form it reads
-tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads
 commit/8d51052cc978:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
 commit/8d51052cc978:src/vault.rs:118 a unit test that named the secret tool, dropped in a later commit
 commit/8d51052cc978:tests/cli_vault.rs:18 a fake vault reference in the tests of the secret-reference feature, as waived at its current line
@@ -63,7 +41,6 @@ commit/8d51052cc978:tests/cli_vault.rs:141 the tests check the error that names 
 commit/07fdf97a2cfe:tests/stories_deploy.rs:1279 the deploy story's fake config reference, made neutral in a later commit (pci 2631)
 commit/ea55d653924a:tests/stories_deploy.rs:1279 the deploy story's fake config reference as the story train merged it, made neutral in a later commit (pci 2631)
 commit/dfca0352d62d:tests/stories_deploy.rs:1279 the deploy story's fake vault reference on agent/deploy, made neutral in a later commit (pci 2631)
-tests/stories_deploy.rs:2095 a fake op reference in the deploy story that proves P99_TOKEN wins over it
 commit/b549282fd640:tests/stories_deploy.rs:1704 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1704
 commit/02e59af58718:tests/stories_deploy.rs:1694 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1694
 commit/90515c6fdf90:tests/stories_deploy.rs:1438 a fake op reference in the deploy story, as waived at tests/stories_deploy.rs:1438
@@ -83,14 +60,6 @@ commit/8d51052cc978:tests/cli_admin.rs:911 the tests check the p99 link error th
 commit/8d51052cc978:tests/cli_services.rs:154 the tests check the --url-ref error that names the reference schemes it reads, as waived at its current line
 commit/bc73ea7941c0:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
 commit/6045d3de82ac:src/vault.rs:5 the name of the tool P99 asks for in its error, as waived at src/vault.rs:5
-src/config.rs:1029 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:1035 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:1036 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:1066 a fake vault reference in the config tests that a reference is no inline secret
-src/config.rs:856 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-src/config.rs:875 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-tests/cli_key.rs:17 a fake vault reference in the tests that P99_KEY comes first over the configured key's reference
-tests/cli_key.rs:268 a fake vault reference for a second account in the tests that P99_KEY signs only the account it belongs to
 commit/39f553cef5bb:src/config.rs:487 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:493 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
 commit/39f553cef5bb:src/config.rs:494 a fake vault reference in the config tests that a reference is no inline secret, as waived at its current line
@@ -170,8 +139,6 @@ commit/939977d7224d:README.md:131 the documented secret-reference feature (vault
 commit/939977d7224d:docs/guides/github.md:17 the GitHub guide tells users to keep the token in a password manager, as the w203 train rebased it
 commit/939977d7224d:tests/cli_admin.rs:1090 the tests check the p99 link error that names the reference form it reads, as the w203 train rebased it
 commit/49af7965677b:tests/stories_deploy.rs:1467 the deploy story's fake op reference that proves P99_TOKEN wins over it, as the w203 train rebased it
-tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the vault tool
-tests/cli_vault.rs:252 the tests check the error that names the tool P99 reads secrets through
 commit/55235d328f98:tests/cli_vault.rs:18 a fake vault reference in the tests of the secret-reference feature, as waived at its current line
 commit/55235d328f98:tests/cli_vault.rs:119 the tests check the error that names the tool P99 reads secrets through, as waived at its current line
 commit/55235d328f98:tests/cli_vault.rs:136 the tests check the notice that names the tool P99 reads the key through, as waived at its current line
@@ -184,16 +151,6 @@ commit/12545b0bed13:tests/cli_vault.rs:136 the tests check the notice that names
 commit/12545b0bed13:tests/cli_vault.rs:141 the tests check the error that names the tool P99 reads secrets through, as waived at its current line
 commit/12545b0bed13:tests/cli_vault.rs:163 a fake vault reference in the tests that a GitHub token reference is read through the vault tool, as waived at its current line
 commit/12545b0bed13:tests/cli_vault.rs:242 the tests check the error that names the tool P99 reads secrets through, as waived at tests/cli_vault.rs:252
-tests/stories_setup.rs:1315 a fake vault reference the setup story's fake op answers for the stored token
-tests/stories_setup.rs:1316 a fake vault reference the setup story's fake op answers for the stored key
-tests/stories_setup.rs:1342 a fake vault reference the setup story reads the stored key back through
-tests/stories_setup.rs:1405 a fake vault reference the setup story reads the stored token back through
-tests/stories_setup.rs:1439 a fake vault reference built from the vault name when the fake op gives no vault id
-tests/stories_setup.rs:1443 a fake vault reference built from the vault name when the fake op gives no vault id
-tests/stories_setup.rs:1468 the tests check the error that names the tool P99 stores secrets through
-tests/stories_setup.rs:1470 the tests check the error that names the tool P99 stores secrets through
-tests/stories_setup.rs:1474 the tests check the error that names the tool P99 stores secrets through
-tests/stories_setup.rs:1512 the tests check the error that names the tool P99 stores secrets through
 commit/2370f10c69f8:tests/cli_vault.rs:119 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
 commit/2370f10c69f8:tests/cli_vault.rs:136 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history
 commit/2370f10c69f8:tests/cli_vault.rs:141 a fake vault reference or the vault tool's name in the vault and setup tests, from the w208 coverage train's history

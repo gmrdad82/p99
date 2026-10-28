@@ -14,7 +14,8 @@ use home::{Home, Out};
 use serde_json::{Value, json};
 use stub::{KEY, Reply, Stub};
 
-const REF: &str = "op://Example/p99/key";
+const REF: &str = "command:p99-fake-secret main";
+const TOOL: &str = "p99-fake-secret";
 const WRONG: &str = "p99-key-that-must-never-be-shown";
 const EMPTY: &str = "P99_KEY is set but empty; unset it or give the key";
 
@@ -62,20 +63,34 @@ fn guarded(req: &stub::Req) -> Reply {
     }
 }
 
+fn toml(value: &str) -> String {
+    match value.strip_prefix("command:") {
+        Some(words) => {
+            let words: Vec<String> = words.split(' ').map(|w| format!("\"{w}\"")).collect();
+            format!("{{ command = [{}] }}", words.join(", "))
+        }
+        None => format!("\"{value}\""),
+    }
+}
+
+fn asked_of(reference: &str) -> String {
+    reference.rsplit(' ').next().unwrap().to_owned()
+}
+
 fn home_with(name: &str, key: &str) -> Home {
     let stub = Stub::new(guarded);
-    let text =
-        home::config(&stub.base).replace(&format!("key = \"{KEY}\""), &format!("key = \"{key}\""));
+    let text = home::config(&stub.base)
+        .replace(&format!("key = \"{KEY}\""), &format!("key = {}", toml(key)));
     Home::with_config(name, stub, &text)
 }
 
 fn op_that_must_not_run(dir: &Path) -> PathBuf {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let file = bin.join("op");
+    let file = bin.join(TOOL);
     std::fs::write(
         &file,
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$(dirname \"$0\")/asked\"\necho 'op must not run' >&2\nexit 9\n",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$(dirname \"$0\")/asked\"\necho 'the secret tool must not run' >&2\nexit 9\n",
     )
     .unwrap();
     std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -89,11 +104,12 @@ fn op_giving_the_key(dir: &Path) -> PathBuf {
 fn op_giving(dir: &Path, reference: &str, value: &str) -> PathBuf {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
-    let file = bin.join("op");
+    let file = bin.join(TOOL);
+    let argument = asked_of(reference);
     std::fs::write(
         &file,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$(dirname \"$0\")/asked\"\nif [ \"$1\" = read ] && [ \"$3\" = \"{reference}\" ]; then printf '%s' '{value}'; else exit 9; fi\n"
+            "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$(dirname \"$0\")/asked\"\nif [ \"$1\" = \"{argument}\" ]; then printf '%s' '{value}'; else exit 9; fi\n"
         ),
     )
     .unwrap();
@@ -188,7 +204,7 @@ fn without_p99_key_the_reference_is_read_with_op_as_before() {
     assert!(h.stub.seen().iter().all(|c| c.signed));
     assert_eq!(
         std::fs::read_to_string(bin.join("asked")).unwrap(),
-        format!("read --no-newline {REF}\n")
+        format!("{}\n", asked_of(REF))
     );
 }
 
@@ -265,7 +281,7 @@ fn the_key_never_shows_on_a_refused_request_or_a_401() {
 }
 
 const OTHER: &str = "other-account-key";
-const OTHER_REF: &str = "op://Example/p99/other";
+const OTHER_REF: &str = "command:p99-fake-secret other";
 
 fn guarded_by(key: &'static str) -> impl Fn(&stub::Req) -> Reply + Send + Sync + 'static {
     move |req| {
@@ -280,6 +296,7 @@ fn guarded_by(key: &'static str) -> impl Fn(&stub::Req) -> Reply + Send + Sync +
 fn two_accounts(name: &str, default: Option<&str>, main: &str, other: &str) -> (Home, Stub) {
     let first = Stub::new(guarded);
     let second = Stub::new(guarded_by(OTHER));
+    let (main, other) = (toml(main), toml(other));
     let default = default
         .map(|d| format!("default_account = \"{d}\"\n"))
         .unwrap_or_default();
@@ -292,13 +309,13 @@ email = "ada@example.com"
 [accounts.main]
 account_id = "acc1"
 token = "cf-token"
-key = "{main}"
+key = {main}
 url = "{}/_p99"
 
 [accounts.other]
 account_id = "acc2"
 token = "cf-token"
-key = "{other}"
+key = {other}
 url = "{}/_p99"
 
 [hosts."shop.example.com"]
@@ -392,9 +409,7 @@ fn p99_key_never_signs_an_account_it_does_not_belong_to() {
         "the other account's reference was not read"
     );
     assert!(
-        reads
-            .iter()
-            .all(|r| r == &format!("read --no-newline {OTHER_REF}")),
+        reads.iter().all(|r| r == &asked_of(OTHER_REF)),
         "op was asked for the bound account: {reads:?}"
     );
 }
@@ -623,9 +638,7 @@ fn the_card_commands_sign_each_account_with_its_own_key_and_p99_key_only_its_own
             "the other account's reference was not read"
         );
         assert!(
-            reads
-                .iter()
-                .all(|r| r == &format!("read --no-newline {OTHER_REF}")),
+            reads.iter().all(|r| r == &asked_of(OTHER_REF)),
             "op was asked for the bound account: {reads:?}"
         );
     }
