@@ -2,6 +2,13 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.3 — 2026-10-29
+
+### Fixed
+
+- The P99 page no longer scrolls sideways on the board: the lanes scroll inside the board, and the header and projects stay put.
+- Every scrollbar on the page, the board and the panel is thin and in the theme's colours, light and dark, with no arrow buttons and no pale strip along the window's edges.
+
 ## v1.13.2 — 2026-10-29
 
 ### Changed
