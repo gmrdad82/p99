@@ -26,6 +26,7 @@ import { EVERYWHERE, PARKED, projectFilterSql, grantFromBody, grantFromHosts, gr
 import { HOSTLESS_REPORT, PROJECT_ROUTES, SIGNED_SPACE_ROUTES, SPACE_ROUTES, spaceOf, useSpaceKit } from "./spaces.js";
 import { AVATAR_READS, AVATAR_ROUTES, avatarUrl, useAvatarKit, withAvatars } from "./avatars.js";
 import { maskRefusal } from "./selectors.js";
+import { askedShift, realNow, shiftClock } from "./clock.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
@@ -469,7 +470,7 @@ async function verifySignature(request, env, url) {
   if (!auth) fail(401, "missing or malformed X-P99-Auth");
   const bodyHash = request.headers.get("x-content-sha256") || "";
   if (!/^[0-9a-f]{64}$/.test(bodyHash)) fail(401, "missing or malformed X-Content-SHA256");
-  if (Math.abs(Math.floor(Date.now() / 1000) - Number(auth[1])) > MAX_SKEW_SECONDS) {
+  if (Math.abs(Math.floor(realNow() / 1000) - Number(auth[1])) > MAX_SKEW_SECONDS) {
     fail(401, "the signature's timestamp is more than a minute away from the Worker's clock; check this computer's clock");
   }
   const actorHeader = request.headers.get("x-p99-actor") ?? "";
@@ -1116,6 +1117,10 @@ export class P99Hub extends DurableObject {
 
   async publish(events) {
     await this.#publish(events);
+  }
+
+  async clock(shift) {
+    shiftClock(shift);
   }
 
   async webSocketMessage() {}
@@ -3617,10 +3622,22 @@ async function serveFeed(request, env, ctx, url) {
   return response;
 }
 
+async function setClock(request, env) {
+  const shift = await askedShift(request);
+  if (shift === null) fail(400, "send at (an ISO time), advance (milliseconds) or real: true");
+  shiftClock(shift);
+  await hubOf(env).clock(shift);
+  forgetDirectory();
+  codeCache.clear();
+  deviceCache.clear();
+  return json(200, { now: new Date().toISOString(), shift });
+}
+
 async function handle(request, env, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   if (request.method === "GET" && path === "/_p99/health") return health(env);
+  if (request.method === "POST" && path === "/_p99/test/clock" && env.LOOP_TEST === "1" && isLocal(url)) return setClock(request, env);
   if (request.method === "POST" && path === "/_p99/v1/github") return githubDelivery(request, env, ctx, url);
   if (path.startsWith("/_p99/v1/")) return signedRequest(request, env, ctx, url, path.slice("/_p99/v1".length));
   if (isApp(env, url)) return appRequest(request, env, ctx, url);
