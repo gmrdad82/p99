@@ -48,7 +48,7 @@ export default async function (kit) {
     assert.equal(kept.status, 200, "the item stays for Ada");
     assert.equal(kept.json.issue.title, "The receipt never arrives");
     assert.equal(kept.json.issue.project, shop.name, "in its project");
-    const listed = await signed("GET", `/issues?status=any&project=${encodeURIComponent(shop.name)}&q=${encodeURIComponent("The receipt never arrives")}`);
+    const listed = await signed("GET", `/issues?scope=all&status=any&project=${encodeURIComponent(shop.name)}&q=${encodeURIComponent("The receipt never arrives")}`);
     assert.ok(listed.json.issues.some((i) => i.key === key), "the project still lists it");
   });
 }

@@ -258,6 +258,34 @@ fn nothing_open_here_points_to_the_closed_items() {
 }
 
 #[test]
+fn a_key_longer_than_eight_cells_shows_whole_and_short_keys_keep_their_column() {
+    let mut app = run(sample());
+    let before = app.text();
+    let title_at = |text: &str, key: &str| line(text, key).find("Is the newsletter");
+    let short = title_at(&before, "Q-10 ");
+    let mut entries = sample().inbox().expect("the sample reads").entries;
+    let long = entries
+        .iter_mut()
+        .find(|entry| entry.summary.key == "Q-10")
+        .expect("the sample has Q-10");
+    long.summary.key = "FEAT-70520".to_owned();
+    let text = app.event(
+        INBOX,
+        Msg::Inbox(Ok(Loaded {
+            entries,
+            unloaded: 0,
+        })),
+    );
+    let row = line(&text, "FEAT-70520 ");
+    assert!(!row.contains("FEAT-…"), "{text}");
+    assert_eq!(
+        title_at(&text, "FEAT-70520 "),
+        short.map(|at| at + 2),
+        "{text}"
+    );
+}
+
+#[test]
 fn enter_opens_the_thread_with_its_facts_comments_and_events() {
     let mut app = run(sample());
     let text = app.press("enter");

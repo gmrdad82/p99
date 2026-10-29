@@ -72,7 +72,9 @@ export default async function (kit) {
     assert.ok(printed, run.stdout);
     const secret = compact(printed);
     const links = [...run.stdout.matchAll(/^link:\s+(\S+)$/gm)].map((m) => m[1]);
-    assert.deepEqual(links, kit.space.projects.flatMap((p) => p.hosts).sort().map((h) => `https://${h}/#p99=${secret}`));
+    const hosts = (await kit.call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.map((h) => h.host);
+    for (const seeded of kit.space.projects.flatMap((p) => p.hosts)) assert.ok(hosts.includes(seeded), seeded);
+    assert.deepEqual(links, hosts.sort().map((h) => `https://${h}/#p99=${secret}`));
     assert.ok(run.stdout.includes("this is your own link"), run.stdout);
     assert.match(run.stdout, /this is the only time the secret is shown\n$/);
     assert.equal(run.stderr.includes(secret), false);
@@ -95,7 +97,7 @@ export default async function (kit) {
     assert.equal(lines[1], "set the same e-mail in your config's [me] so new work lands there too");
     const read = await kit.call("GET", `/_p99/v1/issues/${filed.json.key}?host=${host}`, { actor: ada });
     assert.equal(read.status, 200, JSON.stringify(read.json));
-    assert.equal(read.json.reporter.email, to);
+    assert.equal(read.json.issue.reporter.email, to);
     const me = await kit.browse("GET", "/me?path=%2F", made.secret, undefined, host);
     assert.equal(me.json.email, to);
     const mine = await kit.browse("GET", "/issues?scope=mine", made.secret, undefined, host);

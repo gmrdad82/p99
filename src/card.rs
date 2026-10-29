@@ -10,11 +10,13 @@ pub const NOT_YET: &str = "this Worker has no cards yet; run p99 deploy";
 pub const PROJECT_RULE: &str = "a project name has 1 to 40 characters";
 pub const SINCE_RULE: &str = "--since takes a time like 2026-10-22T08:00:00Z or an age like 6h";
 
-fn host_in<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+pub(crate) fn host_in<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-fn host_out<S: serde::Serializer>(host: &str, serializer: S) -> Result<S::Ok, S::Error> {
+pub(crate) fn host_out<S: serde::Serializer>(host: &str, serializer: S) -> Result<S::Ok, S::Error> {
     if host.is_empty() {
         serializer.serialize_none()
     } else {

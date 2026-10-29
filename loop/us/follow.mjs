@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, inPage, issueBody, listButton, signed, tag, visit } from "../../render/web/us-lib/report.mjs";
+import { ADA, RUN, S, closing, codeFor, hostOf, inPage, issueBody, listButton, signed, tag, visit } from "../../render/web/us-lib/report.mjs";
 
+const GRACE = { name: "Grace Hopper", email: `grace.follow.${RUN}@example.com` };
 const scratch = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "tmp", "us-follow");
 
 async function p99(kit, args) {
@@ -32,7 +33,7 @@ const listed = (p) =>
     const view = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list]");
     const res = view && view.querySelector(".p99-results");
     if (!res || res.hasAttribute("aria-busy") || res.querySelector(".p99-rows-wait")) return null;
-    return Array.from(res.querySelectorAll(".p99-item"), (li) => ({ key: li.querySelector(".p99-key")?.textContent || "", unread: li.dataset.unread === "true", text: li.textContent }));
+    return Array.from(res.querySelectorAll(".p99-item"), (li) => ({ key: li.querySelector(".p99-key")?.textContent || "", unread: Boolean(li.querySelector(".p99-unread")), text: li.textContent }));
   });
 
 export default async function (kit) {
@@ -66,10 +67,10 @@ export default async function (kit) {
       await openThread(p, key, reply);
       const said = await p.evaluate((text) => {
         const li = Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-comment")).find((c) => c.textContent.includes(text));
-        return li ? { owner: li.dataset.owner, margin: parseFloat(getComputedStyle(li).marginRight) } : null;
+        return li ? { owner: li.hasAttribute("data-owner"), margin: parseFloat(getComputedStyle(li).marginRight) } : null;
       }, reply);
       assert.ok(said, "the thread shows Ada's reply");
-      assert.equal(said.owner, "true", "marked as an Owner's");
+      assert.equal(said.owner, true, "marked as an Owner's");
       assert.ok(said.margin > 0, `set off from the edge (${said.margin})`);
     });
   });
@@ -119,7 +120,7 @@ export default async function (kit) {
       await openThread(p, key, reply);
       const panel = await p.evaluate(() => {
         const root = document.querySelector("p99-root").shadowRoot;
-        return { html: root.innerHTML, internal: root.querySelectorAll(".p99-panel.is-open .p99-comment[data-internal=true]").length };
+        return { html: root.innerHTML, internal: root.querySelectorAll(".p99-panel.is-open .p99-comment[data-internal]").length };
       });
       assert.equal(panel.internal, 0, "no internal comment is drawn");
       for (const hidden of [note, `refund-${RUN}.txt`, ADA.email]) assert.ok(!panel.html.includes(hidden), `the panel never shows ${hidden}`);

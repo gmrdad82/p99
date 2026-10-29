@@ -194,10 +194,13 @@ export default async function (kit) {
       }, start.key);
       assert.deepEqual({ before: placed.before, after: placed.after }, target, "the card stays between the neighbours it was dropped between");
       assert.equal(placed.inNew, false, "the card left the New lane");
-      const own = (await cardOf(start.key)).order;
-      assert.ok(Number.isFinite(Number(own)), String(own));
-      if (target.before) assert.ok(Number((await cardOf(target.before)).order) < Number(own), "the server orders it after the card above");
-      if (target.after) assert.ok(Number(own) < Number((await cardOf(target.after)).order), "the server orders it before the card below");
+      const board = await kit.call("GET", "/_p99/v1/board?project=Shop&status=planned", { actor: ADA });
+      assert.equal(board.status, 200, JSON.stringify(board.json));
+      const orderOf = (key) => board.json.cards.find((c) => c.key === key)?.order;
+      const own = orderOf(start.key);
+      assert.ok(typeof own === "string" && own.length > 0, String(own));
+      if (target.before) assert.ok(orderOf(target.before) < own, "the server orders it after the card above");
+      if (target.after) assert.ok(own < orderOf(target.after), "the server orders it before the card below");
     } finally {
       await closePage(page);
     }

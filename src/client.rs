@@ -590,12 +590,16 @@ impl Client {
                 }
             }
             self.answered.store(at + 1, Ordering::Relaxed);
-            let bytes = response
-                .body_mut()
-                .with_config()
-                .limit(ANSWER_LIMIT)
-                .read_to_vec()
-                .map_err(|e| format!("cannot read the answer of {base}: {e}"))?;
+            let bytes = if matches!(status, 204 | 205 | 304) {
+                Vec::new()
+            } else {
+                response
+                    .body_mut()
+                    .with_config()
+                    .limit(ANSWER_LIMIT)
+                    .read_to_vec()
+                    .map_err(|e| format!("cannot read the answer of {base}: {e}"))?
+            };
             let reply = Reply {
                 status,
                 content_type,
@@ -1142,5 +1146,48 @@ mod tests {
             "{said}"
         );
         assert!(asked(&open_log).is_empty());
+    }
+
+    fn answering_raw(head: &'static str) -> String {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/_p99", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) && line != "\r\n" {
+                    line.clear();
+                }
+                let _ = stream.write_all(head.as_bytes());
+            }
+        });
+        base
+    }
+
+    #[test]
+    fn a_no_content_answer_marked_gzip_reads_as_empty() {
+        let base = answering_raw(
+            "HTTP/1.1 204 No Content\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n",
+        );
+        let client = client_on(&[&base]);
+        let reply = client
+            .send("POST", "/v1/builds", false, false, b"{}", TIMEOUT)
+            .unwrap();
+        assert_eq!(reply.status, 204);
+        assert!(reply.bytes.is_empty());
+    }
+
+    #[test]
+    fn a_json_answer_marked_gzip_with_no_body_is_still_an_error() {
+        let base = answering_raw(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n",
+        );
+        let client = client_on(&[&base]);
+        let Err(said) = client.send("GET", "/v1/hosts", false, false, b"", TIMEOUT) else {
+            panic!("an empty gzip answer was read");
+        };
+        assert!(said.starts_with("cannot read the answer of "), "{said}");
     }
 }
