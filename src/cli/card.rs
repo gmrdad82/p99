@@ -157,7 +157,7 @@ pub struct CardStatusArgs {
     pub key: String,
     #[arg(
         value_name = "STATUS",
-        help = "a lane's word (new, planned, in-progress, needs-you, stuck, landed, done) or its name, or abandoned or duplicate to close it"
+        help = "a lane's word (`new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed`, `done`) or its name, or `abandoned` or `duplicate` to close it"
     )]
     pub status: String,
     #[arg(
