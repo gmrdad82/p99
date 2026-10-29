@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { REFUSALS } from "../../../worker/src/license.js";
 
 const TAG = randomUUID().slice(0, 6);
 const ADA = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
@@ -197,7 +196,9 @@ export default async function (kit) {
       assert.equal(listed.status, 200);
       const top = await header(p);
       assert.equal(top.position, "fixed");
-      assert.equal(top.name, typeof listed.json.space?.name === "string" ? listed.json.space.name : "");
+      assert.ok(kit.space.name, "the seeded space has a name");
+      assert.equal(listed.json.space?.name, kit.space.name);
+      assert.equal(top.name, kit.space.name);
       assert.ok(top.badge.startsWith(`/_p99/badges/${listed.json.license}.svg?v=`), top.badge);
       assert.equal(top.sites, 0);
       await p.reload();
@@ -281,6 +282,10 @@ export default async function (kit) {
       await p.waitForFunction((titles) => {
         const text = document.querySelector("p99-root.app-full")?.shadowRoot?.textContent || "";
         return titles.some((t) => text.includes(t));
+      }, hers, { timeout: 15000 });
+      await p.waitForFunction((titles) => {
+        const text = document.querySelector("p99-root.app-full")?.shadowRoot?.textContent || "";
+        return titles.every((t) => text.includes(t));
       }, hers, { timeout: 15000 });
       const text = await p.evaluate(() => document.querySelector("p99-root.app-full").shadowRoot.textContent);
       for (const title of marys) assert.equal(text.includes(title), false, title);
@@ -690,7 +695,7 @@ export default async function (kit) {
       assert.equal(await p.textContent(".app-licence .app-status"), WORDS.licenceEmpty);
       await p.fill(".app-licence textarea[name=licence]", "not a key");
       await p.click(".app-licence button[type=submit]");
-      await p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, REFUSALS.shape);
+      await p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, "that is not a PITO MD licence key");
       assert.equal(await p.getAttribute(".app-licence textarea", "aria-invalid"), "true");
       assert.match(await badgeOf(p), new RegExp(`^/_p99/badges/${before.state}\\.svg`));
       assert.equal(await p.locator(".app-licence .app-quiet").isHidden(), true);

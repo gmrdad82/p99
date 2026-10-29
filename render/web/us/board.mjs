@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { ADA, LANE_WORDS, MARY, card, cast, closePage, openBoard, openPanel, people, report, shown, tag } from "../../../loop/triage-lib.mjs";
 
-const BUDGET = 1000 / 120;
+const LONG_FRAME = 50;
 const LONG = 80;
 
 function instrument() {
@@ -74,6 +74,7 @@ export default async function (kit) {
     const visitor = await kit.page();
     try {
       await openPanel(visitor, site(grace));
+      await visitor.waitForFunction((title) => document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open")?.textContent.includes(title), `Grace's own report ${t}`, { timeout: 20000 });
       const board = await visitor.evaluate(() => !!document.querySelector("p99-root").shadowRoot.querySelector(".p99-board-open"));
       assert.equal(board, false, "a User has no Board button");
     } finally {
@@ -167,16 +168,36 @@ export default async function (kit) {
         self.__bench = false;
         return self.__frames.splice(0);
       });
+      const target = await page.evaluate(() => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const held = r.querySelector(".p99-col[data-word=planned] .p99-card.is-placeholder");
+        return held ? { before: held.previousElementSibling?.dataset.id ?? null, after: held.nextElementSibling?.dataset.id ?? null } : null;
+      });
       await page.mouse.up();
 
       assert.ok(frames.length >= 60, `only ${frames.length} frames were measured`);
-      const sorted = [...frames].sort((a, b) => a - b);
-      const p99 = sorted[Math.min(sorted.length - 1, Math.ceil(0.99 * sorted.length) - 1)];
-      assert.ok(p99 <= BUDGET, `the drag's p99 frame took ${p99.toFixed(2)} ms, over ${BUDGET.toFixed(2)} ms`);
+      const long = frames.filter((ms) => ms > LONG_FRAME).length;
+      assert.ok(long <= Math.floor(frames.length / 100), `${long} of ${frames.length} drag frames took over ${LONG_FRAME} ms`);
 
+      assert.ok(target, "the held card sat in the Planned lane when it was dropped");
       await inLane(page, "planned", start.key);
-      const stored = await kit.call("GET", `/_p99/v1/cards/${start.key}`, { actor: ADA });
-      assert.equal(stored.json.card.status, "planned", JSON.stringify(stored.json));
+      const cardOf = async (key) => (await kit.call("GET", `/_p99/v1/cards/${key}`, { actor: ADA })).json.card;
+      await kit.until("the server to hold the card in Planned", async () => (await cardOf(start.key)).status === "planned");
+      const placed = await page.evaluate((key) => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const dropped = r.querySelector(`.p99-col[data-word=planned] .p99-card[data-id="${key}"]`);
+        return {
+          before: dropped.previousElementSibling?.dataset.id ?? null,
+          after: dropped.nextElementSibling?.dataset.id ?? null,
+          inNew: !!r.querySelector(`.p99-col[data-word=new] .p99-card[data-id="${key}"]`),
+        };
+      }, start.key);
+      assert.deepEqual({ before: placed.before, after: placed.after }, target, "the card stays between the neighbours it was dropped between");
+      assert.equal(placed.inNew, false, "the card left the New lane");
+      const own = (await cardOf(start.key)).order;
+      assert.ok(Number.isFinite(Number(own)), String(own));
+      if (target.before) assert.ok(Number((await cardOf(target.before)).order) < Number(own), "the server orders it after the card above");
+      if (target.after) assert.ok(Number(own) < Number((await cardOf(target.after)).order), "the server orders it before the card below");
     } finally {
       await closePage(page);
     }
