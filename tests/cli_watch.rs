@@ -163,7 +163,7 @@ fn watch_host_asks_for_that_host_only_and_names_it() {
     });
     let w = Watching::start(&h, &["watch", "--host", " Shop.Example.COM "], &[]);
     assert_eq!(w.said(), "p99: watching shop.example.com, connected");
-    assert_eq!(w.line(), "BUG-2  issue  shop.example.com  P99: Two");
+    assert_eq!(w.line(), "BUG-2  card  shop.example.com  P99: Two");
     let call = h.stub.call("GET", "/_p99/v1/stream");
     assert_eq!(call.param("host"), Some("shop.example.com"));
     assert!(call.signed);
@@ -180,13 +180,13 @@ fn watch_reconnects_when_the_worker_closes_and_says_so() {
     });
     let w = Watching::start(&h, &["watch"], &[]);
     assert_eq!(w.said(), "p99: watching every host, connected");
-    assert_eq!(w.line(), "BUG-3  issue  shop.example.com  P99: Before");
+    assert_eq!(w.line(), "BUG-3  card  shop.example.com  P99: Before");
     assert_eq!(
         w.said(),
         "p99: the stream dropped (the Worker closed the stream); reconnecting in 1 s"
     );
     assert_eq!(w.said(), "p99: watching every host, reconnected");
-    assert_eq!(w.line(), "BUG-4  issue  shop.example.com  P99: After");
+    assert_eq!(w.line(), "BUG-4  card  shop.example.com  P99: After");
     let calls = h.stub.calls("GET", "/_p99/v1/stream");
     assert_eq!(calls.len(), 2);
     assert!(calls.iter().all(|c| c.signed));
@@ -215,7 +215,7 @@ fn watch_keeps_trying_through_a_server_error_and_a_dropped_connection() {
         "{dropped}"
     );
     assert_eq!(w.said(), "p99: watching every host, connected");
-    assert_eq!(w.line(), "BUG-5  issue  shop.example.com  P99: Back");
+    assert_eq!(w.line(), "BUG-5  card  shop.example.com  P99: Back");
 }
 
 #[test]
