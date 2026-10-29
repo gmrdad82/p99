@@ -647,9 +647,9 @@ function reachFor(c) {
   return c.manager ? c.reach : { ...c.reach, byHost: true };
 }
 
-function scopeClause(c, q, alias = "i") {
+function scopeClause(c, q, alias = "i", wide = false) {
   const reach = reachFor(c);
-  const sql = viewSql({ all: reach.all && c.scope.all, host: c.scope.all || c.scope.wide ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts, byHost: reach.byHost }, (v) => q.bind(v), alias);
+  const sql = viewSql({ all: reach.all && c.scope.all, host: c.scope.all || c.scope.wide || wide ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts, byHost: reach.byHost }, (v) => q.bind(v), alias);
   return sql === "1" ? null : sql;
 }
 
@@ -1666,11 +1666,11 @@ async function listIssues(c) {
   } else {
     fail(400, "scope must be mine, all or page");
   }
-  const hostScope = scopeClause(c, q);
+  const projects = params.getAll("project");
+  const hostScope = scopeClause(c, q, "i", c.browser && c.manager && scope === "all" && projects.length > 0);
   if (hostScope) where.push(hostScope);
   await labelFilters(c, params, q, where);
   cardFilters(c, params, q, where);
-  const projects = params.getAll("project");
   if (projects.length > 0) {
     requireManager(c);
     where.push(projectFilterSql(projects.map(projectName), (v) => q.bind(v)));

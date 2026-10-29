@@ -202,7 +202,7 @@ function shoot(full, deadline) {
   const hidden = [];
   const boxes = [];
   const fill = fillOf();
-  everywhere(document, secret(), []).forEach((n) => {
+  everywhere(document, hush(), []).forEach((n) => {
     if (n.closest("[data-p99-ignore]") || n === env.host) return;
     const b = n.getBoundingClientRect();
     mark(n, "data-p99-hide", String(hidden.length));

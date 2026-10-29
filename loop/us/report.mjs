@@ -4,6 +4,7 @@ import {
   GRACE,
   NO_SHOT,
   SEND,
+  apart,
   asData,
   closing,
   codeFor,
@@ -65,6 +66,9 @@ function hidden(read, what) {
   assert.ok(child >= 0 && child <= 30, `${what}: the child inside it is too (${JSON.stringify(read)})`);
   assert.ok(second >= 0 && second <= 30, `${what}: the second selector's area is too (${JSON.stringify(read)})`);
   assert.ok(control > 80, `${what}: the unmasked area still shows, so the read can fail (${JSON.stringify(read)})`);
+  const [maskedMean, childMean, secondMean, controlMean] = read.means;
+  assert.ok(apart(maskedMean, childMean) <= 12 && apart(maskedMean, secondMean) <= 12, `${what}: the masked areas and the child are painted one colour (${JSON.stringify(read.means)})`);
+  assert.ok(apart(maskedMean, controlMean) > 12, `${what}: the control is not that colour (${JSON.stringify(read.means)})`);
   assert.equal(read.counts.magenta, 0, `${what}: no magenta from the masked area`);
   assert.equal(read.counts.green, 0, `${what}: no green from its child`);
   assert.equal(read.counts.cyan, 0, `${what}: no cyan from the second area`);
