@@ -43,7 +43,7 @@ const CSS = `
 @media (hover:hover){.p99-board .p99-x:hover{border-color:var(--p99-ink);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
 .p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
-.p99-cols,.p99-cards{scrollbar-width:thin;scrollbar-color:var(--p99-scroll-thumb) transparent}
+@supports not selector(::-webkit-scrollbar){.p99-cols,.p99-cards{scrollbar-width:thin;scrollbar-color:var(--p99-scroll-thumb) transparent}}
 .p99-cols::-webkit-scrollbar,.p99-cards::-webkit-scrollbar{width:8px;height:8px}
 .p99-cols::-webkit-scrollbar-track,.p99-cards::-webkit-scrollbar-track{background:transparent}
 .p99-cols::-webkit-scrollbar-thumb,.p99-cards::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:var(--p99-radius-full);background:var(--p99-scroll-thumb) padding-box}

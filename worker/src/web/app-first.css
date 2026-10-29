@@ -1,8 +1,8 @@
 :root { --p99-accent: #3b7dd8; --app-bar: 64px; color-scheme: light dark; }
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
-html { -webkit-text-size-adjust: 100%; background-color: #8aa3c5; scrollbar-color: var(--p99-scroll-thumb) transparent; }
-* { scrollbar-width: thin; }
+html { -webkit-text-size-adjust: 100%; background-color: #8aa3c5; }
+@supports not selector(::-webkit-scrollbar) { html { scrollbar-color: var(--p99-scroll-thumb) transparent; } * { scrollbar-width: thin; } }
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: var(--p99-scroll-thumb) padding-box; }

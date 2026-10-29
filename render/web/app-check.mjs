@@ -366,10 +366,12 @@ async function check(back) {
     ok("a file that isn't a picture is refused in the page and nothing is sent");
     await p.unroute(isAvatar);
 
-    const scroll = await p.evaluate(() => ({ width: getComputedStyle(document.documentElement).scrollbarWidth, color: getComputedStyle(document.documentElement).scrollbarColor }));
-    assert.equal(scroll.width, "thin");
-    assert.notEqual(scroll.color, "auto");
-    ok("the page's scrollbars are thin and themed, with no script scroller");
+    const scroll = await p.evaluate(() => ({ width: getComputedStyle(document.documentElement).scrollbarWidth, color: getComputedStyle(document.documentElement).scrollbarColor, bar: getComputedStyle(document.documentElement, "::-webkit-scrollbar").width, thumb: getComputedStyle(document.documentElement, "::-webkit-scrollbar-thumb").backgroundColor }));
+    assert.equal(scroll.width, "auto");
+    assert.equal(scroll.color, "auto");
+    assert.equal(scroll.bar, "8px");
+    assert.notEqual(scroll.thumb, "rgba(0, 0, 0, 0)");
+    ok("the page's scrollbars are thin and themed with no arrow buttons, and no script scroller");
 
     await p.route("**/_p99/app/spaces", (route) => route.fulfill({ status: 500, contentType: "application/json", body: '{"message":"boom"}' }));
     await p.goto(APP + "/");
