@@ -33,6 +33,7 @@ const WORDS = {
   pictureSaved: "Your picture is saved.",
   licenceSaved: "Saved. The badge shows the licence now.",
   licenceRemoved: "Removed. This space is on Free.",
+  licenceKept: "Removed. This space still has Studio from its own setup.",
   badName: "Use 3 to 30 lowercase letters, digits, dots, dashes or underscores, starting and ending with a letter or digit.",
   taken: "That username is taken; try another.",
 };
@@ -276,16 +277,17 @@ async function check(back) {
     ok("the profile refuses a bad username on the page and saves a good one in lower case");
 
     let upload = null;
+    const faces = [];
     const isAvatar = (url) => url.pathname === "/_p99/api/me/avatar";
     await p.route(isAvatar, (route) => {
       const r = route.request();
       if (r.method() === "PUT") {
         upload = { type: r.headers()["content-type"], body: r.postDataBuffer() };
-        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ avatar: "/_p99/api/avatars/ada.lovelace?v=1" }) });
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ avatar: "/_p99/api/avatars/ada.lovelace?v=2" }) });
       }
       route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
     });
-    await p.route((url) => url.pathname === "/_p99/api/avatars/ada.lovelace", (route) => route.fulfill({ status: 200, contentType: upload ? upload.type : "image/png", body: upload ? upload.body : Buffer.alloc(0) }));
+    await p.route((url) => url.pathname === "/_p99/api/avatars/ada.lovelace", (route) => faces.push(new URL(route.request().url()).searchParams.get("v")) && route.fulfill({ status: 200, contentType: upload ? upload.type : "image/png", body: upload ? upload.body : Buffer.alloc(0) }));
     await p.setInputFiles(".app-picture input[type=file]", { name: "wide.png", mimeType: "image/png", buffer: await picturePng(p, 400, 200) });
     await p.waitForFunction((w) => document.querySelector(".app-picture .app-status")?.textContent === w, WORDS.pictureSaved);
     assert.ok(upload && /^image\/(webp|jpeg|png)$/.test(upload.type), `the picture goes up as an image (${upload && upload.type})`);
@@ -301,6 +303,7 @@ async function check(back) {
     assert.deepEqual([sent.w, sent.h], [256, 256]);
     assert.ok(sent.corner[2] > 200 && sent.corner[0] < 60, `the square is cut from the middle, so its corner is the blue centre, not the red sides (${sent.corner})`);
     await p.waitForFunction(() => /^blob:/.test(document.querySelector(".app-bar .app-me img")?.src || "") && /^blob:/.test(document.querySelector(".app-face img")?.src || ""));
+    assert.equal(faces.at(-1), "2", "the replaced picture is fetched at the new version the Worker sent, never from the old URL");
     ok("a wide picture is cropped square from its middle, sent at 256 × 256 under 256 KB, and shows in the header and on Profile at once");
 
     await p.click(".app-picture .app-unpick");
@@ -377,7 +380,11 @@ async function check(back) {
     await g.p.route(isLicence, (route) => {
       const r = route.request();
       licences.push({ method: r.method(), body: r.postData() ? JSON.parse(r.postData()) : null });
-      if (r.method() === "DELETE") return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ licence: { state: "free", link: "shown" } }) });
+      if (r.method() === "DELETE") {
+        const first = licences.filter((l) => l.method === "DELETE").length === 1;
+        const licence = first ? { state: "studio", link: "hideable" } : { state: "free", link: "shown" };
+        return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ licence, removed: true }) });
+      }
       const key = JSON.parse(r.postData() || "{}").key;
       if (key !== "P99-AGENCY-EXAMPLE") return route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ message: "that key isn't valid for this build" }) });
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ licence: { state: "agency", link: "hideable" } }) });
@@ -394,6 +401,15 @@ async function check(back) {
     assert.match((await header(g.p)).badge, /\/_p99\/badges\/agency\.svg\?v=/);
     assert.equal(await g.p.inputValue(".app-licence textarea"), "");
     assert.deepEqual(licences.filter((l) => l.method === "PUT").map((l) => l.body.key), ["nonsense", "P99-AGENCY-EXAMPLE"]);
+    assert.equal(await g.p.locator(".app-licence .app-quiet").isHidden(), false);
+    await g.p.click(".app-licence .app-quiet");
+    await g.p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, WORDS.licenceKept);
+    assert.match((await header(g.p)).badge, /\/_p99\/badges\/studio\.svg\?v=/);
+    assert.equal(await g.p.locator(".app-licence .app-quiet").isHidden(), true);
+    await g.p.fill(".app-licence textarea[name=licence]", "P99-AGENCY-EXAMPLE");
+    await g.p.click(".app-licence button[type=submit]");
+    await g.p.waitForFunction(() => /agency\.svg/.test(document.querySelector(".app-bar .app-pill img")?.src || ""));
+    assert.equal(await g.p.locator(".app-licence .app-quiet").isHidden(), false);
     await g.p.click(".app-licence .app-quiet");
     await g.p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, WORDS.licenceRemoved);
     assert.match((await header(g.p)).badge, /\/_p99\/badges\/free\.svg\?v=/);

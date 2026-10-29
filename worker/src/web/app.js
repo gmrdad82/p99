@@ -39,6 +39,8 @@ const WORDS = {
   licence_remove: "Remove the key",
   licence_saved: "Saved. The badge shows the licence now.",
   licence_removed: "Removed. This space is on Free.",
+  licence_removed_binding: "Removed. This space still has {plan} from its own setup.",
+  licence_none: "There was no key saved here. This space is on {plan}.",
   licence_empty: "Paste a licence key first.",
   sign_out: "Sign out",
 };
@@ -58,7 +60,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, sheet: null, pick: null, legacy: null };
+const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, sheet: null, pick: null, legacy: null, via: null, reach: new Map() };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -120,8 +122,23 @@ function hosts() {
   return list.map((x) => (typeof x === "string" ? x : x && x.host)).filter((x) => typeof x === "string" && x);
 }
 
+function entries() {
+  const d = S.spaces || {};
+  const list = Array.isArray(d.spaces) ? d.spaces : [];
+  return list.filter((x) => x && typeof x.host === "string" && x.host).map((x) => ({ host: x.host, project: typeof x.project === "string" ? x.project : "" }));
+}
+
 function firstHost() {
-  return hosts()[0] || null;
+  return S.via || hosts()[0] || null;
+}
+
+function hostFor(project) {
+  if (!project) return firstHost();
+  const via = firstHost();
+  const seen = S.reach.get(via);
+  if (seen && seen.has(project)) return via;
+  const own = entries().find((x) => x.project === project);
+  return own ? own.host : via;
 }
 
 function at(path, host) {
@@ -134,7 +151,7 @@ function api(method, path, body, type) {
 }
 
 function boardCall(method, path, body) {
-  return api(method, path, body).catch((e) => {
+  return call(method, at(path, hostFor(picked())), body).catch((e) => {
     signedOut(e);
     throw e;
   });
@@ -271,6 +288,8 @@ function signedOut(e) {
 }
 
 function forgetAll() {
+  S.via = null;
+  S.reach = new Map();
   S.spaces = null;
   S.me = null;
   S.space = null;
@@ -323,14 +342,64 @@ function signIn(note) {
   };
 }
 
+function probes() {
+  const seen = new Set();
+  const out = [];
+  for (const x of entries()) {
+    if (seen.has(x.project)) continue;
+    seen.add(x.project);
+    out.push(x.host);
+  }
+  const first = hosts()[0];
+  return out.length ? out : first ? [first] : [];
+}
+
+function widest(rows) {
+  let best = null;
+  for (const r of rows) if (r.space && (!best || r.projects.length > best.projects.length)) best = r;
+  return best;
+}
+
+function merged(rows) {
+  const names = new Set();
+  const projects = [];
+  let space = null;
+  for (const r of rows) {
+    if (!r.space) continue;
+    space = space || r.space.space || null;
+    for (const p of r.projects) {
+      if (!p || typeof p.name !== "string" || names.has(p.name)) continue;
+      names.add(p.name);
+      projects.push(p);
+    }
+  }
+  return { space, projects };
+}
+
+function reachFrom() {
+  const one = (host) => call("GET", at("/space", host)).then((space) => ({ host, space: space || {}, projects: Array.isArray(space && space.projects) ? space.projects : [] }), (e) => {
+    if (e && e.status === 401) throw e;
+    return { host, space: null, projects: [] };
+  });
+  return Promise.all(probes().map(one)).then((rows) => {
+    S.reach = new Map(rows.filter((r) => r.space).map((r) => [r.host, new Set(r.projects.map((p) => p && p.name))]));
+    const best = widest(rows);
+    S.via = best ? best.host : null;
+    return merged(rows);
+  });
+}
+
 function ready() {
   const spaces = S.spaces ? Promise.resolve(S.spaces) : call("GET", "/_p99/app/spaces").then((d) => (S.spaces = d || {}));
   return Promise.all([spaces, styled]).then(() => {
     if (!firstHost()) return;
-    const me = S.me ? S.me : api("GET", "/me").then((m) => (S.me = m || {}));
-    const space = S.space ? S.space : api("GET", "/space").then((x) => (S.space = x || {}), (e) => {
-      if (e && e.status === 401) throw e;
-      S.space = { space: null, projects: [] };
+    const space = S.space ? Promise.resolve(S.space) : reachFrom().then((x) => (S.space = x));
+    const early = hosts()[0];
+    const first = S.me ? Promise.resolve(S.me) : call("GET", at("/me", early)).then((m) => m || {});
+    const me = Promise.all([first, space]).then(([m]) => {
+      if (S.me) return S.me;
+      if (firstHost() === early) return (S.me = m);
+      return call("GET", at("/me", firstHost())).then((x) => (S.me = x || {}));
     });
     return Promise.all([me, space]);
   });
@@ -413,7 +482,10 @@ function narrow(name) {
   if (picked() === name) return;
   keepPick(name);
   for (const b of root.querySelectorAll(".app-project")) b.setAttribute("aria-pressed", String(b.dataset.name === name));
-  if (S.ctx) boardModule().then((m) => m.open(S.ctx), () => {});
+  if (S.ctx) {
+    S.ctx.via = hostFor(name);
+    boardModule().then((m) => m.open(S.ctx), () => {});
+  }
 }
 
 function query() {
@@ -449,7 +521,7 @@ function drawBoard(host) {
   const shadow = el.attachShadow({ mode: "closed" });
   S.board = el;
   mount("board", h("div", { class: "app-screen app-wide" }, strip(), el));
-  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: host, stay: true, query, pickWord: "", item: (key, from) => openItem(key, from) };
+  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: hostFor(picked()), stay: true, query, pickWord: "", item: (key, from) => openItem(key, from) };
   Promise.all([boardModule(), sheets()]).then(([m, list]) => {
     if (S.board !== el) return;
     shadow.adoptedStyleSheets = list;
@@ -462,7 +534,7 @@ function drawBoard(host) {
 }
 
 function openItem(key, from) {
-  const host = (from && from.dataset && from.dataset.host) || firstHost();
+  const host = (from && from.dataset && from.dataset.host) || hostFor((from && from.dataset && from.dataset.project) || picked());
   if (!S.sheet) {
     const el = h("p99-root", { class: "app-sheet" });
     const shadow = el.attachShadow({ mode: "closed" });
@@ -678,19 +750,24 @@ function licenceBox() {
   const key = h("textarea", { name: "licence", rows: "3", spellcheck: "false", autocomplete: "off", autocapitalize: "none", "aria-describedby": "app-licence-help" });
   const note = h("p", { class: "app-status", role: "status", "aria-live": "polite" });
   const save = h("button", { class: "app-primary", type: "submit", text: say("licence_save") });
-  const drop = h("button", { type: "button", class: "app-quiet", text: say("licence_remove"), hidden: licence() === "free" });
+  const keeps = () => {
+    const l = S.me && S.me.licence;
+    if (l && typeof l.stored === "boolean") return l.stored;
+    return licence() !== "free";
+  };
+  const drop = h("button", { type: "button", class: "app-quiet", text: say("licence_remove"), hidden: !keeps() });
   const tell = (text, bad) => {
     note.textContent = text;
     note.dataset.tone = bad ? "error" : "";
     if (bad) key.setAttribute("aria-invalid", "true");
     else key.removeAttribute("aria-invalid");
   };
-  const take = (r, fallback) => {
+  const take = (r, fallback, stored) => {
     const l = r && typeof r === "object" ? (r.licence && typeof r.licence === "object" ? r.licence : typeof r.state === "string" ? { state: r.state, link: r.link } : null) : null;
-    S.me = Object.assign({}, S.me, { licence: l || { state: fallback } });
+    S.me = Object.assign({}, S.me, { licence: Object.assign({}, l || { state: fallback }, { stored }) });
     S.badged = false;
     repaintHead();
-    drop.hidden = licence() === "free";
+    drop.hidden = !keeps();
   };
   const busy = (on) => { save.disabled = drop.disabled = on; };
   const form = h("form", { class: "app-card app-licence", novalidate: true },
@@ -705,7 +782,7 @@ function licenceBox() {
     busy(true);
     tell(say("saving"), false);
     api("PUT", "/licence", { key: text }).then((r) => {
-      take(r, licence());
+      take(r, licence(), true);
       key.value = "";
       tell(say("licence_saved"), false);
     }, (err) => {
@@ -716,8 +793,10 @@ function licenceBox() {
   drop.addEventListener("click", () => {
     busy(true);
     api("DELETE", "/licence").then((r) => {
-      take(r, "free");
-      tell(say("licence_removed"), false);
+      take(r, "free", false);
+      const plan = BADGES[licence()];
+      const gone = r && r.removed === false ? "licence_none" : licence() === "free" ? "licence_removed" : "licence_removed_binding";
+      tell(say(gone, { plan }), false);
     }, (err) => {
       if (!signedOut(err)) tell(problem(err), true);
     }).then(() => busy(false));

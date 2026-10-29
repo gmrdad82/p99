@@ -1554,11 +1554,13 @@ try {
     g.drawImage(bmp, 0, 0);
     const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
     const near = (i, [r, gg, b]) => Math.hypot(d[i] - r, d[i + 1] - gg, d[i + 2] - b) < 80;
-    const n = { red: 0, green: 0, magenta: 0, orange: 0, fill: 0 };
+    const n = { red: 0, green: 0, magenta: 0, yellow: 0, cyan: 0, orange: 0, fill: 0 };
     for (let i = 0; i < d.length; i += 4) {
       if (near(i, [255, 0, 0])) n.red++;
       if (near(i, [0, 255, 0])) n.green++;
       if (near(i, [255, 0, 255])) n.magenta++;
+      if (near(i, [255, 255, 0])) n.yellow++;
+      if (near(i, [0, 255, 255])) n.cyan++;
       if (near(i, [255, 165, 0])) n.orange++;
       if (near(i, [59, 125, 216])) n.fill++;
     }
@@ -1566,7 +1568,7 @@ try {
   })`;
   const plant = (p) => p.evaluate(() => {
     const box = (css, attrs = {}) => { const d = document.createElement("div"); d.style.cssText = css; for (const k in attrs) d.setAttribute(k, attrs[k]); return d; };
-    const wrap = box("position:fixed;left:24px;top:96px;z-index:5;display:flex;gap:24px;padding:24px;background:#ffffff");
+    const wrap = box("position:absolute;left:24px;top:96px;z-index:5;display:flex;gap:24px;padding:24px;background:#ffffff");
     const marked = box("width:120px;height:120px;background:#ff0000;color:#ff0000", { "data-p99-redact": "" });
     marked.textContent = "secret";
     const outer = box("position:relative;width:120px;height:120px;background:#ffffff", { "data-p99-redact": "" });
@@ -1576,32 +1578,103 @@ try {
     const masked = box("width:120px;height:120px;background:#ff00ff", { class: "p99-story-mask" });
     masked.append(box("width:60px;height:60px;background:#00ff00"));
     const control = box("width:120px;height:120px;background:#ffa500");
-    wrap.append(marked, outer, masked, control);
+    const hosted = box("width:120px;height:120px");
+    const shadow = hosted.attachShadow({ mode: "open" });
+    shadow.append(box("width:120px;height:56px;background:#ffff00", { "data-p99-redact": "" }), box("width:120px;height:56px;margin-top:8px;background:#00ffff", { class: "p99-story-mask" }));
+    wrap.append(marked, outer, masked, control, hosted);
     document.body.append(wrap);
   });
-
-  await story("a marked area, its nested children and a selector-matched area never show in the screenshot, in the preview or in what is sent", async () => {
-    const me = { ...visitor(0, 0, 0), mask: [".p99-story-mask", "::not a selector("], capture: "on" };
-    const { ctx, p } = await mePage(me);
-    await plant(p);
-    let sent = null;
+  const PRIVATE = (n) => n.red === 0 && n.green === 0 && n.magenta === 0 && n.yellow === 0 && n.cyan === 0;
+  const scan = (p, src) => p.evaluate(`${SCAN}(${JSON.stringify(src)})`);
+  const imageOf = (p, sel) => p.evaluate((q) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open " + q).src, sel);
+  const asData = (sent) => `data:${sent.type || "image/webp"};base64,${sent.body.toString("base64")}`;
+  const catching = async (p) => {
+    const sent = {};
     await p.route((u) => /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(u.pathname), (route) => {
       const r = route.request();
-      if (new URL(r.url()).searchParams.get("role") === "screenshot") sent = { type: r.headers()["content-type"], body: r.postDataBuffer() };
+      const role = new URL(r.url()).searchParams.get("role");
+      if (role) sent[role] = { type: r.headers()["content-type"], body: r.postDataBuffer() };
       route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
     });
+    return sent;
+  };
+  const privateMe = { ...visitor(0, 0, 0), mask: [".p99-story-mask"], capture: "on" };
+
+  await story("a marked area, its nested children, a selector-matched area and the same inside an open shadow root never show in the screenshot, in the preview or in what is sent", async () => {
+    const { ctx, p } = await mePage(privateMe);
+    await plant(p);
+    const sent = await catching(p);
     await openForm(p);
     await shotReady(p);
-    const src = await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-shot[data-role=screenshot] img").src);
-    const preview = await p.evaluate(`${SCAN}(${JSON.stringify(src)})`);
+    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=screenshot] img"));
     check(`the control box shows, so the scan can fail (${JSON.stringify(preview)})`, preview.orange > 1000);
-    check(`the preview has no red, green or magenta from the private boxes, and the theme's block covers them (${JSON.stringify(preview)})`, preview.red === 0 && preview.green === 0 && preview.magenta === 0 && preview.fill > 3000);
+    check(`the preview has no red, green, magenta, yellow or cyan from the private boxes, and the theme's block covers them (${JSON.stringify(preview)})`, PRIVATE(preview) && preview.fill > 3000);
     await write(p, tag("Private areas stay private"));
     await p.locator(SEND).click();
-    await until("the screenshot upload", () => sent, 30000);
-    const url = `data:${sent.type || "image/webp"};base64,${sent.body.toString("base64")}`;
-    const upload = await p.evaluate(`${SCAN}(${JSON.stringify(url)})`);
-    check(`the uploaded screenshot holds none of them either (${JSON.stringify(upload)})`, upload.orange > 1000 && upload.red === 0 && upload.green === 0 && upload.magenta === 0 && upload.fill > 3000);
+    await until("the screenshot upload", () => sent.screenshot, 30000);
+    const upload = await scan(p, asData(sent.screenshot));
+    check(`the uploaded screenshot holds none of them either (${JSON.stringify(upload)})`, upload.orange > 1000 && PRIVATE(upload) && upload.fill > 3000);
+    await ctx.close();
+  });
+
+  await story("the whole-page capture keeps the same areas private, in its preview and in what is sent", async () => {
+    const { ctx, p } = await mePage(privateMe);
+    await plant(p);
+    const sent = await catching(p);
+    await openForm(p);
+    await shotReady(p);
+    await p.locator(S(".p99-new input[name=attach][value=page]")).check();
+    await p.locator(S(".p99-shot[data-role=page] img")).waitFor({ timeout: 30000 });
+    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=page] img"));
+    check(`the page preview shows the control and none of the private colours (${JSON.stringify(preview)})`, preview.orange > 300 && PRIVATE(preview) && preview.fill > 1500);
+    await write(p, tag("Whole page stays private"));
+    await p.locator(SEND).click();
+    await until("the page upload", () => sent.page, 30000);
+    const upload = await scan(p, asData(sent.page));
+    check(`the uploaded page holds none of them (${JSON.stringify(upload)})`, upload.orange > 1000 && PRIVATE(upload) && upload.fill > 3000);
+    await ctx.close();
+  });
+
+  await story("a region marked over the private areas keeps them private, in its preview and in what is sent", async () => {
+    const { ctx, p } = await mePage(privateMe);
+    await plant(p);
+    const sent = await catching(p);
+    await openForm(p);
+    await shotReady(p);
+    await write(p, tag("Marked region stays private"));
+    await p.locator(S(".p99-mark-start")).click();
+    await p.locator("p99-root >> .p99-mark-layer").waitFor({ timeout: 10000 });
+    await p.mouse.move(40, 110);
+    await p.mouse.down();
+    await p.mouse.move(740, 270, { steps: 8 });
+    await p.mouse.up();
+    await p.locator("p99-root >> .p99-mark-done").click();
+    await p.locator(S(".p99-regions .p99-region img")).waitFor({ timeout: 30000 });
+    const preview = await scan(p, await imageOf(p, ".p99-regions .p99-region img"));
+    check(`the region preview shows the control and none of the private colours (${JSON.stringify(preview)})`, preview.orange > 100 && PRIVATE(preview) && preview.fill > 300);
+    await p.locator(SEND).click();
+    await until("the region upload", () => sent.region, 30000);
+    const upload = await scan(p, asData(sent.region));
+    check(`the uploaded region holds none of them (${JSON.stringify(upload)})`, upload.orange > 1000 && PRIVATE(upload) && upload.fill > 1500);
+    await ctx.close();
+  });
+
+  await story("a mask selector this browser can't read means no screenshot at all, and the form says why", async () => {
+    const { ctx, p } = await mePage({ ...privateMe, mask: [".p99-story-mask", "::not a selector("] });
+    await plant(p);
+    const sent = await catching(p);
+    await openForm(p);
+    const caption = await p.locator(S(".p99-shot[data-role=screenshot] .p99-shot-error")).textContent({ timeout: 30000 });
+    check(`the screenshot slot names the private-area rules as the reason (${caption})`, /can't read the areas this site keeps private/.test(caption || ""));
+    const shown = await p.locator(S(".p99-shot[data-role=screenshot] img")).count();
+    check("no screenshot image is drawn", shown === 0);
+    await p.locator(S(".p99-mark-start")).click();
+    await p.waitForFunction(() => /can't read the areas this site keeps private/.test(document.querySelector("p99-root").shadowRoot.querySelector(".p99-new .p99-status-line")?.textContent || ""), null, { timeout: 10000 });
+    check("marking an area does not start either", (await p.locator("p99-root >> .p99-mark-layer").count()) === 0);
+    await write(p, tag("No screenshot when a mask can't be read"));
+    await p.locator(SEND).click();
+    await thread(p);
+    check("the report still files, with no image sent", Object.keys(sent).length === 0);
     await ctx.close();
   });
 

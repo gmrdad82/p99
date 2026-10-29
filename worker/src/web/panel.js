@@ -166,6 +166,8 @@ const WORDS = {
   capturing_page: "Capturing the whole page…",
   capture_failed: "The capture failed; you can send without it.",
   capture_slow: "The page took too long to capture; you can send without it.",
+  capture_mask: "This browser can't read the areas this site keeps private, so no screenshot was taken; you can send without one.",
+  capture_unknown: "This site's capture settings didn't load, so no screenshot was taken; you can send without one.",
   marking: "Drag a box over the area. Esc stops.",
   mark_hint: "Drag a box over the area; you can mark several.",
   mark_n: "Area {n}",
@@ -441,7 +443,7 @@ function theme(t) {
   };
   let css = ":host{" + rules(t, (k, v) => !paint(k, v)) + "}";
   const light = rules(t, paint);
-  if (light) css += "@media not (prefers-color-scheme: dark){:host{" + light + "}}";
+  if (light) css += "@media not all and (prefers-color-scheme: dark){:host{" + light + "}}";
   if (t.dark && typeof t.dark === "object") css += "@media (prefers-color-scheme: dark){:host{" + rules(t.dark) + "}}";
   return css;
 }
@@ -1566,10 +1568,20 @@ function solid(color) {
   probe.remove();
   return /^rgb/.test(c) ? c : "#3b7dd8";
 }
+function settled() {
+  if (me) return Promise.resolve(me);
+  return call("GET", "/me?path=" + enc(location.pathname)).then((m) => (m ? (me = m) : null), () => null);
+}
 function capture(full) {
   const since = Date.now();
-  if (shotsOff()) return Promise.reject(new Error("capture off"));
-  return lib().then((m) => m.capture(shield(), full, since));
+  return settled().then((m) => {
+    if (!m) throw Object.assign(new Error("capture settings missing"), { why: "capture_unknown" });
+    if (shotsOff()) throw new Error("capture off");
+    return lib().then((l) => l.capture(shield(), full, since));
+  });
+}
+function why(e) {
+  return e && e.slow ? "capture_slow" : e && e.why ? e.why : "capture_failed";
 }
 function encode(canvas, q) {
   return new Promise((r) => canvas.toBlob(r, "image/webp", q)).then((b) => (b && b.type === "image/webp" ? b : new Promise((r) => canvas.toBlob(r, "image/jpeg", q))));
@@ -1668,7 +1680,7 @@ function newDraft(off) {
     d.startShot = () => {
       if (d.started) return;
       d.started = true;
-      capture(false).then((s) => { d.shot = s; resolve(s); }, (e) => { d.shotErr = e && e.slow ? "capture_slow" : "capture_failed"; resolve(null); });
+      capture(false).then((s) => { d.shot = s; resolve(s); }, (e) => { d.shotErr = why(e); resolve(null); });
     };
   });
   return d;
@@ -1721,7 +1733,7 @@ function newForm(d) {
     if (t.name !== "attach") return;
     if (t.value === "page" && t.checked && !d.page && !d.pageReady) {
       if (planned(d, form) > MAX_FILES) { t.checked = false; return status(form, say("too_many_files")); }
-      d.pageReady = capture(true).then((s) => { d.page = s; }, (e) => { status(form, say(e && e.slow ? "capture_slow" : "capture_failed")); t.checked = false; }).then(() => {
+      d.pageReady = capture(true).then((s) => { d.page = s; }, (e) => { status(form, say(why(e))); t.checked = false; }).then(() => {
         d.pageReady = null;
         if (S.draft === d) paintShot(form);
       });
@@ -1815,7 +1827,13 @@ function startMarking(form) {
   const d = S.draft;
   if (!d || S.marking) return;
   if (d.marks.length >= MAX_MARKS) return status(form, say("too_many_marks"));
-  lib().then((m) => { if (S.draft === d && !S.marking && S.open) marking(form, d, m); }, () => status(form, say("capture_failed")));
+  Promise.all([lib(), settled()]).then(([m, known]) => {
+    if (S.draft !== d || S.marking || !S.open) return;
+    if (!known) return status(form, say("capture_unknown"));
+    if (shotsOff()) return;
+    if (!m.readable(shield())) return status(form, say("capture_mask"));
+    marking(form, d, m);
+  }, () => status(form, say("capture_failed")));
 }
 function marking(form, d, lib) {
   const layer = h("div", { class: "p99-mark-layer" });
