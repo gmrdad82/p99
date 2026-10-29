@@ -23,9 +23,13 @@ mod migrate;
 mod projects;
 #[path = "us/relink.rs"]
 mod relink;
+#[path = "us/report.rs"]
+mod report;
 #[path = "us/revoke.rs"]
 mod revoke;
 #[path = "us/setup.rs"]
 mod setup;
+#[path = "us/site.rs"]
+mod site;
 #[path = "us/spaces.rs"]
 mod spaces;

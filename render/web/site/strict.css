@@ -1,0 +1,5 @@
+:root{color-scheme:light dark;--bg:#f6f1ea;--ink:#2b1d14;--line:#e4d8ca}
+@media (prefers-color-scheme:dark){:root{--bg:#1a1410;--ink:#f1e6da;--line:#3a2e25}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,sans-serif}
+header{display:flex;gap:24px;padding:18px 48px;border-bottom:1px solid var(--line)}
+main{max-width:960px;margin:0 auto;padding:28px 48px}
