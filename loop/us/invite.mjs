@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { GONE, PLUS, buttonsOf, compact, inviteJson, invitesJson, secretOf, shows, visit } from "../../worker/test/us-codes-kit.mjs";
+import { noMailTo } from "../../worker/test/us-support/quiet.mjs";
 
 export default async function (kit) {
   const { check, people } = kit;
@@ -37,6 +38,7 @@ export default async function (kit) {
 
   await check("us-invite-001 without mail the terminal prints the link once", async () => {
     const email = `grace.${randomUUID().slice(0, 8)}@example.com`;
+    const nobody = noMailTo(kit, email);
     const run = await kit.p99(["invite", "--project", blog.name, "--name", "Grace Hopper", "--email", email, "--no-mail"]);
     assert.equal(run.code, 0, run.stderr);
     const printed = /^secret: (\S+)$/m.exec(run.stdout)?.[1];
@@ -45,7 +47,7 @@ export default async function (kit) {
     const links = [...run.stdout.matchAll(/^link:\s+(\S+)$/gm)].map((m) => m[1]);
     assert.deepEqual(links, blog.hosts.map((host) => `https://${host}/#p99=${secret}`));
     assert.match(run.stdout, /this is the only time the secret is shown\n$/);
-    assert.deepEqual(kit.mail.inbox(email), [], "nobody was mailed");
+    await nobody("nobody was mailed");
 
     const listed = await invitesJson(kit);
     const row = listed.codes.find((c) => c.email === email);
@@ -66,10 +68,11 @@ export default async function (kit) {
     const id = made.code.id;
     assert.ok(await shows(await visit(kit, shop.hosts[0], made.secret), PLUS), "the + shows on Shop's site first");
 
+    const nobody = noMailTo(kit, email);
     const set = await kit.p99(["invites", "set", String(id), "--project", blog.name]);
     assert.equal(set.code, 0, set.stderr);
     assert.equal(set.stdout, `code ${id} of Grace Hopper <${email}> now grants projects: ${blog.name}; no one was mailed\n`);
-    assert.deepEqual(kit.mail.inbox(email), []);
+    await nobody("invites set mailed her");
     const row = (await invitesJson(kit)).codes.find((c) => c.id === id);
     assert.deepEqual(row.grant, { projects: [blog.name] });
     assert.equal(row.revoked_at, null);
@@ -87,10 +90,11 @@ export default async function (kit) {
     const id = made.code.id;
     const host = shop.hosts[0];
 
+    const parkedQuietly = noMailTo(kit, email);
     const parked = await kit.p99(["invites", "set", String(id), "--park"]);
     assert.equal(parked.code, 0, parked.stderr);
     assert.equal(parked.stdout, `code ${id} of Grace Hopper <${email}> is parked: it opens nothing and is not revoked; no one was mailed\n`);
-    assert.deepEqual(kit.mail.inbox(email), []);
+    await parkedQuietly("parking mailed her");
     const row = (await invitesJson(kit)).codes.find((c) => c.id === id);
     assert.deepEqual(row.grant, { projects: [] });
     assert.equal(row.revoked_at, null);
@@ -107,10 +111,11 @@ export default async function (kit) {
     assert.ok(line, screen);
     assert.match(line, /parked/);
 
+    const reopenedQuietly = noMailTo(kit, email);
     const reopened = await kit.p99(["invites", "set", String(id), "--space"]);
     assert.equal(reopened.code, 0, reopened.stderr);
     assert.equal(reopened.stdout, `code ${id} of Grace Hopper <${email}> now grants the whole space; no one was mailed\n`);
-    assert.deepEqual(kit.mail.inbox(email), []);
+    await reopenedQuietly("reopening mailed her");
     assert.ok(await shows(await visit(kit, host, made.secret), PLUS), "the same link opens again");
   });
 }

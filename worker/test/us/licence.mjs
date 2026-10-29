@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { PERSON_LICENSES } from "../../src/license.js";
 
 const ADA = { email: "ada@example.com", name: "Ada Lovelace" };
 const ADAS_AGENT = { ...ADA, agent: true };
+const PERSON_ONLY = "only an Owner, as a person, sets the licence";
 
 async function code(kit, name, local, role) {
   const email = `${local}.${randomUUID().slice(0, 8)}@example.com`;
@@ -39,16 +39,17 @@ export default async function (kit) {
 
     const agentPut = await kit.call("PUT", "/_p99/v1/licence", { actor: ADAS_AGENT, body: { key } });
     assert.equal(agentPut.status, 403, JSON.stringify(agentPut.json));
-    assert.equal(agentPut.json.message, PERSON_LICENSES);
+    assert.equal(agentPut.json.message, PERSON_ONLY);
     const agentDelete = await kit.call("DELETE", "/_p99/v1/licence", { actor: ADAS_AGENT });
     assert.equal(agentDelete.status, 403, JSON.stringify(agentDelete.json));
-    assert.equal(agentDelete.json.message, PERSON_LICENSES);
+    assert.equal(agentDelete.json.message, PERSON_ONLY);
 
     const userPut = await kit.browse("PUT", "/licence", user.secret, { key });
     assert.equal(userPut.status, 403, JSON.stringify(userPut.json));
-    assert.equal(userPut.json.message, PERSON_LICENSES);
+    assert.equal(userPut.json.message, PERSON_ONLY);
     const userDelete = await kit.browse("DELETE", "/licence", user.secret);
     assert.equal(userDelete.status, 403, JSON.stringify(userDelete.json));
+    assert.equal(userDelete.json.message, PERSON_ONLY);
 
     assert.deepEqual(await licenceOf(kit, owner.secret), before);
     assert.deepEqual(await licenceOf(kit, user.secret), before);

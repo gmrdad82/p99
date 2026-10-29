@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { FORM, GONE, VERIFY, buttonsOf, compact, inviteJson, secretOf, shows, visit } from "../../worker/test/us-codes-kit.mjs";
+import { noMailTo } from "../../worker/test/us-support/quiet.mjs";
 
 const NOW = "2026-10-29T10:00:00.000Z";
 
@@ -19,40 +20,43 @@ export default async function (kit) {
     const device = verified.json.device;
     const filed = await kit.browse("POST", "/issues", `${made.secret}.${device}`, kit.issueBody({ title: `Before the relink ${email}` }), host);
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    try {
+      const run = await kit.p99(["relink", email]);
+      assert.equal(run.code, 0, run.stderr);
+      assert.match(run.stdout, new RegExp(`^code \\d+ replaces code ${made.code.id}, which no longer works$`, "m"));
+      assert.ok(run.stdout.includes(`mailed the link to ${email}`), run.stdout);
+      assert.ok(run.stdout.includes("the authenticator carries over"), run.stdout);
+      assert.doesNotMatch(run.stdout, /secret:|#p99=/);
 
-    const run = await kit.p99(["relink", email]);
-    assert.equal(run.code, 0, run.stderr);
-    assert.match(run.stdout, new RegExp(`^code \\d+ replaces code ${made.code.id}, which no longer works$`, "m"));
-    assert.ok(run.stdout.includes(`mailed the link to ${email}`), run.stdout);
-    assert.ok(run.stdout.includes("the authenticator carries over"), run.stdout);
-    assert.doesNotMatch(run.stdout, /secret:|#p99=/);
+      const mail = await kit.until("the relink mail", () => {
+        const got = kit.mail.inbox(email);
+        return got.length === 1 && got[0];
+      });
+      assert.match(mail.subject, /^Your new P99 link/);
+      assert.equal(mail.reply_to, ada.email);
+      const button = buttonsOf(mail.html).find(([h]) => h === host);
+      const fresh = secretOf(button[1]);
+      assert.ok(fresh && fresh !== made.secret);
 
-    const mail = await kit.until("the relink mail", () => {
-      const got = kit.mail.inbox(email);
-      return got.length === 1 && got[0];
-    });
-    assert.match(mail.subject, /^Your new P99 link/);
-    assert.equal(mail.reply_to, ada.email);
-    const button = buttonsOf(mail.html).find(([h]) => h === host);
-    const fresh = secretOf(button[1]);
-    assert.ok(fresh && fresh !== made.secret);
+      const stale = await visit(kit, host, made.secret);
+      assert.ok(await shows(stale, GONE), "the old link gets one line");
+      assert.match(await stale.locator(GONE).textContent(), /isn't valid here/);
+      assert.equal((await kit.browse("GET", "/me?path=%2F", `${made.secret}.${device}`, undefined, host)).status, 401);
+      assert.equal((await kit.browse("GET", "/me?path=%2F", `${fresh}.${device}`, undefined, host)).status, 428, "the old browser's trust is gone");
 
-    const stale = await visit(kit, host, made.secret);
-    assert.ok(await shows(stale, GONE), "the old link gets one line");
-    assert.match(await stale.locator(GONE).textContent(), /isn't valid here/);
-    assert.equal((await kit.browse("GET", "/me?path=%2F", `${made.secret}.${device}`, undefined, host)).status, 401);
-    assert.equal((await kit.browse("GET", "/me?path=%2F", `${fresh}.${device}`, undefined, host)).status, 428, "the old browser's trust is gone");
-
-    await kit.clock.advance(30000);
-    const page = await visit(kit, host, fresh);
-    assert.ok(await shows(page, VERIFY), "the new link asks the browser for a fresh 6-digit code");
-    await page.locator(VERIFY).fill(kit.totp(made.totp_key));
-    await page.locator(VERIFY).press("Enter");
-    assert.ok(await shows(page, FORM));
-    const kept = await page.evaluate(() => localStorage.getItem("p99:code"));
-    const mine = await kit.browse("GET", "/issues?scope=mine", kept, undefined, host);
-    assert.equal(mine.status, 200, JSON.stringify(mine.json));
-    assert.ok(mine.json.issues.some((i) => i.key === filed.json.key), "the same items");
+      await kit.clock.advance(30000);
+      const page = await visit(kit, host, fresh);
+      assert.ok(await shows(page, VERIFY), "the new link asks the browser for a fresh 6-digit code");
+      await page.locator(VERIFY).fill(kit.totp(made.totp_key));
+      await page.locator(VERIFY).press("Enter");
+      assert.ok(await shows(page, FORM));
+      const kept = await page.evaluate(() => localStorage.getItem("p99:code"));
+      const mine = await kit.browse("GET", "/issues?scope=mine", kept, undefined, host);
+      assert.equal(mine.status, 200, JSON.stringify(mine.json));
+      assert.ok(mine.json.issues.some((i) => i.key === filed.json.key), "the same items");
+    } finally {
+      await kit.call("DELETE", `/_p99/v1/issues/${filed.json.key}?host=${host}`, { actor: ada });
+    }
   });
 
   await check("us-relink-001 relink self prints adas own link and mails nothing", async () => {
@@ -61,7 +65,7 @@ export default async function (kit) {
       assert.equal((await kit.call("POST", `/_p99/v1/codes/${code.id}/revoke`, { actor: ada })).status, 200);
     }
     const mine = await kit.mint(ada.name, ada.email, { space: true }, true);
-    const before = kit.mail.inbox(ada.email).length;
+    const nobody = noMailTo(kit, ada.email);
     const run = await kit.p99(["relink", "--self"]);
     assert.equal(run.code, 0, run.stderr);
     const printed = /^secret: (\S+)$/m.exec(run.stdout)?.[1];
@@ -72,8 +76,7 @@ export default async function (kit) {
     assert.ok(run.stdout.includes("this is your own link"), run.stdout);
     assert.match(run.stdout, /this is the only time the secret is shown\n$/);
     assert.equal(run.stderr.includes(secret), false);
-    await new Promise((r) => setTimeout(r, 300));
-    assert.equal(kit.mail.inbox(ada.email).length, before, "nothing was mailed");
+    await nobody("nothing was mailed");
     assert.equal((await kit.browse("GET", "/me?path=%2F", mine.secret, undefined, host)).status, 401, "the old code stopped");
     assert.equal((await kit.browse("GET", "/me?path=%2F", secret, undefined, host)).status, 200);
   });

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { noMailTo } from "../us-support/quiet.mjs";
 
 export default async function (kit) {
   const { check, call, browse, people } = kit;
@@ -96,6 +97,7 @@ export default async function (kit) {
     const meOf = (code) => browse("GET", "/me?path=%2F", code.secret, undefined, shopHost);
     for (const code of codes) assert.equal((await meOf(code)).status, 401);
     const move = (project) => call("PATCH", `/_p99/v1/hosts/${shopHost}`, { actor: ada, body: { project } });
+    const nobody = noMailTo(kit, emails);
     try {
       const moved = await move(waiting);
       assert.equal(moved.status, 200, JSON.stringify(moved.json));
@@ -108,7 +110,7 @@ export default async function (kit) {
       assert.equal((await move(shop.name)).status, 200);
     }
     for (const code of codes) assert.equal((await meOf(code)).status, 401, "moved out, the site shuts again");
-    for (const email of emails) assert.deepEqual(kit.mail.inbox(email), [], "moving a site mailed someone");
+    await nobody("moving a site mailed someone");
     for (const code of codes) assert.deepEqual((await codeRow(code.code.id)).grant, { projects: [waiting] });
   });
 
@@ -116,6 +118,7 @@ export default async function (kit) {
     const tag = randomUUID().slice(0, 8);
     const grace = await invite({ name: "Grace Hopper", email: `grace.agent.${tag}@example.com`, grant: { projects: [shop.name] } });
     const patch = (actor, grant) => call("PATCH", `/_p99/v1/codes/${grace.code.id}`, { actor, body: { grant } });
+    const nobody = noMailTo(kit, grace.code.email);
     for (const grant of [{ space: true }, { projects: [] }, { projects: [blog.name] }]) {
       const refused = await patch(people.agent, grant);
       assert.equal(refused.status, 403, JSON.stringify(refused.json));
@@ -127,6 +130,6 @@ export default async function (kit) {
     assert.equal(changed.status, 200, JSON.stringify(changed.json));
     assert.deepEqual(changed.json.code.grant, { projects: [blog.name] });
     assert.equal((await browse("GET", "/me?path=%2F", grace.secret)).status, 401);
-    assert.deepEqual(kit.mail.inbox(grace.code.email), []);
+    await nobody("changing a grant mailed her");
   });
 }
