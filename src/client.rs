@@ -60,11 +60,32 @@ impl Client {
         Client::among(config, account, holder.as_deref(), agent)
     }
 
+    pub fn through(
+        config: &Config,
+        account: &str,
+        agent: &Option<Option<String>>,
+        host: &str,
+    ) -> Result<Client, String> {
+        let holder = crate::config::key_holder(config)?;
+        let bases = config.bases_through(account, host)?;
+        Ok(Client::built(config, account, holder.as_deref(), agent, bases)?.aimed(Some(host)))
+    }
+
     pub fn among(
         config: &Config,
         account: &str,
         holder: Option<&str>,
         agent: &Option<Option<String>>,
+    ) -> Result<Client, String> {
+        Client::built(config, account, holder, agent, Vec::new())
+    }
+
+    fn built(
+        config: &Config,
+        account: &str,
+        holder: Option<&str>,
+        agent: &Option<Option<String>>,
+        bases: Vec<String>,
     ) -> Result<Client, String> {
         let entry = config
             .accounts
@@ -90,7 +111,12 @@ impl Client {
         };
         Ok(Client {
             account: account.to_owned(),
-            bases: config.bases(account, None)?.into(),
+            bases: if bases.is_empty() {
+                config.bases(account, None)?
+            } else {
+                bases
+            }
+            .into(),
             target: None,
             answered: Arc::new(AtomicUsize::new(0)),
             key,

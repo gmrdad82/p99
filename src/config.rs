@@ -423,6 +423,18 @@ impl Config {
             .collect())
     }
 
+    pub fn has_base(&self, account: &str) -> bool {
+        self.accounts.get(account).is_some_and(|a| a.url.is_some())
+            || self.hosts.values().any(|h| h.account == account)
+    }
+
+    pub fn bases_through(&self, account: &str, host: &str) -> Result<Vec<String>, String> {
+        if self.accounts.contains_key(account) && !self.has_base(account) {
+            return Ok(vec![format!("https://{host}/_p99")]);
+        }
+        self.bases(account, Some(host))
+    }
+
     fn has_inline_secret(&self) -> bool {
         self.license.as_ref().is_some_and(|key| !key.is_empty())
             || self.accounts.values().any(|a| {
@@ -1028,6 +1040,37 @@ mod tests {
             ("Grace Hopper", "grace@example.org")
         );
         assert_eq!(config.me_for("custom").email, "ada@example.com");
+        assert_eq!(
+            config.bases_through("main", "new.example.com").unwrap(),
+            config.bases("main", Some("new.example.com")).unwrap()
+        );
+        assert_eq!(
+            config.bases_through("custom", "new.example.org").unwrap(),
+            ["https://p99.example.org/_p99"]
+        );
+        assert!(config.bases_through("gone", "new.example.com").is_err());
+    }
+
+    #[test]
+    fn a_space_with_no_host_yet_reaches_its_worker_through_the_host_being_added() {
+        let config: Config = toml::from_str(
+            r#"
+            [me]
+            name = "Ada Lovelace"
+            email = "ada@example.com"
+
+            [spaces.fresh]
+            account_id = "a"
+            token = ""
+            "#,
+        )
+        .unwrap();
+        assert!(!config.has_base("fresh"));
+        assert!(config.bases("fresh", None).is_err());
+        assert_eq!(
+            config.bases_through("fresh", "example.com").unwrap(),
+            ["https://example.com/_p99"]
+        );
     }
 
     #[test]

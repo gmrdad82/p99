@@ -1280,7 +1280,15 @@ fn write_host(
 fn project_for(account: &Account, host: &str) -> String {
     account
         .project_of(host)
-        .map_or_else(|| host.to_owned(), str::to_owned)
+        .map_or_else(|| host_project(host), str::to_owned)
+}
+
+fn host_project(host: &str) -> String {
+    let capped: String = crate::card::tidy(host)
+        .chars()
+        .take(crate::card::MAX_PROJECT_CHARS)
+        .collect();
+    crate::card::project(&capped).unwrap_or(capped)
 }
 
 fn route_pattern(host: &str) -> String {
@@ -2196,6 +2204,16 @@ fn deploy_into(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_default_project_takes_the_host_name_under_the_project_rule() {
+        assert_eq!(host_project("example.com"), "example.com");
+        let long = format!("{}.example.com", "a".repeat(60));
+        let named = host_project(&long);
+        assert_eq!(named.chars().count(), crate::card::MAX_PROJECT_CHARS);
+        assert!(long.starts_with(&named));
+        assert_eq!(crate::card::project(&named).unwrap(), named);
+    }
 
     #[test]
     fn migrations_run_in_order_and_skip_the_recorded() {

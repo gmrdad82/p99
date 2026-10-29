@@ -2212,3 +2212,50 @@ fn the_interactive_walk_refuses_a_host_that_is_not_a_hostname() {
     assert!(out.stderr.contains("is not a hostname"), "{}", out.stderr);
     assert!(cf.lock().unwrap().routes.is_empty());
 }
+
+fn hostless(base: Option<&str>) -> String {
+    let url = base.map_or(String::new(), |b| format!("url = \"{b}/_p99\"\n"));
+    format!(
+        "default_space = \"main\"\n\n[me]\nname = \"Ada Lovelace\"\nemail = \"ada@example.com\"\n\n[spaces.main]\nname = \"PITO MD\"\naccount_id = \"acc1\"\ntoken = \"cf-token\"\ndatabase_id = \"db1\"\nkey = \"{KEY}\"\n{url}"
+    )
+}
+
+#[test]
+fn hosts_add_gives_a_space_with_no_host_yet_its_first_host() {
+    let stub = Stub::new(fake::any);
+    let text = hostless(Some(&stub.base));
+    let h = Home::with_config("hosts-add-first", stub, &text);
+    let out = h.p99(&["hosts", "add", "new.example.com", "--project", "shop"]);
+    out.ok();
+    assert_eq!(
+        out.stdout,
+        "added new.example.com to main, project Shop, environment production\n"
+    );
+    assert_eq!(
+        h.stub.call("POST", "/cf/zones/z1/workers/routes").json()["pattern"],
+        "new.example.com/_p99/*"
+    );
+    assert_eq!(
+        h.stub.call("PUT", "/_p99/v1/hosts/new.example.com").json()["project"],
+        "Shop"
+    );
+    let config = h.toml();
+    assert_eq!(
+        config["hosts"]["new.example.com"]["space"].as_str(),
+        Some("main")
+    );
+    assert_eq!(
+        config["spaces"]["main"]["projects"]["Shop"],
+        toml::Value::try_from(vec!["new.example.com"]).unwrap()
+    );
+
+    let bare = Home::with_config("hosts-add-bare", Stub::new(fake::any), &hostless(None));
+    let out = bare.p99(&["hosts", "add", "new.example.org", "--project", "Shop"]);
+    out.refused(
+        "new.example.org is on no zone this token reaches; add the zone to Cloudflare or to the token's Zone › Zone: Read",
+    );
+    assert!(!out.stderr.contains("has no host yet"), "{}", out.stderr);
+    assert!(bare.stub.under("PUT", "/_p99/").is_empty());
+    assert!(bare.stub.under("GET", "/_p99/").is_empty());
+    assert!(bare.config().find("[hosts.").is_none());
+}

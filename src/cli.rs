@@ -1045,7 +1045,11 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     }
     let asked = crate::card::project(&args.project)?;
     let account = config.account(named(global))?.0.to_owned();
-    let view = Client::for_account(config, &account, &global.agent)?
+    let fresh = !config.has_base(&account);
+    if fresh {
+        crate::setup::add_route(config, &account, &host)?;
+    }
+    let view = Client::through(config, &account, &global.agent, &host)?
         .space()
         .map_err(crate::card::refusal)?;
     let project = view
@@ -1060,8 +1064,10 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
         env: args.env.clone(),
         ..kept
     };
-    crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
+    if !fresh {
+        crate::setup::add_route(config, &account, &host)?;
+    }
+    let client = Client::through(config, &account, &global.agent, &host)?;
     let entry = client.put_host(&host, &args.env, &held.pushed(), Some(&project))?;
     config.hosts.insert(host.clone(), held);
     if let Some(space) = config.accounts.get_mut(&account) {
