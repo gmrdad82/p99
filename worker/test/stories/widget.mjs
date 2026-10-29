@@ -7,6 +7,8 @@ const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const WEBP = Buffer.from("UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==", "base64");
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_BYTES_A_DAY = 100 * 1024 * 1024;
+const RAW_CHUNK = 1024 * 1024;
+const RAW_LIMIT_MS = 60000;
 const MARK = {
   rect: { x: 40, y: 60, w: 200, h: 120 },
   viewport: { w: 1280, h: 800, scroll_x: 0, scroll_y: 0, dpr: 1 },
@@ -32,16 +34,23 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
        ON CONFLICT (actor_email, day) DO UPDATE SET ${field} = excluded.${field}`,
     );
   const used = (email, field) => one(`SELECT coalesce(max(${field}), 0) AS n FROM usage WHERE actor_email = '${email}'`);
-  const raw = (method, path, { host, headers = {}, body, declared } = {}) =>
+  const raw = (method, path, { host, headers = {}, body } = {}) =>
     new Promise((resolve, reject) => {
       const sent = { ...headers };
       if (host) sent.host = `${host}:${port}`;
       if (body) sent["content-length"] = body.length;
-      if (declared !== undefined) sent["content-length"] = declared;
       let answered = false;
+      let done = false;
+      const fail = (error) => {
+        if (done) return;
+        done = true;
+        reject(error);
+      };
       const req = request({ host: "127.0.0.1", port, path, method, headers: sent }, (res) => {
         answered = true;
         const chunks = [];
+        res.on("error", fail);
+        res.on("close", () => fail(new Error(`${method} ${path} closed before its answer ended`)));
         res.on("data", (chunk) => chunks.push(chunk));
         res.on("end", () => {
           const text = Buffer.concat(chunks).toString("utf8");
@@ -49,15 +58,24 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
           try {
             json = JSON.parse(text);
           } catch {}
+          done = true;
           resolve({ status: res.statusCode, headers: res.headers, text, json });
+          req.destroy();
         });
-        if (declared !== undefined) res.on("end", () => req.destroy());
       });
-      req.on("error", (error) => {
-        if (!answered) reject(error);
-      });
-      if (declared !== undefined) req.flushHeaders();
-      else req.end(body);
+      req.setTimeout(RAW_LIMIT_MS, () => req.destroy(new Error(`${method} ${path} had no answer in ${RAW_LIMIT_MS / 1000} s`)));
+      req.on("error", fail);
+      const bytes = body ?? Buffer.alloc(0);
+      let at = 0;
+      const pump = () => {
+        while (!answered && !req.destroyed && at < bytes.length) {
+          const chunk = bytes.subarray(at, at + RAW_CHUNK);
+          at += chunk.length;
+          if (!req.write(chunk)) return req.once("drain", pump);
+        }
+        if (!answered && !req.destroyed) req.end();
+      };
+      pump();
     });
   const attach = async (code, key, { uid = randomUUID(), role = "file", name = "notes.txt", type = "text/plain", mark, comment, body }) => {
     const params = new URLSearchParams({ name, role });
@@ -148,7 +166,7 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     const before = used("mary@example.com", "bytes");
     const answer = await raw("PUT", `/_p99/api/issues/${key}/attachments/${randomUUID()}?name=export.txt&role=file`, {
       headers: { "x-p99-code": mary.secret, "content-type": "text/plain" },
-      declared: MAX_FILE + 1,
+      body: Buffer.alloc(MAX_FILE + 1, 0x41),
     });
     assert.equal(answer.status, 413, answer.text);
     assert.equal(answer.json.error, "too_large");

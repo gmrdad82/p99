@@ -1,18 +1,19 @@
 import assert from "node:assert/strict";
-import { linkShown } from "../src/license.js";
+import { bindingLicence, linkShown } from "../src/license.js";
 import { LICENSE_STATE } from "./app.mjs";
 
 export async function brandChecks({ call, browse, mint, check, here, placement }) {
   await check("the 'by PITO.MD' link hides only when LICENSE_LINK is hideable and the host turned it off", () => {
     const off = { link: false };
     for (const binding of [undefined, "", "shown", "Hideable", "hideable ", "studio", "owner", "agency", "ff", "free", "yes", "true"]) {
-      assert.equal(linkShown({ LICENSE_LINK: binding }, off), true, String(binding));
+      assert.equal(linkShown(bindingLicence({ LICENSE_LINK: binding }), off), true, String(binding));
     }
-    assert.equal(linkShown({}, off), true);
+    assert.equal(linkShown(bindingLicence({}), off), true);
+    assert.equal(linkShown(bindingLicence(undefined), off), true);
     assert.equal(linkShown(undefined, off), true);
-    assert.equal(linkShown({ LICENSE_LINK: "hideable" }, off), false);
+    assert.equal(linkShown(bindingLicence({ LICENSE_LINK: "hideable" }), off), false);
     for (const config of [{}, { link: true }, { link: "false" }, { link: 0 }, { link: null }, null, undefined]) {
-      assert.equal(linkShown({ LICENSE_LINK: "hideable" }, config), true, JSON.stringify(config));
+      assert.equal(linkShown(bindingLicence({ LICENSE_LINK: "hideable" }), config), true, JSON.stringify(config));
     }
   });
 

@@ -426,7 +426,6 @@ export async function backupChecks({ check, root }) {
       comment(db, late, "late-comment");
       comment(db, old[0], "late-comment-on-old");
       db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'z')").run(board, late, inbox(db));
-      db.prepare("INSERT INTO item_labels (item_id, label_id) VALUES (?, ?)").run(late, inbox(db));
       db.prepare("UPDATE items SET open = 0, resolution = 'duplicate', duplicate_of = ? WHERE id = ?").run(late, old[1]);
       lane = db.prepare("INSERT INTO labels (name, color, created_at) VALUES ('Blocked', '#e5534b', ?) RETURNING id").get(AT).id;
       db.prepare("UPDATE items SET label_id = ? WHERE id = ?").run(lane, old[2]);
@@ -440,7 +439,6 @@ export async function backupChecks({ check, root }) {
     assert.equal(back.prepare("SELECT count(*) AS n FROM comments").get().n, 3);
     assert.equal(back.prepare("SELECT count(*) AS n FROM events WHERE item_id = ?").get(late).n, 0);
     assert.equal(back.prepare("SELECT count(*) AS n FROM board_positions WHERE item_id = ?").get(late).n, 0);
-    assert.equal(back.prepare("SELECT count(*) AS n FROM item_labels").get().n, 0);
     assert.equal(back.prepare("SELECT duplicate_of FROM items WHERE id = ?").get(old[1]).duplicate_of, null);
     assert.equal(back.prepare("SELECT name FROM labels WHERE id = ?").get(lane)?.name, "Blocked");
     assert.ok(back.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'items'").get().seq >= late);
@@ -519,7 +517,6 @@ export async function backupChecks({ check, root }) {
     db.prepare("UPDATE items SET open = 0, resolution = 'duplicate', duplicate_of = ? WHERE id = ?").run(target, merged);
     db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'a0')").run(qa, ids[1], inbox(db));
     db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, 'a0')").run(spare, ids[2], inbox(db));
-    db.prepare("INSERT INTO item_labels (item_id, label_id) VALUES (?, ?)").run(ids[3], flaky);
     let cut = null;
     const lines = await logged(() =>
       runToEnd(env, db, MONDAY, async () => {
@@ -529,7 +526,6 @@ export async function backupChecks({ check, root }) {
         deleteItem(db, target);
         db.prepare("DELETE FROM board_positions WHERE board_id = ?").run(spare);
         db.prepare("DELETE FROM boards WHERE id = ?").run(spare);
-        db.prepare("DELETE FROM item_labels WHERE label_id = ?").run(flaky);
         db.prepare("DELETE FROM labels WHERE id = ?").run(flaky);
         cut = run.after_rowid;
       }),
@@ -542,7 +538,6 @@ export async function backupChecks({ check, root }) {
     assert.equal(back.prepare("SELECT duplicate_of FROM items WHERE id = ?").get(merged).duplicate_of, null);
     assert.equal(back.prepare("SELECT count(*) AS n FROM items WHERE id = ?").get(target).n, 0);
     assert.equal(back.prepare("SELECT count(*) AS n FROM board_positions WHERE board_id = ?").get(spare).n, 0);
-    assert.equal(back.prepare("SELECT count(*) AS n FROM item_labels").get().n, 0);
     assert.equal(back.prepare("SELECT count(*) AS n FROM board_positions WHERE board_id = ?").get(qa).n, 1);
     assert.equal(back.prepare("SELECT count(*) AS n FROM items").get().n, ids.length - 1);
     const held = JSON.parse(runRow(db).held_json);
