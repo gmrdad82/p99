@@ -70,7 +70,7 @@ export async function openForm(p) {
   await p.locator(TITLE).waitFor({ timeout: 20000 });
 }
 
-export const shotReady = (p) => p.locator(S(".p99-shot[data-role=screenshot] img")).waitFor({ timeout: 30000 });
+export const shotReady = (p) => p.locator(S(".p99-shot[data-role=screenshot] canvas")).waitFor({ timeout: 30000 });
 export const threadShown = (p) => p.locator(S("[data-view=item]")).waitFor({ timeout: 20000 });
 
 export async function write(p, title, body = "") {
@@ -177,7 +177,7 @@ export const rectOf = (p, selector) =>
     return { x: b.left, y: b.top, w: b.width, h: b.height };
   }, selector);
 
-export const previewSrc = (p, sel) => p.evaluate((q) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open " + q).src, sel);
+export const previewSrc = (p, sel) => p.evaluate((q) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open " + q).toDataURL(), sel);
 
 export const CONTRAST = `(() => {
   const rgb = (c) => {
@@ -199,3 +199,47 @@ export async function closing(p, fn) {
 }
 
 export const apart = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+
+export const LOCKED_MASKS = Array.from({ length: 14 }, (_, i) => `.private-${i + 1}`).concat([".card-number"]);
+export const VERIFY_INPUT = S("[data-view=verify] input[name=totp]");
+
+export function watchPolicy() {
+  window.__p99Violations = [];
+  document.addEventListener("securitypolicyviolation", (e) => window.__p99Violations.push(`${e.violatedDirective} ${e.blockedURI}`));
+}
+
+export const violations = (p) => p.evaluate(() => window.__p99Violations);
+
+export async function guardedOwner(kit, host) {
+  const put = await kit.call("PUT", `/_p99/v1/hosts/${host}`, { actor: ADA, body: { env: "production", project: "Shop", config: { mask: LOCKED_MASKS } } });
+  assert.equal(put.status, 200, JSON.stringify(put.json));
+  const minted = await signed(kit, "POST", "/codes", { name: ADA.name, email: ADA.email, hosts: [host], role: "owner", totp: true, mail: false });
+  assert.ok(minted.json.secret && minted.json.totp_key, "an Owner code with an authenticator");
+  return { code: minted.json.secret, key: minted.json.totp_key };
+}
+
+export async function lockedVisit(kit, host, code) {
+  const p = await kit.page();
+  await p.addInitScript(watchPolicy);
+  const errors = [];
+  const blocked = [];
+  p.on("pageerror", (e) => errors.push(String(e && e.message)));
+  p.on("console", (m) => /Content Security Policy/i.test(m.text()) && blocked.push(m.text().slice(0, 300)));
+  const page = await p.goto(`${kit.siteUrl(host, "/locked.html")}${code ? `#p99=${code}` : ""}`);
+  assert.equal(page.headers()["content-security-policy"], "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'");
+  await plus(p).waitFor({ timeout: 20000 });
+  return { p, errors, blocked };
+}
+
+export async function passCode(kit, p, key) {
+  await p.locator(VERIFY_INPUT).waitFor({ timeout: 20000 });
+  await p.locator(VERIFY_INPUT).fill(kit.totp(key));
+  await p.locator(VERIFY_INPUT).press("Enter");
+}
+
+export const brokenImages = (p) =>
+  p.evaluate(() =>
+    Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll("img"))
+      .filter((i) => !i.complete || !i.naturalWidth)
+      .map((i) => `${i.className || i.alt || "img"} ${String(i.src).slice(0, 60)}`),
+  );

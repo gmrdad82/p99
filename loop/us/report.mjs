@@ -91,7 +91,7 @@ export default async function (kit) {
         for (const q of [".us-private", "#us-private-child", "#us-private-two", "#us-control"]) rects.push(await rectOf(p, q));
         await openForm(p);
         await shotReady(p);
-        hidden(await readImage(p, { src: await previewSrc(p, ".p99-shot[data-role=screenshot] img"), width, rects, colours: COLOURS }), "the preview");
+        hidden(await readImage(p, { src: await previewSrc(p, ".p99-shot[data-role=screenshot] canvas"), width, rects, colours: COLOURS }), "the preview");
         const title = tag("Private areas stay private");
         await write(p, title);
         await p.locator(SEND).click();

@@ -224,7 +224,7 @@ try {
     await p.locator("p99-root >> .w .f").click();
     await p.locator(TITLE).waitFor({ timeout: 20000 });
   };
-  const shotReady = (p) => p.locator(S(".p99-shot[data-role=screenshot] img")).waitFor({ timeout: 30000 });
+  const shotReady = (p) => p.locator(S(".p99-shot[data-role=screenshot] canvas")).waitFor({ timeout: 30000 });
   const write = async (p, title, body = "") => {
     await p.locator(TITLE).fill(title);
     if (body) await p.locator(S(".p99-new textarea[name=body]")).fill(body);
@@ -246,7 +246,7 @@ try {
     await p.mouse.move(Math.min(x1 + 240, 1270), Math.min(y1 + 160, 790), { steps: 8 });
     await p.mouse.up();
     await p.locator("p99-root >> .p99-mark-done").click();
-    await p.locator(S(".p99-regions .p99-region img")).waitFor({ timeout: 30000 });
+    await p.locator(S(".p99-regions .p99-region canvas")).waitFor({ timeout: 30000 });
     await p.locator(S(".p99-new input[name=files]")).setInputFiles({ name: "order.txt", mimeType: "text/plain", buffer: NOTE });
     await p.locator(SEND).click();
     await thread(p);
@@ -1354,7 +1354,7 @@ try {
     await frames(p);
     const boxes = await p.evaluate(() => {
       const panel = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open");
-      const all = Array.from(panel.querySelectorAll("input:not([type=hidden]), textarea, img"));
+      const all = Array.from(panel.querySelectorAll("input:not([type=hidden]), textarea, img, canvas"));
       const box = (e) => { const r = e.getBoundingClientRect(); return { tag: e.tagName.toLowerCase(), type: e.type || "", scale: getComputedStyle(e).scale, w: r.width, h: r.height }; };
       return {
         scaled: all.filter((e) => getComputedStyle(e).scale === "0").map(box),
@@ -1586,7 +1586,7 @@ try {
   });
   const PRIVATE = (n) => n.red === 0 && n.green === 0 && n.magenta === 0 && n.yellow === 0 && n.cyan === 0;
   const scan = (p, src) => p.evaluate(`${SCAN}(${JSON.stringify(src)})`);
-  const imageOf = (p, sel) => p.evaluate((q) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open " + q).src, sel);
+  const imageOf = (p, sel) => p.evaluate((q) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open " + q).toDataURL(), sel);
   const asData = (sent) => `data:${sent.type || "image/webp"};base64,${sent.body.toString("base64")}`;
   const catching = async (p) => {
     const sent = {};
@@ -1606,7 +1606,7 @@ try {
     const sent = await catching(p);
     await openForm(p);
     await shotReady(p);
-    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=screenshot] img"));
+    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=screenshot] canvas"));
     check(`the control box shows, so the scan can fail (${JSON.stringify(preview)})`, preview.orange > 1000);
     check(`the preview has no red, green, magenta, yellow or cyan from the private boxes, and the theme's block covers them (${JSON.stringify(preview)})`, PRIVATE(preview) && preview.fill > 3000);
     await write(p, tag("Private areas stay private"));
@@ -1624,8 +1624,8 @@ try {
     await openForm(p);
     await shotReady(p);
     await p.locator(S(".p99-new input[name=attach][value=page]")).check();
-    await p.locator(S(".p99-shot[data-role=page] img")).waitFor({ timeout: 30000 });
-    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=page] img"));
+    await p.locator(S(".p99-shot[data-role=page] canvas")).waitFor({ timeout: 30000 });
+    const preview = await scan(p, await imageOf(p, ".p99-shot[data-role=page] canvas"));
     check(`the page preview shows the control and none of the private colours (${JSON.stringify(preview)})`, preview.orange > 300 && PRIVATE(preview) && preview.fill > 1500);
     await write(p, tag("Whole page stays private"));
     await p.locator(SEND).click();
@@ -1649,8 +1649,8 @@ try {
     await p.mouse.move(740, 270, { steps: 8 });
     await p.mouse.up();
     await p.locator("p99-root >> .p99-mark-done").click();
-    await p.locator(S(".p99-regions .p99-region img")).waitFor({ timeout: 30000 });
-    const preview = await scan(p, await imageOf(p, ".p99-regions .p99-region img"));
+    await p.locator(S(".p99-regions .p99-region canvas")).waitFor({ timeout: 30000 });
+    const preview = await scan(p, await imageOf(p, ".p99-regions .p99-region canvas"));
     check(`the region preview shows the control and none of the private colours (${JSON.stringify(preview)})`, preview.orange > 100 && PRIVATE(preview) && preview.fill > 300);
     await p.locator(SEND).click();
     await until("the region upload", () => sent.region, 30000);
@@ -1666,7 +1666,7 @@ try {
     await openForm(p);
     const caption = await p.locator(S(".p99-shot[data-role=screenshot] .p99-shot-error")).textContent({ timeout: 30000 });
     check(`the screenshot slot names the private-area rules as the reason (${caption})`, /can't read the areas this site keeps private/.test(caption || ""));
-    const shown = await p.locator(S(".p99-shot[data-role=screenshot] img")).count();
+    const shown = await p.locator(S(".p99-shot[data-role=screenshot] canvas")).count();
     check("no screenshot image is drawn", shown === 0);
     await p.locator(S(".p99-mark-start")).click();
     await p.waitForFunction(() => /can't read the areas this site keeps private/.test(document.querySelector("p99-root").shadowRoot.querySelector(".p99-new .p99-status-line")?.textContent || ""), null, { timeout: 10000 });

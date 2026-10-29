@@ -34,6 +34,8 @@ const GITHUB_TOKEN = "ghp-loop-token";
 const GITHUB_HOOK = "github-loop-hook";
 const P99_LIMIT_MS = 60000;
 const MAIL_SEED = "INSERT INTO mail (id, provider, sender, updated_at) VALUES (1, 'resend', 'P99 <p99@example.com>', '2026-10-20T00:00:00Z');";
+export const LOCKED_CSP = "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+const LOCKED = new Set(["locked.html"]);
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png" };
 
 const tagOf = (host, sha256) => sha256(Buffer.from(host)).slice(0, 16).toUpperCase();
@@ -153,7 +155,9 @@ function site(repo, workerPort, tls) {
     const wanted = normalize(new URL(path, "http://site").pathname).replace(/^\/+/, "");
     const full = join(files, wanted);
     const name = full.startsWith(files) && wanted && existsSync(full) && statSync(full).isFile() ? full : join(files, "checkout.html");
-    res.writeHead(200, { "content-type": TYPES[extname(name)] || "application/octet-stream", "cache-control": "no-cache" });
+    const headers = { "content-type": TYPES[extname(name)] || "application/octet-stream", "cache-control": "no-cache" };
+    if (LOCKED.has(wanted)) headers["content-security-policy"] = LOCKED_CSP;
+    res.writeHead(200, headers);
     res.end(readFileSync(name));
   };
   const handle = (secure) => (req, res) => {

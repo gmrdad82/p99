@@ -297,7 +297,7 @@ async function clip() {
   await tick(300);
   await click(".p99-mark-done");
   await skip(400);
-  await until(() => inside(p, ".p99-regions:not([hidden]) .p99-region img"), 15000);
+  await until(() => inside(p, ".p99-regions:not([hidden]) .p99-region canvas"), 15000);
   await tick(200);
   await scrollTo(".p99-regions");
   await tick(1300);
@@ -363,7 +363,7 @@ async function stills(thread) {
   await p.mouse.move(form.x + form.w + 10, form.y + form.h + 10, { steps: 8 });
   await p.mouse.up();
   await press(".p99-mark-done");
-  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-regions:not([hidden]) .p99-region img"), null, { timeout: 15000 });
+  await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-regions:not([hidden]) .p99-region canvas"), null, { timeout: 15000 });
   await p.evaluate(() => {
     const r = document.querySelector("p99-root").shadowRoot;
     const sc = r.querySelector(".p99-scroll");

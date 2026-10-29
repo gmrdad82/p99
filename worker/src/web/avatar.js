@@ -32,7 +32,7 @@ function shapes(name) {
   }));
 }
 
-export function avatar(username, size = 24) {
+function markup(username, size, blend) {
   const name = String(username || "");
   const s = shapes(name);
   const id = "p99a" + hashOf(name).toString(36);
@@ -42,10 +42,22 @@ export function avatar(username, size = 24) {
     `<mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="${SIZE}" height="${SIZE}"><rect width="${SIZE}" height="${SIZE}" rx="${SIZE * 2}" fill="#FFFFFF"/></mask>` +
     `<g mask="url(#${id})"><rect width="${SIZE}" height="${SIZE}" fill="${s[0].color}"/>` +
     `<path filter="url(#${id}f)" d="${BACK}" fill="${s[1].color}" transform="${place(s[1])}"/>` +
-    `<path filter="url(#${id}f)" style="mix-blend-mode:overlay" d="${FRONT}" fill="${s[2].color}" transform="${place(s[2])}"/></g>` +
+    `<path filter="url(#${id}f)"${blend} d="${FRONT}" fill="${s[2].color}" transform="${place(s[2])}"/></g>` +
     `<defs><filter id="${id}f" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB"><feFlood flood-opacity="0" result="BackgroundImageFix"/>` +
     `<feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/><feGaussianBlur stdDeviation="7" result="effect1_foregroundBlur"/></filter></defs></svg>`
   );
+}
+
+export function avatar(username, size = 24) {
+  return markup(username, size, ' style="mix-blend-mode:overlay"');
+}
+
+export function avatarNode(username, size = 24) {
+  const svg = document.importNode(new DOMParser().parseFromString(markup(username, size, ""), "image/svg+xml").documentElement, true);
+  svg.removeAttribute("role");
+  svg.setAttribute("aria-hidden", "true");
+  svg.querySelectorAll("path")[1].style.mixBlendMode = "overlay";
+  return svg;
 }
 
 export function avatarSrc(username, size = 24) {
@@ -71,6 +83,24 @@ export function picture(person, get) {
   return faces.get(path);
 }
 
+const drawn = new Map();
+
+export function face(person, get, size) {
+  const path = pathOf(person);
+  if (!path || !/^\/(?![\/\\])/.test(path) || typeof get !== "function") return Promise.resolve(null);
+  if (!drawn.has(path)) {
+    drawn.set(path, Promise.resolve().then(() => get(path)).then((b) => (b && /^image\//.test(b.type || "") ? createImageBitmap(b) : null)).catch(() => null));
+  }
+  return drawn.get(path).then((bmp) => {
+    if (!bmp) return null;
+    const c = document.createElement("canvas");
+    c.width = c.height = Math.max(1, Math.round((size || bmp.width) * (devicePixelRatio || 1)));
+    c.setAttribute("aria-hidden", "true");
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    return c;
+  });
+}
+
 export function forget(person) {
   const name = person && typeof person.username === "string" ? person.username : "";
   const mark = name ? "/avatars/" + encodeURIComponent(name) : "";
@@ -79,5 +109,10 @@ export function forget(person) {
     if (path !== own && (!mark || (path !== mark && !path.startsWith(mark + "?")))) continue;
     faces.delete(path);
     url.then((u) => { if (u) URL.revokeObjectURL(u); });
+  }
+  for (const path of [...drawn.keys()]) {
+    if (path !== own && (!mark || (path !== mark && !path.startsWith(mark + "?")))) continue;
+    drawn.get(path).then((b) => { if (b) b.close(); });
+    drawn.delete(path);
   }
 }

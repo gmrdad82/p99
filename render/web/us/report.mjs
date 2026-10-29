@@ -72,7 +72,7 @@ export default async function (kit) {
       await p.mouse.move(x + 200, y + 140, { steps: 8 });
       await p.mouse.up();
       await p.locator("p99-root >> .p99-mark-done").click();
-      await p.locator(S(".p99-regions .p99-region img")).waitFor({ timeout: 30000 });
+      await p.locator(S(".p99-regions .p99-region canvas")).waitFor({ timeout: 30000 });
       await p.locator(S(".p99-new input[name=files]")).setInputFiles({ name: "order.txt", mimeType: "text/plain", buffer: NOTE });
       await p.locator(SEND).click();
       await threadShown(p);

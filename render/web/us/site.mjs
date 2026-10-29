@@ -1,5 +1,30 @@
 import assert from "node:assert/strict";
-import { GRACE, closing, codeFor, hostOf, openForm, plus } from "../us-lib/report.mjs";
+import {
+  GRACE,
+  S,
+  SEND,
+  apart,
+  brokenImages,
+  closing,
+  codeFor,
+  fileBytes,
+  guardedOwner,
+  hostOf,
+  lockedVisit,
+  openForm,
+  passCode,
+  plus,
+  readImage,
+  rectOf,
+  shotReady,
+  tag,
+  thread,
+  threadShown,
+  titled,
+  violations,
+  viewportWidth,
+  write,
+} from "../us-lib/report.mjs";
 
 function watchPolicy() {
   window.__p99Violations = [];
@@ -49,6 +74,65 @@ export default async function (kit) {
       await plus(p).waitFor({ timeout: 10000 });
       assert.equal(await roots(p), 1, "a history move keeps exactly one +");
       assert.deepEqual(await p.evaluate(() => window.__p99Violations), [], "still no policy violation");
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  await kit.check("us-site-001 under a self only header policy the screenshot previews masked and files with no violation", async () => {
+    const owner = await guardedOwner(kit, shop);
+    const { p, errors, blocked } = await lockedVisit(kit, shop, owner.code);
+    await closing(p, async () => {
+      await passCode(kit, p, owner.key);
+      await shotReady(p);
+      const width = await viewportWidth(p);
+      const card = await rectOf(p, ".card-number");
+      const heading = await rectOf(p, "main h1");
+      const preview = await p.evaluate(({ card, heading, width }) => {
+        const c = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-shot[data-role=screenshot] canvas");
+        const k = c.width / width;
+        const g = c.getContext("2d");
+        const mean = (r) => {
+          const d = g.getImageData(Math.round(r.x * k) + 2, Math.round(r.y * k) + 2, Math.max(1, Math.round(r.w * k) - 4), Math.max(1, Math.round(r.h * k) - 4)).data;
+          const sum = [0, 0, 0];
+          let lo = 255, hi = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            for (let j = 0; j < 3; j++) sum[j] += d[i + j];
+            lo = Math.min(lo, d[i]);
+            hi = Math.max(hi, d[i]);
+          }
+          return { mean: sum.map((v) => Math.round(v / (d.length / 4))), spread: hi - lo };
+        };
+        return { w: c.width, h: c.height, role: c.getAttribute("role"), label: c.getAttribute("aria-label"), card: mean(card), heading: mean(heading) };
+      }, { card, heading, width });
+      assert.ok(preview.w > 100 && preview.h > 50, JSON.stringify(preview));
+      assert.equal(preview.role, "img");
+      assert.equal(preview.label, "Preview");
+      assert.ok(apart(preview.card.mean, [59, 125, 216]) < 40, `the masked card number is covered: ${JSON.stringify(preview.card)}`);
+      assert.ok(preview.heading.spread > 60, `the heading's text shows in the preview: ${JSON.stringify(preview.heading)}`);
+
+      const title = tag("Order 1043 shows the wrong total");
+      await write(p, title);
+      await p.locator(SEND).click();
+      await threadShown(p);
+      const [item] = await titled(kit, title);
+      assert.ok(item, "the report is filed");
+      const shot = (await thread(kit, item.key)).attachments.find((a) => a.role === "screenshot");
+      assert.ok(shot && shot.bytes > 1000, `the screenshot went with it: ${JSON.stringify(shot)}`);
+      await p.waitForFunction(() => {
+        const c = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item] .p99-shot[data-role=screenshot] canvas");
+        return c && c.width > 1;
+      }, null, { timeout: 20000 });
+
+      const blank = await kit.page();
+      await closing(blank, async () => {
+        const src = `data:${shot.type};base64,${(await fileBytes(kit, shot.id)).toString("base64")}`;
+        const sent = await readImage(blank, { src, width, rects: [card, heading] });
+        assert.ok(apart(sent.means[0], [59, 125, 216]) < 40, `the filed screenshot covers the card number: ${JSON.stringify(sent.means)}`);
+        assert.ok(sent.spreads[1] > 60, `the filed screenshot shows the heading: ${JSON.stringify(sent.spreads)}`);
+      });
+      assert.deepEqual(await brokenImages(p), [], "no broken image in the panel or the board");
+      assert.deepEqual(await violations(p), [], "nothing P99 does breaks the policy");
+      assert.deepEqual(blocked, []);
       assert.deepEqual(errors, []);
     });
   });
