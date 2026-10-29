@@ -1,0 +1,61 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { PERSON_LICENSES } from "../../src/license.js";
+import { licenceKey } from "../spaces.mjs";
+
+const ADA = { email: "ada@example.com", name: "Ada Lovelace" };
+const ADAS_AGENT = { ...ADA, agent: true };
+
+async function code(kit, name, local, role) {
+  const email = `${local}.${randomUUID().slice(0, 8)}@example.com`;
+  const made = await kit.call("POST", "/_p99/v1/codes", {
+    actor: ADA,
+    body: { name, email, grant: { space: true }, role, mail: false },
+  });
+  assert.equal(made.status, 201, JSON.stringify(made.json));
+  assert.equal(typeof made.json.secret, "string");
+  return made.json;
+}
+
+async function licenceOf(kit, secret) {
+  const me = await kit.browse("GET", "/me", secret);
+  assert.equal(me.status, 200, JSON.stringify(me.json));
+  return { license: me.json.license, licence: me.json.licence };
+}
+
+export default async function (kit) {
+  await kit.check("us-licence-001 a lapsed key is refused for this build and says what it covers", async () => {
+    const owner = await code(kit, "Ada Lovelace", "ada.lapsed", "owner");
+    const before = await licenceOf(kit, owner.secret);
+    const lapsed = await kit.browse("PUT", "/licence", owner.secret, {
+      key: licenceKey({ tier: "agency", paid_through: "2020-01-01" }),
+    });
+    assert.equal(lapsed.status, 400, JSON.stringify(lapsed.json));
+    assert.match(lapsed.json.message, /covers builds up to 2020-01-01/);
+    assert.match(lapsed.json.message, /this Worker is dated \d{4}-\d{2}-\d{2}/);
+    assert.deepEqual(await licenceOf(kit, owner.secret), before);
+  });
+
+  await kit.check("us-licence-001 only an owner person sets or removes the licence", async () => {
+    const owner = await code(kit, "Ada Lovelace", "ada.licence", "owner");
+    const user = await code(kit, "Grace Hopper", "grace.licence", "user");
+    const key = licenceKey({ tier: "studio", paid_through: "2099-12-31" });
+    const before = await licenceOf(kit, owner.secret);
+
+    const agentPut = await kit.call("PUT", "/_p99/v1/licence", { actor: ADAS_AGENT, body: { key } });
+    assert.equal(agentPut.status, 403, JSON.stringify(agentPut.json));
+    assert.equal(agentPut.json.message, PERSON_LICENSES);
+    const agentDelete = await kit.call("DELETE", "/_p99/v1/licence", { actor: ADAS_AGENT });
+    assert.equal(agentDelete.status, 403, JSON.stringify(agentDelete.json));
+    assert.equal(agentDelete.json.message, PERSON_LICENSES);
+
+    const userPut = await kit.browse("PUT", "/licence", user.secret, { key });
+    assert.equal(userPut.status, 403, JSON.stringify(userPut.json));
+    assert.equal(userPut.json.message, PERSON_LICENSES);
+    const userDelete = await kit.browse("DELETE", "/licence", user.secret);
+    assert.equal(userDelete.status, 403, JSON.stringify(userDelete.json));
+
+    assert.deepEqual(await licenceOf(kit, owner.secret), before);
+    assert.deepEqual(await licenceOf(kit, user.secret), before);
+  });
+}
