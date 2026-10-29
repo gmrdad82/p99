@@ -7,7 +7,7 @@ use std::os::fd::FromRawFd;
 use std::os::raw::{c_char, c_int};
 use std::os::unix::fs::OpenOptionsExt;
 use std::process::Stdio;
-use std::sync::{Mutex, mpsc};
+use std::sync::mpsc;
 use std::time::Duration;
 
 use serde_json::json;
@@ -37,10 +37,8 @@ const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
 const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.\nType k3x9 to delete it: ";
 
-static NAMING: Mutex<()> = Mutex::new(());
-
 fn pty() -> (File, File) {
-    let _held = NAMING.lock().unwrap();
+    let _held = crate::NAMING.lock().unwrap();
     let fd = unsafe { posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC) };
     assert!(fd >= 0, "{}", std::io::Error::last_os_error());
     let master = unsafe { File::from_raw_fd(fd) };
@@ -131,11 +129,19 @@ fn code_home(name: &str) -> Home {
 
 #[test]
 fn us_revoke_001_a_revoked_code_is_deleted_once_its_four_characters_are_typed_back() {
-    let wrong = code_home("us-revoke-wrong");
-    let kept = at_terminal(&wrong, &["invites", "delete", "4"], b"3fpd\n");
-    kept.refused("code 4 is kept: the four characters typed back didn't match");
-    assert!(kept.stdout.is_empty(), "{}", kept.stdout);
-    assert!(wrong.stub.under("DELETE", "/_p99/v1/codes").is_empty());
+    for (name, typed) in [
+        ("us-revoke-wrong", &b"3fpd\n"[..]),
+        ("us-revoke-blank", b"\n"),
+    ] {
+        let wrong = code_home(name);
+        let kept = at_terminal(&wrong, &["invites", "delete", "4"], typed);
+        kept.refused("code 4 is kept: the four characters typed back didn't match");
+        assert!(kept.stdout.is_empty(), "{name}: {}", kept.stdout);
+        assert!(
+            wrong.stub.under("DELETE", "/_p99/v1/codes").is_empty(),
+            "{name}"
+        );
+    }
 
     let h = code_home("us-revoke-typed");
     let out = at_terminal(&h, &["invites", "delete", "4"], b"K3X9\n");

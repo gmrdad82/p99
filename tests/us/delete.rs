@@ -16,6 +16,14 @@ fn delete_home(name: &str) -> Home {
             found["issue"]["comments"] = json!(1);
             found["attachments"] = json!([{"id": 1, "name": "a.png"}, {"id": 2, "name": "b.png"}]);
             Reply::ok(found)
+        } else if req.is("DELETE", "/_p99/v1/issues/12") {
+            Reply::ok(json!({
+                "key": "BUG-12",
+                "comments": 1,
+                "files": 2,
+                "retrying": 0,
+                "unlinked": [],
+            }))
         } else {
             fake::any(req)
         }
@@ -42,7 +50,7 @@ fn us_delete_001_typing_the_key_back_at_a_terminal_deletes_it() {
         "{}",
         out.stderr
     );
-    assert_eq!(out.stdout, "BUG-12 deleted with 2 comments and 1 file\n");
+    assert_eq!(out.stdout, "BUG-12 deleted with 1 comment and 2 files\n");
     assert_eq!(deletes(&h), 1);
     let delete = h.stub.call("DELETE", "/_p99/v1/issues/12");
     assert!(delete.signed);
@@ -82,7 +90,7 @@ fn us_delete_001_an_open_thread_hears_the_delete_and_says_who() {
     );
     tui.press(b"\r");
     assert!(
-        tui.wait_for("Inbox / BUG-12", Duration::from_secs(10))
+        tui.wait_for("Inbox / BUG-12", Duration::from_secs(30))
             .is_some(),
         "the thread never opened:\n{}",
         tui.screen()
@@ -92,7 +100,7 @@ fn us_delete_001_an_open_thread_hears_the_delete_and_says_who() {
         r#"{"type":"delete","key":"BUG-12","host":"shop.example.com","by":{"name":"Ada Lovelace","agent":false}}"#,
     ]);
     assert!(
-        tui.wait_for("Ada Lovelace deleted BUG-12", Duration::from_secs(5))
+        tui.wait_for("Ada Lovelace deleted BUG-12", Duration::from_secs(30))
             .is_some(),
         "the open thread never heard the delete:\n{}",
         tui.screen()

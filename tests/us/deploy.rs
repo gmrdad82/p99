@@ -132,6 +132,23 @@ fn us_deploy_001_a_refused_deploy_changes_nothing_on_the_space() {
     }
 
     let mut cloud = current();
+    cloud.denied = vec!["PUT /workers/scripts/p99"];
+    let (h, cf) = spaced("us-deploy-refused-upload", cloud);
+    let before = cf.lock().unwrap().state();
+    let out = h.p99(&["deploy"]);
+    assert_eq!(out.code, Some(1), "{}", all(&out));
+    assert!(
+        all(&out).contains("Authentication error (10000)"),
+        "{}",
+        all(&out)
+    );
+    let calls = cf_calls(&h);
+    assert_eq!(writes_in(&calls), [format!("PUT {UPLOAD}")]);
+    assert_eq!(cf.lock().unwrap().state(), before);
+    assert!(sqls(&h).iter().all(|(s, _)| s.starts_with("SELECT ")));
+    never_shows(&[&out], &[]);
+
+    let mut cloud = current();
     cloud.routes = vec![("example.com/_p99/*".into(), "other".into())];
     let (h, cf) = spaced("us-deploy-route-held", cloud);
     let out = refuses_and_changes_nothing(&h, &cf, &["deploy"], "no route for example.com");

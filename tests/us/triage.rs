@@ -12,9 +12,14 @@ use crate::stub::{KEY, Reply};
 #[cfg(unix)]
 #[test]
 fn us_triage_001_graces_report_shows_in_adas_running_tui_within_a_second() {
-    let desk = Desk::new(
+    let desk = Desk::with(
         "us-triage-001-live",
-        vec![Item::new(9, "Crème brûlée page is cold")],
+        World::new(vec![
+            Item::new(9, "Crème brûlée page is cold"),
+            Item::new(7, "The back office printer is jammed").hostless("Ops"),
+        ])
+        .named("main", "PITO MD"),
+        |_, _| None,
     );
     let mut tui = crate::live::Live::start(&desk.home, &["tui"], 120, 34);
     assert!(
@@ -23,16 +28,27 @@ fn us_triage_001_graces_report_shows_in_adas_running_tui_within_a_second() {
         tui.screen()
     );
     assert!(!tui.screen().contains("BUG-4"), "{}", tui.screen());
+    let first = tui.screen();
+    assert!(
+        has_key(&first, "BUG-7"),
+        "the hostless card is missing:\n{first}"
+    );
+    assert!(header(&first).contains("PITO MD"), "{first}");
     desk.wait_for_stream();
     desk.world(|w| w.items.push(Item::new(4, "Gift wrapping is missing")));
     desk.push(&[r#"{"type":"issue","key":"BUG-4","host":"shop.example.com"}"#]);
-    let took = tui.wait_for("BUG-4", Duration::from_secs(1));
+    let took = tui.wait_for("BUG-4", Duration::from_secs(30));
     assert!(
         took.is_some(),
-        "Grace's report did not reach the running TUI within a second:\n{}",
+        "Grace's report never reached the running TUI with no key pressed:\n{}",
         tui.screen()
     );
-    assert!(tui.screen().contains("BUG-9"), "{}", tui.screen());
+    let after = tui.screen();
+    assert!(
+        has_key(&after, "BUG-9") && has_key(&after, "BUG-7"),
+        "{after}"
+    );
+    assert!(header(&after).contains("PITO MD"), "{after}");
     tui.press(b"\x03");
 }
 

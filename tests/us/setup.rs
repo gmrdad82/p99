@@ -180,7 +180,7 @@ mod terminal {
     use std::os::raw::{c_char, c_int};
     use std::os::unix::fs::OpenOptionsExt;
     use std::process::Stdio;
-    use std::sync::{Mutex, mpsc};
+    use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
     use crate::home::{Home, Out};
@@ -210,10 +210,8 @@ mod terminal {
     const ICRNL: u64 = 0o400;
     const DEADLINE: Duration = Duration::from_secs(60);
 
-    static NAMING: Mutex<()> = Mutex::new(());
-
     fn pty() -> (File, File) {
-        let _held = NAMING.lock().unwrap();
+        let _held = crate::NAMING.lock().unwrap();
         let fd = unsafe { posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC) };
         assert!(fd >= 0, "{}", std::io::Error::last_os_error());
         let master = unsafe { File::from_raw_fd(fd) };
