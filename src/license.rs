@@ -371,7 +371,7 @@ fn link_word(state: State) -> &'static str {
     if state.may_hide_link() {
         "this key may hide the 'by PITO.MD' link"
     } else {
-        "always shown; only an Agency or Owner key hides it"
+        "always shown; only an Agency key hides it"
     }
 }
 

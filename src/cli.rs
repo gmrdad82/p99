@@ -272,7 +272,7 @@ pub struct SetArgs {
     #[arg(
         long,
         value_parser = ["off", "on"],
-        help = "hide (off) or show (on) the panel's 'by PITO.MD' link; off takes an Agency or Owner key"
+        help = "hide (off) or show (on) the panel's 'by PITO.MD' link; off takes an Agency key"
     )]
     pub pitomd_link: Option<String>,
     #[arg(
@@ -1266,7 +1266,7 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
 fn pitomd_link(state: crate::license::State, wanted: &str) -> Result<Option<bool>, String> {
     match wanted {
         "off" if state.may_hide_link() => Ok(Some(false)),
-        "off" => Err("Only an Agency or Owner key hides the 'by PITO.MD' link".to_owned()),
+        "off" => Err("Only an Agency key hides the 'by PITO.MD' link".to_owned()),
         _ => Ok(None),
     }
 }
@@ -2221,7 +2221,7 @@ mod tests {
     use crate::license::State;
     use clap::Parser;
 
-    const REFUSED: &str = "Only an Agency or Owner key hides the 'by PITO.MD' link";
+    const REFUSED: &str = "Only an Agency key hides the 'by PITO.MD' link";
 
     fn pushed(link: Option<bool>) -> serde_json::Value {
         Host {

@@ -54,7 +54,7 @@ use license::{Refusal, State};
 const SEED: [u8; 32] = [42; 32];
 const STRANGER: [u8; 32] = [43; 32];
 const FOREVER: &str = "9999-12-31";
-const SHOWN: &str = "p99: Only an Agency or Owner key hides the 'by PITO.MD' link";
+const SHOWN: &str = "p99: Only an Agency key hides the 'by PITO.MD' link";
 const NOT_A_KEY: &str = "p99: that is not a PITO MD licence key";
 const FORGED: &str = "p99: that key's signature does not verify against the PITO MD licence key";
 const ACCOUNT_ID: &str = "0123456789abcdef0123456789abcdef";
@@ -802,7 +802,7 @@ fn story_a_free_installation_must_say_free_and_that_the_link_stays() {
     let said = text(&out.stdout);
     assert!(said.contains("state         Free"), "{said}");
     assert!(
-        said.contains("always shown; only an Agency or Owner key hides it"),
+        said.contains("always shown; only an Agency key hides it"),
         "{said}"
     );
     let out = run(
