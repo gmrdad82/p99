@@ -32,7 +32,7 @@ import { bindLabels, labelFilters, refuseGone } from "./labels.js";
 import { FEED_LIMIT, feedFormat, feedResponse } from "./feed.js";
 import { deleteIssue, sweepDeletions, useKit as useDeleteKit } from "./deletes.js";
 import { backupStep } from "./backup.js";
-import { accessLink, mailLink, relinkCode, useKit as useLinkKit } from "./links.js";
+import { accessLink, mailLink, mailTotp, relinkCode, useKit as useLinkKit } from "./links.js";
 import { assigneeColumn, assigneeEmail, assigneeOf, peopleOf, peopleRoutes, signedPeopleRoutes, usernameFor, useKit as usePeopleKit } from "./people.js";
 import { appRequest, isApp, sameText, useKit as useAppKit } from "./standalone.js";
 import { ipKey } from "./tries.js";
@@ -2623,13 +2623,13 @@ async function postCode(c) {
   }
   codeCache.delete(hash);
   await peopleOf(DB, [row], c.now);
-  const mail = wantsMail ? await mailLink(c, row, secret, false) : null;
+  const sent = wantsMail ? await mailLink(c, row, secret, { totpKey: totp && totp.key }) : null;
   return json(201, {
     code: codeOf(row, c.dir),
     secret,
     links: hostsOf(grant, c.dir).map((host) => accessLink(host, secret)),
     ...(totp ? { totp_key: totp.key } : {}),
-    ...(mail ? { mail } : {}),
+    ...(sent ? sent : {}),
   });
 }
 
@@ -2683,6 +2683,7 @@ async function renamePerson(c) {
 
 async function postCodeTotp(c, rawId) {
   requireEmptyBody(c);
+  const wantsMail = c.url.searchParams.get("mail") === "1";
   const totp = await newTotp(c.env);
   const { DB } = c.env;
   const [updated] = await DB.batch([
@@ -2697,7 +2698,8 @@ async function postCodeTotp(c, rawId) {
   codeCache.clear();
   deviceCache.clear();
   if (!row) fail(404, "no such code, or it is revoked");
-  return json(200, { code: codeOf(row, c.dir), totp_key: totp.key });
+  const mail = wantsMail ? await mailTotp(c, row, totp.key, "added") : null;
+  return json(200, { code: codeOf(row, c.dir), totp_key: totp.key, ...(mail ? { mail } : {}) });
 }
 
 async function postVerify(c) {

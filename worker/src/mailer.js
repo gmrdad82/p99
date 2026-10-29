@@ -109,24 +109,25 @@ const PROVIDERS = {
     ready: (env) => typeof env.RESEND_API_KEY === "string" && env.RESEND_API_KEY.length > 0,
     async send(env, from, messages, idempotency) {
       const base = LOCAL_API.test(env.RESEND_API_URL || "") ? env.RESEND_API_URL : RESEND_API;
-      const response = await fetch(`${base}/emails/batch`, {
+      const shaped = messages.map((m) => ({
+        from,
+        to: [m.to],
+        subject: m.subject,
+        text: m.text,
+        html: m.html,
+        ...(m.replyTo ? { reply_to: m.replyTo } : {}),
+        ...(m.headers ? { headers: m.headers } : {}),
+        ...(m.attachments ? { attachments: m.attachments } : {}),
+      }));
+      const single = shaped.length === 1 && shaped[0].attachments;
+      const response = await fetch(`${base}/emails${single ? "" : "/batch"}`, {
         method: "POST",
         headers: {
           authorization: `Bearer ${env.RESEND_API_KEY}`,
           "content-type": "application/json; charset=utf-8",
           "idempotency-key": idempotency,
         },
-        body: JSON.stringify(
-          messages.map((m) => ({
-            from,
-            to: [m.to],
-            subject: m.subject,
-            text: m.text,
-            html: m.html,
-            ...(m.replyTo ? { reply_to: m.replyTo } : {}),
-            ...(m.headers ? { headers: m.headers } : {}),
-          })),
-        ),
+        body: JSON.stringify(single ? shaped[0] : shaped),
       });
       return { ok: response.ok, status: response.status };
     },

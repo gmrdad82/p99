@@ -364,6 +364,11 @@ pub enum InvitesAction {
     Totp {
         #[arg(help = "the code's id, from p99 invites")]
         id: i64,
+        #[arg(
+            long,
+            help = "print the key here instead of mailing the person the authenticator setup"
+        )]
+        no_mail: bool,
     },
     #[command(
         about = "delete a revoked code for good, with its devices; asks for its last four characters typed back"
@@ -1395,7 +1400,7 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         return Err("this invite was already minted; revoke it and invite again".into());
     }
     if global.json {
-        let mut value = serde_json::to_value(&minted).map_err(|e| e.to_string())?;
+        let mut value = crate::links::shown(&minted)?;
         value["space"] = space_ref(config, &account);
         return print_json(&value);
     }
@@ -1489,12 +1494,23 @@ pub(crate) fn print_totp(code: &Code, key: &str) {
     println!("send these apart from the link; each browser asks for its 6-digit code once");
 }
 
-fn totp(config: &Config, global: &Global, host: Option<&str>, id: i64) -> Result<(), String> {
+fn totp(
+    config: &Config,
+    global: &Global,
+    host: Option<&str>,
+    id: i64,
+    mail: bool,
+) -> Result<(), String> {
     let (client, _) = client_for(config, global, host)?;
-    let set = client.totp(id)?;
+    let set = client.totp(id, mail)?;
+    let mailed = set.mail.as_deref() == Some("sent");
     if global.json {
         let mut value = serde_json::to_value(&set).map_err(|e| e.to_string())?;
-        value["otpauth"] = json!(otpauth(&set.code.email, &set.totp_key));
+        if mailed && let Some(fields) = value.as_object_mut() {
+            fields.remove("totp_key");
+        } else {
+            value["otpauth"] = json!(otpauth(&set.code.email, &set.totp_key));
+        }
         return print_json(&value);
     }
     out!(
@@ -1503,6 +1519,19 @@ fn totp(config: &Config, global: &Global, host: Option<&str>, id: i64) -> Result
         set.code.name,
         set.code.email
     );
+    if mailed {
+        out!("mailed the authenticator setup to {}", set.code.email);
+        return Ok(());
+    }
+    let note = match set.mail.as_deref() {
+        None => "",
+        Some("off") => "mail is off for this space, so nothing was mailed; send the key yourself",
+        Some("skipped") => "this e-mail takes no mail; send the key yourself",
+        Some(_) => "the authenticator mail didn't go out; send the key yourself",
+    };
+    if !note.is_empty() {
+        out!("{note}");
+    }
     print_totp(&set.code, &set.totp_key);
     println!("this is the only time the key is shown");
     Ok(())
@@ -1518,7 +1547,9 @@ fn code_state(code: &Code) -> &'static str {
 
 fn invites(config: &Config, global: &Global, args: &InvitesArgs) -> Result<(), String> {
     match &args.action {
-        Some(InvitesAction::Totp { id }) => return totp(config, global, args.host.as_deref(), *id),
+        Some(InvitesAction::Totp { id, no_mail }) => {
+            return totp(config, global, args.host.as_deref(), *id, !no_mail);
+        }
         Some(InvitesAction::Delete(a)) => {
             return codes::delete(config, global, args.host.as_deref(), a);
         }

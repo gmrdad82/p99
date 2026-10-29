@@ -135,8 +135,8 @@ function fakeResend() {
     let body = "";
     request.on("data", (chunk) => (body += chunk));
     request.on("end", () => {
-      if (request.url === "/emails/batch" && request.headers.authorization === "Bearer test-resend") {
-        for (const message of JSON.parse(body)) sent.push(message);
+      if ((request.url === "/emails/batch" || request.url === "/emails") && request.headers.authorization === "Bearer test-resend") {
+        for (const message of [JSON.parse(body)].flat()) sent.push(message);
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ data: [] }));
         return;

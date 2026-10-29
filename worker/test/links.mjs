@@ -94,10 +94,14 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
     assert.equal(renewed.json.totp, "new");
     assert.notEqual(renewed.json.totp_key, minted.json.totp_key);
     assert.equal(renewed.json.mail, "sent");
-    const [mail] = await until("the relink mail", () => mailTo("annie@example.com").length === 1 && mailTo("annie@example.com"));
+    assert.equal(renewed.json.totp_mail, "sent");
+    const [mail, setup] = await until("the relink mail and the authenticator mail", () => mailTo("annie@example.com").length === 2 && mailTo("annie@example.com"));
     assert.deepEqual(buttons(mail.html), [[here, `https://${here}/#p99=${renewed.json.secret}`]]);
     assert.equal(mail.text.includes(renewed.json.totp_key), false);
     assert.equal(mail.html.includes(renewed.json.totp_key), false);
+    assert.equal(setup.subject, "Set up your authenticator for P99");
+    assert.ok(setup.text.includes(`secret=${renewed.json.totp_key}&`));
+    assert.equal(setup.text.includes(renewed.json.secret), false);
   });
 
   await check("the CLI's relink puts a person's new code only in their mail, and the owner's only on the command's stdout", async () => {
