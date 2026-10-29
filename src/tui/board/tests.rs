@@ -229,6 +229,23 @@ fn a_card_shows_its_project_on_its_bottom_edge_and_a_plain_item_none() {
 }
 
 #[test]
+fn a_narrow_card_shortens_its_assignee_and_project_and_never_draws_a_lone_ellipsis() {
+    assert_eq!(handle("ada.lovelace", 20).as_deref(), Some("@ada.lovelace"));
+    assert_eq!(handle("ada.lovelace", 9).as_deref(), Some("@ada…"));
+    assert_eq!(handle("grace.hopper", 7).as_deref(), Some("@grace…"));
+    assert_eq!(handle("grace.hopper", 6).as_deref(), Some("@grac…"));
+    assert_eq!(handle("lin", 9).as_deref(), Some("@lin"));
+    assert_eq!(handle("katherine", 6).as_deref(), Some("@kath…"));
+    assert_eq!(handle("ada.lovelace", 3), None);
+    assert_eq!(handle("", 20), None);
+    assert_eq!(snip("Mobile app", 8).as_deref(), Some("Mobile…"));
+    assert_eq!(snip("Storefront", 8).as_deref(), Some("Storefr…"));
+    assert_eq!(snip("Storefront", 10).as_deref(), Some("Storefront"));
+    assert_eq!(snip("Storefront", 2), None);
+    assert_eq!(fits("日本語", 4), "日本");
+}
+
+#[test]
 fn the_selected_card_is_lit_and_done_cards_read_muted() {
     let mut app = shown();
     let buffer = app.frame();

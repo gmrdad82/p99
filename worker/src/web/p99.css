@@ -167,13 +167,14 @@
   position: absolute;
   inset: -72px;
   z-index: -1;
-  background-color: var(--p99-glow);
+  background-color: var(--p99-base);
   background-image:
     linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 28%, transparent 52%),
     linear-gradient(150deg, transparent 58%, rgba(255, 255, 255, 0.07) 70%, transparent 84%),
+    linear-gradient(var(--p99-glow), var(--p99-glow)),
     var(--p99-art);
-  background-size: 100% 100%, 100% 100%, 400px 400px;
-  background-blend-mode: normal, normal, multiply;
+  background-size: 100% 100%, 100% 100%, 100% 100%, 400px 400px;
+  background-blend-mode: normal, normal, multiply, normal;
   pointer-events: none;
   will-change: transform;
   animation: p99-drift 45s ease-in-out infinite alternate;
@@ -205,8 +206,8 @@
   flex: none;
   min-height: 48px;
   padding: var(--p99-space-sm) var(--p99-space-sm) var(--p99-space-sm) var(--p99-space-xl);
-  background: color-mix(in srgb, #3b7dd8 55%, #ffffff) var(--p99-head-art) 0 0 / 400px 400px;
-  background-blend-mode: multiply;
+  background: linear-gradient(color-mix(in srgb, #3b7dd8 55%, #ffffff), color-mix(in srgb, #3b7dd8 55%, #ffffff)), var(--p99-head-art) 0 0 / 400px 400px #1f2c3c;
+  background-blend-mode: multiply, normal;
   color: var(--p99-ink);
 }
 .p99-brand { display: grid; flex: 1; gap: var(--p99-space-xxs); min-width: 0; }

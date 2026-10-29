@@ -936,17 +936,17 @@ fn draw_card(
     );
     let mut tail = Vec::new();
     let mut room = inner.saturating_sub(2);
-    if let Some(who) = card.assignee.as_deref().filter(|u| !u.is_empty()) {
-        let who = text::clip(&format!("@{who}"), room);
+    if let Some(who) = card.assignee.as_deref().and_then(|u| handle(u, room)) {
         room = room.saturating_sub(text::cells(&who) + 3);
         tail.push((format!(" {who} "), palette.muted));
     }
     let mut parts = Vec::new();
-    if let Some(project) = card.project.as_deref().filter(|_| room > 2) {
-        parts.push((
-            format!(" {} ", text::clip(project, room - 2)),
-            palette.accent,
-        ));
+    if let Some(project) = card
+        .project
+        .as_deref()
+        .and_then(|p| snip(p, room.saturating_sub(2)))
+    {
+        parts.push((format!(" {project} "), palette.accent));
     }
     edge(
         buf,
@@ -959,6 +959,42 @@ fn draw_card(
         &tail,
         frame,
     );
+}
+
+fn handle(who: &str, room: usize) -> Option<String> {
+    if who.is_empty() {
+        return None;
+    }
+    let full = format!("@{who}");
+    if text::cells(&full) <= room {
+        return Some(full);
+    }
+    let first = who.split(['.', '_', '-']).next().unwrap_or(who);
+    if first != who {
+        let kept = fits(first, room.saturating_sub(2));
+        return (text::cells(kept) >= 2).then(|| format!("@{kept}…"));
+    }
+    snip(who, room.saturating_sub(1)).map(|s| format!("@{s}"))
+}
+
+fn snip(text: &str, room: usize) -> Option<String> {
+    let clipped = text::clip(text, room);
+    if text::cells(&clipped) > 1 {
+        return Some(clipped);
+    }
+    let kept = fits(text, room.saturating_sub(1));
+    (text::cells(kept) >= 2).then(|| format!("{kept}…"))
+}
+
+fn fits(text: &str, room: usize) -> &str {
+    let end = text
+        .char_indices()
+        .map(|(at, _)| at)
+        .chain([text.len()])
+        .take_while(|&at| text::cells(&text[..at]) <= room)
+        .last()
+        .unwrap_or(0);
+    &text[..end]
 }
 
 fn key_style(palette: &Palette, lit: bool) -> Style {

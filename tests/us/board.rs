@@ -196,3 +196,33 @@ fn us_board_002_n_in_the_tui_files_a_card_in_a_project_with_its_details_and_file
     assert_eq!(desk.calls("POST", "/_p99/v1/cards").len(), 1);
     desk.all_signed();
 }
+
+#[test]
+fn us_board_001_a_narrow_tui_card_still_names_its_assignee_and_project() {
+    let world = World::new(vec![
+        Item {
+            assignee: Some("ada.lovelace".to_owned()),
+            project: None,
+            ..Item::new(1, "Checkout total is wrong")
+        },
+        Item {
+            project: Some("Storefront".to_owned()),
+            ..Item::new(2, "Hero photo is blurry")
+        },
+        Item {
+            assignee: Some("grace.hopper".to_owned()),
+            project: Some("Storefront".to_owned()),
+            ..Item::new(3, "Footer link is a 404")
+        },
+    ]);
+    let desk = Desk::with("us-board-001-narrow", world, |_, _| None);
+    let board = desk.screen("120x34", "tab");
+    assert!(board.contains(" @ada… ─╯"), "{board}");
+    assert!(board.contains("╰─ Storefr… "), "{board}");
+    assert!(board.contains(" @grace… ─╯"), "{board}");
+    assert!(!board.contains(" … "), "{board}");
+    let wide = desk.screen("240x34", "tab");
+    assert!(wide.contains(" @ada.lovelace ─╯"), "{wide}");
+    assert!(wide.contains("╰─ Storefront "), "{wide}");
+    desk.all_signed();
+}
