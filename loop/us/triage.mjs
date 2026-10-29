@@ -26,11 +26,17 @@ function laneCounts(screen) {
   const lines = screen.split("\n");
   const at = lines.findIndex((line) => /─{4,}\s+─{4,}/.test(line) && !line.includes("╭"));
   const head = at > 0 ? lines[at - 1] : "";
-  return LANE_NAMES.map((name) => [name, new RegExp(`(?:^|\\s)${name} (\\d+)`).exec(head)])
-    .filter(([, found]) => found)
-    .map(([name, found]) => [name, Number(found[1]), found.index])
-    .sort((a, b) => a[2] - b[2])
-    .map(([name, count]) => [name, count]);
+  const labels = Array.from(head.matchAll(/(?:^|\s)([A-Z][A-Za-z ]*?…?) (\d+)(?=\s|$)/g), (found) => [found[1], Number(found[2])]);
+  const found = [];
+  let next = 0;
+  for (const [label, count] of labels) {
+    const cut = label.endsWith("…") ? label.slice(0, -1) : null;
+    const lane = LANE_NAMES.findIndex((name, index) => index >= next && (cut === null ? name === label : name.startsWith(cut)));
+    if (lane < 0) continue;
+    found.push([LANE_NAMES[lane], count]);
+    next = lane + 1;
+  }
+  return found;
 }
 
 export default async function (kit) {

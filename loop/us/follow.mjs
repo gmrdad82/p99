@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,8 +41,9 @@ export default async function (kit) {
   const shop = hostOf(kit, "Shop");
 
   await kit.check("us-follow-001 adas reply shows as new in graces list and reads in her thread", async () => {
-    const code = await codeFor(kit, shop, GRACE);
-    const hedy = await codeFor(kit, shop, { name: "Hedy Lamarr", email: `hedy.${RUN}@example.com` });
+    const grace = { ...GRACE, email: `grace.follow.${RUN}.${randomUUID().slice(0, 8)}@example.com` };
+    const code = await codeFor(kit, shop, grace);
+    const hedy = await codeFor(kit, shop, { name: "Hedy Lamarr", email: `hedy.${RUN}.${randomUUID().slice(0, 8)}@example.com` });
     const key = await fileAs(kit, shop, code, tag("The receipt never arrives"));
     const theirs = await fileAs(kit, shop, hedy, tag("Hedy's own report"));
     const reply = `Fixed on our side; please try again. [${RUN}]`;
