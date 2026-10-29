@@ -701,7 +701,7 @@ mod tests {
         let forever = read(Some("customer"), "agency", "9999-12-31");
         assert_eq!(through_line(&shown(&forever)), "every release");
         let dated = read(Some("customer"), "agency", "2026-12-31");
-        assert_eq!(through_line(&shown(&dated)), "2026-12-31, 0 days' grace");
+        assert_eq!(through_line(&shown(&dated)), "2026-12-31, 14 days' grace");
     }
 
     #[test]
