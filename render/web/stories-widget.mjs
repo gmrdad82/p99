@@ -1242,8 +1242,8 @@ try {
   });
 
   const meWith = (counts, manager) => ({ name: ADA.name, email: ADA.email, username: "ada", manager, role: manager ? "owner" : "user", host: HOST, env: "production", version: "dev", counts, theme: {}, strings: {}, link: true, license: "free" });
-  const dotPage = async (answers, motion = "no-preference") => {
-    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: motion });
+  const dotPage = async (answers, motion = "no-preference", scheme = "light") => {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: motion, colorScheme: scheme });
     await ctx.addInitScript(openShadow);
     let n = 0;
     await ctx.route((u) => u.pathname === "/_p99/api/me", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(answers[Math.min(n++, answers.length - 1)]) }));
@@ -1257,38 +1257,86 @@ try {
   const dot = (p) => p.evaluate(() => {
     const r = document.querySelector("p99-root").shadowRoot;
     const q = r.querySelector(".w .b:not(.f)");
-    const n = q && q.querySelector(".n");
+    const n = q && q.querySelector(".n:not(.v)");
+    const v = q && q.querySelector(".n.v");
     const cs = n && getComputedStyle(n);
     return {
       menu: !!q && !q.hidden,
       text: n ? n.textContent : null,
-      accent: !!n && n.classList.contains("u"),
+      page: v ? v.textContent : null,
+      label: q ? q.ariaLabel : null,
+      title: q ? q.title : null,
       scale: cs ? cs.scale : null,
       easing: cs ? cs.transitionTimingFunction : null,
       duration: cs ? cs.transitionDuration : null,
       onPlus: !!r.querySelector(".w .f .n"),
     };
   });
-  const owner = (waiting, unread, page) => meWith({ mine_open: 1, mine_unread: unread, page_open: page, waiting }, true);
-  const visitor = (unread, page, open = 1) => meWith({ mine_open: open, mine_unread: unread, page_open: page, waiting: null }, false);
+  const owner = (waiting, replies, page) => meWith({ mine_open: 1, mine_unread: replies + 40, replies, page_open: page, waiting }, true);
+  const visitor = (replies, page, open = 1) => meWith({ mine_open: open, mine_unread: replies + 40, replies, page_open: page, waiting: null }, false);
+  const words = (blue, page) => `Your items: ${blue} waiting, ${page} on this page`;
 
   for (const [name, me, want] of [
-    ["an Owner with cards waiting sees their count on the ⋯ button first, in the accent, never on the +", owner(3, 2, 7), { menu: true, text: "3", accent: true, onPlus: false }],
-    ["an Owner's waiting count counts before their unread and the page's items, however small", owner(1, 9, 9), { menu: true, text: "1", accent: true, onPlus: false }],
-    ["an Owner with nothing waiting sees today's unread count, in the accent", owner(0, 4, 5), { menu: true, text: "4", accent: true, onPlus: false }],
-    ["an Owner with nothing waiting and nothing unread sees the page's open items, plain", owner(0, 0, 5), { menu: true, text: "5", accent: false, onPlus: false }],
-    ["an Owner with nothing at all keeps the ⋯ button and no dot", owner(0, 0, 0), { menu: true, text: "", accent: false, onPlus: false }],
-    ["more than 99 waiting shows 99+", owner(120, 0, 0), { menu: true, text: "99+", accent: true, onPlus: false }],
-    ["a visitor's dot is unchanged: their unread first, in the accent", visitor(2, 6), { menu: true, text: "2", accent: true, onPlus: false }],
-    ["a visitor with no unread sees the page's open items, plain", visitor(0, 6), { menu: true, text: "6", accent: false, onPlus: false }],
-    ["a visitor's waiting stays null, so nothing new shows when they have nothing", visitor(0, 0, 0), { menu: false, text: "", accent: false, onPlus: false }],
+    ["an Owner with cards waiting sees their count at the top right in the accent and this page's open items at the top left, never on the +", owner(3, 2, 7), { menu: true, text: "3", page: "7", label: words(3, 7), onPlus: false }],
+    ["an Owner's waiting count counts before the replies waiting for them, however small", owner(1, 9, 9), { menu: true, text: "1", page: "9", label: words(1, 9), onPlus: false }],
+    ["an Owner with nothing waiting sees the replies waiting for them, never their own moves", owner(0, 4, 5), { menu: true, text: "4", page: "5", label: words(4, 5), onPlus: false }],
+    ["an Owner with nothing waiting and no reply sees only this page's open items, at the top left", owner(0, 0, 5), { menu: true, text: "", page: "5", label: words(0, 5), onPlus: false }],
+    ["an Owner with nothing at all keeps the ⋯ button and no count", owner(0, 0, 0), { menu: true, text: "", page: "", label: words(0, 0), onPlus: false }],
+    ["more than 99 waiting shows 99+", owner(120, 0, 0), { menu: true, text: "99+", page: "", label: words(120, 0), onPlus: false }],
+    ["120 open items on this page show 99+ at the top left", owner(0, 0, 120), { menu: true, text: "", page: "99+", label: words(0, 120), onPlus: false }],
+    ["a visitor's replies show at the top right and this page's open items at the top left", visitor(2, 6), { menu: true, text: "2", page: "6", label: words(2, 6), onPlus: false }],
+    ["a visitor with no reply sees only this page's open items", visitor(0, 6), { menu: true, text: "", page: "6", label: words(0, 6), onPlus: false }],
+    ["a visitor's waiting stays null, so nothing new shows when they have nothing", visitor(0, 0, 0), { menu: false, text: "", page: "", label: words(0, 0), onPlus: false }],
   ]) {
     await story(`the dot: ${name}`, async () => {
       const { ctx, p } = await dotPage([me]);
       const d = await dot(p);
-      const got = { menu: d.menu, text: d.text, accent: d.accent, onPlus: d.onPlus };
-      check(`${name} (${JSON.stringify(got)})`, JSON.stringify(got) === JSON.stringify(want));
+      const got = { menu: d.menu, text: d.text, page: d.page, label: d.label, onPlus: d.onPlus };
+      check(`${name} (${JSON.stringify(got)})`, JSON.stringify(got) === JSON.stringify(want) && d.title === want.label);
       if (d.menu) check(`the dot is ${want.text ? "full size" : "scaled to nothing"} when it ${want.text ? "counts" : "has nothing"} (${d.scale})`, want.text ? d.scale === "none" || d.scale === "1" : d.scale === "0");
+      await ctx.close();
+    });
+  }
+
+  const badges = (p) => p.evaluate(() => {
+    const r = document.querySelector("p99-root").shadowRoot;
+    const q = r.querySelector(".w .b:not(.f)");
+    const paint = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    const rgb = (c) => {
+      paint.clearRect(0, 0, 1, 1);
+      paint.fillStyle = "#000";
+      paint.fillStyle = c;
+      paint.fillRect(0, 0, 1, 1);
+      return Array.from(paint.getImageData(0, 0, 1, 1).data.slice(0, 3));
+    };
+    const lum = (c) => c.map((v) => v / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)).reduce((s, v, i) => s + v * [0.2126, 0.7152, 0.0722][i], 0);
+    const ratio = (a, b) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05);
+    const box = q.getBoundingClientRect();
+    const one = (e) => {
+      const cs = getComputedStyle(e);
+      const at = e.getBoundingClientRect();
+      const back = rgb(cs.backgroundColor);
+      const ink = rgb(cs.color);
+      return { text: e.textContent, back, ink, contrast: Math.round(ratio(back, ink) * 100) / 100, left: at.left < box.left, right: at.right > box.right, top: at.top < box.top };
+    };
+    return { blue: one(q.querySelector(".n:not(.v)")), page: one(q.querySelector(".n.v")) };
+  });
+
+  for (const [scheme, purple] of [["light", [163, 38, 106]], ["dark", [192, 57, 126]]]) {
+    await story(`the dot: in ${scheme} mode both counts read at 4.5:1 or better, the page's in red-purple at the top left and the accent's at the top right`, async () => {
+      const { ctx, p } = await dotPage([owner(3, 0, 5)], "reduce", scheme);
+      const b = await badges(p);
+      check(`${scheme}: the blue count sits at the top right with white text at ${b.blue.contrast}:1 (${JSON.stringify(b.blue)})`, b.blue.text === "3" && b.blue.right && b.blue.top && !b.blue.left && b.blue.contrast >= 4.5 && b.blue.ink.join() === "255,255,255");
+      check(`${scheme}: this page's count sits at the top left in ${purple.join(",")} with white text at ${b.page.contrast}:1 (${JSON.stringify(b.page)})`, b.page.text === "5" && b.page.left && b.page.top && !b.page.right && b.page.back.join() === purple.join() && b.page.contrast >= 4.5 && b.page.ink.join() === "255,255,255");
+      const shot = process.env.P99_SHOTS;
+      if (shot) {
+        mkdirSync(shot, { recursive: true });
+        const at = await p.evaluate(() => {
+          const b = document.querySelector("p99-root").shadowRoot.querySelector(".w").getBoundingClientRect();
+          return { x: b.x - 16, y: b.y - 16, width: b.width + 32, height: b.height + 32 };
+        });
+        await p.screenshot({ path: join(shot, `dots-${scheme}.png`), clip: at });
+      }
       await ctx.close();
     });
   }
@@ -1309,7 +1357,7 @@ try {
     check(`the 2 grows in through a scale transition that eases (${JSON.stringify(growing)})`, !!scale && scale.easing !== "linear");
     await until("the transition's end", async () => (await dot(p)).scale !== "0" && (await p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".w .n").getAnimations().length)) === 0, 3000);
     const after = await dot(p);
-    check(`then it sits at full size in the accent (${JSON.stringify(after)})`, after.text === "2" && after.accent && (after.scale === "none" || after.scale === "1"));
+    check(`then it sits at full size (${JSON.stringify(after)})`, after.text === "2" && (after.scale === "none" || after.scale === "1"));
     await ctx.close();
   });
 
