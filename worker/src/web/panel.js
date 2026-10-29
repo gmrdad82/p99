@@ -655,11 +655,7 @@ function verify(next) {
         o.code = o.code.split(".")[0] + "." + d.device;
         try { localStorage.setItem("p99:code", o.code); } catch (x) {}
         S.verify = false;
-        return call("GET", "/me?path=" + enc(location.pathname)).then((m) => {
-          me = m;
-          try { S.tint.replaceSync(theme(m && m.theme)); } catch (x) {}
-          rehead();
-        }, () => {});
+        return call("GET", "/me?path=" + enc(location.pathname)).then(adopt, () => { if (o.refresh) o.refresh(0, o.code); });
       })
       .then(() => { if (!S.verify) next(); })
       .catch((err) => {
@@ -738,7 +734,7 @@ function adopt(m) {
   rehead();
   if (o.space) return;
   try { sessionStorage.setItem("p99:code", JSON.stringify([o.code + location.pathname + ((Date.now() / 6e4) | 0), m])); } catch (x) {}
-  if (o.refresh) o.refresh(1);
+  if (o.refresh) o.refresh(1, o.code);
 }
 function mount(view, focus) {
   if (S.verify && !view.classList.contains("p99-verify")) return;
