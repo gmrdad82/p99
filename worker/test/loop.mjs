@@ -330,6 +330,13 @@ export async function loopStories(h) {
     reset: () => clockAt({ real: true }),
     now: () => Date.now() + clock.shift,
   };
+  await h.check("[loop] the test clock answers 404 on a site's host, even with LOOP_TEST", async () => {
+    const asked = await fetch(`http://127.0.0.1:${sitePort}/@${SHOP}/_p99/test/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ advance: 86400000 }) });
+    if (asked.status !== 404) {
+      await clock.reset();
+      throw new Error(`a site's host moved the clock: ${asked.status}`);
+    }
+  });
   const p99Env = (extra = {}) => {
     const env = {
       PATH: process.env.PATH,

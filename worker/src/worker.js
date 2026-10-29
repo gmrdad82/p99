@@ -1034,9 +1034,16 @@ function push(c, type, row, extra = {}) {
   if (c.env.HUB) c.pushes.push(event);
 }
 
+function named(c, event) {
+  const ids = Array.isArray(event.projects) ? event.projects.filter((id) => id !== null && id !== undefined) : [];
+  const id = ids.length > 0 ? ids.at(-1) : event.host ? (c.dir?.hosts.get(event.host)?.project_id ?? null) : null;
+  const found = id === null ? null : (c.dir?.projects.get(id)?.name ?? null);
+  return { ...event, project: typeof event.project === "string" ? event.project : found, space: spaceOf(c.env).slug };
+}
+
 async function flushPushes(c) {
   try {
-    await hubOf(c.env).publish(c.pushes.splice(0));
+    await hubOf(c.env).publish(c.pushes.splice(0).map((event) => named(c, event)));
   } catch (error) {
     console.error(error && error.stack ? error.stack : String(error));
   }

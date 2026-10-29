@@ -60,7 +60,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, fullHost: null, sheet: null, pick: null, legacy: null, via: null, reach: new Map() };
+const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, fullHost: null, sheet: null, pick: null, legacy: null, via: null, reach: new Set() };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -138,14 +138,9 @@ function reachable() {
 }
 
 function hostFor(project) {
-  const via = firstHost();
-  if (!project) return via;
-  for (const host of [via, ...S.reach.keys()]) {
-    const seen = host ? S.reach.get(host) : null;
-    if (seen && seen.has(project)) return host;
-  }
-  const own = entries().find((x) => x.project === project);
-  return own ? own.host : S.reach.has(null) ? null : via;
+  if (!project) return firstHost();
+  const own = entries().filter((x) => x.project === project).map((x) => x.host);
+  return own.includes(S.via) ? S.via : own[0] || null;
 }
 
 function boardHost() {
@@ -301,7 +296,7 @@ function signedOut(e) {
 
 function forgetAll() {
   S.via = null;
-  S.reach = new Map();
+  S.reach = new Set();
   S.spaces = null;
   S.me = null;
   S.space = null;
@@ -394,7 +389,7 @@ function reachFrom() {
     return { host, space: null, projects: [] };
   });
   return Promise.all(probes().map(one)).then((rows) => {
-    S.reach = new Map(rows.filter((r) => r.space).map((r) => [r.host, new Set(r.projects.map((p) => p && p.name))]));
+    S.reach = new Set(rows.filter((r) => r.space).map((r) => r.host));
     const best = widest(rows.filter((r) => r.host));
     S.via = best ? best.host : null;
     return merged(rows);

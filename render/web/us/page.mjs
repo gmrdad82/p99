@@ -292,7 +292,7 @@ export default async function (kit) {
     });
   });
 
-  await kit.red("us-page-002 an owner opens the board and narrows it by project", "app.js hostFor() sends the first host for every project one code covers, and the board filters on that host", async () => {
+  await check("us-page-002 an owner opens the board and narrows it by project", async () => {
     const ada = await person({ name: "Ada Lovelace", grant: { projects: [PROJECT.shop, PROJECT.docs] }, owner: true });
     const reporter = { name: "Grace Hopper", email: email("grace") };
     const inShop = `Shop report ${TAG}`;
