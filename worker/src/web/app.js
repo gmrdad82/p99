@@ -225,7 +225,7 @@ function disc(person, size) {
 function badge() {
   if (!S.spaces && !S.me) return null;
   const state = licence();
-  const pill = h("img", { class: S.badged ? "app-badge" : "app-badge app-badge-in", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 24 });
+  const pill = h("img", { class: S.badged ? "app-badge" : "app-badge app-badge-in", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 35 });
   S.badged = true;
   return pill;
 }

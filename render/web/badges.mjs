@@ -13,7 +13,11 @@ const TRACK = 0.08;
 const PAD = 9;
 const FACE_H = 22;
 const RADIUS = 4;
-const HEIGHT = FACE_H + 2;
+const LIGHT = 0.14;
+const DARK = 0.9;
+const HALO_X = 5;
+const HALO_TOP = 3;
+const HEIGHT = 35;
 
 export const BADGES = [
   { state: "free", word: "Free", face: "#b4c2d1", ink: "#13202f" },
@@ -26,19 +30,25 @@ const hex = (c) => [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
 const css = (rgb) => "#" + rgb.map((v) => Math.round(Math.max(0, Math.min(255, v))).toString(16).padStart(2, "0")).join("");
 const shade = (c, k) => css(hex(c).map((v) => v * k));
 
+const tint = (c, k) => css(hex(c).map((v) => v + (255 - v) * k));
+
 export function edge(face) {
   return shade(face, 0.72);
 }
 
 function svg(b, textWidth) {
   const w = Math.ceil(textWidth + PAD * 2);
+  const full = w + HALO_X * 2;
   const label = b.word.toUpperCase().replace(/&/g, "&amp;");
   const word = b.word.replace(/&/g, "&amp;");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${HEIGHT}" viewBox="0 0 ${w} ${HEIGHT}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${full}" height="${HEIGHT}" viewBox="${-HALO_X} ${-HALO_TOP} ${full} ${HEIGHT}">
 <title>P99 ${word}</title>
-<rect x="0" y="2" width="${w}" height="${FACE_H}" rx="${RADIUS}" fill="#0c1a2b" fill-opacity="0.2"/>
-<rect x="0.5" y="1.5" width="${w - 1}" height="${FACE_H - 1}" rx="${RADIUS - 0.5}" fill="${b.face}" stroke="${edge(b.face)}"/>
+<defs><filter id="sh" x="-20%" y="-30%" width="140%" height="190%"><feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#0c1a2b" flood-opacity="0.38"/></filter><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${tint(b.face, LIGHT)}"/><stop offset="1" stop-color="${shade(b.face, DARK)}"/></linearGradient></defs>
+<g filter="url(#sh)">
+<rect x="0.5" y="1.5" width="${w - 1}" height="${FACE_H - 1}" rx="${RADIUS - 0.5}" fill="url(#g)" stroke="${edge(b.face)}"/>
+<rect x="1.5" y="2.5" width="${w - 3}" height="1" rx="0.5" fill="#ffffff" fill-opacity="0.28"/>
 <text class="word" x="${w / 2}" y="${1 + FACE_H / 2}" dy="0.36em" text-anchor="middle" textLength="${textWidth.toFixed(2)}" lengthAdjust="spacing" fill="${b.ink}" font-family='${FONT}' font-size="${SIZE}" font-weight="700">${label}</text>
+</g>
 </svg>
 `;
 }

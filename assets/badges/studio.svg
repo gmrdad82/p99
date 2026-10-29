@@ -1,6 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="64" height="24" viewBox="0 0 64 24">
+<svg xmlns="http://www.w3.org/2000/svg" width="74" height="35" viewBox="-5 -3 74 35">
 <title>P99 Studio</title>
-<rect x="0" y="2" width="64" height="22" rx="4" fill="#0c1a2b" fill-opacity="0.2"/>
-<rect x="0.5" y="1.5" width="63" height="21" rx="3.5" fill="#2c66b8" stroke="#204984"/>
+<defs><filter id="sh" x="-20%" y="-30%" width="140%" height="190%"><feDropShadow dx="0" dy="2" stdDeviation="2.2" flood-color="#0c1a2b" flood-opacity="0.38"/></filter><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4a7bc2"/><stop offset="1" stop-color="#285ca6"/></linearGradient></defs>
+<g filter="url(#sh)">
+<rect x="0.5" y="1.5" width="63" height="21" rx="3.5" fill="url(#g)" stroke="#204984"/>
+<rect x="1.5" y="2.5" width="61" height="1" rx="0.5" fill="#ffffff" fill-opacity="0.28"/>
 <text class="word" x="32" y="12" dy="0.36em" text-anchor="middle" textLength="45.96" lengthAdjust="spacing" fill="#ffffff" font-family='system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' font-size="11" font-weight="700">STUDIO</text>
+</g>
 </svg>

@@ -31,7 +31,7 @@
 .app-bar-who { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: var(--p99-space-sm); min-width: 0; }
 .app-space-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--p99-weight-bold) var(--p99-text-sm)/var(--p99-leading-tight) var(--p99-font-text); letter-spacing: var(--p99-tracking-caps); text-transform: uppercase; }
 .app-pill { display: flex; flex: none; }
-.app-badge { display: block; flex: none; width: auto; height: 24px; pointer-events: none; }
+.app-badge { display: block; flex: none; width: auto; height: 35px; margin: -4px -5px -9px; pointer-events: none; }
 .app-badge-in { animation: app-badge-in var(--p99-motion-panel) var(--p99-ease-enter) var(--p99-motion-fast) both; }
 .app-me { display: inline-grid; flex: none; place-items: center; border-radius: 50%; text-decoration: none; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-me:active { transform: scale(0.94); }

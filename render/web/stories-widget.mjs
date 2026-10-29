@@ -1414,7 +1414,7 @@ try {
       const brand = r.querySelector(".p99-brand").getBoundingClientRect();
       const lockup = r.querySelector(".p99-lockup").getBoundingClientRect();
       const badge = r.querySelector(".p99-badge").getBoundingClientRect();
-      return { brand: brand.width, lockup: lockup.width, tall: lockup.height, badge: badge.height };
+      return { brand: brand.width, lockup: lockup.width, tall: lockup.height, badge: badge.height - 13 };
     });
     check(`the lockup is at most 220px and about half the brand (${JSON.stringify(s)})`, s.lockup <= 220 && s.lockup <= s.brand * 0.55 + 1 && s.tall <= 40 && s.badge <= 33);
     await ctx.close();

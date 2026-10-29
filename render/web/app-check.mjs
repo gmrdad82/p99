@@ -179,7 +179,8 @@ async function header(p) {
       sites: document.querySelectorAll(".app-space, .app-spaces").length,
       places: Object.fromEntries([["mark", "a.app-mark"], ["badge", ".app-badge"], ["name", ".app-space-name"], ["me", ".app-me"]].map(([k, q]) => {
         const el = bar.querySelector(q);
-        return [k, el ? [el.offsetLeft, el.offsetTop, el.offsetLeft + el.offsetWidth, el.offsetTop + el.offsetHeight] : null];
+        const halo = k === "badge" ? [5, 4, 5, 9] : [0, 0, 0, 0];
+        return [k, el ? [el.offsetLeft + halo[0], el.offsetTop + halo[1], el.offsetLeft + el.offsetWidth - halo[2], el.offsetTop + el.offsetHeight - halo[3]] : null];
       })),
       inner: [bar.clientWidth, bar.clientHeight],
       overflow: bar.scrollWidth > bar.clientWidth,
@@ -205,7 +206,7 @@ function laidOut(top) {
   assert.ok(name[2] <= me[0] && me[0] - name[2] <= 12, `the space's name sits right beside the avatar: ${JSON.stringify(top.places)}`);
   assert.ok(name[0] > badge[2], `the name stays clear of the badge: ${JSON.stringify(top.places)}`);
   for (const b of [badge, name, me]) assert.ok(Math.abs(middle(b) - height / 2) <= 1.5, `centred in the bar: ${JSON.stringify(top.places)}`);
-  assert.equal(badge[3] - badge[1], 24);
+  assert.equal(badge[3] - badge[1], 22);
   assert.equal(top.overflow, false);
 }
 

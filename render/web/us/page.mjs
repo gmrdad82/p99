@@ -90,7 +90,8 @@ async function header(p) {
       sites: document.querySelectorAll(".app-space, .app-spaces").length,
       places: Object.fromEntries([["mark", "a.app-mark"], ["badge", ".app-badge"], ["name", ".app-space-name"], ["me", ".app-me"]].map(([k, q]) => {
         const el = bar.querySelector(q);
-        return [k, el ? [el.offsetLeft, el.offsetTop, el.offsetLeft + el.offsetWidth, el.offsetTop + el.offsetHeight] : null];
+        const halo = k === "badge" ? [5, 4, 5, 9] : [0, 0, 0, 0];
+        return [k, el ? [el.offsetLeft + halo[0], el.offsetTop + halo[1], el.offsetLeft + el.offsetWidth - halo[2], el.offsetTop + el.offsetHeight - halo[3]] : null];
       })),
       inner: [bar.clientWidth, bar.clientHeight],
       overflow: bar.scrollWidth > bar.clientWidth,
