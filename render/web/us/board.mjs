@@ -205,4 +205,107 @@ export default async function (kit) {
       await closePage(page);
     }
   });
+
+  const PLAIN = Buffer.from("steps: open the cart, pay, wait\n");
+  const cardForm = (root) => `${root} >> .p99-panel.is-open .p99-new[data-view=card]`;
+  const projectsOffered = (page, host) =>
+    page.waitForFunction(
+      (sel) => {
+        const r = document.querySelector(sel)?.shadowRoot;
+        const s = r && r.querySelector(".p99-panel.is-open .p99-new[data-view=card] select[name=project]");
+        return s && s.options.length ? { names: Array.from(s.options, (o) => o.value), chosen: s.value } : null;
+      },
+      host,
+      { timeout: 20000 },
+    ).then((h) => h.jsonValue());
+  const shape = (page, host) =>
+    page.evaluate((sel) => {
+      const f = document.querySelector(sel).shadowRoot.querySelector(".p99-panel.is-open .p99-new[data-view=card]");
+      return {
+        title: f.querySelector("#p99-title").textContent,
+        capture: !!f.querySelector(".p99-capture, .p99-no-shot"),
+        privacy: !!f.querySelector(".p99-privacy"),
+        kinds: Array.from(f.querySelectorAll("input[name=kind]"), (k) => k.value),
+        files: !!f.querySelector("input[name=files]"),
+      };
+    }, host);
+
+  await check("us-board-002 an owner files a card from the pages board into a chosen project with a file", async () => {
+    const t = tag();
+    const mail = `ada.cards.${t}@example.com`;
+    const made = await kit.call("POST", "/_p99/v1/codes", { actor: ADA, body: { name: "Ada Lovelace", email: mail, grant: { space: true }, role: "owner", totp: true, mail: false } });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    const page = await kit.page({ viewport: { width: 1280, height: 860 }, extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.231" } });
+    try {
+      await page.goto(kit.appUrl("/"));
+      await page.fill("#signin input[name=email]", mail);
+      await page.fill("#signin input[name=totp]", kit.totp(made.json.totp_key));
+      await page.click("#signin button[type=submit]");
+      await page.waitForFunction(() => document.querySelector("p99-root.app-board")?.shadowRoot?.querySelector(".p99-board.is-page.is-open .p99-col[data-label]"), null, { timeout: 20000 });
+      const narrowed = page.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/board");
+      await page.click(`.app-project[data-name="${where.ops}"]`);
+      await narrowed;
+      const button = page.locator("p99-root.app-board .p99-board-new");
+      assert.equal((await button.textContent()).replace("+", "").trim(), "New card");
+      await button.click();
+      await page.locator(cardForm("p99-root.app-sheet")).waitFor({ timeout: 20000 });
+      const offered = await projectsOffered(page, "p99-root.app-sheet");
+      assert.ok(["Shop", "Blog", where.ops].every((n) => offered.names.includes(n)), `every project is offered (${offered.names})`);
+      assert.equal(offered.chosen, where.ops, "the board's project is picked");
+      assert.deepEqual(await shape(page, "p99-root.app-sheet"), { title: "New card", capture: false, privacy: false, kinds: ["bug", "feature", "improvement", "question", "task"], files: true });
+      const title = `Rotate the backup keys ${t}`;
+      await page.locator(`${cardForm("p99-root.app-sheet")} input[name=kind][value=task]`).check();
+      await page.locator(`${cardForm("p99-root.app-sheet")} input[name=title]`).fill(title);
+      await page.locator(`${cardForm("p99-root.app-sheet")} textarea[name=body]`).fill("Every quarter, before the audit.");
+      await page.locator(`${cardForm("p99-root.app-sheet")} input[name=files]`).setInputFiles({ name: "steps.txt", mimeType: "text/plain", buffer: PLAIN });
+      const posted = page.waitForRequest((r) => r.method() === "POST" && new URL(r.url()).pathname === "/_p99/api/cards");
+      await page.locator(`${cardForm("p99-root.app-sheet")} .p99-actions button[type=submit]`).click();
+      const sent = JSON.parse((await posted).postData());
+      assert.deepEqual({ project: sent.project, kind: sent.kind, title: sent.title, page: sent.page }, { project: where.ops, kind: "task", title, page: undefined });
+      await page.waitForFunction((t) => document.querySelector("p99-root.app-sheet")?.shadowRoot?.querySelector(".p99-panel.is-open [data-view=item] #p99-title")?.textContent === t, title, { timeout: 20000 });
+      const listed = await kit.call("GET", `/_p99/v1/cards?project=${where.ops}`, { actor: ADA });
+      const filed = listed.json.cards.find((c) => c.title === title);
+      assert.ok(filed, `the card is in ${where.ops} (${JSON.stringify(listed.json.cards.map((c) => c.title))})`);
+      assert.equal(filed.status, "new");
+      const shown = await kit.call("GET", `/_p99/v1/issues/${filed.key}`, { actor: ADA });
+      const i = shown.json.issue;
+      assert.equal(i.kind, "task");
+      assert.equal(i.body, "Every quarter, before the audit.");
+      assert.ok(!i.page || !i.page.path, `the card has no page (${JSON.stringify(i.page)})`);
+      assert.equal(i.host ?? null, null, `a card filed on the P99 page has no host, as p99 card new --project gives (${i.host})`);
+      const files = shown.json.attachments.filter((a) => a.role === "file");
+      assert.deepEqual(files.map((a) => a.name), ["steps.txt"]);
+      const bytes = await kit.call("GET", `/_p99/v1/files/${files[0].id}`, { actor: ADA });
+      assert.equal(Buffer.compare(Buffer.from(await bytes.response.arrayBuffer()), PLAIN), 0, "the file reads back byte for byte");
+    } finally {
+      await closePage(page);
+    }
+  });
+
+  await check("us-board-002 the sites board files a new card into the sites project with no page", async () => {
+    const t = tag();
+    const { ada } = await people(kit);
+    const page = await kit.page();
+    try {
+      await openPanel(page, site(ada));
+      await openBoard(page);
+      await page.locator("p99-root .p99-board-new").click();
+      await page.locator(cardForm("p99-root")).waitFor({ timeout: 20000 });
+      const offered = await projectsOffered(page, "p99-root");
+      assert.deepEqual(offered, { names: ["Shop"], chosen: "Shop" }, "the site's own project is the one offered");
+      const title = `Move the receipts to their own page ${t}`;
+      await page.locator(`${cardForm("p99-root")} input[name=title]`).fill(title);
+      await page.locator(`${cardForm("p99-root")} .p99-actions button[type=submit]`).click();
+      await page.waitForFunction((t) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item] #p99-title")?.textContent === t, title, { timeout: 20000 });
+      const listed = await kit.call("GET", "/_p99/v1/cards?project=Shop", { actor: ADA });
+      const filed = listed.json.cards.find((c) => c.title === title);
+      assert.ok(filed, "the card is in Shop");
+      await inLane(page, "new", filed.key);
+      const i = (await kit.call("GET", `/_p99/v1/issues/${filed.key}`, { actor: ADA })).json.issue;
+      assert.equal(i.kind, "bug");
+      assert.ok(!i.page || !i.page.path, `the card has no page (${JSON.stringify(i.page)})`);
+    } finally {
+      await closePage(page);
+    }
+  });
 }

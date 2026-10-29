@@ -16,7 +16,9 @@ import {
   hostOf,
   inPage,
   issueBody,
+  listButton,
   openForm,
+  plus,
   previewSrc,
   readImage,
   rectOf,
@@ -361,6 +363,48 @@ export default async function (kit) {
       assert.equal(await p.locator(HIDE).count(), 1);
       assert.ok(!(await p.locator(HIDE).isVisible()), "no hide checkbox shows");
       assert.ok((await privacyNote(p)).endsWith(NOTE_HIDDEN), "the note keeps its wording");
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  await kit.check("us-report-001 the plus and the panel say card never report or item", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    const { p, errors } = await visit(kit, shop, { code });
+    await closing(p, async () => {
+      const words = (sel) =>
+        p.evaluate((sel) => {
+          const r = document.querySelector("p99-root").shadowRoot;
+          const box = r.querySelector(sel).cloneNode(true);
+          for (const own of box.querySelectorAll(".p99-item-title, [data-view=item] #p99-title, .p99-body, .p99-page, .p99-files, .p99-path, .p99-lockup, textarea, input[name=title]")) own.remove();
+          const said = [box.textContent];
+          for (const el of box.querySelectorAll("[aria-label], [title], [alt], [placeholder]")) for (const a of ["aria-label", "title", "alt", "placeholder"]) if (el.hasAttribute(a)) said.push(el.getAttribute(a));
+          return said.join(" \n ");
+        }, sel);
+      const NOT = /\b(report|reports|reporter|reported|item|items)\b/i;
+      assert.equal(await plus(p).getAttribute("title"), "New card: a bug or idea");
+      assert.equal(await plus(p).evaluate((b) => b.ariaLabel), "New card: a bug or idea");
+      await openForm(p);
+      await shotReady(p);
+      const title = tag("The total stays at zero");
+      await write(p, title, "It never adds the shipping.");
+      await p.locator(SEND).click();
+      await threadShown(p);
+      await p.waitForFunction(() => /Filed by/.test(document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=item] .p99-meta")?.textContent || ""), null, { timeout: 20000 });
+      const meta = await p.locator(S("[data-view=item] .p99-item-head .p99-meta")).textContent();
+      assert.ok(meta.startsWith(`Filed by ${GRACE.name}, `), meta);
+      const history = await p.locator(S("[data-view=item] .p99-thread")).textContent();
+      assert.ok(history.includes("opened the card"), history);
+      const thread = await words(".p99-panel.is-open");
+      assert.ok(!NOT.test(thread), `the thread says ${thread.match(NOT)?.[0]}: ${thread}`);
+      await p.waitForFunction(() => /^Your cards: \d+ waiting, \d+ on this page$/.test(document.querySelector("p99-root").shadowRoot.querySelector(".w .b:not(.f)")?.ariaLabel || ""), null, { timeout: 20000 });
+      await p.keyboard.press("Escape");
+      await p.waitForFunction(() => !document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open"), null, { timeout: 20000 });
+      await listButton(p).click();
+      await p.locator(S("[data-view=list] .p99-results .p99-item")).first().waitFor({ timeout: 20000 });
+      assert.equal(await p.locator(S("[data-view=list] #p99-title")).textContent(), "Cards");
+      assert.equal(await p.locator(S("[data-view=list] .p99-tabs")).getAttribute("aria-label"), "Cards");
+      const listed = await words(".p99-panel.is-open");
+      assert.ok(!NOT.test(listed), `the list says ${listed.match(NOT)?.[0]}: ${listed}`);
       assert.deepEqual(errors, []);
     });
   });
