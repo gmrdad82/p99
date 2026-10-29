@@ -3,6 +3,7 @@ import { grantFromBody, hostsOf, projectNamed, reachesProject, storedGrant } fro
 
 export const PERSON_GRANTS = "only a person changes a grant";
 export const WHOLE_SPACE = "only a code for the whole space makes projects";
+export const HOSTLESS_REPORT = "a report is filed on a site; open the panel on one of the project's sites";
 
 let S = null;
 
@@ -46,6 +47,18 @@ async function getSpace(c) {
   const projects = reachedProjects(c);
   const counts = await projectCounts(c, projects.map((p) => p.id));
   return K.json(200, { space: spaceOf(c.env), projects: projects.map((p) => projectJson(c.dir, p, counts)) });
+}
+
+async function listProjects(c) {
+  K.requireEmptyBody(c);
+  const projects = reachedProjects(c);
+  const counts = await projectCounts(c, projects.map((p) => p.id));
+  return K.json(200, {
+    projects: projects.map((p) => {
+      const n = projectJson(c.dir, p, counts);
+      return { name: n.name, hosts: n.hosts, open: n.open, done: n.closed };
+    }),
+  });
 }
 
 function reached(c, raw) {
@@ -120,6 +133,7 @@ async function patchHost(c, rawHost) {
     DB.prepare("SELECT host, env, config_json, created_at, project_id FROM hosts WHERE host = ?1").bind(host),
   ]);
   S.forgetDirectory();
+  if (known.project_id !== project.id) await S.socketsRescoped(c.env);
   return K.json(200, { ...S.hostJson(row.results[0], c.dir, project), moved: moved.meta?.changes ?? 0 });
 }
 
@@ -134,11 +148,14 @@ async function patchCode(c, rawId) {
     .first();
   S.forgetCodes();
   if (!row) K.fail(404, "no such code, or it is revoked");
-  await S.codesRevoked(c.env);
+  await S.socketsRescoped(c.env, row.id);
   return K.json(200, { code: S.codeOf(row, c.dir) });
 }
 
-export const SPACE_ROUTES = [["GET", /^\/space$/, getSpace]];
+export const SPACE_ROUTES = [
+  ["GET", /^\/space$/, getSpace],
+  ["GET", /^\/projects$/, listProjects],
+];
 
 export const PROJECT_ROUTES = [
   ["POST", /^\/projects$/, postProject],

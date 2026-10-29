@@ -3,7 +3,9 @@ import { generateKeyPairSync, randomUUID, sign } from "node:crypto";
 import { MAX_MASKS, MAX_MASK_CHARS, isSelectorList, maskRefusal } from "../src/selectors.js";
 import { PERSON_LICENSES, REFUSALS, civilDay, normalize } from "../src/license.js";
 import { PERSON_GRANTS, WHOLE_SPACE } from "../src/spaces.js";
-import { PARKED } from "../src/grants.js";
+import { DatabaseSync } from "node:sqlite";
+import { PARKED, SPACE_GRANT, reachOf, reachesItem, viewSql } from "../src/grants.js";
+import { MANAGER_GONE } from "../src/roles.js";
 import { AVATAR_SIZE_RULE, AVATAR_TYPE_RULE, MAX_AVATAR_BYTES } from "../src/avatars.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
@@ -37,6 +39,39 @@ export async function spaceUnitChecks(check) {
     assert.match(maskRefusal(["div >"]), /not a CSS selector/);
     assert.match(maskRefusal(".x"), /list of CSS selectors/);
     assert.match(maskRefusal([3]), /CSS selector/);
+  });
+
+  await check("[spaces] a project grant reaches its projects' items only, by host only for an item in no project, and only grant.space reaches the whole space", () => {
+    const dir = {
+      projects: new Map([[1, { id: 1, name: "Atlas" }], [2, { id: 2, name: "Hermes" }]]),
+      hosts: new Map([["a.example.com", { host: "a.example.com", project_id: 1 }], ["b.example.com", { host: "b.example.com", project_id: 2 }]]),
+    };
+    const every = reachOf({ projects: [1, 2] }, dir);
+    assert.equal(every.all, false, "a grant naming every project is still a project grant");
+    assert.deepEqual(every.projects, [1, 2]);
+    assert.equal(reachOf(SPACE_GRANT, dir).all, true);
+    const atlas = reachOf({ projects: [1] }, dir);
+    assert.deepEqual(atlas.hosts, ["a.example.com"]);
+    const rows = [
+      { id: 1, host: null, project_id: 1 },
+      { id: 2, host: "a.example.com", project_id: 1 },
+      { id: 3, host: "a.example.com", project_id: 2 },
+      { id: 4, host: "a.example.com", project_id: null },
+      { id: 5, host: "b.example.com", project_id: null },
+      { id: 6, host: null, project_id: null },
+      { id: 7, host: "b.example.com", project_id: 1 },
+    ];
+    assert.deepEqual(rows.filter((r) => reachesItem(atlas, r)).map((r) => r.id), [1, 2, 4, 7]);
+    assert.deepEqual(rows.filter((r) => reachesItem(every, r)).map((r) => r.id), [1, 2, 3, 4, 5, 7]);
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE items (id INTEGER PRIMARY KEY, host TEXT, project_id INTEGER)");
+    for (const r of rows) db.prepare("INSERT INTO items (id, host, project_id) VALUES (?, ?, ?)").run(r.id, r.host, r.project_id);
+    const binds = [];
+    const sql = viewSql({ all: false, projects: atlas.projects, hosts: atlas.hosts }, (v) => {
+      binds.push(v);
+      return "?";
+    });
+    assert.deepEqual(db.prepare(`SELECT id FROM items i WHERE ${sql} ORDER BY id`).all(...binds).map((r) => r.id), [1, 2, 4, 7]);
   });
 
   await check("[spaces] a licence key reads through armour, soft breaks and quoting, as p99 license does", () => {
@@ -163,6 +198,43 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.ok((await space(whole.json.secret)).json.projects.length >= 3);
     const wrong = await grantCode("Grace Hopper", "grace.there@example.com", { projects: [thereProject] });
     assert.equal((await browse("GET", "/me", wrong.json.secret)).status, 401);
+    const crossed = await call("POST", "/_p99/v1/cards", { actor: ada, body: { client_uid: randomUUID(), project: thereProject, host: here, title: "On this host, in the other project" } });
+    assert.equal(crossed.status, 201, JSON.stringify(crossed.json));
+    assert.equal(crossed.json.card.host, here);
+    assert.equal((await browse("GET", `/cards/${crossed.json.card.key}`, code)).status, 404);
+    assert.equal((await browse("GET", `/issues/${crossed.json.card.key}`, code)).status, 404);
+    assert.equal((await browse("GET", "/board", code)).json.cards.some((cd) => cd.key === crossed.json.card.key), false);
+    assert.equal((await browse("GET", "/cards", code)).json.cards.some((cd) => cd.key === crossed.json.card.key), false);
+    const into = await browse("POST", "/cards", code, { client_uid: randomUUID(), project: thereProject, title: "Into a project it lacks" });
+    assert.equal(into.status, 404, JSON.stringify(into.json));
+    const moved = await browse("PATCH", `/issues/${mine.json.card.key}`, code, { project: thereProject });
+    assert.equal(moved.status, 404, JSON.stringify(moved.json));
+    assert.equal((await call("GET", `/_p99/v1/cards/${mine.json.card.key}`, { actor: ada })).json.card.project, hereProject);
+  });
+
+  await check("[spaces] a grant naming every project is still a project grant: it makes no project, and GET /projects lists the projects table it reaches, with counts", async () => {
+    assert.equal((await call("POST", "/_p99/v1/projects", { actor: ada, body: { name: "Vega" } })).status, 201);
+    const listed = await call("GET", "/_p99/v1/projects", { actor: ada });
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    const names = (await space()).json.projects.map((p) => p.name);
+    assert.deepEqual(listed.json.projects.map((p) => p.name), names);
+    assert.deepEqual(listed.json.projects.find((p) => p.name === "Vega"), { name: "Vega", hosts: [], open: 0, done: 0 });
+    const every = await grantCode("Grace Hopper", "grace.every@example.com", { projects: names });
+    assert.equal(every.status, 201, JSON.stringify(every.json));
+    const made = await browse("POST", "/projects", every.json.secret, { name: "Orion" });
+    assert.equal(made.status, 403);
+    assert.equal(made.json.message, WHOLE_SPACE);
+    const filed = await browse("POST", "/cards", every.json.secret, { client_uid: randomUUID(), project: "Orion", title: "Makes no project either" });
+    assert.equal(filed.status, 404, JSON.stringify(filed.json));
+    const limited = await grantCode("Grace Hopper", "grace.projects@example.com", { projects: [hereProject] });
+    const user = await mint("Mary Somerville", "mary.list@example.com", [here]);
+    for (const secret of [limited.json.secret, user.secret]) {
+      const own = await browse("GET", "/projects", secret);
+      assert.equal(own.status, 200, JSON.stringify(own.json));
+      assert.deepEqual(own.json.projects.map((p) => p.name), [hereProject]);
+    }
+    const hostScoped = await call("GET", `/_p99/v1/projects?host=${there}`, { actor: ada });
+    assert.deepEqual(hostScoped.json.projects, listed.json.projects, "a host narrows items, never the space's projects");
   });
 
   await check("[spaces] POST /codes maps the old hosts to their projects, refuses both or neither, and an unknown project", async () => {
@@ -177,6 +249,8 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
       { grant: { space: false } },
       { grant: { space: true, projects: [] } },
       { grant: [hereProject] },
+      { grant: { space: true }, manager: true },
+      { grant: { space: true }, role: "manager" },
     ]) {
       const refused = await call("POST", "/_p99/v1/codes", { body: { name: "Ada Lovelace", email: "ada.bad@example.com", mail: false, ...body } });
       assert.equal(refused.status, 400, JSON.stringify(body));
@@ -201,6 +275,11 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.equal(shut.status, 403);
     assert.equal(shut.json.message, PARKED);
     assert.equal((await browse("GET", "/issues", minted.json.secret)).status, 403);
+    for (const path of ["/space", "/projects", "/board"]) {
+      const seen = await browse("GET", path, minted.json.secret);
+      assert.equal(seen.status, 403, path);
+      assert.equal(seen.json.message, PARKED, path);
+    }
     const opened = await call("PATCH", `/_p99/v1/codes/${id}`, { actor: ada, body: { grant: { space: true } } });
     assert.equal(opened.status, 200);
     assert.equal((await browse("GET", "/me", minted.json.secret)).status, 200);
@@ -208,6 +287,15 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.equal((await call("PATCH", "/_p99/v1/codes/99999999", { actor: ada, body: { grant: { space: true } } })).status, 404);
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(sent.length, before, "a grant change or a park sent mail");
+  });
+
+  await check("[spaces] the old role alias and the old boards are gone: manager answers 400, /boards 410", async () => {
+    const aliased = await call("POST", "/_p99/v1/codes", { body: { name: "Ada Lovelace", email: "ada.alias@example.com", grant: { space: true }, manager: true, mail: false } });
+    assert.equal(aliased.status, 400);
+    assert.equal(aliased.json.message, MANAGER_GONE);
+    for (const [method, path] of [["GET", "/_p99/v1/boards"], ["POST", "/_p99/v1/boards"], ["GET", "/_p99/v1/boards/1"]]) {
+      assert.equal((await call(method, path, { actor: ada, ...(method === "POST" ? { body: {} } : {}) })).status, 410, `${method} ${path}`);
+    }
   });
 
   await check("[spaces] /me names the space, the projects, the licence and the avatar", async () => {
@@ -266,7 +354,7 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
   const avatarPut = (code, bytes, type) =>
     fetch(`${base}/_p99/api/me/avatar`, { method: "PUT", headers: { "x-p99-code": code, "content-type": type }, body: bytes });
 
-  await check("[spaces] an avatar is a PNG, JPEG or WebP of at most 256 KB, served by username for a day, and goes on DELETE", async () => {
+  await check("[spaces] an avatar is a PNG, JPEG or WebP of at most 256 KB, served by username at a versioned URL for a day, named on people, and goes on DELETE", async () => {
     const owner = await mint("Grace Hopper", "grace.avatar@example.com", [here], true);
     const viewer = await mint("Mary Somerville", "mary.avatar@example.com", [here]);
     const wrongType = await avatarPut(owner.secret, GIF, "image/gif");
@@ -279,17 +367,26 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.equal((await big.json()).message, AVATAR_SIZE_RULE);
     const atLimit = await avatarPut(owner.secret, Buffer.concat([PNG, Buffer.alloc(MAX_AVATAR_BYTES - PNG.length)]), "image/png");
     assert.equal(atLimit.status, 200);
+    const first = (await atLimit.json()).avatar;
     const stored = await avatarPut(owner.secret, JPEG, "image/jpeg");
     assert.equal(stored.status, 200);
     const url = (await stored.json()).avatar;
     const me = (await browse("GET", "/me", owner.secret)).json;
     assert.equal(me.avatar, url);
-    assert.equal(url, `/_p99/api/avatars/${me.username}`);
+    assert.match(url, new RegExp(`^/_p99/api/avatars/${me.username.replace(/\./g, "\\.")}\\?v=[0-9a-f]{16}$`));
+    assert.notEqual(url, first, "a replaced picture has a new URL, so no cache shows the old one");
     const served = await fetch(`${base}${url}`, { headers: { "x-p99-code": viewer.secret } });
     assert.equal(served.status, 200);
     assert.equal(served.headers.get("content-type"), "image/jpeg");
     assert.equal(served.headers.get("cache-control"), "private, max-age=86400");
     assert.deepEqual(Buffer.from(await served.arrayBuffer()), JPEG);
+    const old = await fetch(`${base}${first}`, { headers: { "x-p99-code": viewer.secret } });
+    assert.equal(old.status, 200);
+    assert.equal(old.headers.get("cache-control"), "private, no-cache", "an old or bare URL is never kept");
+    assert.deepEqual(Buffer.from(await old.arrayBuffer()), JPEG);
+    const people = (await browse("GET", "/people", owner.secret)).json.people;
+    assert.equal(people.find((p) => p.username === me.username).avatar, url);
+    assert.equal(people.find((p) => p.username !== me.username).avatar, null);
     const signed = await call("GET", `/_p99/v1/avatars/${me.username}`, { actor: ada });
     assert.equal(signed.response.status, 200);
     assert.equal((await fetch(`${base}${url}`)).status, 401);

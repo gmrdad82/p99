@@ -5,6 +5,7 @@ import { cardOf, decodeCursor, emailsIn, limitOf, linkOf, scrubEmails, sinceOf }
 
 const CARD_FIELDS = ["changed_at", "changed_by", "comments", "created_at", "host", "key", "kind", "label", "lane", "links", "project", "reporter", "status", "title"];
 const PERSON_FIELDS = ["agent", "name", "username", "via"];
+const SHOWN_FIELDS = ["agent", "avatar", "name", "username", "via"];
 
 class Refused extends Error {
   constructor(status, message) {
@@ -221,15 +222,23 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
   };
   const keysOf = (json) => json.cards.map((cd) => cd.key);
   const project = (name) => `project=${encodeURIComponent(name)}`;
+  const projectOf = async (host) => (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === host).project;
+  const owner = async (name, email, projects) => {
+    const made = await call("POST", "/_p99/v1/codes", { actor: ada, body: { name, email, grant: projects ? { projects } : { space: true }, role: "owner", mail: false } });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    return made.json;
+  };
 
-  await check("before any card on a host, its list and its projects are empty, with no cursor", async () => {
+  await check("before any card on a host, its list is empty with no cursor, and projects still lists the space's projects", async () => {
     const every = LANES.map((w) => `status=${w}`).join("&");
     const got = await call("GET", `/_p99/v1/cards?${every}&host=${there}`, { actor: ada });
     assert.equal(got.status, 200, JSON.stringify(got.json));
     assert.deepEqual(got.json, { cards: [], next_cursor: null });
     const projects = await call("GET", `/_p99/v1/projects?host=${there}`, { actor: ada });
     assert.equal(projects.status, 200, JSON.stringify(projects.json));
-    assert.deepEqual(projects.json, { projects: [] });
+    const space = (await call("GET", "/_p99/v1/space", { actor: ada })).json.projects;
+    assert.deepEqual(projects.json.projects.map((p) => p.name), space.map((p) => p.name));
+    assert.ok(projects.json.projects.some((p) => p.name === space.find((s) => s.hosts.includes(there)).name));
   });
 
   const lanes = {};
@@ -265,8 +274,8 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.deepEqual(open.cards.map((cd) => cd.lane), [1, 2, 3]);
     for (const cd of open.cards) {
       assert.deepEqual(Object.keys(cd).sort(), CARD_FIELDS);
-      assert.deepEqual(Object.keys(cd.reporter).sort(), PERSON_FIELDS);
-      assert.deepEqual(Object.keys(cd.changed_by).sort(), PERSON_FIELDS);
+      assert.deepEqual(Object.keys(cd.reporter).sort(), SHOWN_FIELDS);
+      assert.deepEqual(Object.keys(cd.changed_by).sort(), SHOWN_FIELDS);
       assert.equal(cd.project, "Read Lanes");
       assert.equal(cd.host, here);
       assert.ok(cd.changed_at >= cd.created_at);
@@ -323,9 +332,9 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.deepEqual(new Set(keysOf(await list(`${both}&source=human`))), new Set([alphaHere.key, alphaThere.key]));
     assert.deepEqual(keysOf(await list(`${both}&source=agent`)), [betaHere.key]);
     const card = (await list(`${project("Read Alpha")}&source=human`, here)).cards[0];
-    assert.deepEqual(card.changed_by, { name: "Ada Lovelace", username: card.changed_by.username, agent: false, via: null });
+    assert.deepEqual(card.changed_by, { name: "Ada Lovelace", username: card.changed_by.username, agent: false, via: null, avatar: null });
     assert.equal(typeof card.changed_by.username, "string");
-    assert.deepEqual(card.reporter, { name: "Grace Hopper", username: card.reporter.username, agent: true, via: null });
+    assert.deepEqual(card.reporter, { name: "Grace Hopper", username: card.reporter.username, agent: true, via: null, avatar: null });
     assert.equal(card.comments, 1);
     assert.equal((await call("GET", `/_p99/v1/cards?source=robot`, { actor: ada })).status, 400);
   });
@@ -405,7 +414,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal(json.cards.length, 7);
     assert.equal(/@/.test(JSON.stringify(json)), false);
     const viaCard = json.cards.find((cd) => cd.reporter.agent);
-    assert.deepEqual(viaCard.reporter, { name: "Grace Hopper", username: viaCard.reporter.username, agent: true, via: "pci·reader" });
+    assert.deepEqual(viaCard.reporter, { name: "Grace Hopper", username: viaCard.reporter.username, agent: true, via: "pci·reader", avatar: null });
     const personCard = json.cards.find((cd) => !cd.reporter.agent);
     assert.equal(personCard.reporter.via, null);
   });
@@ -436,10 +445,10 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal(json.card.status, "stuck");
     assert.equal(json.card.comments, 1);
     assert.equal(json.card.links.length, 1);
-    assert.deepEqual(json.card.links[0], { ref: "pci#2700", note: "Splicer export", by: { name: "Grace Hopper", username: json.card.links[0].by.username, agent: true, via: "pci·reader" }, at: json.card.links[0].at });
+    assert.deepEqual(json.card.links[0], { ref: "pci#2700", note: "Splicer export", by: { name: "Grace Hopper", username: json.card.links[0].by.username, agent: true, via: "pci·reader", avatar: null }, at: json.card.links[0].at });
     assert.equal(json.comments.length, 1);
     assert.deepEqual(Object.keys(json.comments[0]).sort(), ["author", "body", "created_at", "id", "internal"]);
-    assert.deepEqual(json.comments[0].author, { name: "Ada Lovelace", username: json.comments[0].author.username, agent: false, via: null });
+    assert.deepEqual(json.comments[0].author, { name: "Ada Lovelace", username: json.comments[0].author.username, agent: false, via: null, avatar: null });
     assert.equal(json.comments[0].internal, true);
     const kinds = json.events.map((ev) => ev.kind);
     assert.equal(kinds[0], "created");
@@ -449,7 +458,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.deepEqual(ats, [...ats].sort());
     for (const ev of json.events) {
       assert.deepEqual(Object.keys(ev).sort(), ["at", "by", "detail", "kind"]);
-      if (ev.by) assert.deepEqual(Object.keys(ev.by).sort(), PERSON_FIELDS);
+      if (ev.by) assert.deepEqual(Object.keys(ev.by).sort(), SHOWN_FIELDS);
     }
     assert.deepEqual(json.events.find((ev) => ev.kind === "link").detail, { ref: "pci#2700", note: "Splicer export" });
     const move = json.events.find((ev) => ev.kind === "assignee").detail;
@@ -469,7 +478,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     await status(card.key, "planned", kat);
     const listed = (await list(project("Read Names"))).cards[0];
     assert.equal(listed.key, card.key);
-    assert.deepEqual(listed.changed_by, { name: "Katherine Johnson", username: listed.changed_by.username, agent: false, via: null });
+    assert.deepEqual(listed.changed_by, { name: "Katherine Johnson", username: listed.changed_by.username, agent: false, via: null, avatar: null });
     assert.equal(typeof listed.changed_by.username, "string");
     assert.equal(listed.links[0].by.name, "Katherine Johnson");
     assert.equal(listed.reporter.name, "Ada Lovelace");
@@ -508,7 +517,7 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await call("GET", `/_p99/v1/cards/${alphaThere.key}?host=${there}`, { actor: ada })).status, 200);
   });
 
-  await check("projects lists the names in use by name, with open and done counts, one entry per spelling-blind name", async () => {
+  await check("projects lists every project the code reaches by name, with its hosts and open and done counts of all its items, one entry per spelling-blind name", async () => {
     const again = await file("READ ALPHA", "Shouted alpha");
     assert.equal(again.project, "Read Alpha");
     const { status: code, json } = await call("GET", "/_p99/v1/projects", { actor: ada });
@@ -519,37 +528,47 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.deepEqual(plainNames, [...plainNames].sort());
     assert.equal(names.filter((n) => n.toLowerCase() === "read alpha").length, 1);
     const find = (name) => json.projects.find((p) => p.name === name);
-    for (const p of json.projects) assert.deepEqual(Object.keys(p).sort(), ["done", "name", "open"]);
-    assert.deepEqual(find("Read Lanes"), { name: "Read Lanes", open: 6, done: 1 });
-    assert.deepEqual(find("Read Alpha"), { name: "Read Alpha", open: 4, done: 0 });
+    for (const p of json.projects) assert.deepEqual(Object.keys(p).sort(), ["done", "hosts", "name", "open"]);
+    assert.deepEqual(find("Read Lanes"), { name: "Read Lanes", hosts: [], open: 6, done: 1 });
+    assert.deepEqual(find("Read Alpha"), { name: "Read Alpha", hosts: [], open: 4, done: 0 });
+    const reports = find(await projectOf(there));
+    assert.deepEqual(reports.hosts, [there]);
     const scoped = (await call("GET", `/_p99/v1/projects?host=${there}`, { actor: ada })).json.projects;
-    assert.deepEqual(scoped.find((p) => p.name === "Read Alpha"), { name: "Read Alpha", open: 1, done: 0 });
-    assert.equal(scoped.some((p) => p.name === "Read Lanes"), false);
+    assert.deepEqual(scoped, json.projects, "a host narrows items, never the space's projects");
+    assert.equal((await call("POST", "/_p99/v1/projects", { actor: ada, body: { name: "Read Empty" } })).status, 201);
+    const empty = (await call("GET", "/_p99/v1/projects", { actor: ada })).json.projects.find((p) => p.name === "Read Empty");
+    assert.deepEqual(empty, { name: "Read Empty", hosts: [], open: 0, done: 0 });
   });
 
   await check("only managers read cards: a reporter code gets 403 on every card route and on source", async () => {
     const visitor = await mint("Mary Somerville", "mary@example.com", [here]);
-    for (const path of ["/cards", `/cards/${alphaHere.key}`, "/projects", "/cards?status=landed", "/issues?scope=mine&source=agent"]) {
+    for (const path of ["/cards", `/cards/${alphaHere.key}`, "/cards?status=landed", "/issues?scope=mine&source=agent"]) {
       assert.equal((await browse("GET", path, visitor.secret)).status, 403, path);
     }
+    const listed = await browse("GET", "/projects", visitor.secret);
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    assert.deepEqual(listed.json.projects.map((p) => p.name), [await projectOf(here)]);
   });
 
-  await check("a manager's code reads the cards of its own host only", async () => {
-    const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
-    const listed = await browse("GET", `/cards?${project("Read Alpha")}`, boss.secret);
+  await check("an Owner's code reads the cards of the projects it grants, whatever their host, and none of another project on its own host", async () => {
+    const hostProject = await projectOf(here);
+    const granted = await owner("Grace Hopper", "grace@example.com", [hostProject, "Read Alpha"]);
+    const listed = await browse("GET", `/cards?${project("Read Alpha")}`, granted.secret);
     assert.equal(listed.status, 200, JSON.stringify(listed.json));
-    assert.ok(listed.json.cards.length > 0);
-    assert.ok(listed.json.cards.every((cd) => cd.host === here));
-    assert.equal(keysOf(listed.json).includes(alphaThere.key), false);
-    assert.equal((await browse("GET", `/cards/${alphaThere.key}`, boss.secret)).status, 404);
-    assert.equal((await browse("GET", `/cards/${alphaHere.key}`, boss.secret)).status, 200);
-    const projects = (await browse("GET", "/projects", boss.secret)).json.projects;
-    assert.deepEqual(projects.find((p) => p.name === "Read Alpha"), { name: "Read Alpha", open: 3, done: 0 });
+    assert.ok(keysOf(listed.json).includes(alphaHere.key) && keysOf(listed.json).includes(alphaThere.key));
+    assert.equal((await browse("GET", `/cards/${alphaThere.key}`, granted.secret)).status, 200);
+    const projects = (await browse("GET", "/projects", granted.secret)).json.projects;
+    assert.deepEqual(projects.map((p) => p.name).sort(), [hostProject, "Read Alpha"].sort());
+    const signed = (await call("GET", "/_p99/v1/projects", { actor: ada })).json.projects.find((p) => p.name === "Read Alpha");
+    assert.deepEqual(projects.find((p) => p.name === "Read Alpha"), signed);
+    const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
+    assert.deepEqual(keysOf((await browse("GET", `/cards?${project("Read Alpha")}`, boss.secret)).json), []);
+    assert.equal((await browse("GET", `/cards/${alphaHere.key}`, boss.secret)).status, 404, "a card on its host in another project stays out of reach");
+    assert.equal((await browse("GET", `/issues/${alphaHere.key}`, boss.secret)).status, 404);
   });
 
   await check("in the browser host= only routes the request; site=1 keeps this host's cards", async () => {
-    const hosts = (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.map((h) => h.host);
-    const boss = await mint("Emmy Noether", "emmy@example.com", hosts, true);
+    const boss = await owner("Emmy Noether", "emmy@example.com");
     const every = keysOf((await browse("GET", `/cards?${project("Read Alpha")}&host=${there}`, boss.secret)).json);
     assert.ok(every.includes(alphaHere.key));
     assert.ok(every.includes(alphaThere.key));
@@ -617,14 +636,16 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
   });
 
   await check("a card's place counts the cards its reader can see in that lane", async () => {
-    const boss = await mint("Grace Hopper", "grace@example.com", [here], true);
-    await file("Read Places", "Far away and newer", ada, there);
+    await file("Read Places", "Near and older", ada, here);
+    await file("Read Far", "Far away and newer", ada, there);
+    const reached = [await projectOf(here), "Read Places"];
+    const boss = await owner("Grace Hopper", "grace@example.com", reached);
     const near = (await browse("GET", "/cards?status=new&limit=500", boss.secret)).json.cards;
     assert.ok(near.length > 0);
-    assert.ok(near.every((cd) => cd.host === here));
+    assert.ok(near.every((cd) => reached.includes(cd.project)));
     assert.deepEqual(near.map((cd) => cd.lane), near.map((_, at) => at + 1));
     const all = (await list("status=new&limit=500")).cards;
-    assert.ok(all.some((cd) => cd.host === there));
+    assert.ok(all.some((cd) => cd.project === "Read Far"));
     assert.deepEqual(all.map((cd) => cd.lane), all.map((_, at) => at + 1));
     const one = (await browse("GET", `/cards/${near[0].key}`, boss.secret)).json.card;
     assert.equal(one.lane, 1);

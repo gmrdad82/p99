@@ -403,3 +403,18 @@ test("two closes of one item from the same read write one status event and send 
   assert.equal(labelOf(db, 91).label_id, DONE);
   assert.deepEqual(mails.map((m) => m.id), [91]);
 });
+
+test("a reorder's order push and its label push name the card's project, so a project grant's live board hears them", async () => {
+  const db = world();
+  db.prepare("INSERT INTO projects (id, name, created_at) VALUES (5, 'Atlas', ?)").run(NOW);
+  item(db, 81, WORKING, "a0");
+  item(db, 82, WORKING, "a1");
+  item(db, 83, NEW, "a0");
+  db.prepare("UPDATE items SET host = NULL, project_id = 5 WHERE id IN (81, 83)").run();
+  const reorder = context(d1(db), { key: "BUG-81", from: "in-progress", to: "in-progress", after: "BUG-82" });
+  assert.equal((await answer(() => postMove(reorder))).status, 200);
+  assert.deepEqual(reorder.hooked.filter((e) => e.type === "order").map((e) => [e.key, e.host, e.projects]), [["BUG-81", null, [5]]]);
+  const moved = context(d1(db), { key: "BUG-83", from: "new", to: "in-progress" });
+  assert.equal((await answer(() => postMove(moved))).status, 200);
+  assert.deepEqual(moved.hooked.map((e) => [e.type, e.projects]), [["label", [5]], ["order", [5]]]);
+});

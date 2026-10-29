@@ -224,8 +224,9 @@ async function api(request, env, ctx, url, path) {
   const host = (url.searchParams.get("host") || "").toLowerCase();
   const admitted = codes.map((c) => ({ ...c, grant: grantOf(c, dir) })).filter((c) => !parked(c.grant));
   for (const c of admitted) c.reach = reachOf(c.grant, dir);
-  const hostRow = host ? dir.hosts.get(host) : [...dir.hosts.values()].find((h) => admitted.some((c) => reachesProject(c.reach, h.project_id)));
-  const code = hostRow ? admitted.find((c) => reachesProject(c.reach, hostRow.project_id)) : null;
+  const found = host ? dir.hosts.get(host) : [...dir.hosts.values()].find((h) => admitted.some((c) => reachesProject(c.reach, h.project_id)));
+  const hostRow = found ?? (host ? null : { host: null, env: "", config: {}, created_at: null, project_id: null });
+  const code = !hostRow ? null : found ? admitted.find((c) => reachesProject(c.reach, hostRow.project_id)) : admitted[0];
   if (!code) K.fail(404, "no such space");
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });

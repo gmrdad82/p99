@@ -29,6 +29,7 @@ const CARD_LANES = "SELECT l.id, l.name, l.role, l.closes FROM boards b JOIN boa
 const CARD_REOPENS = { inbox: 0, doing: 2, review: 5 };
 const TICKET_TTL_MS = 60 * 1000;
 const TICKET = /^[0-9a-f]{48}$/;
+export const RESCOPED = "what this code reaches changed; reconnect";
 
 let K = null;
 
@@ -307,15 +308,26 @@ export async function liveSockets(DB, sockets) {
   });
 }
 
+export function closeRescoped(sockets, code = null) {
+  return sockets.filter(([socket, seen]) => {
+    const hit = code === null ? Array.isArray(seen.projects) : seen.code === code;
+    if (!hit) return true;
+    try {
+      socket.close(4003, RESCOPED);
+    } catch {}
+    return false;
+  });
+}
+
 export async function fanOut(DB, sockets, events) {
   const lines = events.map(({ hosts, projects, ...event }) => [hosts ?? [event.host ?? null], projects ?? [], event.type === "labels" && !hosts, JSON.stringify(event)]);
   for (const [socket, seen] of await liveSockets(DB, sockets)) {
     const wanted = seen.hosts ?? (seen.host ? [seen.host] : null);
     const reached = Array.isArray(seen.projects) ? seen.projects : null;
     for (const [hosts, projects, every, line] of lines) {
-      const byProject = reached !== null && projects.some((p) => reached.includes(p));
       const byHost = wanted === null || hosts.some((h) => wanted.includes(h));
-      if (!every && !byProject && !(byHost && (reached === null || wanted !== null))) continue;
+      const heard = reached === null ? byHost : projects.length > 0 ? projects.some((p) => reached.includes(p)) : wanted !== null && byHost;
+      if (!every && !heard) continue;
       try {
         socket.send(line);
       } catch {}

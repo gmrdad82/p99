@@ -1,5 +1,6 @@
 import { roleOf } from "./roles.js";
 import { codeReachSql } from "./grants.js";
+import { withAvatars } from "./avatars.js";
 
 export const RESERVED = ["admin", "p99", "root", "support", "manager", "system", "null", "me", "everyone", "here", "channel"];
 
@@ -143,7 +144,7 @@ async function listPeople(c) {
     .filter((p) => names.has(p.email))
     .map((p) => ({ username: names.get(p.email), role: roleOf(p.manager) }))
     .sort((a, b) => (a.username < b.username ? -1 : 1));
-  return K.json(200, { people: list });
+  return K.json(200, { people: await withAvatars(c.env.DB, list) });
 }
 
 async function patchMe(c) {

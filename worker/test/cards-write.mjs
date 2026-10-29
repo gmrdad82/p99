@@ -15,6 +15,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
   const link = (key, body, actor = graceBot) => call("POST", `/_p99/v1/cards/${key}/links`, { actor, body });
   const comment = (key, body, actor = ada) => call("POST", `/_p99/v1/cards/${key}/comments`, { actor, body: { client_uid: randomUUID(), ...body } });
   const issue = async (key) => (await call("GET", `/_p99/v1/issues/${key}`, { actor: ada })).json;
+  const hostProject = async () => (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === here).project;
   const oneBoard = async (actor = ada) => {
     const got = await call("GET", "/_p99/v1/board", { actor });
     assert.equal(got.status, 200, JSON.stringify(got.json));
@@ -43,7 +44,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(first.kind, "feature");
     assert.match(first.key, /^FEAT-\d+$/);
     assert.equal(first.host, here);
-    assert.deepEqual(first.reporter, { name: "Ada Lovelace", username: first.reporter.username, agent: false, via: null });
+    assert.deepEqual(first.reporter, { name: "Ada Lovelace", username: first.reporter.username, agent: false, via: null, avatar: null });
     assert.equal(raced.json.card.label, LANE_NAMES[0]);
     const { board } = await oneBoard();
     assert.deepEqual(board.lanes.map((l) => l.word), LANES);
@@ -56,7 +57,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(second.status, 201, JSON.stringify(second.json));
     assert.equal(second.json.card.project, "Splicer");
     assert.equal(second.json.card.lane, 1);
-    assert.deepEqual(second.json.card.reporter, { name: "Grace Hopper", username: second.json.card.reporter.username, agent: true, via: "pci·splicer·writer" });
+    assert.deepEqual(second.json.card.reporter, { name: "Grace Hopper", username: second.json.card.reporter.username, agent: true, via: "pci·splicer·writer", avatar: null });
     assert.equal(d1count("SELECT count(*) AS n FROM boards WHERE cards = 1"), 1);
     assert.equal((await laneKeys("new", [first.key, raced.json.card.key, second.json.card.key]))[0], second.json.card.key);
     const stored = await issue(first.key);
@@ -115,7 +116,9 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     const body = { client_uid: randomUUID(), project: "Splicer", title: "From a visitor" };
     assert.equal((await browse("POST", "/cards", visitor.secret, body)).status, 403);
     const manager = await mint("Margaret Hamilton", "margaret@example.com", [here], true);
-    const fromPanel = await browse("POST", "/cards", manager.secret, { ...body, host: "nope.example.com" });
+    const elsewhere = await browse("POST", "/cards", manager.secret, { ...body, host: "nope.example.com" });
+    assert.equal(elsewhere.status, 404, "an Owner of one project files no card into a project it doesn't reach");
+    const fromPanel = await browse("POST", "/cards", manager.secret, { ...body, client_uid: randomUUID(), project: await hostProject(), host: "nope.example.com" });
     assert.equal(fromPanel.status, 201, JSON.stringify(fromPanel.json));
     assert.equal(fromPanel.json.card.host, here);
     assert.equal(fromPanel.json.card.reporter.via, null);
@@ -267,8 +270,8 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await issue(key)).issue.project, "Splicer");
     const listed = (await call("GET", `/_p99/v1/issues?scope=all&host=${here}&status=any&q=${key}`, { actor: ada })).json.issues;
     assert.deepEqual(listed.map((i) => [i.key, i.project]), [[key, "Splicer"]]);
-    const item = await plain("A plain item says no project");
-    assert.equal((await issue(item)).issue.project, null);
+    const item = await plain("A plain item says its host's project");
+    assert.equal((await issue(item)).issue.project, await hostProject());
     const byName = await call("POST", "/_p99/v1/move", { actor: other, body: { key, from: done, to: "Landed" } });
     assert.equal(byName.status, 200, JSON.stringify(byName.json));
     let card = (await call("GET", `/_p99/v1/cards/${key}`, { actor: ada })).json.card;
@@ -489,7 +492,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(viaLabel.status, 403, "an agent with no label is still an agent");
     const byPerson = await patch({ project: null }, ada);
     assert.equal(byPerson.status, 200, JSON.stringify(byPerson.json));
-    assert.equal((await issue(item)).issue.project, null);
+    assert.equal((await issue(item)).issue.project, await hostProject(), "a card turned back into an item goes back to its host's project");
   });
 
   await check("an agent merges a card into another card as a duplicate, and the card says an agent closed it", async () => {
