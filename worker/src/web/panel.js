@@ -166,6 +166,11 @@ const WORDS = {
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_labels: "changed the labels: {list}",
+  event_link: "linked {ref}",
+  links: "Links",
+  link_label: "Link",
+  link_hint: "A request, commit, tag or URL",
+  link_add: "Add",
   move_to: "Move to",
   move_drop: "Drop (close without fixing)",
   moved: "this card moved; refreshed",
@@ -1149,7 +1154,7 @@ function thread(t) {
     loose.length ? fileList(loose) : null,
     h("ol", { class: "p99-thread" }, entries(t, byId, mine)),
     commentForm(i, manager));
-  if (manager) view.append(manageForm(i), editForm(i, "edit_any"), deleteBox(i));
+  if (manager) view.append(manageForm(i), linkBox(i, t), editForm(i, "edit_any"), deleteBox(i));
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
@@ -1185,6 +1190,7 @@ function eventText(ev) {
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
+  if (ev.kind === "link") return say("event_link", { ref: obj.ref || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
   if (ev.kind === "merge") return obj.into ? say("duplicate_of", { n: obj.into }) : say("event_merge", { item: obj.item || "" });
   if (("event_" + ev.kind) in WORDS) return say("event_" + ev.kind, { to: obj.to == null ? "" : obj.to, env: obj.env || "" });
@@ -1504,6 +1510,34 @@ function deleteBox(i) {
   btn.addEventListener("contextmenu", (e) => e.preventDefault());
   btn.addEventListener("click", (e) => { if (!e.detail) go(); });
   return box;
+}
+function linkBox(i, t) {
+  const links = (t.events || []).filter((ev) => ev.kind === "link" && ev.detail && typeof ev.detail.ref === "string").reverse();
+  const input = h("input", { name: "ref", maxlength: "200", autocomplete: "off", spellcheck: "false", placeholder: say("link_hint"), required: true });
+  const form = h("form", { class: "p99-links", novalidate: true },
+    h("h3", { text: say("links") }),
+    links.length ? h("ul", { class: "p99-link-list" }, links.map((ev) => h("li", null,
+      /^https?:\/\/\S+$/.test(ev.detail.ref) ? h("a", { href: ev.detail.ref, target: "_blank", rel: "noopener noreferrer", text: ev.detail.ref }) : h("code", { text: ev.detail.ref }),
+      ev.detail.note ? [" · ", ev.detail.note] : null,
+      h("small", null, " · ", person(ev.actor_name || ev.actor, ev.agent, ev.via), " · ", h("time", { text: when(ev.at) }))))) : null,
+    h("div", { class: "p99-link-add" }, h("label", { class: "p99-field" }, h("span", { text: say("link_label") }), input), h("button", { type: "submit", text: say("link_add") })),
+    statusLine());
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const ref = input.value.trim();
+    if (!ref) return input.focus();
+    if (form.p99Busy) return;
+    form.p99Busy = true;
+    const send = form.querySelector("button[type=submit]");
+    send.disabled = true;
+    status(form, say("sending"));
+    call("POST", "/cards/" + enc(i.key) + "/links", JSON.stringify({ ref, note: null })).then(() => item(i.key), (e) => {
+      form.p99Busy = false;
+      send.disabled = false;
+      status(form, problem(e));
+    });
+  });
+  return form;
 }
 function editForm(i, word) {
   const form = h("form", { class: "p99-edit", novalidate: true },
