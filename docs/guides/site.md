@@ -18,9 +18,9 @@ p99 hosts add shop.example.com --project Shop --env production
 p99 hosts add dev.shop.example.com --project Shop --env dev --kind development
 ```
 
-`--project` is required: a host belongs to one project, reports filed on it land in that project, and the project must exist (`p99 projects add <name>` makes one). `hosts add` writes the host to your config, adds the route `<host>/_p99/*` on its zone and tells the Worker the host's environment. A new environment is a `release` unless `--kind development` says otherwise. A site with a production and a development address makes them two hosts with their own environments, so their items stay apart and share one numbering.
+`--project` is required: a host belongs to one project, cards filed on it land in that project, and the project must exist (`p99 projects add <name>` makes one). `hosts add` writes the host to your config, adds the route `<host>/_p99/*` on its zone and tells the Worker the host's environment. A new environment is a `release` unless `--kind development` says otherwise. A site with a production and a development address makes them two hosts with their own environments, so their cards stay apart and share one numbering.
 
-`p99 hosts` lists every host with its space, project, environment, how many areas it masks, whether captures are on, and whether the Worker answers. `p99 hosts set <host> --project <name>` moves a host to another project, and its items move with it. `p99 spaces` lists the spaces in your config; `p99 projects` lists a space's projects with their hosts and counts, and `p99 projects add` and `p99 projects rename` change them. `p99 hosts remove <host>` takes a host off the Worker and out of the config; its items stay, and so does its route in Cloudflare.
+`p99 hosts` lists every host with its space, project, environment, how many areas it masks, whether captures are on, and whether the Worker answers. `p99 hosts set <host> --project <name>` moves a host to another project, and its cards move with it. `p99 spaces` lists the spaces in your config; `p99 projects` lists a space's projects with their hosts and counts, and `p99 projects add` and `p99 projects rename` change them. `p99 hosts remove <host>` takes a host off the Worker and out of the config; its cards stay, and so does its route in Cloudflare.
 
 ## 2. Add the tag
 

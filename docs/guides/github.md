@@ -1,11 +1,11 @@
 ---
 title: Link a site to GitHub
-description: Open a GitHub issue for an item, and let a merged pull request or a closed issue mark the item fixed.
+description: Open a GitHub issue for a card, and let a merged pull request or a closed issue mark the card fixed.
 sidebar:
   order: 9
 ---
 
-P99 links each host to one GitHub repository, and keeps the link small: `p99 github open` opens a GitHub issue for an item, and a webhook marks the item fixed when a pull request that names it merges or its issue is closed. Nothing else syncs.
+P99 links each host to one GitHub repository, and keeps the link small: `p99 github open` opens a GitHub issue for a card, and a webhook marks the card fixed when a pull request that names it merges or its issue is closed. Nothing else syncs.
 
 ## 1. Make a token
 
@@ -30,9 +30,9 @@ webhook 501 on acme/shop sends pull requests and issues to https://example.com/_
 
 It checks that the token sees the repository, puts the token and a new random webhook secret into the Worker as secrets (never into the config), and adds or updates the repository's webhook: JSON, the events Issues and Pull requests, signed with that secret. Running it again makes a new secret and updates the webhook. Each host has its own token and secret, so two hosts can point at two owners' repositories.
 
-`p99 github show` lists the linked hosts (`--json` for scripts). `p99 github off example.com` removes the webhook, the link and both secrets; the links already on items stay.
+`p99 github show` lists the linked hosts (`--json` for scripts). `p99 github off example.com` removes the webhook, the link and both secrets; the links already on cards stay.
 
-## 3. Open an issue for an item
+## 3. Open an issue for a card
 
 ```sh
 p99 github open BUG-12
@@ -42,11 +42,11 @@ p99 github open BUG-12
 BUG-12: opened https://github.com/acme/shop/issues/88
 ```
 
-The issue takes the item's title, and its body holds only the item's key and its link (the page with `#p99=BUG-12`, which opens the panel on that item). The reporter's e-mail, the details and internal notes stay in P99. Running it again prints the same issue.
+The issue takes the card's title, and its body holds only the card's key and its link (the page with `#p99=BUG-12`, which opens the panel on that card). The e-mail of the person who filed it, the details and internal notes stay in P99. Running it again prints the same issue.
 
 ## 4. Fix by pull request
 
-Name the item in the pull request's title, description or commits, with the trailers `p99 announce` reads:
+Name the card in the pull request's title, description or commits, with the trailers `p99 announce` reads:
 
 ```text
 Keep the cart total in step after a remove
@@ -55,12 +55,12 @@ Fixes: BUG-12
 Refs: FEAT-7
 ```
 
-- When a pull request with `Fixes: BUG-12` **merges**, P99 moves BUG-12 to Done with the resolution fixed, as an Owner's move would: an event on the item, a live update, and the reporter's status mail when mail is on.
-- When an issue opened with `p99 github open` is **closed** as completed, its item is marked the same way. An issue closed with the reason `not_planned` or `duplicate` changes nothing.
-- `Refs:` only records the pull request on the item.
+- When a pull request with `Fixes: BUG-12` **merges**, P99 moves BUG-12 to Done with the resolution fixed, as an Owner's move would: an event on the card, a live update, and the status mail to the person who filed it when mail is on.
+- When an issue opened with `p99 github open` is **closed** as completed, its card is marked the same way. An issue closed with the reason `not_planned` or `duplicate` changes nothing.
+- `Refs:` only records the pull request on the card.
 
-Only items of the host the webhook belongs to are touched; a key of another host is skipped. Each delivery is checked against the `X-Hub-Signature-256` signature and counted once by its delivery id, so a redelivery from GitHub does nothing. Every other event is answered 204 and ignored.
+Only cards of the host the webhook belongs to are touched; a key of another host is skipped. Each delivery is checked against the `X-Hub-Signature-256` signature and counted once by its delivery id, so a redelivery from GitHub does nothing. Every other event is answered 204 and ignored.
 
 ## Where the links show
 
-`p99 show` lists an item's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to Owners. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but an Owner.
+`p99 show` lists a card's GitHub issue and pull requests, the TUI shows a "GitHub" line in the thread, and the panel shows them to Owners. In JSON, an issue's `github` is `[{"kind":"issue"|"pull","rel":"opened"|"fixes"|"refs","repo","number","url","at"}]`, empty for anyone but an Owner.

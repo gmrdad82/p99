@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install the p99 binary on Linux, macOS or Windows through WSL, then set up a space and file the first item.
+description: Install the p99 binary on Linux, macOS or Windows through WSL, then set up a space and file the first card.
 sidebar:
   order: 2
 ---

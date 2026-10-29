@@ -1,11 +1,11 @@
 ---
 title: Let agents work the inbox
-description: Let a coding agent read and answer items as you, marked with 🤖 everywhere it acts, using --agent or P99_AGENT and the JSON output.
+description: Let a coding agent read and answer cards as you, marked with 🤖 everywhere it acts, using --agent or P99_AGENT and the JSON output.
 sidebar:
   order: 5
 ---
 
-An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same space key. What it writes is marked: its items, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (pci)` in `p99 show`, `via pci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
+An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same space key. What it writes is marked: its cards, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (pci)` in `p99 show`, `via pci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
 
 ## Mark an agent's commands
 
@@ -23,7 +23,7 @@ Any one of these marks the commands:
 
 ```sh
 export P99_AGENT=reviewer
-p99 comment BUG-8 "Found it: the search field remounts on each keystroke."
+p99 card comment BUG-8 "Found it: the search field remounts on each keystroke."
 ```
 
 ```text
@@ -31,7 +31,7 @@ p99 comment BUG-8 "Found it: the search field remounts on each keystroke."
 Found it: the search field remounts on each keystroke.
 ```
 
-Only the CLI's and the TUI's signed requests carry the mark; the browser panel never does. The mark and its label are kept on every item, comment and event, and in an import. Agents can also keep a plan of work as cards: see [the cards guide](cards.md).
+Only the CLI's and the TUI's signed requests carry the mark; the browser panel never does. The mark and its label are kept on every card, comment and event, and in an import. Agents can also file cards and keep a plan of work with them: see [the cards guide](cards.md). A card an agent files with `p99 card new` and no `--page` is on no page.
 
 ## Read and answer as JSON
 
@@ -40,19 +40,19 @@ Every command takes `--json`, which prints one JSON document on standard output 
 ```sh
 p99 list --all --json | jq -r '.issues[] | select(.unread) | .key'
 p99 show BUG-11 --json
-p99 comment BUG-11 "The cart reads the total once and never again after a remove." --internal --json
-p99 move BUG-11 --to Doing --json
+p99 card comment BUG-11 "The cart reads the total once and never again after a remove." --internal --json
+p99 card move BUG-11 --to in-progress --json
 p99 assign BUG-11 me --json
 p99 edit Q-4 --title "Which grind sizes does the chart cover?" --text-file q4.md --json
 ```
 
-`p99 edit` changes an item's title or details (`--text`, or `--text-file` with `-` for standard input); the item's history keeps the old and new text, and no one is mailed, so a batch of edits stays quiet.
+`p99 edit` changes a card's title or details (`--text`, or `--text-file` with `-` for standard input); the card's history keeps the old and new text, and no one is mailed, so a batch of edits stays quiet.
 
-The objects are described field by field in [the API reference](../reference/formats.md#items): a summary in a list carries `key`, `kind`, `status` (with `resolution` once done), `board`, `title`, `host`, `env`, the `page`, the `reporter` (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
+The objects are described field by field in [the API reference](../reference/formats.md#cards): a summary in a list carries `key`, `kind`, `status` (with `resolution` once done), `board`, `title`, `host`, `env`, the `page`, the `reporter`, who filed it (with `agent`), `unread` and `landing`; a thread adds the body, the comments, the files and the events, where `agent` is `true` on what an agent did.
 
 ## React to changes as they happen
 
-`p99 watch --json` keeps a WebSocket open to the Worker and prints one JSON event per line on standard output for each new item, comment, change and file, until it is stopped. `--host` limits it to one host's items. It sends a keepalive every 30 seconds and reconnects by itself after a drop, saying so on standard error; changes made while it was away are not replayed, so read the list again after a reconnect.
+`p99 watch --json` keeps a WebSocket open to the Worker and prints one JSON event per line on standard output for each new card, comment, change and file, until it is stopped. `--host` limits it to one host's cards. It sends a keepalive every 30 seconds and reconnects by itself after a drop, saying so on standard error; changes made while it was away are not replayed, so read the list again after a reconnect.
 
 ```sh
 p99 watch --host shop.example.com --json | while read -r event; do
@@ -65,12 +65,12 @@ done
 {"type":"item","key":"BUG-14","host":"shop.example.com","title":"The coupon field rejects lowercase codes","by":{"name":"Grace Hopper","agent":false},"at":"2026-10-15T09:30:00.000Z"}
 ```
 
-Each event has `type` (`item`, `comment`, `change`, `attachment`, `import`, and for boards `label`, `order`, `board` and `labels`), `key`, `host`, `title`, `by` (`name` and `agent`) and `at`; [the API reference](../reference/formats.md#live-events) lists the rest. A Worker not deployed since live updates came answers `p99: this Worker has no push yet; run p99 deploy`, with exit code 1.
+Each event has `type` (`item` for a new card, `comment`, `change`, `attachment`, `import`, and for boards `label`, `order`, `board` and `labels`), `key`, `host`, `title`, `by` (`name` and `agent`) and `at`; [the API reference](../reference/formats.md#live-events) lists the rest. A Worker not deployed since live updates came answers `p99: this Worker has no push yet; run p99 deploy`, with exit code 1.
 
 ## Exit codes
 
 - `0`: done.
-- `1`: refused or failed after the command was understood; one line on standard error, `p99: <why>`, such as `p99: cart is not an item key; try BUG-12 or 12`.
+- `1`: refused or failed after the command was understood; one line on standard error, `p99: <why>`, such as `p99: only a person closes a card`.
 - `2`: the command line could not be parsed; standard error carries clap's message and the usage line.
 
 ## Point an agent at its tools
@@ -78,10 +78,11 @@ Each event has `type` (`item`, `comment`, `change`, `attachment`, `import`, and 
 Tell the agent what it may do in its own instructions, for example:
 
 ```text
-P99 is the issue tracker. Read items with `p99 list --all --json` and `p99 show <KEY> --json`.
-Answer with `p99 comment <KEY> "<text>"`, internal notes with --internal.
-Set an item's label with `p99 move <KEY> --to <label>`; move it to a closing label such as Done only once its fix has landed.
-Name items in commits with `Fixes: BUG-12` or `Refs: FEAT-3` trailers.
+P99 holds the cards. Read them with `p99 list --all --json` and `p99 show <KEY> --json`.
+File one with `p99 card new --project <name> --title "<title>"`.
+Answer with `p99 card comment <KEY> "<text>"`, internal notes with --internal.
+Move a card with `p99 card move <KEY> --to <lane>`; leave Done to a person, once its fix has landed.
+Name cards in commits with `Fixes: BUG-12` or `Refs: FEAT-3` trailers.
 ```
 
-[Announce builds and landings](announce.md) explains the trailers: with them, each item shows when its fix reaches dev and production.
+[Announce builds and landings](announce.md) explains the trailers: with them, each card shows when its fix reaches dev and production.
