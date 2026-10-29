@@ -2,6 +2,19 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.8 — 2026-10-29
+
+### Changed
+
+- An agent acting for a person can move a card to Done and close it as fixed, abandoned or duplicate, as the person can. Licence, parking and grants stay a person's.
+- The boards follow the approved drafts more closely: a web card shows its project and its assignee's face on its last row, the web board's header shows how many cards are done with a small bar, and a narrow TUI card still names its assignee and project (`@ada…`, `Storefr…`) instead of a lone `…`.
+- The README and docs images show today's P99: cards everywhere, the polished boards and the two counts on ⋯.
+
+### Fixed
+
+- The pop-up board, the panel and the P99 page keep one theme even before their background texture loads: a dark-mode board no longer shows dark cards on a light blue background, and the title and LIVE stay readable.
+- `p99 watch` prints a new card as `card`.
+
 ## v1.13.7 — 2026-10-29
 
 ### Changed
