@@ -103,15 +103,15 @@ relink() {
   sed -E \
     -e "s#\\[(docs/)?api\\.md\\]#[the HTTP API]#g" \
     -e "s#\\[(docs/)?config\\.md\\]#[the configuration]#g" \
-    -e "s#\\[(docs/)?import\\.md\\]#[Importing items]#g" \
+    -e "s#\\[(docs/)?import\\.md\\]#[Importing cards]#g" \
     -e "s#\\[(docs/)?hosts\\.md\\]#[the host reference]#g" \
     -e "s#\\]\\((docs/)?api\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#the-http-api)#g" \
     -e "s#\\]\\((docs/)?config\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#configuration)#g" \
-    -e "s#\\]\\((docs/)?import\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#importing-items)#g" \
+    -e "s#\\]\\((docs/)?import\\.md(\\#[^)]*)?\\)#](${up}reference/formats.md\\#importing-cards)#g" \
     -e "s#\\]\\((docs/)?hosts\\.md(\\#[^)]*)?\\)#](${up}reference/hosts.md\\2)#g" \
     -e "s#(^|[^[/])docs/api\\.md#\\1[the HTTP API](${up}reference/formats.md\\#the-http-api)#g" \
     -e "s#(^|[^[/])docs/config\\.md#\\1[the configuration](${up}reference/formats.md\\#configuration)#g" \
-    -e "s#(^|[^[/])docs/import\\.md#\\1[Importing items](${up}reference/formats.md\\#importing-items)#g" \
+    -e "s#(^|[^[/])docs/import\\.md#\\1[Importing cards](${up}reference/formats.md\\#importing-cards)#g" \
     -e "s#(^|[^[/])docs/hosts\\.md#\\1[the host reference](${up}reference/hosts.md)#g" \
     -e "s#\\]\\(CHANGELOG\\.md\\)#](${up}changelog.md)#g" \
     -e "s#\\]\\((LICENSE|NOTICE|TRADEMARKS\\.md|SECURITY\\.md|CODE_OF_CONDUCT\\.md)\\)#](${repo}/\\1)#g" \
@@ -191,7 +191,7 @@ grep -q '^## p99 ' "$out/reference/cli.md" || fail "$bin docs-cli printed no com
   echo
   body 1 1 < docs/config.md
   echo
-  echo "## Importing items"
+  echo "## Importing cards"
   echo
   body 1 1 < docs/import.md
   echo

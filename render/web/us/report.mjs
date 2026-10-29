@@ -234,7 +234,7 @@ export default async function (kit) {
       const title = tag("One more today");
       await write(p, title, "It still happens.");
       await p.locator(SEND).click();
-      await waitStatus(p, /today's limit of 30 items/);
+      await waitStatus(p, /today's limit of 30 cards/);
       assert.equal(await p.locator(TITLE).inputValue(), title, "the title is kept");
       assert.equal(await p.locator(S(".p99-new textarea[name=body]")).inputValue(), "It still happens.", "the text is kept");
       assert.ok(!(await p.locator(SEND).isDisabled()), "Send works again");

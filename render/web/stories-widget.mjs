@@ -400,9 +400,9 @@ try {
     await write(p, title);
     const started = Date.now();
     await p.locator(SEND).click();
-    await waitStatus(p, /today's limit of 30 items/);
+    await waitStatus(p, /today's limit of 30 cards/);
     const took = Date.now() - started;
-    check("the status line names the limit", /today's limit of 30 items/.test(await statusLine(p)));
+    check("the status line names the limit", /today's limit of 30 cards/.test(await statusLine(p)));
     check("the title is kept", (await p.locator(TITLE).inputValue()) === title);
     check("Send works again", !(await p.locator(SEND).isDisabled()));
     check("no Retry is offered for a limit that holds all day", !(await p.locator(RETRY).isVisible()));
