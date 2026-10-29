@@ -326,7 +326,7 @@ fn story_the_owner_must_keep_agency_and_the_hidden_link_on_every_build_through_9
         for built in ["2026-10-21", "2099-01-01", FOREVER] {
             let state = claims.state(Some(built));
             assert_eq!(state, State::Owner, "{tier} {built}");
-            assert_eq!(state.label(), "Owner");
+            assert_eq!(state.label(), "Agency");
             assert!(state.may_hide_link());
             assert_eq!(state.link_binding(), "hideable");
         }

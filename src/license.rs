@@ -128,7 +128,7 @@ impl State {
             State::Free => "Free",
             State::Studio => "Studio",
             State::Agency => "Agency",
-            State::Owner => "Owner",
+            State::Owner => "Agency",
             State::Ff => "F&F",
         }
     }
@@ -687,6 +687,7 @@ mod tests {
             assert!(claims.state(Some(built)).may_hide_link());
         }
         assert_eq!(State::Owner.word(), "owner");
+        assert_eq!(State::Owner.label(), "Agency");
         assert_eq!(State::Owner.link_binding(), "hideable");
     }
 

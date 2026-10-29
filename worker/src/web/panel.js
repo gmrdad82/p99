@@ -9,7 +9,7 @@ const BUSY_EVERY_S = 30;
 const BUSY_GIVE_UP_MS = 10000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const PITOMD = "https://pitomd.com";
-const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
+const BADGES = { free: "Free", studio: "Studio", agency: "Agency", ff: "F&F" };
 const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
@@ -465,8 +465,9 @@ function brand() {
   const plain = !o.space && !!me && me.licensed === true;
   const by = plain || (me && me.link === false) ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
   const lockup = plain ? null : h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
-  const state = me && Object.hasOwn(BADGES, me.license) ? me.license : "free";
-  const badge = me ? h("img", { class: "p99-badge", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 47 }) : null;
+  const shown = me && me.license === "owner" ? "agency" : me && me.license;
+  const state = Object.hasOwn(BADGES, shown) ? shown : "free";
+  const badge = me ? h("img", { class: "p99-badge", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 24 }) : null;
   const tags = badge || by ? h("div", { class: "p99-tags" }, badge, by) : null;
   return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.title || o.space }) : null, tags);
 }
