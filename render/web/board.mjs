@@ -22,6 +22,7 @@ export const USER_CODE = "boardvisit01";
 const VIEW = { width: 1440, height: 900 };
 const SIZES = [["360", { width: 360, height: 780 }], ["411", { width: 411, height: 860 }], ["1440", VIEW]];
 const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
+const STRICT = "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const ADA = { name: "Ada Lovelace", email: "ada@example.com", username: "ada.lovelace" };
 const GRACE = { name: "Grace Hopper", email: "grace@example.com", username: "grace.hopper" };
 const LIN = { name: "Lin Okafor", email: "lin@example.com", username: "lin.okafor" };
@@ -133,6 +134,16 @@ function api(method, path, body, owner) {
 }
 
 function serveFile(res, path) {
+  if (path === "/strict" || path === "/host.css") {
+    const page = readFileSync(join(here, "site", "checkout.html"), "utf8");
+    const css = /<style>([\s\S]*?)<\/style>/.exec(page)[1] + "\n* { scrollbar-width: thin; scrollbar-color: #8a8f98 transparent; }\n*::-webkit-scrollbar { width: 6px; height: 6px; }\n";
+    if (path === "/host.css") {
+      res.writeHead(200, { "content-type": TYPES[".css"], "cache-control": "no-cache" });
+      return res.end(css);
+    }
+    res.writeHead(200, { "content-type": TYPES[".html"], "content-security-policy": STRICT, "cache-control": "no-cache" });
+    return res.end(page.replace(/<style>[\s\S]*?<\/style>/, '<link rel="stylesheet" href="/host.css">'));
+  }
   let full = null;
   if (path === "/" || path === "/checkout") full = join(here, "site", "checkout.html");
   else if (path.startsWith("/_p99/")) full = join(web, path.slice(6));
@@ -283,11 +294,12 @@ export function openShadow() {
   };
 }
 
-export function launch() {
+export function launch(bars = false) {
   return chromium.launch({
     executablePath: "/usr/bin/chromium",
     env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
-    args: [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${PORT}`, `--unsafely-treat-insecure-origin-as-secure=${ORIGIN}`, "--hide-scrollbars", "--font-render-hinting=none"],
+    args: [`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${PORT}`, `--unsafely-treat-insecure-origin-as-secure=${ORIGIN}`, ...(bars ? [] : ["--hide-scrollbars"]), "--font-render-hinting=none"],
+    ignoreDefaultArgs: bars ? ["--hide-scrollbars"] : [],
   });
 }
 
@@ -303,7 +315,7 @@ export async function board(browser, back, opts = {}) {
     const u = new URL(r.url());
     if (u.pathname.startsWith("/_p99/api/")) seen.push({ method: r.method(), path: u.pathname.slice(9), query: u.search, body: r.postData() ? JSON.parse(r.postData()) : null });
   });
-  await p.goto(`${ORIGIN}/checkout#p99=${back.code}`);
+  await p.goto(`${ORIGIN}/${opts.strict ? "strict" : "checkout"}#p99=${back.code}`);
   await p.waitForFunction(() => {
     const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button:not(.f)");
     return b && !b.hidden;
@@ -850,7 +862,7 @@ async function check(back) {
     assert.deepEqual(errors, []);
 
     const quiet = await board(browser, back, { motion: "reduce" });
-    await drag(quiet.p, K("IMP-6"), K("FEAT-5"));
+    await drag(quiet.p, K("IMP-6"), K("BUG-7"));
     const running = await R(quiet.p, () => document.querySelector("p99-root").shadowRoot.getAnimations().filter((a) => a.effect.getTiming().iterations !== Infinity).map((a) => `${a.animationName || a.transitionProperty || a.id} on ${a.effect.target?.className}`));
     await quiet.p.mouse.up();
     assert.deepEqual(running, []);
@@ -890,6 +902,65 @@ async function check(back) {
     assert.match(crossing.transition, /^0s(, 0s)*$/, `cards run no transitions while a card is held (${crossing.transition})`);
     await lanes.ctx.close();
     ok("a drag across long lanes animates only the rows in view and turns card transitions off until the drop");
+
+    const barred = await launch(true);
+    try {
+      for (const view of [{ width: 1245, height: 1290 }, { width: 1024, height: 768 }, { width: 800, height: 600 }, { width: 390, height: 844 }]) {
+        for (const scheme of ["light", "dark"]) {
+          const at = `${view.width}x${view.height} ${scheme}`;
+          const s = await board(barred, back, { view, scheme, touch: view.width < 600, strict: true });
+          const cols = () => R(s.p, () => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft);
+          const lane = (word) => R(s.p, (w) => {
+            const l = document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-word=${w}] .p99-cards`);
+            const r = l.getBoundingClientRect();
+            return { at: [r.x + r.width / 2, r.y + r.height / 2], fits: l.scrollHeight <= l.clientHeight, top: l.scrollTop };
+          }, word);
+          const box = await R(s.p, () => {
+            const r = document.querySelector("p99-root").shadowRoot;
+            const b = r.querySelector(".p99-board").getBoundingClientRect();
+            const c = r.querySelector(".p99-cols");
+            const cb = c.getBoundingClientRect();
+            c.scrollLeft = c.scrollWidth;
+            const set = c.scrollLeft;
+            c.scrollLeft = 0;
+            const l = r.querySelector(".p99-col[data-word=planned] .p99-cards");
+            return {
+              wide: c.scrollWidth > c.clientWidth, bar: c.offsetHeight - c.clientHeight, lane: l.offsetWidth - l.clientWidth, panel: getComputedStyle(r.querySelector(".p99-panel")).scrollbarColor, nulls: Array.from(r.querySelectorAll(".p99-card"), (e) => e.textContent).filter((x) => x.endsWith("null")).length,
+              inside: cb.bottom < b.bottom && cb.left >= b.left && cb.right <= b.right, window: b.top >= 0 && b.left >= 0 && b.bottom <= innerHeight && b.right <= innerWidth, set,
+            };
+          });
+          assert.ok(box.wide && box.bar === 8 && box.lane > 0 && box.lane <= 8 && box.panel === "auto" && box.nulls === 0 && box.inside && box.window && box.set > 0, `${at}: ${JSON.stringify(box)}`);
+          const fresh = await lane("new");
+          assert.ok(fresh.fits, `${at}: the New lane fits its cards`);
+          await s.p.mouse.move(...fresh.at);
+          await s.p.mouse.wheel(0, 300);
+          await s.p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft > 0);
+          await R(s.p, () => {
+            const c = document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols");
+            const col = c.querySelector(".p99-col[data-word=planned]");
+            c.scrollLeft = Math.max(0, col.offsetLeft + col.offsetWidth / 2 - c.clientWidth / 2);
+          });
+          const x0 = await cols();
+          const full = await lane("planned");
+          assert.ok(!full.fits && full.top === 0, `${at}: the Planned lane overflows`);
+          await s.p.mouse.move(...full.at);
+          await s.p.mouse.wheel(0, 300);
+          await s.p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-col[data-word=planned] .p99-cards").scrollTop > 0);
+          assert.equal(await cols(), x0, `${at}: the wheel over a full lane scrolls its cards and leaves the lanes where they are`);
+          await s.p.mouse.wheel(60, 0);
+          await s.p.waitForFunction((was) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft > was, x0);
+          const x1 = await cols();
+          await s.p.keyboard.down("Shift");
+          await s.p.mouse.wheel(0, 60);
+          await s.p.keyboard.up("Shift");
+          await s.p.waitForFunction((was) => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft > was, x1);
+          await s.ctx.close();
+        }
+      }
+    } finally {
+      await barred.close();
+    }
+    ok("1245, 1024, 800 and 390 wide, light and dark: lanes that don't fit scroll sideways by a sideways swipe or shift+wheel anywhere, and by the plain wheel where no lane can scroll; a full lane still scrolls its cards; on a strict-CSP host whose * rule sets scrollbar-color, the lane and lanes bars stay P99's 8px bars, inside the dialog");
 
     for (const [size, view] of SIZES) {
       for (const scheme of ["light", "dark"]) {

@@ -485,8 +485,14 @@ async function check(back) {
       return { wide: document.documentElement.scrollWidth <= innerWidth, tall: document.documentElement.scrollHeight <= innerHeight, lanes: cols.scrollWidth > cols.clientWidth };
     });
     assert.deepEqual(fit, { wide: true, tall: true, lanes: true }, "the lanes scroll inside the board and the page itself never scrolls");
+    const head = await g.p.evaluate(() => { const r = document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-col-head").getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; });
+    await g.p.mouse.move(...head);
+    await g.p.mouse.wheel(0, 300);
+    await g.p.waitForFunction(() => document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-cols").scrollLeft > 0);
+    assert.deepEqual(await g.p.evaluate(() => [scrollX, scrollY]), [0, 0], "the wheel moves the lanes, not the page");
+    await g.p.evaluate(() => { document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-cols").scrollLeft = 0; });
     ok("an Owner's space opens on the board with its projects and their sites as the narrowing, under the page's own header");
-    ok("the board's lanes scroll sideways inside the board, so the page has no scrollbars of its own");
+    ok("the board's lanes scroll sideways inside the board, the plain wheel over a lane head moves them, and the page has no scrollbars of its own");
 
     const narrowed = g.p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/board");
     await g.p.click('.app-project[data-name="Docs"]');

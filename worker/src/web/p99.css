@@ -113,8 +113,8 @@
 .p99-panel a { color: inherit; }
 .p99-panel img { max-width: 100%; }
 .p99-panel code { font: var(--p99-text-xs) var(--p99-font-mono); }
-.p99-panel,
-@supports not selector(::-webkit-scrollbar) { .p99-panel * { scrollbar-width: thin; scrollbar-color: var(--p99-scroll-thumb) transparent; } }
+.p99-panel { scrollbar-color: auto; }
+@supports not selector(::-webkit-scrollbar) { .p99-panel, .p99-panel * { scrollbar-width: thin; scrollbar-color: var(--p99-scroll-thumb) transparent; } }
 .p99-panel ::-webkit-scrollbar { width: 8px; height: 8px; }
 .p99-panel ::-webkit-scrollbar-track,
 .p99-panel ::-webkit-scrollbar-corner { background: transparent; }

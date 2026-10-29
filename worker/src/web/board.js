@@ -42,10 +42,12 @@ const CSS = `
 .p99-board .p99-x{flex:none;display:grid;place-items:center;width:40px;height:40px;padding:0;border:1px solid color-mix(in srgb,currentColor 35%,transparent);border-radius:var(--p99-radius-full);background:transparent;color:var(--p99-ink);font:var(--p99-weight-medium) var(--p99-text-xl)/1 var(--p99-font-text);cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out),border-color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
 @media (hover:hover){.p99-board .p99-x:hover{border-color:var(--p99-ink);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
 .p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
-.p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);padding:var(--p99-space-md) var(--p99-space-xl) var(--p99-space-xl);overflow-x:auto}
+.p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);margin-bottom:var(--p99-space-md);padding:var(--p99-space-md) var(--p99-space-xl);overflow-x:auto;overscroll-behavior-x:contain}
+.p99-board{scrollbar-color:auto}
 @supports not selector(::-webkit-scrollbar){.p99-cols,.p99-cards{scrollbar-width:thin;scrollbar-color:var(--p99-scroll-thumb) transparent}}
 .p99-cols::-webkit-scrollbar,.p99-cards::-webkit-scrollbar{width:8px;height:8px}
 .p99-cols::-webkit-scrollbar-track,.p99-cards::-webkit-scrollbar-track{background:transparent}
+.p99-cols::-webkit-scrollbar-track{margin:0 var(--p99-space-xl)}
 .p99-cols::-webkit-scrollbar-thumb,.p99-cards::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:var(--p99-radius-full);background:var(--p99-scroll-thumb) padding-box}
 .p99-board.is-page{position:relative;inset:auto;z-index:auto;flex:1;min-height:0;width:100%;height:100%;border-radius:0;box-shadow:none;transform:none;opacity:1}
 .p99-board.is-page::after{box-shadow:none}
@@ -59,7 +61,7 @@ const CSS = `
 .p99-col-head h3{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase}
 .p99-count{padding:0 var(--p99-space-sm);border-radius:var(--p99-radius-full);background:var(--p99-raised);color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1.6 var(--p99-font-text)}
 .p99-col.is-target{background:color-mix(in srgb,var(--p99-accent) 10%,color-mix(in srgb,var(--p99-ink) 6%,transparent));box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--p99-accent-line) 55%,transparent),inset 0 2px 4px rgba(12,26,43,.22)}
-.p99-cards{position:relative;flex:1;min-height:48px;margin:0;padding:var(--p99-space-xs) var(--p99-space-md) var(--p99-space-md);list-style:none;display:flex;flex-direction:column;gap:var(--p99-space-sm);overflow-y:auto;overscroll-behavior:contain}
+.p99-cards{position:relative;flex:1;min-height:48px;margin:0;padding:var(--p99-space-xs) var(--p99-space-md) var(--p99-space-md);list-style:none;display:flex;flex-direction:column;gap:var(--p99-space-sm);overflow-y:auto;overscroll-behavior:auto contain}
 .p99-cards:empty::after{content:attr(data-empty);padding:var(--p99-space-lg) 0;color:var(--p99-muted);font-size:var(--p99-text-sm);text-align:center}
 .p99-card{position:relative;contain:layout paint;display:grid;gap:var(--p99-space-sm);padding:var(--p99-space-md);border:1px solid var(--p99-control);border-radius:var(--p99-radius-md);background:var(--p99-raised);color:var(--p99-ink);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 2px rgba(12,26,43,.18);cursor:grab;user-select:none;-webkit-user-select:none;touch-action:manipulation;transition:border-color var(--p99-motion-hover-out) var(--p99-ease-in-out),box-shadow var(--p99-motion-hover-out) var(--p99-ease-in-out),scale var(--p99-motion-base) var(--p99-ease-enter)}
 .p99-board[data-mine=false] .p99-card{cursor:pointer;user-select:auto;-webkit-user-select:auto}
@@ -87,7 +89,7 @@ const CSS = `
 .p99-col-wait .p99-cards .p99-shimmer{flex:none;height:72px;border-radius:var(--p99-radius-md)}
 .p99-board-note{position:absolute;left:50%;bottom:var(--p99-space-lg);translate:-50% 0;max-width:min(560px,90%);padding:var(--p99-space-sm) var(--p99-space-lg);border-radius:var(--p99-radius-sm);background:var(--p99-ink);color:var(--p99-base);font-size:var(--p99-text-sm);animation:p99-fade var(--p99-motion-base) var(--p99-ease-enter) both}
 .p99-board .p99-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-@media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo{display:none}.p99-live{font-size:0;gap:0}}
+@media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo{display:none}.p99-live{font-size:0;gap:0}}
 @media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-col{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
 `;
 
@@ -159,6 +161,18 @@ function build(root) {
   B.el.addEventListener("pointerdown", press);
   B.el.addEventListener("click", tap);
   B.el.addEventListener("touchmove", (e) => { if (B.drag && B.drag.up) e.preventDefault(); }, { passive: false });
+  B.cols.addEventListener("wheel", wheel, { passive: false });
+}
+
+function wheel(e) {
+  const dy = e.deltaY, c = B.cols;
+  if (e.ctrlKey || !dy || Math.abs(e.deltaX) >= Math.abs(dy)) return;
+  const list = e.target.closest && e.target.closest(".p99-cards");
+  if (list && (dy > 0 ? list.scrollTop + list.clientHeight < list.scrollHeight - 1 : list.scrollTop > 0)) return;
+  const x = c.scrollLeft;
+  if (dy > 0 ? x >= c.scrollWidth - c.clientWidth - 1 : x <= 0) return;
+  e.preventDefault();
+  c.scrollLeft = x + dy * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? c.clientWidth : 1);
 }
 
 function show() {
@@ -303,7 +317,7 @@ function card(c) {
   if (c.host) e.dataset.host = c.host;
   if (c.project) e.dataset.project = c.project;
   const a = person(c.assignee);
-  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : null);
+  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : "");
   e.setAttribute("aria-label", c.key + ", " + c.title + (c.project ? ", " + c.project : "") + (a && a.username ? ", " + handle(a) : ""));
   return e;
 }
