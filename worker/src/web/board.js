@@ -5,6 +5,7 @@ const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
 const WORDS = {
   board: "Board",
   filtered: "showing {what}",
+  rollup: "{done} of {total} done",
   close_board: "Close the board",
   new_card: "New card",
   live: "Live",
@@ -36,6 +37,8 @@ const CSS = `
 .p99-board-name{position:relative;display:flex;flex-direction:column;align-items:flex-start;min-width:0;flex:0 1 auto}
 .p99-board-name h2{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:var(--p99-weight-bold) var(--p99-text-xl)/var(--p99-leading-tight) var(--p99-font-display)}
 .p99-board-filter{margin:0;color:var(--p99-muted);font-size:var(--p99-text-xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p99-roll{flex:none;display:inline-flex;align-items:center;gap:var(--p99-space-sm);color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono)}
+.p99-roll::after{content:"";width:72px;height:6px;border-radius:var(--p99-radius-full);background:linear-gradient(var(--p99-status-validated),var(--p99-status-validated)) 0/var(--done,0%) 100% no-repeat,color-mix(in srgb,var(--p99-ink) 18%,transparent)}
 .p99-live{flex:none;display:inline-flex;align-items:center;gap:var(--p99-space-sm);margin-left:auto;color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-text);letter-spacing:var(--p99-tracking-caps);text-transform:uppercase;white-space:nowrap}
 .p99-live::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--p99-rule)}
 .p99-live[data-state=live]::before{background:var(--p99-status-validated);box-shadow:0 0 0 3px color-mix(in srgb,var(--p99-status-validated) 22%,transparent)}
@@ -75,8 +78,9 @@ const CSS = `
 .p99-card-top{display:flex;align-items:center;gap:var(--p99-space-sm);min-width:0}
 .p99-card .p99-key{font:var(--p99-weight-bold) var(--p99-text-xs) var(--p99-font-mono);letter-spacing:.02em;color:var(--p99-muted)}
 .p99-card-title{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-weight:var(--p99-weight-medium);font-size:var(--p99-text-sm);line-height:var(--p99-leading-snug)}
-.p99-card-top .p99-who{margin-left:auto}
-.p99-card-project{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xs) var(--p99-font-text)}
+.p99-card-foot{display:flex;align-items:center;gap:var(--p99-space-sm);min-width:0}
+.p99-card-foot .p99-who{margin-left:auto}
+.p99-card-project{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xs) var(--p99-font-text)}
 .p99-who{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;overflow:hidden;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1 var(--p99-font-text)}
 .p99-who>*{display:block;width:100%;height:100%;object-fit:cover}
 .p99-who:has(>*){border-color:var(--p99-rule);background:var(--p99-raised)}
@@ -93,12 +97,12 @@ const CSS = `
 .p99-col-wait .p99-cards .p99-shimmer{flex:none;height:72px;border-radius:var(--p99-radius-md)}
 .p99-board-note{position:absolute;left:50%;bottom:var(--p99-space-lg);translate:-50% 0;max-width:min(560px,90%);padding:var(--p99-space-sm) var(--p99-space-lg);border-radius:var(--p99-radius-sm);background:var(--p99-ink);color:var(--p99-base);font-size:var(--p99-text-sm);animation:p99-fade var(--p99-motion-base) var(--p99-ease-enter) both}
 .p99-board .p99-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-@media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo{display:none}.p99-live{font-size:0;gap:0}}
+@media (max-width:599px){.p99-board{inset:0;border-radius:0}.p99-board-head{gap:var(--p99-space-sm);padding-left:var(--p99-space-lg)}.p99-cols{grid-template-columns:repeat(var(--n),minmax(78vw,1fr));scroll-snap-type:x mandatory;padding:var(--p99-space-sm) var(--p99-space-lg)}.p99-col{scroll-snap-align:center}.p99-board .p99-logo,.p99-roll::after{display:none}.p99-live{font-size:0;gap:0}}
 @media (prefers-reduced-motion:reduce){.p99-board{transform:none;transition-duration:var(--p99-motion-fast)}.p99-card,.p99-col{transition:none}.p99-board-state{animation:none}.p99-live[data-state=connecting]::before{animation:none}}
 `;
 
 const still = matchMedia("(prefers-reduced-motion: reduce)");
-const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, title: null, filter: null, live: null, say: null, note: null, data: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
+const B = { open: false, root: null, ctx: null, el: null, scrim: null, cols: null, title: null, filter: null, roll: null, live: null, say: null, note: null, data: null, seq: 0, quiet: 0, stale: false, drag: null, ws: null, tries: 0, timer: 0, reload: 0, focus: null };
 
 export function open(ctx) {
   if (B.el && B.root !== ctx.root) {
@@ -150,13 +154,14 @@ function build(root) {
   B.scrim = h("div", { class: "p99-board-scrim", hidden: true, onclick: () => close() });
   B.title = h("h2", { id: "p99-board-title", text: t("board") });
   B.filter = h("p", { class: "p99-board-filter", hidden: true });
+  B.roll = h("span", { class: "p99-roll", hidden: true });
   B.live = h("span", { class: "p99-live", "data-state": "off", text: t("offline_live") });
   B.cols = h("div", { class: "p99-cols" });
   B.say = h("p", { class: "p99-sr", role: "status", "aria-live": "assertive" });
   const add = typeof B.ctx.add === "function" ? h("button", { type: "button", class: "p99-board-new", onclick: (e) => B.ctx.add(e.currentTarget) }, h("b", { "aria-hidden": "true", text: "+" }), t("new_card")) : null;
   const x = stay ? null : h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   B.el = h("div", { class: stay ? "p99-board is-page" : "p99-board", role: stay ? "region" : "dialog", "aria-modal": stay ? null : "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
-    h("header", { class: "p99-board-head" }, stay ? null : h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, add, x),
+    h("header", { class: "p99-board-head" }, stay ? null : h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.roll, B.live, add, x),
     B.cols,
     h("p", { class: "p99-sr", id: "p99-drag-help", text: t("drag_help") }),
     B.say);
@@ -323,13 +328,24 @@ function card(c) {
   if (c.host) e.dataset.host = c.host;
   if (c.project) e.dataset.project = c.project;
   const a = person(c.assignee);
-  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : "");
+  const by = who(a);
+  e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key })), h("b", { class: "p99-card-title", text: c.title }), c.project || by ? h("div", { class: "p99-card-foot" }, c.project ? h("span", { class: "p99-card-project", text: c.project }) : null, by) : "");
   e.setAttribute("aria-label", c.key + ", " + c.title + (c.project ? ", " + c.project : "") + (a && a.username ? ", " + handle(a) : ""));
   return e;
 }
 
 function counts() {
-  for (const col of B.cols.querySelectorAll(".p99-col[data-label]")) col.querySelector(".p99-count").textContent = col.querySelectorAll(".p99-card").length;
+  let done = 0, total = 0;
+  for (const col of B.cols.querySelectorAll(".p99-col[data-label]")) {
+    const n = col.querySelectorAll(".p99-card").length;
+    col.querySelector(".p99-count").textContent = n;
+    total += n;
+    if (col.hasAttribute("data-closes")) done += n;
+  }
+  B.roll.hidden = !total;
+  B.roll.textContent = done + "/" + total;
+  B.roll.title = t("rollup", { done, total });
+  B.roll.style.setProperty("--done", (total ? Math.round((done / total) * 100) : 0) + "%");
 }
 
 function cards() { return Array.from(B.cols.querySelectorAll(".p99-card")); }
@@ -657,6 +673,7 @@ function commit(d) {
   else if (prev) body.after = prev.dataset.id;
   announce("dropped", e, { column: to });
   e.dataset.label = to;
+  counts();
   B.ctx.call("POST", "/move", JSON.stringify(body)).then((r) => {
     const c = r && r.card;
     if (c && c.order != null) e.dataset.order = String(c.order);

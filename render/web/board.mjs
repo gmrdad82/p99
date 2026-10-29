@@ -458,6 +458,26 @@ async function check(back) {
     assert.ok(seen.some((c) => c.method === "GET" && c.path === "/board") && !seen.some((c) => c.path.startsWith("/boards")));
     ok("the Board button opens the one board from /board: seven lanes in order, no picker, no /boards read");
 
+    const head = () => R(p, () => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      const roll = r.querySelector(".p99-roll");
+      const done = r.querySelectorAll(".p99-col[data-closes] .p99-card").length;
+      const total = r.querySelectorAll(".p99-cols .p99-card").length;
+      const feet = Array.from(r.querySelectorAll(".p99-cols .p99-card"), (e) => {
+        const foot = e.querySelector(".p99-card-foot");
+        const who = e.querySelector(".p99-who");
+        const project = e.querySelector(".p99-card-project");
+        const top = e.querySelector(".p99-card-top");
+        return { foot: !!foot, last: e.lastElementChild === foot, who: !who || who.parentElement === foot, project: !project || project.parentElement === foot, top: top.children.length, right: !who || !project || who.getBoundingClientRect().left > project.getBoundingClientRect().right };
+      });
+      return { text: roll.textContent, hidden: roll.hidden, title: roll.title, want: `${done}/${total}`, words: `${done} of ${total} done`, feet };
+    });
+    const opened = await head();
+    assert.ok(!opened.hidden && opened.text === opened.want && opened.title === opened.words, `the head counts the cards in the closing lane over every card shown: ${JSON.stringify(opened)}`);
+    assert.ok(opened.feet.every((f) => f.who && f.project && f.top === 1 && f.right && (!f.foot || f.last)), `a card's project and assignee share its last row, the face on the right: ${JSON.stringify(opened.feet.filter((f) => !(f.who && f.project && f.top === 1 && f.right)))}`);
+    assert.ok(opened.feet.some((f) => f.foot), "some cards carry a project or an assignee");
+    ok("the head shows done over all the cards shown, and a card's project and assignee sit together on its last row, the face on the right, as the approved draft has them");
+
     await p.evaluate(() => {
       self.__loaf = [];
       new PerformanceObserver((l) => self.__loaf.push(...l.getEntries().map((e) => e.duration))).observe({ type: "long-animation-frame" });
@@ -575,7 +595,13 @@ async function check(back) {
     assert.equal(moves().length, sent0 + 1);
     assert.deepEqual(lastMove(), { key: K("TASK-3"), from: "In progress", to: "done", before: done[1] });
     assert.deepEqual(await column(p, "Done"), [done[0], K("TASK-3"), ...done.slice(1)]);
-    ok("a drag that sweeps the bottom edge of a short column, then moves up, drops where the pointer is");
+    await p.waitForFunction(() => {
+      const r = document.querySelector("p99-root").shadowRoot;
+      return r.querySelector(".p99-roll").textContent === `${r.querySelectorAll(".p99-cols .p99-col[data-closes] .p99-card").length}/${r.querySelectorAll(".p99-cols .p99-card").length}`;
+    }, null, { timeout: 2000 });
+    const counted = await head();
+    assert.ok(counted.text === counted.want && parseInt(counted.text, 10) > parseInt(opened.text, 10), `a drop into Done counts in the head at once: ${opened.text} then ${counted.text}`);
+    ok("a drag that sweeps the bottom edge of a short column, then moves up, drops where the pointer is, and the head's done count follows it");
 
     const sent1 = moves().length;
     await drag(p, K("FEAT-9"), K("IMP-6"));
