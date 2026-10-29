@@ -7,7 +7,7 @@ sidebar:
 
 ![A thread in p99 tui: an item with its comments, an agent's reply and where its fix has landed](../images/thread.png)
 
-Everything people file lands in one inbox per Cloudflare account, across all its hosts. Work it in the terminal UI, or one command at a time from the CLI.
+Everything people file lands in one inbox per space, across the projects the code reaches. Work it in the terminal UI, or one command at a time from the CLI.
 
 ## Items
 

@@ -9,10 +9,11 @@ sidebar:
 
 ## 1. Add the host
 
-Every imported item belongs to one host P99 already serves:
+Every imported item belongs to one host P99 already serves, and every host belongs to a project:
 
 ```sh
-p99 hosts add example.com --env production
+p99 projects add "Example site"
+p99 hosts add example.com --project "Example site" --env production
 ```
 
 ## 2. Write the bundle
