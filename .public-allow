@@ -349,3 +349,4 @@ commit/f37aab9b9628:src/config.rs:1205 history copy of a fake reference or a pas
 commit/f37aab9b9628:src/config.rs:1206 history copy of a fake reference or a password-manager mention in tests and docs, from the 1.13.0 spaces train; reworded or waived at the tip
 commit/f37aab9b9628:src/config.rs:1236 history copy of a fake reference or a password-manager mention in tests and docs, from the 1.13.0 spaces train; reworded or waived at the tip
 commit/f37aab9b9628:src/links.rs:204 history copy of a fake reference or a password-manager mention in tests and docs, from the 1.13.0 spaces train; reworded or waived at the tip
+commit/3b2b0b3d8548:CHANGELOG.md:15 history copy of the 1.13.0 changelog line before it stopped naming password-manager tools
