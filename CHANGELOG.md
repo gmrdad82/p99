@@ -2,6 +2,30 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.0 — 2026-10-29
+
+### Changed
+
+- P99 is organised by space, project and host. A space is the Cloudflare account you deploy to, with its own name ("PITO MD"); projects live inside it; each host belongs to one project, and a report filed on a host lands in its project. Cards filed from the CLI or by an agent name a project and need no host.
+- A personal code reaches a whole space or some of its projects, never single hosts: add a host to a project and everyone on that project reaches it at once. A code can be parked, reaching nothing, without being revoked or anyone being mailed.
+- Everywhere says space where it said account: `--space` replaces `--account` (which still works for one release), and the config uses `[spaces.<name>]`, with `[accounts]` still read. `p99 spaces`, `p99 projects`, `p99 hosts add --project` and `p99 invites set` are new.
+- The P99 page opens on the space and its board, narrowed by project; the header stays put on every view, the wordmark is smaller, close buttons share one shape, the P99 mark goes home, and scrollbars are thin.
+- Set your own picture on Profile, and an Owner can paste the licence key there; the badge changes at once.
+- A host can list areas to keep out of screenshots (`p99 hosts set --mask`), or turn screenshots off (`--capture off`); masked areas never leave the browser, and anything marked `data-p99-redact` stays masked as before.
+- Setup asks where each secret comes from: a file only you can read, an environment variable, or a command such as `op read`, `pass` or `bw`. 1Password is never required.
+- A valid Studio or Agency key hides the panel's small P99 logo.
+- The TUI shows the space's name, switches space with `S`, and every filter now really filters (search, projects, Needs you, codes).
+
+### Fixed
+
+- A migration refused by its count check leaves the database exactly as the running Worker expects.
+- Dragging a card on the web board stays smooth on long lanes.
+- In dark mode on sites with a strong accent colour, the "+" and the panel keep their contrast.
+
+### Removed
+
+- The deprecated `/boards` answers and the old role names.
+
 ## v1.12.0 — 2026-10-28
 
 ### Changed

@@ -1,6 +1,6 @@
 [package]
 name = "p99"
-version = "1.12.0"
+version = "1.13.0"
 authors = ["Gamer Dad"]
 edition = "2024"
 rust-version = "1.97"
