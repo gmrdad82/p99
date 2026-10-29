@@ -649,7 +649,7 @@ function reachFor(c) {
 
 function scopeClause(c, q, alias = "i") {
   const reach = reachFor(c);
-  const sql = viewSql({ all: reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts, byHost: reach.byHost }, (v) => q.bind(v), alias);
+  const sql = viewSql({ all: reach.all && c.scope.all, host: c.scope.all || c.scope.wide ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts, byHost: reach.byHost }, (v) => q.bind(v), alias);
   return sql === "1" ? null : sql;
 }
 
@@ -3538,7 +3538,7 @@ async function browserRequest(request, env, ctx, url, path) {
   return browserRun(request, env, ctx, url, path, dir, hostRow, code, now);
 }
 
-function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
+function browserRun(request, env, ctx, url, path, dir, hostRow, code, now, wide = false) {
   const found = findRoute(BROWSER_ROUTES, request.method, path);
   if (!found) fail(404, "no such route");
   if (!code.trusted && found.route[2] !== postVerify) fail(428, "enter the 6-digit code from your authenticator app");
@@ -3555,7 +3555,7 @@ function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
     code,
     actor: { email: code.email.toLowerCase(), name: code.name, agent: false, via: null },
     manager: Boolean(code.manager) || managersOf(env).includes(code.email.toLowerCase()),
-    scope: { all: false, host: hostRow.host },
+    scope: { all: false, host: hostRow.host, wide },
     reach: code.reach ?? reachOf(grantOf(code, dir), dir),
     hostRow,
     actionEnv: hostRow.host ? hostRow.env : null,

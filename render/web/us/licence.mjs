@@ -34,8 +34,10 @@ export default async function (kit) {
     const owner = await code(kit, { name: "Ada Lovelace", email, role: "owner", totp: true });
     assert.equal(typeof owner.totp_key, "string");
     const visitor = await code(kit, { name: "Grace Hopper", email: `grace.page.${tag}@example.com`, role: "user" });
+    const reader = await code(kit, { name: "Ada Lovelace", email: `ada.reader.${tag}@example.com`, role: "owner" });
     const host = kit.space.projects.find((p) => p.hosts.length > 0).hosts[0];
-    const before = (await kit.browse("GET", "/me", owner.secret)).json.license;
+    const before = (await kit.browse("GET", "/me", reader.secret)).json.license;
+    assert.equal(typeof before, "string", "the Worker names the licence before the key");
     const pages = [];
     const panelOf = async () => {
       const site = await kit.page();
@@ -74,7 +76,7 @@ export default async function (kit) {
       await page.waitForFunction((w) => document.querySelector(".app-licence .app-status")?.textContent === w, SAVED, WAIT);
       assert.match(await page.getAttribute(".app-bar .app-badge", "src"), /\/_p99\/badges\/studio\.svg/);
       assert.equal(await page.inputValue(".app-licence textarea[name=licence]"), "");
-      const me = (await kit.browse("GET", "/me", owner.secret)).json;
+      const me = (await kit.browse("GET", "/me", reader.secret)).json;
       assert.equal(me.license, "studio");
       assert.equal(me.licensed, true);
       assert.equal(me.licence.stored, true);
@@ -84,20 +86,21 @@ export default async function (kit) {
       assert.equal(licensed.lockup, false, "the panel no longer shows the small P99 logo");
       assert.equal(licensed.by, false, "the panel no longer shows the by PITO.MD link");
 
-      const gone = await kit.browse("DELETE", "/licence", owner.secret);
+      const gone = await kit.browse("DELETE", "/licence", reader.secret);
       assert.equal(gone.status, 200, JSON.stringify(gone.json));
       removed = true;
-      assert.equal((await kit.browse("GET", "/me", owner.secret)).json.license, before, "removing the key puts the earlier licence back");
+      assert.equal((await kit.browse("GET", "/me", reader.secret)).json.license, before, "removing the key puts the earlier licence back");
       const after = await panelOf();
       assert.doesNotMatch(after.badge, /\/_p99\/badges\/studio\.svg/, "the panel badge is no longer studio");
       assert.equal(after.lockup, true, "the small P99 logo is back");
       assert.equal(after.by, true, "the by PITO.MD link is back");
-      const again = await profile();
-      assert.doesNotMatch((await again.getAttribute(".app-bar .app-badge", "src")) || "", /\/_p99\/badges\/studio\.svg/, "the page badge is no longer studio");
+      await page.reload();
+      await page.waitForFunction(() => document.getElementById("app").dataset.screen === "profile" && !document.querySelector("#app .app-wait"), null, WAIT);
+      assert.doesNotMatch((await page.getAttribute(".app-bar .app-badge", "src")) || "", /\/_p99\/badges\/studio\.svg/, "the page badge is no longer studio");
     } finally {
       for (const page of pages) await page.close().catch(() => {});
-      if (!removed) await kit.browse("DELETE", "/licence", owner.secret).catch(() => {});
+      if (!removed) await kit.browse("DELETE", "/licence", reader.secret).catch(() => {});
     }
-    assert.equal((await kit.browse("GET", "/me", owner.secret)).json.license, before);
+    assert.equal((await kit.browse("GET", "/me", reader.secret)).json.license, before);
   });
 }

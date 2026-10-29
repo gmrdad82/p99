@@ -305,7 +305,7 @@ async function check(back) {
     assert.ok(upload && /^image\/(webp|jpeg|png)$/.test(upload.type), `the picture goes up as an image (${upload && upload.type})`);
     assert.ok(upload.body.length <= 256 * 1024, `and under 256 KB (${upload.body.length})`);
     const sent = await p.evaluate(async ([type, b64]) => {
-      const bmp = await createImageBitmap(await (await fetch(`data:${type};base64,${b64}`)).blob());
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0))], { type }));
       const c = new OffscreenCanvas(bmp.width, bmp.height);
       const g = c.getContext("2d");
       g.drawImage(bmp, 0, 0);
@@ -446,7 +446,7 @@ async function check(back) {
     await narrowed;
     assert.equal(await g.p.getAttribute('.app-project[data-name="Docs"]', "aria-pressed"), "true");
     assert.equal(asked.at(-1)?.getAll("project").join(), "Docs");
-    assert.equal(asked.at(-1)?.get("host"), DOCS);
+    assert.equal(asked.at(-1)?.has("host"), false, "the narrowed board asked one of the project's sites instead of the whole project");
     await g.p.keyboard.press("Escape");
     assert.equal(await g.p.evaluate(() => document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-board").hidden), false);
     ok("picking a project narrows the board to it, and Esc leaves the page's board open");

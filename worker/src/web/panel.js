@@ -1020,7 +1020,7 @@ function cardRow(c) {
   if (c.changed_by) meta.push(" · ", h("span", { class: "p99-reporter" }, person(c.changed_by, false, "")));
   meta.push(" · ", h("time", { text: when(c.changed_at || c.created_at) }));
   if (c.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: c.comments }, c.comments) }));
-  const here = !c.host || c.host === siteHost();
+  const here = !c.host || o.space === "*" || c.host === siteHost();
   const go = here
     ? { href: "#p99=" + c.key, onclick: (e) => { e.preventDefault(); item(c.key); } }
     : { href: "https://" + c.host + "/#p99=" + c.key, target: "_blank", rel: "noopener noreferrer" };
@@ -1075,7 +1075,7 @@ function thread(t) {
   if (i.assignee) meta.push(" · ", h("span", { class: "p99-person" }, disc(i.assignee, 16), say("assigned_to", { who: handle(i.assignee) })));
   if (i.duplicate_of) meta.push(" · ", h("a", { href: "#p99=" + enc(i.duplicate_of), text: say("duplicate_of", { n: i.duplicate_of }), onclick: (e) => { e.preventDefault(); item(i.duplicate_of); } }));
   const page = i.page || {};
-  const dest = pageUrl(page.path);
+  const dest = pageUrl(page.path, i.host);
   const here = !!dest && !o.space && dest.pathname === location.pathname;
   const marks = Array.isArray(i.marks) ? i.marks : [];
   const pageLink = dest ? h("p", { class: "p99-page" }, h("a", { href: (o.space ? dest.origin : "") + dest.pathname + "#p99=" + enc(i.key), target: o.space ? "_blank" : null, rel: o.space ? "noopener noreferrer" : null, text: page.title || dest.pathname, onclick: (e) => {
@@ -1121,10 +1121,12 @@ function fileList(list) {
     /^image\//.test(a.type || "") ? h("a", { href: "#", onclick: download(a) }, thumb(a)) : null,
     h("a", { href: "#", onclick: download(a), text: a.name || "file" }), " ", h("small", { text: size(a.bytes || 0) }))));
 }
-function pageUrl(path) {
+function pageUrl(path, host) {
   if (typeof path !== "string" || !/^\/(?![\/\\])/.test(path) || /[\\\s\u0000-\u001f\u007f]/.test(path)) return null;
   try {
-    const site = o.space ? "https://" + o.space : location.origin;
+    const on = o.space === "*" ? host : o.space;
+    if (o.space && !on) return null;
+    const site = on ? "https://" + on : location.origin;
     const u = new URL(path, site);
     return u.origin === site ? u : null;
   } catch (x) { return null; }
