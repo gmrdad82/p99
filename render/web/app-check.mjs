@@ -478,7 +478,13 @@ async function check(back) {
     assert.deepEqual(chips, [["", null, "true"], ["Docs", DOCS, "false"]]);
     const page = await g.p.evaluate(() => { const r = document.querySelector("p99-root.app-board").shadowRoot; return { x: !!r.querySelector(".p99-board .p99-x"), role: r.querySelector(".p99-board").getAttribute("role"), logo: !!r.querySelector(".p99-board-head .p99-logo") }; });
     assert.deepEqual(page, { x: false, role: "region", logo: false });
+    const fit = await g.p.evaluate(() => {
+      const cols = document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-cols");
+      return { wide: document.documentElement.scrollWidth <= innerWidth, tall: document.documentElement.scrollHeight <= innerHeight, lanes: cols.scrollWidth > cols.clientWidth };
+    });
+    assert.deepEqual(fit, { wide: true, tall: true, lanes: true }, "the lanes scroll inside the board and the page itself never scrolls");
     ok("an Owner's space opens on the board with its projects and their sites as the narrowing, under the page's own header");
+    ok("the board's lanes scroll sideways inside the board, so the page has no scrollbars of its own");
 
     const narrowed = g.p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/board");
     await g.p.click('.app-project[data-name="Docs"]');
