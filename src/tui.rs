@@ -1,8 +1,10 @@
 mod badge;
 mod board;
 mod codes;
+mod compose;
 mod deck;
 pub mod demo;
+mod files;
 mod history;
 mod inbox;
 mod projects;
@@ -262,7 +264,7 @@ const SETTLE: Duration = Duration::from_secs(1);
 pub enum Msg {
     Inbox(Result<Loaded, String>),
     Thread(String, Result<Thread, String>),
-    Commented(String, Result<bool, String>),
+    Commented(String, Result<(bool, usize), String>),
     Changed(String, Result<Issue, String>),
     Deleted(String, Result<crate::wire::Deleted, String>),
     Codes(Result<Vec<Code>, String>),
@@ -275,6 +277,9 @@ pub enum Msg {
     Waiting(bool, u64, Result<waiting::Waiting, String>),
     Projects(Result<Vec<String>, String>),
     Spaces(Vec<String>, bool),
+    Saved(Result<String, String>),
+    Places(Result<Vec<compose::Place>, String>),
+    Filed(Result<compose::Filed, String>),
 }
 
 fn report(
@@ -380,7 +385,7 @@ fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
         .footer_look(|footer, _| footer.separator(" · "))
         .modes(Modes::new().mouse(true))
         .screen(
-            Section::new("Inbox"),
+            Section::new("Cards"),
             Around::new(
                 Inbox::new(source.clone(), palette).badge(badge.clone()),
                 source.clone(),
@@ -418,6 +423,12 @@ fn walk() -> Walk {
         .script(script("move pick", "enter m"))
         .script(script("moved", "enter m down down enter"))
         .script(script("assign pick", "enter a"))
+        .script(script("reply files", "enter r O k tab"))
+        .script(script("edit", "enter e"))
+        .script(script("link", "enter l"))
+        .script(script("save file", "enter f"))
+        .script(script("new card place", "n"))
+        .script(script("new card form", "n down enter enter"))
         .script(script("codes", "tab / g r a c e"))
         .script(script("quit guard", "ctrl+c"))
         .script(

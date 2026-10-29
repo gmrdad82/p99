@@ -42,7 +42,7 @@ fn a_dump_draws_the_sample_inbox_as_text_and_quits() {
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
     assert_eq!(text.lines().count(), 34, "{text}");
-    for said in ["P99", "21 of 28 items", "BUG-11", "sample data", "Free"] {
+    for said in ["P99", "21 of 28 cards", "BUG-11", "sample data", "Free"] {
         assert!(text.contains(said), "{said}:\n{text}");
     }
     assert!(!text.contains('\x1b'), "{text}");
@@ -80,16 +80,16 @@ fn a_dump_while_loading_shows_no_items_yet() {
     let run = p99(&["tui", "--demo", "--dump", "120x34", "--loading"]);
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
-    assert!(!text.contains("21 of 28 items"), "{text}");
+    assert!(!text.contains("21 of 28 cards"), "{text}");
     assert!(!text.contains("BUG-11"), "{text}");
-    assert!(text.contains("Reading the inbox…"), "{text}");
+    assert!(text.contains("Reading the cards…"), "{text}");
 }
 
 #[test]
 fn an_ansi_dump_carries_colour_codes() {
     let text = out(&p99(&["tui", "--demo", "--dump", "120x34", "--ansi"]));
     assert!(text.contains("\x1b["), "{text}");
-    assert!(text.contains("21 of 28 items"), "{text}");
+    assert!(text.contains("21 of 28 cards"), "{text}");
 }
 
 #[test]
@@ -158,7 +158,7 @@ fn without_a_space_the_inbox_says_how_to_make_one() {
     let run = p99(&["tui", "--dump", "120x34"]);
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
-    assert!(text.contains("Couldn't read the inbox."), "{text}");
+    assert!(text.contains("Couldn't read the cards."), "{text}");
     assert!(text.contains("no space yet; p99 setup makes one"), "{text}");
     let named = out(&p99(&["tui", "--space", "shop", "--dump", "120x34"]));
     assert!(named.contains("no space is called shop"), "{named}");
@@ -170,7 +170,7 @@ fn a_bench_times_every_screen_the_thread_and_both_ways_of_carrying_a_card() {
     assert!(run.status.success(), "{}", err(&run));
     let text = out(&run);
     for screen in [
-        "3 frames of the Inbox screen at 100x30",
+        "3 frames of the Cards screen at 100x30",
         "3 frames of the Board screen at 100x30",
         "3 frames of the Codes screen at 100x30",
         "3 frames of the Thread screen at 100x30",
@@ -253,7 +253,7 @@ fn the_board_tab_is_one_board_of_seven_lanes_at_80_and_120_columns() {
         assert!(wide.contains(head), "{head}:\n{wide}");
     }
     assert!(
-        wide.contains("28 items") && wide.contains("7/28 done"),
+        wide.contains("28 cards") && wide.contains("7/28 done"),
         "{wide}"
     );
 }
@@ -304,20 +304,20 @@ fn p_narrows_the_inbox_and_the_board_to_the_projects_chosen() {
         }
     }
     let one = dump("120x34", "p down enter");
-    assert!(one.contains("2 of 2 items"), "{one}");
+    assert!(one.contains("2 of 2 cards"), "{one}");
     assert!(one.contains("Mobile app"), "{one}");
     assert!(!one.contains("BUG-11"), "{one}");
     let several = dump("120x34", "p down enter p down down enter");
-    assert!(several.contains("5 of 6 items"), "{several}");
+    assert!(several.contains("5 of 6 cards"), "{several}");
     let board = dump("120x34", "p down enter tab");
-    assert!(board.contains("2 items"), "{board}");
+    assert!(board.contains("2 cards"), "{board}");
     assert!(
         board.contains("TASK-24") && board.contains("FEAT-27"),
         "{board}"
     );
     assert!(!board.contains("FEAT-9"), "{board}");
     let cleared = dump("120x34", "p down enter esc");
-    assert!(cleared.contains("21 of 28 items"), "{cleared}");
+    assert!(cleared.contains("21 of 28 cards"), "{cleared}");
 }
 
 #[test]
@@ -375,7 +375,7 @@ fn a_project_filter_is_named_in_the_facts_narrows_the_count_and_esc_takes_it_off
 #[test]
 fn a_filtered_out_project_says_so_and_how_to_show_it_again() {
     let none = dump("120x34", "p down enter s");
-    assert!(none.contains("0 of 2 items"), "{none}");
+    assert!(none.contains("0 of 2 cards"), "{none}");
     assert!(
         none.contains("Nothing closed here. s shows open or closed · esc shows all projects."),
         "{none}"
@@ -387,7 +387,7 @@ fn the_inbox_search_finds_an_item_by_its_project() {
     let found = dump("120x34", "/ storefront");
     assert!(found.contains("BUG-25"), "{found}");
     assert!(!found.contains("BUG-11"), "{found}");
-    assert!(!found.contains("21 of 28 items"), "{found}");
+    assert!(!found.contains("21 of 28 cards"), "{found}");
 }
 
 #[test]

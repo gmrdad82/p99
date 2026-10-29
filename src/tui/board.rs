@@ -1104,7 +1104,8 @@ impl Screen<Msg> for Board {
             | Msg::Commented(..)
             | Msg::Inbox(_)
             | Msg::Pushed(..)
-            | Msg::Labels(_))
+            | Msg::Labels(_)
+            | Msg::Saved(_))
                 if self.reading_thread() =>
             {
                 self.reader.event(event, cx);
@@ -1273,13 +1274,13 @@ impl Screen<Msg> for Board {
         let Some(view) = &self.view else {
             return Vec::new();
         };
-        let items = view.cards.len();
+        let count = view.cards.len();
         let done = view.cards.iter().filter(|c| view.closes(c)).count();
         let mut facts = vec![(
-            format!("{items} {}", if items == 1 { "item" } else { "items" }),
+            format!("{count} {}", super::source::cards(count)),
             Style::new(),
         )];
-        facts.push((format!("{done}/{items} done"), self.palette.good));
+        facts.push((format!("{done}/{count} done"), self.palette.good));
         if self.sending > 0 {
             facts.push(("saving…".to_owned(), self.palette.muted));
         } else if self.reading {

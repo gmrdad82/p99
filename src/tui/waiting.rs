@@ -2,15 +2,19 @@ use std::time::{Duration, Instant};
 
 use pito_tui::crossterm::event::{KeyCode, KeyEvent, MouseEvent};
 use pito_tui::footer::{Hint, InputBar, Notice, Tone};
+use pito_tui::layer::Event as Layered;
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style};
-use pito_tui::{Cx, Job, Palette, Phase, Pick, Screen, Span};
+use pito_tui::{Cx, Field, Job, Modal, Palette, Phase, Pick, Screen, Span, Tone as Shade};
 
 use crate::card::Card;
+use crate::wire::{KINDS, kind_word};
 
 use super::Msg;
+use super::compose::{Draft, Filed, Place, unflat};
 use super::deck::{asked_behind, older, unrouted, wanted};
+use super::files::paths;
 use super::inbox::Inbox;
-use super::projects::{self, NONE_YET, Narrow, Shared};
+use super::projects::{self, NONE_YET, Narrow, Shared, has};
 use super::source::Source;
 
 pub const QUIET: Duration = Duration::from_millis(250);
@@ -18,9 +22,20 @@ pub const NOTHING: &str = "Nothing needs you.";
 
 pub type Waiting = (u64, Vec<(usize, Card)>);
 
+pub const NEW_CARD: u64 = 0x99c4;
+pub const NEW_PROJECT: &str = "A new project…";
+
 enum Picking {
     Projects,
     Waiting(Vec<(usize, String)>),
+    Place(Vec<Place>),
+    Kind(Option<Place>),
+}
+
+struct Form {
+    place: Option<Place>,
+    kind: &'static str,
+    filing: bool,
 }
 
 pub struct Around<S> {
@@ -33,6 +48,7 @@ pub struct Around<S> {
     scope: u64,
     now: Instant,
     palette: Palette,
+    form: Option<Form>,
 }
 
 impl<S: Screen<Msg> + Narrow> Around<S> {
@@ -47,6 +63,147 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             picking: None,
             now: Instant::now(),
             palette,
+            form: None,
+        }
+    }
+
+    fn offer_places(&mut self, places: Vec<Place>, cx: &mut Cx<'_, Msg>) {
+        let many = self.source.scoped().len() > 1;
+        let names = self.shared.0.borrow().names.clone();
+        let chosen = self.shared.chosen();
+        let at = places
+            .iter()
+            .position(|place| place.host.is_none() && has(&chosen, &place.project))
+            .unwrap_or(0);
+        let mut rows: Vec<String> = places
+            .iter()
+            .map(|place| match names.get(place.space).filter(|_| many) {
+                Some(space) => format!("{} ({space})", place.named()),
+                None => place.named(),
+            })
+            .collect();
+        rows.push(NEW_PROJECT.to_owned());
+        self.picking = Some(Picking::Place(places));
+        cx.pick(
+            Pick::new("New card in", rows)
+                .selected(at)
+                .hints(pick_hints()),
+        );
+    }
+
+    fn offer_kinds(&mut self, place: Option<Place>, cx: &mut Cx<'_, Msg>) {
+        let rows: Vec<String> = KINDS
+            .iter()
+            .map(|kind| kind_word(kind).to_owned())
+            .collect();
+        self.picking = Some(Picking::Kind(place));
+        cx.pick(Pick::new("Kind", rows).hints(pick_hints()));
+    }
+
+    fn open_form(&mut self, place: Option<Place>, kind: &'static str, cx: &mut Cx<'_, Msg>) {
+        let title = match &place {
+            Some(place) => format!("New {} in {}", kind_word(kind), place.named()),
+            None => format!("New {} in a new project", kind_word(kind)),
+        };
+        let mut modal = Modal::new(NEW_CARD, title).width(76);
+        if place.is_none() {
+            modal = modal.field(Field::new("Project").placeholder("its name"));
+        }
+        modal = modal
+            .field(Field::new("Title").placeholder("one line that says what it is about"))
+            .field(Field::new("Details").placeholder("optional; ¶ starts a new line"))
+            .field(Field::new("Files").placeholder("optional paths, split by spaces"))
+            .hints([
+                Hint::new("tab", "next field"),
+                Hint::new("enter", "file it"),
+                Hint::new("esc", "cancel"),
+            ]);
+        self.form = Some(Form {
+            place,
+            kind,
+            filing: false,
+        });
+        cx.open(modal);
+    }
+
+    fn submit(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(form) = &mut self.form else { return };
+        if form.filing {
+            return;
+        }
+        let space = self.source.scoped().first().copied().unwrap_or(0);
+        let Some(modal) = cx.modal(NEW_CARD) else {
+            return;
+        };
+        let value = |part: usize| modal.value(part).unwrap_or_default().to_owned();
+        let at = usize::from(form.place.is_none());
+        let place = match &form.place {
+            Some(place) => Some(place.clone()),
+            None => Some(value(0).trim().to_owned())
+                .filter(|name| !name.is_empty())
+                .map(|project| Place {
+                    space,
+                    project,
+                    host: None,
+                }),
+        };
+        let (title, details, typed) = (value(at).trim().to_owned(), value(at + 1), value(at + 2));
+        let draft = match (place, title.is_empty(), paths(&typed)) {
+            (None, ..) => Err("Name the project first.".to_owned()),
+            (_, true, _) => Err("A card needs a title.".to_owned()),
+            (_, _, Err(why)) => Err(why),
+            (Some(place), false, Ok(files)) => Ok(Draft {
+                place,
+                kind: form.kind.to_owned(),
+                title,
+                body: unflat(&details),
+                files,
+            }),
+        };
+        let draft = match draft {
+            Ok(draft) => draft,
+            Err(why) => {
+                modal.set_status(Some((why.into(), Shade::Bad)));
+                return;
+            }
+        };
+        modal.set_status(Some(("Filing…".into(), Shade::Muted)));
+        form.filing = true;
+        let source = self.source.clone();
+        cx.detach(move || Msg::Filed(source.file_card(&draft)));
+    }
+
+    fn filed(&mut self, result: Result<Filed, String>, cx: &mut Cx<'_, Msg>) {
+        match result {
+            Ok(filed) => {
+                cx.close(NEW_CARD);
+                self.form = None;
+                let mut said = format!("{} filed in {}", filed.key, filed.project);
+                if let Some(host) = &filed.host {
+                    said.push_str(&format!(" on {host}"));
+                }
+                match (&filed.trouble, filed.files) {
+                    (Some(why), _) => {
+                        said.push_str(&format!(", but {why}"));
+                        cx.say(said, Tone::Alert);
+                    }
+                    (None, 0) => cx.say(said, Tone::Good),
+                    (None, 1) => cx.say(format!("{said} with 1 file"), Tone::Good),
+                    (None, n) => cx.say(format!("{said} with {n} files"), Tone::Good),
+                }
+                self.reader.open_key(filed.space, None, filed.key, cx);
+                self.inner.touched(cx);
+            }
+            Err(why) => {
+                let open = self.form.as_mut().filter(|form| form.filing);
+                match (open, cx.modal(NEW_CARD)) {
+                    (Some(form), Some(modal)) => {
+                        form.filing = false;
+                        modal.set_status(Some((why.into(), Shade::Bad)));
+                    }
+                    _ => cx.say(why, Tone::Alert),
+                }
+            }
         }
     }
 
@@ -248,6 +405,14 @@ pub fn line(card: &Card) -> String {
     )
 }
 
+fn pick_hints() -> [Hint<'static>; 3] {
+    [
+        Hint::new("↑↓", "move"),
+        Hint::new("enter", "choose"),
+        Hint::new("esc", "cancel"),
+    ]
+}
+
 impl Source {
     pub fn waiting(&self) -> Result<Waiting, String> {
         let (mut count, mut cards) = match self {
@@ -367,6 +532,11 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                     self.ask(true, cx);
                     return;
                 }
+                KeyCode::Char('n') => {
+                    let source = self.source.clone();
+                    cx.detach(move || Msg::Places(source.places()));
+                    return;
+                }
                 KeyCode::Char('S') if self.source.spaces().len() > 1 => {
                     self.switch(cx);
                     return;
@@ -406,6 +576,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         self.watch(&event);
         match event {
             Msg::Waiting(open, scoped, result) => self.got(open, scoped, result, cx),
+            Msg::Places(Ok(places)) if self.free() => self.offer_places(places, cx),
+            Msg::Places(Err(error)) if self.free() => cx.say(error, Tone::Alert),
+            Msg::Places(_) => {}
+            Msg::Filed(result) => self.filed(result, cx),
             Msg::Spaces(names, whole) => {
                 self.shared.names(names, self.source.scope());
                 if !whole {
@@ -436,7 +610,8 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             | Msg::Commented(..)
             | Msg::Changed(..)
             | Msg::Deleted(..)
-            | Msg::Labels(_))
+            | Msg::Labels(_)
+            | Msg::Saved(_))
                 if self.reading() =>
             {
                 self.reader.event(event, cx);
@@ -463,6 +638,15 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
                     self.reader.open_key(space, None, key, cx);
                 }
             }
+            (Some(Picking::Place(places)), Some(at)) => {
+                let place = places.get(at).cloned();
+                self.offer_kinds(place, cx);
+            }
+            (Some(Picking::Kind(place)), Some(at)) => {
+                if let Some(kind) = KINDS.get(at) {
+                    self.open_form(place, kind, cx);
+                }
+            }
             (Some(_), None) => {}
             (None, choice) if self.reading() => self.reader.picked(choice, cx),
             (None, choice) => self.inner.picked(choice, cx),
@@ -486,6 +670,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             if self.source.spaces().len() > 1 {
                 hints.push(Hint::new("S", "space").rank(2));
             }
+            hints.push(Hint::new("n", "new card").rank(1));
             hints.push(Hint::new("p", "projects").rank(2));
             if self.clears_projects() {
                 hints.push(Hint::new("esc", "all projects"));
@@ -560,6 +745,18 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         match (self.inner.deadline(), due) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
+        }
+    }
+
+    fn layer(&mut self, id: u64, event: Layered, cx: &mut Cx<'_, Msg>) {
+        if id != NEW_CARD {
+            self.inner.layer(id, event, cx);
+            return;
+        }
+        match event {
+            Layered::Submitted { .. } => self.submit(cx),
+            Layered::Closed => self.form = None,
+            _ => {}
         }
     }
 

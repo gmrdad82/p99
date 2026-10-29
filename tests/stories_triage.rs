@@ -1841,7 +1841,7 @@ fn the_inbox_lists_live_items_and_its_filter_finds_accent_free_and_unpointed_wor
     let home = Home::of("tui-filter", &stub);
 
     let inbox = home.screen("160x30", "");
-    assert!(inbox.contains("open · 3 of 4 items"), "{inbox}");
+    assert!(inbox.contains("open · 3 of 4 cards"), "{inbox}");
     assert!(has_key(&inbox, "BUG-1") && has_key(&inbox, "BUG-2") && has_key(&inbox, "BUG-3"));
     assert!(!has_key(&inbox, "BUG-4"), "{inbox}");
     let read = &stub.sent("GET", "/v1/issues")[0];
@@ -1884,17 +1884,17 @@ fn an_inbox_that_cannot_load_says_why_and_offers_to_read_again_never_an_empty_in
     });
     let home = Home::of("tui-error", &stub);
     let failed = home.screen("120x30", "");
-    assert!(failed.contains("Couldn't read the inbox."), "{failed}");
+    assert!(failed.contains("Couldn't read the cards."), "{failed}");
     assert!(failed.contains("D1 is down (500)"), "{failed}");
     assert!(failed.contains("r reads it again"), "{failed}");
-    assert!(!failed.contains("No items yet"), "{failed}");
+    assert!(!failed.contains("No cards yet"), "{failed}");
 
     let good = Stub::start(World::many(3));
     let wrong = Home::keyed("tui-wrong-key", &[("main", good.url())], "not-the-key");
     let refused = wrong.screen("120x30", "");
-    assert!(refused.contains("Couldn't read the inbox."), "{refused}");
+    assert!(refused.contains("Couldn't read the cards."), "{refused}");
     assert!(refused.contains("(401)"), "{refused}");
-    assert!(!refused.contains("No items yet"), "{refused}");
+    assert!(!refused.contains("No cards yet"), "{refused}");
 }
 
 #[test]
@@ -1904,11 +1904,11 @@ fn an_inbox_still_loading_never_looks_empty_and_a_slow_reply_still_lands() {
     });
     let home = Home::of("tui-slow", &stub);
     let loading = home.ok(&["tui", "--dump", "120x30", "--loading"]);
-    assert!(loading.contains("Reading the inbox…"), "{loading}");
-    assert!(!loading.contains("No items yet"), "{loading}");
+    assert!(loading.contains("Reading the cards…"), "{loading}");
+    assert!(!loading.contains("No cards yet"), "{loading}");
     let landed = home.screen("120x30", "");
     assert!(
-        has_key(&landed, "BUG-3") && landed.contains("3 of 3 items"),
+        has_key(&landed, "BUG-3") && landed.contains("3 of 3 cards"),
         "{landed}"
     );
 }
@@ -1918,7 +1918,7 @@ fn an_inbox_of_600_items_loads_every_page_once_and_counts_them_all() {
     let stub = Stub::start(World::many(600));
     let home = Home::of("tui-600", &stub);
     let inbox = home.screen("120x30", "");
-    assert!(inbox.contains("600 of 600 items"), "{inbox}");
+    assert!(inbox.contains("600 of 600 cards"), "{inbox}");
     let pages = stub.sent("GET", "/v1/issues");
     let cursors: Vec<Option<&str>> = pages.iter().map(|p| p.param("cursor")).collect();
     assert_eq!(
@@ -1943,7 +1943,7 @@ fn an_inbox_over_1000_items_loads_the_newest_1000_and_counts_every_item() {
     let home = Home::of("tui-1050", &stub);
     let counted = home.screen("120x30", "");
     assert!(
-        counted.contains("1000 of 1050 items"),
+        counted.contains("1000 of 1050 cards"),
         "the inbox does not count every item:\n{counted}"
     );
     assert!(
@@ -1965,7 +1965,7 @@ fn an_inbox_under_the_cap_counts_without_a_note() {
     let stub = Stub::start(World::many(120));
     let home = Home::of("tui-120", &stub);
     let counted = home.screen("120x30", "");
-    assert!(counted.contains("120 of 120 items"), "{counted}");
+    assert!(counted.contains("120 of 120 cards"), "{counted}");
     assert!(!counted.contains("are loaded"), "{counted}");
 }
 

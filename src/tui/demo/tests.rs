@@ -140,27 +140,27 @@ fn a_key_that_is_not_one_or_names_nothing_is_refused() {
     let mut demo = Demo::new();
     assert_eq!(
         demo.thread("lamp").err().as_deref(),
-        Some("lamp is not an item key")
+        Some("lamp is not a card key")
     );
     assert_eq!(
         demo.thread("BUG-99").err().as_deref(),
-        Some("no item is called BUG-99")
+        Some("no card is called BUG-99")
     );
     assert_eq!(
         demo.comment("BUG-99", "hi", false).err().as_deref(),
-        Some("no item is called BUG-99")
+        Some("no card is called BUG-99")
     );
     assert_eq!(
         demo.change("lamp", &Change::default()).err().as_deref(),
-        Some("lamp is not an item key")
+        Some("lamp is not a card key")
     );
     assert_eq!(
         demo.delete("BUG-99").err().as_deref(),
-        Some("no item is called BUG-99")
+        Some("no card is called BUG-99")
     );
     assert_eq!(
         demo.delete("lamp").err().as_deref(),
-        Some("lamp is not an item key")
+        Some("lamp is not a card key")
     );
 }
 
@@ -295,7 +295,7 @@ fn deleting_an_original_reopens_its_duplicates_and_counts_what_went() {
     let gone = demo.delete("BUG-11").expect("the sample takes it");
     assert_eq!(gone.key, "BUG-11");
     assert_eq!(gone.comments, 4);
-    assert_eq!(gone.files, 0);
+    assert_eq!(gone.files, 1);
     assert_eq!(gone.unlinked, ["BUG-12"]);
     let copy = issue(&mut demo, "BUG-12");
     assert_eq!(copy.status, "inbox");

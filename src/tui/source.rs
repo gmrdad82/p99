@@ -37,8 +37,13 @@ impl Entry {
 
     pub fn refold(&mut self) {
         let item = &self.summary;
+        let agent = if item.reporter.agent {
+            ["agent", item.reporter.via.as_deref().unwrap_or_default()]
+        } else {
+            ["", ""]
+        };
         self.haystack = fold(&format!(
-            "{} {} {} {} {} {} {} {} {} {} {} {}",
+            "{} {} {} {} {} {} {} {} {} {} {} {} {} {}",
             item.key,
             item.kind,
             kind_word(&item.kind),
@@ -50,7 +55,9 @@ impl Entry {
             item.reporter.name,
             item.reporter.email,
             item.label.as_deref().unwrap_or_default(),
-            item.project.as_deref().unwrap_or_default()
+            item.project.as_deref().unwrap_or_default(),
+            agent[0],
+            agent[1]
         ));
     }
 }
@@ -521,12 +528,12 @@ pub fn counted(
     one_host: bool,
 ) -> Vec<String> {
     if unloaded == 0 {
-        return vec![format!("{shown} of {in_scope} items")];
+        return vec![format!("{shown} of {in_scope} {}", cards(in_scope))];
     }
     let all = if one_host {
-        format!("{shown} of {in_scope}+ items")
+        format!("{shown} of {in_scope}+ cards")
     } else {
-        format!("{shown} of {} items", in_scope + unloaded)
+        format!("{shown} of {} cards", in_scope + unloaded)
     };
     vec![all, format!("only the newest {loaded} are loaded")]
 }
@@ -535,6 +542,10 @@ pub fn merged_hosts(known: Vec<String>, entries: &[Entry]) -> Vec<String> {
     let mut hosts: BTreeSet<String> = known.into_iter().collect();
     hosts.extend(entries.iter().filter_map(|e| e.summary.host.clone()));
     hosts.into_iter().collect()
+}
+
+pub fn cards(count: usize) -> &'static str {
+    if count == 1 { "card" } else { "cards" }
 }
 
 pub fn person(name: &str, email: &str, agent: bool) -> String {

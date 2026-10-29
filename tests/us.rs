@@ -37,6 +37,8 @@ mod licence;
 mod link;
 #[path = "us/mail.rs"]
 mod mail;
+#[path = "us/merge.rs"]
+mod merge;
 #[path = "us/migrate.rs"]
 mod migrate;
 #[path = "us/page.rs"]

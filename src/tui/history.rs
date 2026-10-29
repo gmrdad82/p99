@@ -13,6 +13,10 @@ pub fn what(kind: &str, detail: &Value) -> String {
             (None, Some(item)) => format!("{item} merged in"),
             (None, None) => "merge".to_owned(),
         },
+        ("link", ..) => match said("ref") {
+            Some(to) => format!("linked {to}"),
+            None => "link".to_owned(),
+        },
         ("github", ..) => {
             let action = said("action").unwrap_or_else(|| "linked".to_owned());
             let thing = said("kind").unwrap_or_default();
@@ -153,8 +157,17 @@ mod tests {
     }
 
     #[test]
+    fn a_link_names_what_the_card_was_linked_to() {
+        assert_eq!(
+            what("link", &json!({"ref": "PR #42", "note": null})),
+            "linked PR #42"
+        );
+        assert_eq!(what("link", &json!({})), "link");
+    }
+
+    #[test]
     fn details_without_ends_fall_back_to_the_kind() {
-        assert_eq!(what("reporter_reply", &Value::Null), "reporter reply");
+        assert_eq!(what("mail_sent", &Value::Null), "mail sent");
         assert_eq!(what("mail", &json!({"to": "ada@example.com"})), "mail");
         assert_eq!(what("title", &json!({"from": "Old"})), "title");
     }

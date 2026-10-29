@@ -266,11 +266,11 @@ fn the_sample_source_reads_and_writes_threads_through_the_sample() {
     assert_eq!(gone.unlinked, ["BUG-12"]);
     assert_eq!(
         source.thread(0, None, "BUG-11").err().as_deref(),
-        Some("no item is called BUG-11")
+        Some("no card is called BUG-11")
     );
     assert_eq!(
         source.thread(0, None, "not a key").err().as_deref(),
-        Some("not a key is not an item key")
+        Some("not a key is not a card key")
     );
 }
 
@@ -529,15 +529,15 @@ fn unseen_counts_what_the_worker_holds_beyond_the_loaded_items() {
 
 #[test]
 fn counted_is_plain_when_everything_is_loaded() {
-    assert_eq!(counted(3, 7, 7, 0, false), ["3 of 7 items"]);
-    assert_eq!(counted(0, 0, 0, 0, true), ["0 of 0 items"]);
+    assert_eq!(counted(3, 7, 7, 0, false), ["3 of 7 cards"]);
+    assert_eq!(counted(0, 0, 0, 0, true), ["0 of 0 cards"]);
 }
 
 #[test]
 fn counted_adds_the_unloaded_items_and_says_only_the_newest_are_loaded() {
     assert_eq!(
         counted(1000, 1000, 1000, 50, false),
-        ["1000 of 1050 items", "only the newest 1000 are loaded"]
+        ["1000 of 1050 cards", "only the newest 1000 are loaded"]
     );
 }
 
@@ -545,7 +545,7 @@ fn counted_adds_the_unloaded_items_and_says_only_the_newest_are_loaded() {
 fn counted_on_one_host_never_claims_the_unloaded_items_are_its_own() {
     assert_eq!(
         counted(12, 40, 1000, 50, true),
-        ["12 of 40+ items", "only the newest 1000 are loaded"]
+        ["12 of 40+ cards", "only the newest 1000 are loaded"]
     );
 }
 
