@@ -95,8 +95,8 @@ async function unitChecks(check) {
     assert.equal(PROJECT_RULE, "a project name has 1 to 40 characters");
   });
 
-  await check("a plain item's refusal names it and the command that makes it a card", async () => {
-    assert.equal(notCard("BUG-12"), "BUG-12 has no project of its own; give it one with p99 edit BUG-12 --project <name>");
+  await check("a card in no project is refused with the command that gives it one", async () => {
+    assert.equal(notCard("BUG-12"), "BUG-12 is in no project; give it one with p99 edit BUG-12 --project <name>");
   });
 
   await check("a card row becomes the contract's card: status by lane, lane null when done, persons without e-mails", async () => {
@@ -229,9 +229,9 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     return made.json;
   };
 
-  await check("before any card on a host, its list is empty with no cursor, and projects still lists the space's projects", async () => {
+  await check("before any card in a project, its list is empty with no cursor, and projects still lists the space's projects", async () => {
     const every = LANES.map((w) => `status=${w}`).join("&");
-    const got = await call("GET", `/_p99/v1/cards?${every}&host=${there}`, { actor: ada });
+    const got = await call("GET", `/_p99/v1/cards?${every}&project=${encodeURIComponent("Read Lanes")}`, { actor: ada });
     assert.equal(got.status, 200, JSON.stringify(got.json));
     assert.deepEqual(got.json, { cards: [], next_cursor: null });
     const projects = await call("GET", `/_p99/v1/projects?host=${there}`, { actor: ada });
@@ -500,12 +500,13 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     assert.equal(own.card.reporter.name, "Ada Lovelace");
   });
 
-  await check("card show refuses a plain item with the contract's line, and an unknown or hidden key with no item", async () => {
-    const plain = await call("POST", `/_p99/v1/issues?host=${here}`, { actor: ada, body: issueBody({ title: "Plain, not a card" }) });
-    assert.equal(plain.status, 201, JSON.stringify(plain.json));
-    const notOne = await call("GET", `/_p99/v1/cards/${plain.json.key}`, { actor: ada });
-    assert.equal(notOne.status, 409);
-    assert.equal(notOne.json.message, notCard(plain.json.key));
+  await check("card show reads a card filed on a site in its site's project, and an unknown or hidden key is no card", async () => {
+    const fromSite = await call("POST", `/_p99/v1/issues?host=${here}`, { actor: ada, body: issueBody({ title: "Filed on the site" }) });
+    assert.equal(fromSite.status, 201, JSON.stringify(fromSite.json));
+    const shownCard = await call("GET", `/_p99/v1/cards/${fromSite.json.key}`, { actor: ada });
+    assert.equal(shownCard.status, 200, JSON.stringify(shownCard.json));
+    assert.deepEqual([shownCard.json.card.key, shownCard.json.card.host, shownCard.json.card.status], [fromSite.json.key, here, "new"]);
+    assert.equal(shownCard.json.card.project, await projectOf(here));
     for (const [raw, shown] of [["FEAT-999999", "FEAT-999999"], ["999999", "999999"], ["not-a-key", "not-a-key"]]) {
       const missing = await call("GET", `/_p99/v1/cards/${raw}`, { actor: ada });
       assert.equal(missing.status, 404, raw);

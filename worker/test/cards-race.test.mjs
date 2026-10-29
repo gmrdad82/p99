@@ -158,11 +158,13 @@ async function world() {
 }
 
 function item(w, id, label, project, key = null) {
+  if (project !== null) w.db.prepare("INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, ?)").run(project, NOW);
+  const projectId = project === null ? null : w.db.prepare("SELECT id FROM projects WHERE name = ?").get(project).id;
   w.db.prepare(
     `INSERT INTO items (id, client_uid, kind, label_id, open, title, body, origin_env, host, page_url, page_path, page_title,
-       reporter_email, reporter_name, reporter_json, context_json, marks_json, search_text, activity_at, public_activity_at, created_at, updated_at, project)
-     VALUES (?, ?, 'feature', ?, 1, ?, '', 'production', ?, ?, '/', '', 'grace@example.com', 'Grace Hopper', '{}', '{}', '[]', '', ?, ?, ?, ?, ?)`,
-  ).run(id, `uid-${id}`, label, `Card ${id}`, HOST, `https://${HOST}/`, NOW, NOW, NOW, NOW, project);
+       reporter_email, reporter_name, reporter_json, context_json, marks_json, search_text, activity_at, public_activity_at, created_at, updated_at, project, project_id)
+     VALUES (?, ?, 'feature', ?, 1, ?, '', 'production', ?, ?, '/', '', 'grace@example.com', 'Grace Hopper', '{}', '{}', '[]', '', ?, ?, ?, ?, ?, ?)`,
+  ).run(id, `uid-${id}`, label, `Card ${id}`, HOST, `https://${HOST}/`, NOW, NOW, NOW, NOW, project, projectId);
   if (key !== null) w.db.prepare("INSERT INTO board_positions (board_id, item_id, label_id, key) VALUES (?, ?, ?, ?)").run(w.board, id, label, key);
 }
 

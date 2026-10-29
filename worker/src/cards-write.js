@@ -1,4 +1,4 @@
-import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
+import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PAGE_NEEDS_HOST, PERSON_CLOSES, laneIndex, notCard, personOf, projectName } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
 import { projectNamed, reachesProject } from "./grants.js";
@@ -143,7 +143,7 @@ async function itemRow(c, rawKey) {
 async function cardRow(c, rawKey) {
   K.requireManager(c);
   const row = await itemRow(c, rawKey);
-  if (row.project === null || row.project === undefined) K.fail(409, notCard(K.keyOf(row.kind, row.id)));
+  if (row.project_id === null || row.project_id === undefined) K.fail(409, notCard(K.keyOf(row.kind, row.id)));
   return row;
 }
 
@@ -167,12 +167,21 @@ export async function knownProject(c, raw) {
 }
 
 function targetHost(c, body, project) {
+  if (c.browser && c.scope.wide) return { host: null, env: "" };
   if (c.browser) return c.hostRow.host && c.hostRow.project_id === project.id ? { host: c.hostRow.host, env: c.hostRow.env } : { host: null, env: "" };
   const name = c.scope.all ? (body.host ?? null) : c.scope.host;
   if (name === null) return { host: null, env: "" };
   const host = typeof name === "string" ? c.dir.hosts.get(name.toLowerCase()) : null;
   if (!host) K.fail(400, "host must name a listed host");
   return { host: host.host, env: host.env };
+}
+
+function pageOf(target, raw) {
+  if (K.pageless(raw)) return { url: target.host ? `https://${target.host}/` : "", path: "", title: null };
+  if (!target.host) K.fail(400, PAGE_NEEDS_HOST);
+  const page = K.validPage(raw);
+  if (!page) K.fail(400, K.PAGE_RULE);
+  return page;
 }
 
 function noteOf(raw) {
@@ -197,9 +206,9 @@ export async function postCard(c) {
   if (!K.isUid(body.client_uid)) K.fail(400, UID_RULE);
   const { DB } = c.env;
   const replay = async (id) => K.json(200, { card: await loadCard(c, String(id)) });
-  const existing = await DB.prepare("SELECT id, reporter_email, project FROM items WHERE client_uid = ?1").bind(body.client_uid).first();
+  const existing = await DB.prepare("SELECT id, reporter_email FROM items WHERE client_uid = ?1").bind(body.client_uid).first();
   if (existing) {
-    if (existing.reporter_email !== c.actor.email || existing.project === null) K.fail(409, "client_uid is already used");
+    if (existing.reporter_email !== c.actor.email) K.fail(409, "client_uid is already used");
     return replay(existing.id);
   }
   const project = await knownProject(c, body.project);
@@ -210,6 +219,7 @@ export async function postCard(c) {
   const text = K.clean(body.body ?? "");
   if (!K.isChars(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
   const target = targetHost(c, body, project);
+  const page = pageOf(target, body.page);
   const lanes = await cardsBoard(c);
   const lane = { ...laneAt(lanes, 0), closes: 0 };
   const place = await topOf(c, lanes.board, lane.id, 0);
@@ -223,7 +233,7 @@ export async function postCard(c) {
         `INSERT INTO items (client_uid, kind, label_id, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
            created_at, updated_at, host, reporter_agent, search_text, project, reporter_via, project_id)
-         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, '', ?4, ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?18, COALESCE(?19, ?4), ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          RETURNING id`,
       ).bind(
         uid,
@@ -232,7 +242,7 @@ export async function postCard(c) {
         title,
         text,
         target.env,
-        target.host ? `https://${target.host}/` : "",
+        page.url,
         c.actor.email,
         c.actor.name,
         reporter,
@@ -243,6 +253,8 @@ export async function postCard(c) {
         project.name,
         viaOf(c),
         project.id,
+        page.path,
+        page.title,
       ),
       DB.prepare(
         `INSERT INTO events (item_id, actor_email, kind, detail_json, internal, at, actor_agent, actor_via)
@@ -256,8 +268,8 @@ export async function postCard(c) {
     ]);
   } catch (error) {
     if (!K.isUniqueViolation(error)) throw error;
-    const raced = await DB.prepare(`SELECT id, reporter_email, project ${byUid}`).bind(uid).first();
-    if (!raced || raced.reporter_email !== c.actor.email || raced.project === null) K.fail(409, "client_uid is already used");
+    const raced = await DB.prepare(`SELECT id, reporter_email ${byUid}`).bind(uid).first();
+    if (!raced || raced.reporter_email !== c.actor.email) K.fail(409, "client_uid is already used");
     return replay(raced.id);
   }
   const id = results[0].results[0].id;
@@ -367,7 +379,6 @@ export async function postCardComment(c, rawKey) {
 export async function patchProject(c, row, body) {
   K.requireManager(c);
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
-  refuseAgentUncard(c, row, body);
   const from = row.project ?? null;
   const project = body.project === null ? null : await knownProject(c, body.project);
   const name = project ? project.name : null;

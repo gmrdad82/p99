@@ -40,7 +40,7 @@ export function backLane(lanes, name) {
 const STAY = { statements: [], after() {} };
 
 export async function leaveNeedsYou(c, row) {
-  if (!c.manager || !c.actor || c.actor.agent || row.project === null || row.project === undefined || !row.open) return STAY;
+  if (!c.manager || !c.actor || c.actor.agent || row.project_id === null || row.project_id === undefined || !row.open) return STAY;
   const { DB } = c.env;
   const at = await DB.prepare(LANE_AT_SQL).bind(row.label_id).first();
   if (!at || at.at !== NEEDS_YOU) return STAY;

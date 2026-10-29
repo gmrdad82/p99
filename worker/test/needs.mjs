@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, PERSON_UNCARDS, WAITING_LANES, refuseAgentUncard, useKit } from "../src/cards.js";
+import { LANES, LANE_NAMES, WAITING_LANES, useKit } from "../src/cards.js";
 import { useKit as useBoardsKit } from "../src/boards.js";
 import { backLane, leaveNeedsYou } from "../src/needs-you.js";
 
@@ -15,8 +15,6 @@ class Refused extends Error {
     this.status = status;
   }
 }
-
-const refused = (status, message) => (error) => error instanceof Refused && error.status === status && error.message === message;
 
 async function unitChecks(check) {
   useKit({
@@ -51,19 +49,6 @@ async function unitChecks(check) {
     assert.equal(backLane(twins, "queue").id, 3);
     assert.equal(backLane([], "New"), null);
   });
-
-  await check("only an agent taking a card's project away is refused", async () => {
-    const card = { project: "Splicer" };
-    const item = { project: null };
-    assert.throws(() => refuseAgentUncard({ actor: graceBot }, card, { project: null }), refused(403, PERSON_UNCARDS));
-    assert.throws(() => refuseAgentUncard({ actor: { ...graceBot, via: null } }, card, { project: null }), refused(403, PERSON_UNCARDS));
-    assert.doesNotThrow(() => refuseAgentUncard({ actor: ada }, card, { project: null }));
-    assert.doesNotThrow(() => refuseAgentUncard({ actor: graceBot }, card, { project: "Paper" }));
-    assert.doesNotThrow(() => refuseAgentUncard({ actor: graceBot }, item, { project: null }));
-    assert.doesNotThrow(() => refuseAgentUncard({ actor: graceBot }, card, {}));
-    assert.doesNotThrow(() => refuseAgentUncard({ actor: null }, card, { project: null }));
-    assert.equal(PERSON_UNCARDS, "only a person takes a card off its project");
-  });
 }
 
 function fakeDb(at, from) {
@@ -97,7 +82,7 @@ async function leaveChecks(check) {
   };
   useKit(kit);
   useBoardsKit(kit);
-  const row = { id: 42, kind: "task", project: "Splicer", open: 1, label_id: 4, label_name: "Needs you", label_role: null, host: "example.com", title: "Look", client_uid: "u-42" };
+  const row = { id: 42, kind: "task", project: "Splicer", project_id: 7, open: 1, label_id: 4, label_name: "Needs you", label_role: null, host: "example.com", title: "Look", client_uid: "u-42" };
   const context = (db, actor = ada, manager = true) => ({ manager, actor, now: "2026-10-22T09:00:00.000Z", env: { DB: db.DB, HUB: {} }, pushes: [] });
 
   await check("a card outside Needs you costs one lane query and no move", async () => {
@@ -113,8 +98,8 @@ async function leaveChecks(check) {
     assert.equal(none.seen.batches, 0);
   });
 
-  await check("an agent, a User, a plain item or a closed card never reads the board", async () => {
-    for (const [actor, manager, item] of [[graceBot, true, row], [ada, false, row], [ada, true, { ...row, project: null }], [ada, true, { ...row, open: 0 }], [null, true, row]]) {
+  await check("an agent, a User, an item in no project or a closed card never reads the board", async () => {
+    for (const [actor, manager, item] of [[graceBot, true, row], [ada, false, row], [ada, true, { ...row, project: null, project_id: null }], [ada, true, { ...row, open: 0 }], [null, true, row]]) {
       const db = fakeDb(3, "Planned");
       assert.deepEqual((await leaveNeedsYou(context(db, actor, manager), item)).statements, []);
       assert.equal(db.seen.prepared.length, 0);
@@ -290,13 +275,13 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     }
   });
 
-  await check("a plain item in the Needs you lane stays there when a person comments", async () => {
-    const item = (await call("POST", `/_p99/v1/issues?host=${here}`, { actor: ada, body: issueBody({ title: "Plain, needs you" }) })).json.key;
+  await check("a card filed on a site in the Needs you lane goes back to its lane when a person comments", async () => {
+    const item = (await call("POST", `/_p99/v1/issues?host=${here}`, { actor: ada, body: issueBody({ title: "From a site, needs you" }) })).json.key;
     const moved = await call("POST", "/_p99/v1/move", { actor: ada, body: { key: item, from: "New", to: "needs-you" } });
     assert.equal(moved.status, 200, JSON.stringify(moved.json));
     const said = await call("POST", `/_p99/v1/issues/${item}/comments`, { actor: ada, body: { client_uid: randomUUID(), body: "A person reads it.", internal: false } });
     assert.equal(said.status, 201);
-    assert.equal((await call("GET", `/_p99/v1/issues/${item}`, { actor: ada })).json.issue.label, "Needs you");
+    assert.equal((await call("GET", `/_p99/v1/issues/${item}`, { actor: ada })).json.issue.label, "New");
   });
 
   const w = {};
@@ -421,16 +406,15 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal((await events(key, "comment")).length, 1);
   });
 
-  await check("an agent's --no-project is refused with the contract's line and changes nothing", async () => {
+  await check("an agent's --no-project sends a card back to its site's project and leaves its lane", async () => {
     const key = await file("Needs Uncard", "Stays a card");
     await status(key, "landed", graceBot);
-    const before = counted(key, ["project", "label", "status"]);
-    const refusedPatch = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body: { project: null } });
-    assert.equal(refusedPatch.status, 403);
-    assert.equal(refusedPatch.json.message, PERSON_UNCARDS);
-    assert.equal(counted(key, ["project", "label", "status"]), before);
+    const before = counted(key, ["label", "status"]);
+    const patched = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body: { project: null } });
+    assert.equal(patched.status, 200, JSON.stringify(patched.json));
+    assert.equal(counted(key, ["label", "status"]), before);
     const still = await card(key);
-    assert.equal(still.project, "Needs Uncard");
+    assert.equal(still.project, (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === here).project);
     assert.equal(still.status, "landed");
   });
 

@@ -117,6 +117,7 @@ const HUB_NAME = "hub";
 const MANAGERS_TOKEN = Symbol("managers");
 const REPORTERS_TOKEN = Symbol("reporters");
 const MAX_MERGE_ITEMS = 50;
+const PAGE_RULE = "page must have an http(s) url, a path starting with / and a title";
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
 const CAPTURE_ROLES = ["screenshot", "page", "region"];
@@ -1791,7 +1792,7 @@ async function createIssue(c) {
   const text = clean(body.body ?? "");
   if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
   const page = c.browser || !pageless(body.page) ? validPage(body.page) : { url: "", path: "", title: "" };
-  if (!page) fail(400, "page must have an http(s) url, a path starting with / and a title");
+  if (!page) fail(400, PAGE_RULE);
   const context = body.context ?? {};
   if (!isObject(context)) fail(400, "context must be an object");
   const contextJson = JSON.stringify(context);
@@ -3437,6 +3438,7 @@ useCardKit({
   MAX_JSON_BYTES,
   MAX_TITLE_CHARS,
   KIND_PREFIXES,
+  PAGE_RULE,
   clean,
   eventStatement,
   fail,
@@ -3461,6 +3463,8 @@ useCardKit({
   runHandler,
   searchText,
   summaryOf,
+  validPage,
+  pageless,
   validTitle,
 });
 

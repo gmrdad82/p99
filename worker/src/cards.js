@@ -9,7 +9,7 @@ export const DEFAULT_CARDS_LIMIT = 200;
 export const MAX_CARDS_LIMIT = 500;
 export const NOT_YET = "this Worker has no cards yet; run p99 deploy";
 export const PERSON_CLOSES = "only a person closes a card";
-export const PERSON_UNCARDS = "only a person takes a card off its project";
+export const PAGE_NEEDS_HOST = "a page needs a host; name the card's host or leave the page out";
 export const ROBOT = "🤖";
 export const PROJECT_RULE = `a project name has 1 to ${MAX_PROJECT_CHARS} characters`;
 
@@ -17,10 +17,6 @@ export let K = null;
 
 export function useKit(kit) {
   K = kit;
-}
-
-export function refuseAgentUncard(c, row, body) {
-  if (row.project !== null && row.project !== undefined && body.project === null && c.actor?.agent) K.fail(403, PERSON_UNCARDS);
 }
 
 export function laneIndex(word) {
@@ -32,7 +28,7 @@ export function laneWord(index) {
 }
 
 export function notCard(key) {
-  return `${key} has no project of its own; give it one with p99 edit ${key} --project <name>`;
+  return `${key} is in no project; give it one with p99 edit ${key} --project <name>`;
 }
 
 export function personOf(name, username, agent, via) {
