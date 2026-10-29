@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+masters=assets/art
+out=worker/src/web/art
+work=tmp/textures
+size=400
+quality=98
+colours=256
+magick=$(command -v magick || command -v convert || true)
+[ -n "$magick" ] || { echo "textures: ImageMagick is missing; it encodes the WebP and PNG tiles" >&2; exit 1; }
+browser=$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)
+rsvg=$(command -v rsvg-convert || true)
+resvg=$(command -v resvg || true)
+[ -n "$browser$rsvg$resvg" ] || { echo "textures: no renderer; install Chromium, rsvg-convert or resvg" >&2; exit 1; }
+rm -rf "$work"
+mkdir -p "$work/run" "$out"
+chmod 700 "$work/run"
+
+render() {
+  local svg=$1 scale=$2 png=$3 px=$((size * $2))
+  if [ -n "$browser" ]; then
+    env -u DISPLAY -u WAYLAND_DISPLAY XDG_RUNTIME_DIR="$PWD/$work/run" prlimit --core=1:1 -- timeout 60 \
+      "$browser" --headless --no-sandbox --disable-gpu --hide-scrollbars --no-first-run \
+      --user-data-dir="$PWD/$work/profile" --force-device-scale-factor="$scale" \
+      --window-size="$size,$size" --screenshot="$PWD/$png" "file://$PWD/$svg" >/dev/null 2>&1
+  elif [ -n "$rsvg" ]; then
+    "$rsvg" -z "$scale" -o "$png" "$svg"
+  else
+    "$resvg" -w "$px" -h "$px" "$svg" "$png"
+  fi
+  local got
+  got=$("$magick" identify -format '%wx%h' "$png")
+  [ "$got" = "${px}x${px}" ] || { echo "textures: $svg at ${scale}x came out $got, not ${px}x${px}" >&2; exit 1; }
+}
+
+for name in concrete concrete-dark; do
+  for scale in 1 2; do
+    suffix=$([ "$scale" = 2 ] && echo -2x || true)
+    raw="$work/$name$suffix.png"
+    render "$masters/$name.svg" "$scale" "$raw"
+    "$magick" "$raw" -strip -quality "$quality" -define webp:method=6 -define webp:sns-strength=0 -define webp:filter-strength=0 "$out/$name$suffix.webp"
+    "$magick" "$raw" -strip -colors "$colours" -define png:compression-level=9 -define png:compression-filter=5 -define png:exclude-chunks=all "$out/$name$suffix.png"
+    printf 'textures: %s%s is %s bytes as WebP, %s as PNG\n' "$name" "$suffix" "$(wc -c < "$out/$name$suffix.webp")" "$(wc -c < "$out/$name$suffix.png")"
+  done
+done

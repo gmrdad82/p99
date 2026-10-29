@@ -21,8 +21,8 @@ P99 0.1.0: the Worker this build uploads (main module worker.js)
   web/panel.js                                  74458 bytes  ee44a630…  text/plain
   web/p99.css                                   27189 bytes  93828479…  text/plain
   web/vendor/modern-screenshot-4.7.0.js         29290 bytes  bb366658…  text/plain
-  web/art/concrete.svg                           1629 bytes  16cd5994…  text/plain
-  web/art/concrete-dark.svg                      1629 bytes  ec24e7ad…  text/plain
+  web/art/concrete.webp                         53096 bytes  5c65ce39…  application/octet-stream
+  web/art/concrete-dark.webp                    23080 bytes  a799f770…  application/octet-stream
 migrations
   0001_p99.sql
 ```

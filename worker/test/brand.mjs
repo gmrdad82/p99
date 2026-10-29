@@ -47,13 +47,35 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
     const me = await browse("GET", "/me", ada.secret);
     assert.equal(me.status, 200, JSON.stringify(me.json));
     assert.equal(me.json.license, LICENSE_STATE);
-    for (const state of ["free", "studio", "agency", "owner", "ff"]) {
+    for (const state of ["free", "studio", "agency", "ff"]) {
       const art = await call("GET", `/_p99/badges/${state}.svg?v=dev`);
       assert.equal(art.status, 200, state);
       assert.match(art.response.headers.get("content-type"), /^image\/svg\+xml/);
       assert.match(await art.response.text(), /^<svg /);
     }
     assert.equal((await call("GET", "/_p99/badges/trial.svg")).status, 404);
+    assert.equal((await call("GET", "/_p99/badges/owner.svg?v=dev")).status, 404);
+  });
+
+  await check("the concrete texture is served once-rendered: WebP and PNG tiles at 1x and 2x, cached for good, and the same bytes every time", async () => {
+    const magic = { webp: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP", png: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) };
+    for (const name of ["concrete", "concrete-dark"]) {
+      for (const scale of ["", "-2x"]) {
+        for (const kind of ["webp", "png"]) {
+          const path = `/_p99/art/${name}${scale}.${kind}?v=dev`;
+          const first = await call("GET", path);
+          assert.equal(first.status, 200, path);
+          assert.equal(first.response.headers.get("content-type"), `image/${kind}`, path);
+          assert.match(first.response.headers.get("cache-control"), /immutable/, path);
+          const bytes = Buffer.from(await first.response.arrayBuffer());
+          assert.ok(bytes.length > 1000 && magic[kind](bytes), path);
+          const again = Buffer.from(await (await call("GET", path)).response.arrayBuffer());
+          assert.ok(again.equals(bytes), path);
+          assert.equal((await call("HEAD", path)).status, 200, path);
+        }
+      }
+    }
+    assert.equal((await call("GET", "/_p99/art/concrete.svg?v=dev")).status, 404);
   });
 }
 
@@ -90,7 +112,8 @@ export async function hideableLinkChecks({ call, browse, mint, check, here, plac
       assert.equal(hidden.status, 200, JSON.stringify(hidden.json));
       assert.equal(hidden.json.link, false);
       assert.equal(hidden.json.host, here);
-      assert.equal((await call("GET", `/_p99/badges/${hidden.json.license}.svg?v=dev`)).status, 200);
+      const shown = hidden.json.license === "owner" ? "agency" : hidden.json.license;
+      assert.equal((await call("GET", `/_p99/badges/${shown}.svg?v=dev`)).status, 200);
     } finally {
       assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
     }

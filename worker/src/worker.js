@@ -50,13 +50,18 @@ import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
 import avatarSource from "./web/avatar.js";
 import cssSource from "./web/p99.css";
-import concreteSource from "./web/art/concrete.svg";
-import concreteDarkSource from "./web/art/concrete-dark.svg";
+import concreteWebp from "./web/art/concrete.webp";
+import concrete2xWebp from "./web/art/concrete-2x.webp";
+import concretePng from "./web/art/concrete.png";
+import concrete2xPng from "./web/art/concrete-2x.png";
+import concreteDarkWebp from "./web/art/concrete-dark.webp";
+import concreteDark2xWebp from "./web/art/concrete-dark-2x.webp";
+import concreteDarkPng from "./web/art/concrete-dark.png";
+import concreteDark2xPng from "./web/art/concrete-dark-2x.png";
 import lockupDarkSource from "./web/art/lockup-dark.svg";
 import badgeFreeSource from "./web/badges/free.svg";
 import badgeStudioSource from "./web/badges/studio.svg";
 import badgeAgencySource from "./web/badges/agency.svg";
-import badgeOwnerSource from "./web/badges/owner.svg";
 import badgeFfSource from "./web/badges/ff.svg";
 import captureVendor from "./web/vendor/modern-screenshot-4.7.0.js";
 import shotSource from "./web/shot.js";
@@ -156,13 +161,18 @@ const STATIC_FILES = {
   "/_p99/avatar.js": { source: avatarSource, type: JS_TYPE },
   "/_p99/p99.css": { source: cssSource, type: "text/css; charset=utf-8" },
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
-  "/_p99/art/concrete.svg": { source: concreteSource, type: "image/svg+xml; charset=utf-8" },
-  "/_p99/art/concrete-dark.svg": { source: concreteDarkSource, type: "image/svg+xml; charset=utf-8" },
+  "/_p99/art/concrete.webp": { bytes: concreteWebp, type: "image/webp" },
+  "/_p99/art/concrete-2x.webp": { bytes: concrete2xWebp, type: "image/webp" },
+  "/_p99/art/concrete.png": { bytes: concretePng, type: "image/png" },
+  "/_p99/art/concrete-2x.png": { bytes: concrete2xPng, type: "image/png" },
+  "/_p99/art/concrete-dark.webp": { bytes: concreteDarkWebp, type: "image/webp" },
+  "/_p99/art/concrete-dark-2x.webp": { bytes: concreteDark2xWebp, type: "image/webp" },
+  "/_p99/art/concrete-dark.png": { bytes: concreteDarkPng, type: "image/png" },
+  "/_p99/art/concrete-dark-2x.png": { bytes: concreteDark2xPng, type: "image/png" },
   "/_p99/art/lockup-dark.svg": { source: lockupDarkSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/free.svg": { source: badgeFreeSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/studio.svg": { source: badgeStudioSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/agency.svg": { source: badgeAgencySource, type: "image/svg+xml; charset=utf-8" },
-  "/_p99/badges/owner.svg": { source: badgeOwnerSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/ff.svg": { source: badgeFfSource, type: "image/svg+xml; charset=utf-8" },
 };
 
@@ -1446,7 +1456,7 @@ async function serveStatic(request, env, url) {
   const version = env.VERSION || "dev";
   const placement = file.loader ? scriptJson(placementOf(host.config)) : "";
   const key = `${url.pathname}|${version}|${placement}`;
-  let text = staticCache.get(key);
+  let text = file.bytes || staticCache.get(key);
   if (text === undefined) {
     text = file.source.split("__P99_VERSION__").join(version);
     if (file.loader) text = text.split("__P99_HOST__").join(placement);

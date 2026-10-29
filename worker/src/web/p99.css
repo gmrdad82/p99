@@ -1,6 +1,6 @@
 :host {
-  --p99-art: url("/_p99/art/concrete.svg?v=__P99_VERSION__");
-  --p99-head-art: url("/_p99/art/concrete-dark.svg?v=__P99_VERSION__");
+  --p99-art: image-set(url("/_p99/art/concrete.webp?v=__P99_VERSION__") type("image/webp") 1x, url("/_p99/art/concrete-2x.webp?v=__P99_VERSION__") type("image/webp") 2x, url("/_p99/art/concrete.png?v=__P99_VERSION__") type("image/png") 1x, url("/_p99/art/concrete-2x.png?v=__P99_VERSION__") type("image/png") 2x);
+  --p99-head-art: image-set(url("/_p99/art/concrete-dark.webp?v=__P99_VERSION__") type("image/webp") 1x, url("/_p99/art/concrete-dark-2x.webp?v=__P99_VERSION__") type("image/webp") 2x, url("/_p99/art/concrete-dark.png?v=__P99_VERSION__") type("image/png") 1x, url("/_p99/art/concrete-dark-2x.png?v=__P99_VERSION__") type("image/png") 2x);
   --p99-glow: color-mix(in srgb, #3b7dd8 22%, #ffffff);
   --p99-base: #a3b6cb;
   --p99-raised: #eef3f8;
@@ -66,7 +66,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :host {
-    --p99-art: url("/_p99/art/concrete-dark.svg?v=__P99_VERSION__");
+    --p99-art: var(--p99-head-art);
     --p99-glow: color-mix(in srgb, #3b7dd8 55%, #ffffff);
     --p99-base: #1f2c3c;
     --p99-raised: #2a3b50;
@@ -206,7 +206,7 @@
 .p99-brand { display: grid; flex: 1; gap: var(--p99-space-xxs); min-width: 0; }
 .p99-lockup { display: block; width: 50%; min-width: 136px; max-width: 220px; height: auto; pointer-events: none; }
 .p99-tags { display: flex; align-items: center; gap: var(--p99-space-xs); min-width: 0; }
-.p99-badge { display: block; flex: none; width: auto; height: 32px; margin: 0 -5px -9px -3px; pointer-events: none; }
+.p99-badge { display: block; flex: none; width: auto; height: 24px; pointer-events: none; }
 .p99-logo {
   display: inline-grid;
   flex: none;
