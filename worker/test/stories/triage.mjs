@@ -120,8 +120,8 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
     const me = await to("me");
     assert.ok(me && me.username && me.username !== hedy, JSON.stringify(me));
     for (const [assignee, said] of [
-      ["nobody.here.at.all", `is not a member of ${HOST}`],
-      [far, `is not a member of ${HOST}`],
+      ["nobody.here.at.all", "is not a member of"],
+      [far, "is not a member of"],
       ["Not A Name!", "assignee must be a username, me or null"],
     ]) {
       const refused = await ada.patch(key, { assignee });

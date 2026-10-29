@@ -54,6 +54,10 @@ export function reachesItem(reach, row) {
   return Boolean(row.host) && (reach.hosts ?? []).includes(row.host);
 }
 
+export function reachesOwnItem(reach, row) {
+  return reachesItem(reach, row) || (Boolean(row.host) && (reach.hosts ?? []).includes(row.host));
+}
+
 export function reachSql(item, projects, hosts) {
   return `(${item}.project_id IN (SELECT value FROM json_each(${projects})) OR (${item}.project_id IS NULL AND ${item}.host IN (SELECT value FROM json_each(${hosts}))))`;
 }
@@ -120,7 +124,8 @@ export function projectFilterSql(names, bind, alias = "i") {
 export function viewSql(v, bind, alias = "i") {
   const parts = [];
   if (!v.all && Array.isArray(v.projects)) {
-    parts.push(reachSql(alias, bind(JSON.stringify(v.projects)), bind(JSON.stringify(v.hosts ?? []))));
+    const reach = reachSql(alias, bind(JSON.stringify(v.projects)), bind(JSON.stringify(v.hosts ?? [])));
+    parts.push(v.byHost ? `(${reach} OR ${alias}.host IN (SELECT value FROM json_each(${bind(JSON.stringify(v.hosts ?? []))})))` : reach);
   }
   if (v.host) parts.push(`${alias}.host = ${bind(v.host)}`);
   return parts.length > 0 ? parts.join(" AND ") : "1";
