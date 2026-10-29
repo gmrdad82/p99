@@ -33,7 +33,7 @@ Each line has a `"type"`: `item` (a card), `comment`, `attachment`, `event`, `la
 {"type":"comment","item":"BUG-7","uid":"old-comment-41","author":{"email":"grace@example.com","name":"Grace Hopper","agent":false,"manager":true},"body":"Confirmed, the menu reads an old price list.","internal":false,"created_at":"2025-03-02T09:00:00Z"}
 ```
 
-[The bundle format](../reference/formats.md#importing-items) lists every type and field, with a complete example.
+[The bundle format](../reference/formats.md#importing-cards) lists every type and field, with a complete example.
 
 Keep these in mind while you write the exporter:
 
