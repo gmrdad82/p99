@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
-import { licenseState, linkShown } from "../../src/license.js";
+import { bindingLicence, licenseState, linkShown } from "../../src/license.js";
 
 function deployWords(root) {
   const source = readFileSync(join(root, "..", "src", "license.rs"), "utf8");
@@ -53,9 +53,9 @@ export async function licenceStories({ base, call, browse, mint, check, here, pl
       const binding = hides.includes(state) ? "hideable" : "shown";
       const env = { LICENSE_STATE: state, LICENSE_LINK: binding };
       assert.equal(licenseState(env), state);
-      assert.equal(linkShown(env, { link: false }), !hides.includes(state), state);
-      assert.equal(linkShown(env, {}), true, state);
-      assert.equal(linkShown(env, { link: true }), true, state);
+      assert.equal(linkShown(bindingLicence(env), { link: false }), !hides.includes(state), state);
+      assert.equal(linkShown(bindingLicence(env), {}), true, state);
+      assert.equal(linkShown(bindingLicence(env), { link: true }), true, state);
     }
     for (const word of ["", "Owner", "OWNER", " owner", "owner ", "trial", "pro", "f&f", "friends-family"]) {
       assert.equal(licenseState({ LICENSE_STATE: word }), "free", JSON.stringify(word));

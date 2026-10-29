@@ -272,9 +272,21 @@ const failed = [];
 const reds = [];
 const unexpected = [];
 const firstLine = (error) => String(error?.message ?? error).split("\n")[0];
+const CHECK_LIMIT_MS = Number(process.env.P99_CHECK_LIMIT_MS || 600000);
+async function bounded(fn) {
+  let timer = null;
+  const late = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the check did not finish in ${CHECK_LIMIT_MS / 1000} s`)), CHECK_LIMIT_MS);
+  });
+  try {
+    return await Promise.race([fn(), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 async function check(name, fn) {
   try {
-    await fn();
+    await bounded(fn);
   } catch (error) {
     failed.push(name);
     console.log(`not ok - ${name}`);
@@ -287,7 +299,7 @@ async function check(name, fn) {
 }
 async function red(name, bug, fn) {
   try {
-    await fn();
+    await bounded(fn);
   } catch (error) {
     if (error?.harness) {
       failed.push(name);
@@ -369,6 +381,7 @@ async function main() {
   vars.push("RESEND_API_KEY:test-resend", `RESEND_API_URL:http://127.0.0.1:${resend.address().port}`);
   let dev = null;
   process.on("exit", () => dev?.stop());
+  for (const name of ["SIGINT", "SIGTERM"]) process.once(name, () => process.exit(1));
   try {
     dev = await startDev(port, [...vars, "LICENSE_LINK:shown"], "test-dev.log");
     const here = await run();
@@ -1187,8 +1200,10 @@ async function run() {
   return here;
 }
 
-main().catch((error) => {
-  console.error(`not ok - ${error.message}`);
-  if (error.stack) console.error(error.stack);
-  process.exitCode = 1;
-});
+main()
+  .catch((error) => {
+    console.error(`not ok - ${error.message}`);
+    if (error.stack) console.error(error.stack);
+    process.exitCode = 1;
+  })
+  .finally(() => process.exit());
