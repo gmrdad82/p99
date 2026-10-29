@@ -28,6 +28,9 @@
   --p99-status-in-review: #1f5aa8;
   --p99-status-warning: #8a5300;
   --p99-status-validated: #1f6b35;
+  --p99-here: #a3266a;
+  --p99-here-line: #a3266a;
+  --p99-on-here: #ffffff;
   --p99-shadow: -12px 0 32px rgba(12, 26, 43, 0.28);
   --p99-shadow-overlay: 0 12px 32px rgba(12, 26, 43, 0.35);
   --p99-font-text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -88,6 +91,8 @@
     --p99-status-in-review: #8db8f0;
     --p99-status-warning: #f0b860;
     --p99-status-validated: #7fd39a;
+    --p99-here: #c0397e;
+    --p99-here-line: #e26aa6;
     --p99-shadow: -12px 0 36px rgba(0, 0, 0, 0.55);
     --p99-shadow-overlay: 0 12px 32px rgba(0, 0, 0, 0.55);
   }
@@ -541,6 +546,36 @@ form.p99-pick .p99-empty { margin: 0; font-size: var(--p99-text-sm); }
 }
 @media (hover: hover) { .p99-item:hover { border-color: var(--p99-muted); transform: translateY(-1px); transition-duration: var(--p99-motion-hover-in); transition-timing-function: var(--p99-ease-enter); } }
 .p99-item[data-unread] { box-shadow: inset 3px 0 0 var(--p99-accent-ink); }
+.p99-item[data-here] { box-shadow: inset 3px 0 0 var(--p99-here-line); }
+.p99-groups { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--p99-space-sm); }
+.p99-group {
+  display: flex;
+  align-items: center;
+  gap: var(--p99-space-sm);
+  margin: var(--p99-space-xs) 0 0;
+  font: var(--p99-weight-bold) var(--p99-text-xs)/var(--p99-leading-tight) var(--p99-font-text);
+  letter-spacing: var(--p99-tracking-caps);
+  text-transform: uppercase;
+  color: var(--p99-ink);
+}
+.p99-groups .p99-group:first-child { margin-top: 0; }
+.p99-group-count {
+  min-width: 20px;
+  padding: 0 var(--p99-space-xs);
+  border-radius: var(--p99-radius-full);
+  background: var(--p99-here);
+  color: var(--p99-on-here);
+  line-height: 20px;
+  letter-spacing: 0;
+  text-align: center;
+}
+.p99-here {
+  padding: 0 var(--p99-space-sm);
+  border-radius: var(--p99-radius-full);
+  background: var(--p99-here);
+  color: var(--p99-on-here);
+  font: var(--p99-weight-bold) var(--p99-text-xs)/1.5 var(--p99-font-text);
+}
 .p99-item > a { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--p99-space-xs) var(--p99-space-sm); color: inherit; text-decoration: none; }
 .p99-item-title { flex-basis: 100%; order: 2; font-weight: var(--p99-weight-medium); }
 .p99-item[data-unread] .p99-item-title { font-weight: var(--p99-weight-bold); }

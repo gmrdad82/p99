@@ -79,6 +79,8 @@ const WORDS = {
   tab_page: "This page",
   tab_mine: "Mine",
   tab_all: "All",
+  group_here: "On this page",
+  group_rest: "Everything else",
   filter_status: "Status",
   filter_kind: "Kind",
   filter_search: "Search",
@@ -806,8 +808,6 @@ function pieces(text) {
 }
 
 function defaultList() {
-  const c = (me && me.counts) || {};
-  if (c.page_open > 0 && !o.space) return { scope: "page", status: "open", kind: "", q: "" };
   if (owner()) return { scope: "all", status: "open", kind: "", q: "" };
   return { scope: "mine", status: "open", kind: "", q: "" };
 }
@@ -932,17 +932,17 @@ function list(f) {
     results.replaceChildren(...kids);
   };
   const page = (cursor, signal) => call("GET", cards ? cardQuery(p, cursor) : listQuery(f, cursor), null, null, signal).then((res) => ({
-    rows: ((res && (cards ? res.cards : res.issues)) || []).filter(p.view === "needs" ? bySource(p) : () => true).map(cards ? cardRow : row),
+    rows: ((res && (cards ? res.cards : res.issues)) || []).filter(p.view === "needs" ? bySource(p) : () => true),
     next: res && res.next_cursor
   }));
   const ready = !cards && p.view === "project" && owner() ? home() : Promise.resolve();
-  ready.then(() => page(null, ask.signal)).then(({ rows, next }) => {
+  ready.then(() => Promise.all([page(null, ask.signal), hereKeys(f, ask.signal)])).then(([{ rows, next }, keys]) => {
     if (seq !== S.seq) return;
-    const items = h("ol", { class: "p99-items" });
-    items.append(...rows);
+    const shown = grouped(keys, cards ? cardRow : row);
+    shown.add(rows);
     const empty = cards ? say(p.view === "needs" ? "needs_empty" : "cards_empty") : f.q ? say("list_no_match", { q: f.q }) : say(f.kind || (f.status && f.status !== "open") || p.source ? "list_empty_filtered" : "list_empty");
-    settle(rows.length ? items : h("p", { class: "p99-empty", text: empty }));
-    more(results, items, page, next);
+    settle(rows.length ? shown.box : h("p", { class: "p99-empty", text: empty }));
+    more(results, shown.add, page, next);
   }).catch((e) => {
     if (seq !== S.seq) return;
     settle(h("div", { class: "p99-failed" },
@@ -958,15 +958,44 @@ function listView(f) {
   ));
   return h("section", { class: "p99-view", "data-view": "list" }, title, pickBar(), nav, filters(f), h("div", { class: "p99-results" }));
 }
-function more(box, items, page, cursor) {
+function hereKeys(f, signal) {
+  const c = (me && me.counts) || {};
+  if (o.space || !(c.page_open > 0) || f.status === "closed") return Promise.resolve(null);
+  const q = new URLSearchParams({ scope: "page", status: "open", path: location.pathname, limit: "100" });
+  return call("GET", "/issues?" + q, null, null, signal).then((res) => {
+    const keys = new Set(((res && res.issues) || []).map((x) => x.key));
+    return keys.size ? keys : null;
+  }, () => null);
+}
+function grouped(keys, draw) {
+  const rest = h("ol", { class: "p99-items" });
+  if (!keys) return { box: rest, add: (rows) => rest.append(...rows.map((x) => draw(x, false))) };
+  const here = h("ol", { class: "p99-items p99-here-items" });
+  const count = h("span", { class: "p99-group-count" });
+  const hereHead = h("h3", { class: "p99-group p99-group-here" }, h("span", { text: say("group_here") }), " ", count);
+  const restHead = h("h3", { class: "p99-group", text: say("group_rest") });
+  const box = h("div", { class: "p99-groups" }, hereHead, here, restHead, rest);
+  const add = (rows) => {
+    for (const x of rows) {
+      const at = keys.has(x.key);
+      (at ? here : rest).append(draw(x, at));
+    }
+    const n = here.children.length;
+    count.textContent = String(n);
+    hereHead.hidden = here.hidden = n === 0;
+    restHead.hidden = n === 0 || rest.children.length === 0;
+  };
+  return { box, add };
+}
+function more(box, add, page, cursor) {
   if (!cursor) return;
   const b = h("button", { type: "button", class: "p99-more", text: say("more") });
   b.addEventListener("click", () => {
     b.disabled = true;
     page(cursor).then(({ rows, next }) => {
       b.remove();
-      items.append(...rows);
-      more(box, items, page, next);
+      add(rows);
+      more(box, add, page, next);
     }).catch(() => { b.disabled = false; });
   });
   box.append(b);
@@ -996,23 +1025,25 @@ function filters(f) {
     h("label", { class: "p99-search" }, h("span", { text: say("filter_search") }), q, h("i", { class: "p99-spin", "aria-hidden": "true" })));
   return form;
 }
-function row(r) {
+function hereMark(at) { return at ? h("span", { class: "p99-here", text: say("tab_page") }) : null; }
+function row(r, at) {
   const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
   if (owner() && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter, false, "")));
   meta.push(" · ", h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
-  return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread },
+  return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread, "data-here": !!at },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
       h("span", { class: "p99-key", text: r.key }),
       h("b", { class: "p99-item-title", text: r.title }),
       r.unread ? h("span", { class: "p99-unread", text: say("unread_mark") }) : null,
       statusPill(r),
       kindPill(r.kind),
+      hereMark(at),
       h("small", { class: "p99-meta" }, meta)),
     landing(r.landing));
 }
 
-function cardRow(c) {
+function cardRow(c, at) {
   const meta = [h("span", { class: "p99-project", text: c.project || "" })];
   if (c.host) meta.push(" · ", h("span", { class: "p99-host", text: c.host }));
   if (c.changed_by) meta.push(" · ", h("span", { class: "p99-reporter" }, person(c.changed_by, false, "")));
@@ -1022,12 +1053,13 @@ function cardRow(c) {
   const go = here
     ? { href: "#p99=" + c.key, onclick: (e) => { e.preventDefault(); item(c.key); } }
     : { href: "https://" + c.host + "/#p99=" + c.key, target: "_blank", rel: "noopener noreferrer" };
-  return h("li", { class: "p99-item p99-card-row", "data-lane": c.status, "data-kind": c.kind },
+  return h("li", { class: "p99-item p99-card-row", "data-lane": c.status, "data-kind": c.kind, "data-here": !!at },
     h("a", go,
       h("span", { class: "p99-key", text: c.key }),
       h("b", { class: "p99-item-title", text: c.title }),
       pill("p99-status", "data-lane", c.status, c.label || c.status),
       kindPill(c.kind),
+      hereMark(at),
       h("small", { class: "p99-meta" }, meta)));
 }
 

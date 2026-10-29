@@ -140,4 +140,131 @@ export default async function (kit) {
       assert.equal(s.pick, false, "a visitor's panel has no project pick");
     });
   });
+
+  const pagePath = `/checkout/${RUN}`;
+  const emptyPath = `/checkout/${RUN}/none`;
+  let pageSeeded = null;
+  const seedPage = () =>
+    (pageSeeded ??= (async () => {
+      const elsewhere = [await fileOn(shop, tag("Elsewhere: the menu overlaps the logo")), await fileOn(shop, tag("Elsewhere: the footer link is dead"))];
+      const here = [];
+      for (const title of ["Pay stays grey", "The coupon field drops a digit", "Shipping shows twice"]) {
+        here.push((await signed(kit, "POST", `/issues?host=${shop}`, issueBody(pagePath, { title: tag(title) }))).json.key);
+      }
+      const done = (await signed(kit, "POST", `/issues?host=${shop}`, issueBody(pagePath, { title: tag("Already fixed on this page") }))).json.key;
+      await signed(kit, "PATCH", `/issues/${done}`, { status: "done" });
+      const owner = await codeFor(kit, shop, ADA, true);
+      return { here, elsewhere, done, owner };
+    })());
+  const dots = (p) =>
+    p.evaluate(() => {
+      const q = document.querySelector("p99-root").shadowRoot.querySelector(".w .b:not(.f)");
+      const blue = q.querySelector(".n.u");
+      const page = q.querySelector(".n.v");
+      return { blue: blue.textContent, page: page.textContent, back: getComputedStyle(page).backgroundColor, scale: getComputedStyle(page).scale, label: q.ariaLabel };
+    });
+  const groups = (p) =>
+    p.evaluate(() => {
+      const res = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open [data-view=list] .p99-results");
+      const keysOf = (ol) => (ol ? Array.from(ol.querySelectorAll(":scope > li .p99-key"), (k) => k.textContent) : []);
+      const box = res.querySelector(".p99-groups");
+      if (!box) return { grouped: false, keys: keysOf(res.querySelector(".p99-items")), heads: [], here: [] };
+      const lists = box.querySelectorAll(":scope > ol");
+      const heads = Array.from(box.querySelectorAll(":scope > h3"), (h) => (h.hidden ? null : h.textContent));
+      const marked = Array.from(lists[0].querySelectorAll(":scope > li"), (li) => ({ here: li.hasAttribute("data-here"), pill: li.querySelector(".p99-here")?.textContent || null, bar: getComputedStyle(li).boxShadow }));
+      const restMarked = Array.from(lists[1].querySelectorAll(":scope > li")).some((li) => li.hasAttribute("data-here") || li.querySelector(".p99-here"));
+      return { grouped: true, first: box.firstElementChild.tagName, heads, here: keysOf(lists[0]), rest: keysOf(lists[1]), marked, restMarked };
+    });
+  const openOn = async (path, code) => {
+    const p = await kit.page();
+    await p.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+    await p.goto(`${kit.siteUrl(shop, path)}#p99=${code}`);
+    await p.waitForFunction(() => {
+      const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w .b:not(.f)");
+      return b && !b.hidden;
+    }, null, { timeout: 20000 });
+    return p;
+  };
+  const shots = process.env.P99_SHOTS;
+  const snapDots = async (p, name) => {
+    const at = await p.evaluate(() => {
+      const b = document.querySelector("p99-root").shadowRoot.querySelector(".w").getBoundingClientRect();
+      return { x: b.x - 16, y: b.y - 16, width: b.width + 32, height: b.height + 32 };
+    });
+    await p.screenshot({ path: `${shots}/${name}`, clip: at });
+  };
+
+  await kit.check("us-find-001 this pages open items are counted at the dots top left and listed first", async () => {
+    const { here, elsewhere, done, owner } = await seedPage();
+    const me = (await kit.browse("GET", `/me?path=${encodeURIComponent(pagePath)}`, owner, undefined, shop)).json;
+    assert.equal(me.counts.page_open, 3, `the Worker counts the page's three open items (${JSON.stringify(me.counts)})`);
+    const p = await openOn(pagePath, owner);
+    await closing(p, async () => {
+      const d = await kit.until("the page count", async () => {
+        const x = await dots(p);
+        return x.page === "3" ? x : null;
+      });
+      assert.equal(d.back, "rgb(163, 38, 106)", "this page's count is red-purple");
+      const blue = me.counts.waiting || me.counts.replies;
+      assert.equal(d.blue, blue > 99 ? "99+" : blue ? String(blue) : "", "the blue count is only what waits or the replies, never the page's items");
+      assert.equal(d.label, `Your items: ${blue} waiting, 3 on this page`);
+      if (shots) await snapDots(p, "us-dots-light.png");
+      await listButton(p).click();
+      const g = await kit.until("the grouped list", async () => {
+        const s = await state(p);
+        if (!s || s.waiting) return null;
+        const x = await groups(p);
+        return x.grouped && x.here.length === 3 ? x : null;
+      });
+      assert.equal(g.first, "H3", "the list starts with its heading");
+      assert.equal(g.heads[0], "On this page 3");
+      assert.equal(g.heads[1], "Everything else");
+      assert.deepEqual([...g.here].sort(), [...here].sort(), `On this page holds exactly the page's open items (${g.here})`);
+      assert.ok(!g.here.includes(done), "a closed item on the page stays out of it");
+      assert.ok(g.marked.every((m) => m.here && m.pill === "This page" && /163, 38, 106/.test(m.bar)), `each is marked in red-purple (${JSON.stringify(g.marked)})`);
+      assert.ok(elsewhere.every((k) => g.rest.includes(k)), `the rest follow under Everything else (${g.rest.slice(0, 8)})`);
+      assert.ok(!g.restMarked, "nothing below is marked as this page's");
+      if (shots) {
+        await p.locator("p99-root >> .p99-panel.is-open").screenshot({ path: `${shots}/us-list-light.png` });
+        await p.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+        await p.locator("p99-root >> .p99-panel.is-open").screenshot({ path: `${shots}/us-list-dark.png` });
+        await p.locator(S(".p99-groups > h3:nth-of-type(2)")).evaluate((e) => e.scrollIntoView({ block: "center" }));
+        await p.locator("p99-root >> .p99-panel.is-open").screenshot({ path: `${shots}/us-list-rest-dark.png` });
+        await p.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+        await p.locator("p99-root >> .p99-panel.is-open").screenshot({ path: `${shots}/us-list-rest-light.png` });
+      }
+      await p.locator(S(".p99-filters select[name=kind]")).selectOption("question");
+      const narrowed = await kit.until("the narrowed list", async () => {
+        const s = await state(p);
+        return s && !s.waiting ? groups(p) : null;
+      });
+      assert.equal(narrowed.here.length, 0, `the filters apply to this page's group too (${JSON.stringify(narrowed)})`);
+      assert.ok(narrowed.heads.every((h) => h === null), "with nothing of this page left, no heading shows");
+    });
+    if (shots) {
+      const q = await openOn(pagePath, owner);
+      await closing(q, async () => {
+        await q.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+        await kit.until("the page count", async () => ((await dots(q)).page === "3" ? true : null));
+        await snapDots(q, "us-dots-dark.png");
+      });
+    }
+  });
+
+  await kit.check("us-find-001 a page with no open items has no top left count and lists as before", async () => {
+    const { here, owner } = await seedPage();
+    const p = await openOn(emptyPath, owner);
+    await closing(p, async () => {
+      const d = await dots(p);
+      assert.equal(d.page, "", "no count at the top left");
+      assert.equal(d.scale, "0", "the empty count is scaled away");
+      await listButton(p).click();
+      const g = await kit.until("the list", async () => {
+        const s = await state(p);
+        return s && !s.waiting && s.rows.length ? groups(p) : null;
+      });
+      assert.equal(g.grouped, false, `no groups and no headings (${JSON.stringify(g)})`);
+      assert.ok(here.some((k) => g.keys.includes(k)), "the other page's items list as before");
+    });
+  });
 }

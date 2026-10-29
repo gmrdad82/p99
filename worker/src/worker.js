@@ -49,6 +49,7 @@ import loaderSource from "./web/p99.js";
 import panelSource from "./web/panel.js";
 import boardSource from "./web/board.js";
 import avatarSource from "./web/avatar.js";
+import aboveSource from "./web/above.js";
 import cssSource from "./web/p99.css";
 import concreteWebp from "./web/art/concrete.webp";
 import concrete2xWebp from "./web/art/concrete-2x.webp";
@@ -155,6 +156,7 @@ const STATIC_FILES = {
   "/_p99/panel.js": { source: panelSource, type: JS_TYPE },
   "/_p99/board.js": { source: boardSource, type: JS_TYPE },
   "/_p99/avatar.js": { source: avatarSource, type: JS_TYPE },
+  "/_p99/above.js": { source: aboveSource, type: JS_TYPE },
   "/_p99/p99.css": { source: cssSource, type: "text/css; charset=utf-8" },
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
   "/_p99/frame.html": { source: "<!doctype html><title>P99</title>", type: "text/html; charset=utf-8", csp: "default-src 'none'; img-src data:; frame-ancestors 'self'" },
@@ -1590,6 +1592,17 @@ async function countsFor(c, path) {
       "SELECT count(*) AS n FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id",
       scoped(() => [mineClause("?1"), `${activity} > COALESCE(r.read_at, '')`], [email]),
     ),
+    statement(
+      "SELECT count(*) AS n FROM items i LEFT JOIN reads r ON r.actor_email = ?1 AND r.item_id = i.id",
+      scoped(
+        () => [
+          mineClause("?1"),
+          `EXISTS (SELECT 1 FROM comments cm WHERE cm.item_id = i.id AND lower(cm.author_email) <> lower(?1)${c.manager ? "" : " AND cm.internal = 0"}
+            AND cm.created_at > COALESCE(r.read_at, ''))`,
+        ],
+        [email],
+      ),
+    ),
   ];
   if (path !== null) {
     statements.push(
@@ -1606,9 +1619,10 @@ async function countsFor(c, path) {
   if (c.manager) statements.push(statement("SELECT count(*) AS n FROM items i", scoped(() => ["i.open = 1"])));
   const results = (await DB.batch(statements)).map((r) => r.results[0].n);
   return {
-    page_open: path !== null ? results[2] : null,
+    page_open: path !== null ? results[3] : null,
     mine_open: results[0],
     mine_unread: results[1],
+    replies: results[2],
     all_open: c.manager ? results[results.length - 1] : null,
   };
 }

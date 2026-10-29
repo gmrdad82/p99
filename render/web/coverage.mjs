@@ -11,7 +11,7 @@ const web = join(worker, "src", "web");
 
 export const CHECKS = ["capture-check.mjs", "manage-check.mjs", "mobile-check.mjs", "search-check.mjs", "swap-check.mjs", "stories-widget.mjs", "stories-board.mjs", "board.mjs", "app-check.mjs"];
 export const ARGS = { "board.mjs": ["check", "--worker"] };
-export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "app.js"];
+export const SHOWN = ["p99.js", "panel.js", "board.js", "shot.js", "avatar.js", "above.js", "app.js"];
 const SERVED = new Set(SHOWN);
 const CAPTURE_TAIL = "\nreturn exports;\n})();\n";
 
