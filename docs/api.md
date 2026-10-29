@@ -277,7 +277,7 @@ A code grants the whole space (`{"space":true}`) or some projects (`{"projects":
 
 ## Licence
 
-The licence state is read from a key an Owner pasted (`PUT /licence`, kept in the `settings` table) first, and from the deploy's `LICENSE_STATE` and `LICENSE_LINK` bindings after. A Studio or Agency key covering the Worker's build date gives `licensed: true` in `/me`, and the panel then hides its small P99 logo; an Agency or Owner key lets a host hide the "by PITO.MD" link.
+The licence state is read from a key an Owner pasted (`PUT /licence`, kept in the `settings` table) first, and from the deploy's `LICENSE_STATE` and `LICENSE_LINK` bindings after. A Studio or Agency key covering the Worker's build date gives `licensed: true` in `/me`, and the panel then hides its small P99 logo; an Agency key lets a host hide the "by PITO.MD" link.
 
 ## Test vector
 
