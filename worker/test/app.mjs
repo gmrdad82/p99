@@ -7,7 +7,7 @@ import { licenseState } from "../src/license.js";
 import { HOSTLESS_REPORT } from "../src/spaces.js";
 
 export const APP_HOST = "app.localhost";
-export const LICENSE_STATE = "owner";
+export const LICENSE_STATE = "agency";
 
 export function totpOf(key, offset = 0) {
   const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -95,7 +95,8 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
   });
 
   await check("the page's badge is the word the LICENSE_STATE binding carries, and free for a missing or unknown one", async () => {
-    for (const word of ["free", "studio", "agency", "owner", "ff"]) assert.equal(licenseState({ LICENSE_STATE: word }), word);
+    for (const word of ["free", "studio", "agency", "ff"]) assert.equal(licenseState({ LICENSE_STATE: word }), word);
+    assert.equal(licenseState({ LICENSE_STATE: "owner" }), "agency");
     for (const env of [{}, { LICENSE_STATE: "" }, { LICENSE_STATE: "trial" }, { LICENSE_STATE: "Agency" }, { LICENSE_STATE: " studio" }, { LICENSE_STATE: "friends-family" }, { LICENSE_STATE: ["agency"] }, { LICENSE_STATE: "p99_v2.eyJ0aWVyIjoiYWdlbmN5In0.sig" }]) {
       assert.equal(licenseState(env), "free", JSON.stringify(env));
     }

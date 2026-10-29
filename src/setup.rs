@@ -2254,7 +2254,6 @@ mod tests {
             (State::Studio, "shown"),
             (State::Agency, "hideable"),
             (State::Ff, "shown"),
-            (State::Owner, "hideable"),
         ] {
             let ours = our_bindings("main", &account, None, None, state);
             let found = find_binding(&ours, "plain_text", Some("LICENSE_STATE")).unwrap();

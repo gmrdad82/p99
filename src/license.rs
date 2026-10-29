@@ -19,7 +19,8 @@ const TIMED: &str = "timed";
 const APP: &str = "p99";
 const TIERS: [&str; 2] = ["studio", "agency"];
 const TOP: &str = "agency";
-pub const HIDES_LINK: &[&str] = &["agency", "owner"];
+pub const HIDES_LINK: &[&str] = &["agency"];
+const FOREVER: &str = "9999-12-31";
 
 #[derive(Debug, clap::Args)]
 pub struct Args {
@@ -90,7 +91,6 @@ pub struct Claims {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Group {
-    Owner,
     FriendsFamily,
     Customer,
 }
@@ -100,25 +100,17 @@ pub enum State {
     Free,
     Studio,
     Agency,
-    Owner,
     Ff,
 }
 
 impl State {
-    pub const ALL: [State; 5] = [
-        State::Free,
-        State::Studio,
-        State::Agency,
-        State::Owner,
-        State::Ff,
-    ];
+    pub const ALL: [State; 4] = [State::Free, State::Studio, State::Agency, State::Ff];
 
     pub fn word(self) -> &'static str {
         match self {
             State::Free => "free",
             State::Studio => "studio",
             State::Agency => "agency",
-            State::Owner => "owner",
             State::Ff => "ff",
         }
     }
@@ -128,12 +120,14 @@ impl State {
             State::Free => "Free",
             State::Studio => "Studio",
             State::Agency => "Agency",
-            State::Owner => "Agency",
             State::Ff => "F&F",
         }
     }
 
     pub fn parse(word: &str) -> Option<State> {
+        if word == "owner" {
+            return Some(State::Agency);
+        }
         State::ALL.into_iter().find(|state| state.word() == word)
     }
 
@@ -178,7 +172,6 @@ impl Claims {
 
     pub fn group(&self) -> Group {
         match self.group.as_deref() {
-            Some("owner") => Group::Owner,
             Some("friends-family") => Group::FriendsFamily,
             _ => Group::Customer,
         }
@@ -186,7 +179,7 @@ impl Claims {
 
     pub fn tier(&self) -> &str {
         match self.group() {
-            Group::Owner | Group::FriendsFamily => TOP,
+            Group::FriendsFamily => TOP,
             Group::Customer => &self.tier,
         }
     }
@@ -196,7 +189,6 @@ impl Claims {
             return State::Free;
         }
         match (self.group(), self.tier()) {
-            (Group::Owner, _) => State::Owner,
             (Group::FriendsFamily, _) => State::Ff,
             (Group::Customer, "studio") => State::Studio,
             (Group::Customer, "agency") => State::Agency,
@@ -341,14 +333,7 @@ fn print_human(claims: &Claims) {
     line("pitomd link", link_word(state));
     line("tier", &title(shown.tier));
     line("studio", shown.studio.unwrap_or("-"));
-    line(
-        "paid through",
-        &format!(
-            "{}, {} days' grace",
-            shown.paid_through.unwrap_or("-"),
-            shown.grace_days
-        ),
-    );
+    line("paid through", &through_line(&shown));
     line(
         "this build",
         &match shown.build_date {
@@ -357,6 +342,13 @@ fn print_human(claims: &Claims) {
             None => "no build date, not covered".to_owned(),
         },
     );
+}
+
+fn through_line(shown: &Shown<'_>) -> String {
+    match shown.paid_through {
+        Some(FOREVER) => "every release".to_owned(),
+        other => format!("{}, {} days' grace", other.unwrap_or("-"), shown.grace_days),
+    }
 }
 
 fn verdict(state: State, claims: Option<&Claims>) -> serde_json::Value {
@@ -678,17 +670,38 @@ mod tests {
     }
 
     #[test]
-    fn an_owner_key_reads_as_agency_and_may_hide_the_link() {
+    fn an_owner_group_key_reads_as_a_customer_agency_key_and_may_hide_the_link() {
         let claims = read(Some("owner"), "agency", "9999-12-31");
-        assert_eq!(claims.group(), Group::Owner);
+        assert_eq!(claims.group(), Group::Customer);
         assert_eq!(claims.tier(), "agency");
         for built in ["2026-10-20", "2099-01-01", "9999-12-31"] {
-            assert_eq!(claims.state(Some(built)), State::Owner);
+            assert_eq!(claims.state(Some(built)), State::Agency);
             assert!(claims.state(Some(built)).may_hide_link());
         }
-        assert_eq!(State::Owner.word(), "owner");
-        assert_eq!(State::Owner.label(), "Agency");
-        assert_eq!(State::Owner.link_binding(), "hideable");
+    }
+
+    #[test]
+    fn an_owner_group_studio_key_is_a_plain_studio_key() {
+        let claims = read(Some("owner"), "studio", "2026-12-31");
+        assert_eq!(claims.tier(), "studio");
+        assert_eq!(claims.state(Some("2026-10-20")), State::Studio);
+        assert!(!claims.state(Some("2026-10-20")).may_hide_link());
+    }
+
+    #[test]
+    fn the_word_owner_from_an_older_deploy_reads_as_agency() {
+        assert_eq!(State::parse("owner"), Some(State::Agency));
+        assert_eq!(State::parse("agency"), Some(State::Agency));
+        assert_eq!(State::parse("platinum"), None);
+        assert!(!State::ALL.iter().any(|state| state.word() == "owner"));
+    }
+
+    #[test]
+    fn a_never_lapsing_key_says_every_release_and_a_dated_one_its_date() {
+        let forever = read(Some("customer"), "agency", "9999-12-31");
+        assert_eq!(through_line(&shown(&forever)), "every release");
+        let dated = read(Some("customer"), "agency", "2026-12-31");
+        assert_eq!(through_line(&shown(&dated)), "2026-12-31, 0 days' grace");
     }
 
     #[test]

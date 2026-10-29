@@ -465,8 +465,7 @@ function brand() {
   const plain = !o.space && !!me && me.licensed === true;
   const by = plain || (me && me.link === false) ? null : h("a", { class: "p99-by", href: PITOMD, target: "_blank", rel: "noopener noreferrer", text: "by PITO.MD" });
   const lockup = plain ? null : h("img", { class: "p99-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99, issue and feedback reporter", width: 1371, height: 243 });
-  const shown = me && me.license === "owner" ? "agency" : me && me.license;
-  const state = Object.hasOwn(BADGES, shown) ? shown : "free";
+  const state = me && Object.hasOwn(BADGES, me.license) ? me.license : "free";
   const badge = me ? h("img", { class: "p99-badge", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 24 }) : null;
   const tags = badge || by ? h("div", { class: "p99-tags" }, badge, by) : null;
   return h("div", { class: "p99-brand" }, lockup, o.space ? h("span", { class: "p99-logo-name", text: o.title || o.space }) : null, tags);

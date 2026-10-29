@@ -194,7 +194,7 @@ fn colours(state: State, truecolor: bool) -> (Color, Color) {
     let (face, ink, indexed) = match state {
         State::Free => (0xb4c2d1, 0x13202f, (250, 234)),
         State::Studio => (0x2c66b8, 0xffffff, (25, 231)),
-        State::Agency | State::Owner => (0x1d4785, 0xffffff, (24, 231)),
+        State::Agency => (0x1d4785, 0xffffff, (24, 231)),
         State::Ff => (0xb8264d, 0xffffff, (125, 231)),
     };
     if truecolor {
@@ -258,8 +258,8 @@ mod tests {
     }
 
     #[test]
-    fn an_owner_key_shows_the_agency_pill_in_its_colours() {
-        let owner = settled(State::Owner, &palette());
+    fn an_old_owner_word_shows_the_agency_pill_in_its_colours() {
+        let owner = settled(State::parse("owner").unwrap(), &palette());
         let agency = settled(State::Agency, &palette());
         assert_eq!(text(&owner), "▐Agency▌");
         assert_eq!(owner.parts(), agency.parts());
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn while_easing_the_width_holds_and_the_pill_grows() {
-        let mut badge = Badge::new(State::Owner, &palette());
+        let mut badge = Badge::new(State::Agency, &palette());
         let now = Instant::now();
         badge.moment(now);
         let mut seen = 0;
@@ -349,7 +349,7 @@ mod tests {
 
     #[test]
     fn a_steady_count_allocates_nothing_per_frame() {
-        let mut badge = settled(State::Owner, &palette());
+        let mut badge = settled(State::Agency, &palette());
         badge.counter().set(5);
         let frame = Instant::now() + EASE * 4;
         badge.moment(frame);
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn a_changing_count_writes_into_the_same_buffer_and_easing_keeps_it() {
-        let mut badge = settled(State::Owner, &palette());
+        let mut badge = settled(State::Agency, &palette());
         let counter = badge.counter();
         let frame = Instant::now() + EASE * 4;
         counter.set(5);

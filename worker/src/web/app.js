@@ -188,8 +188,7 @@ function owner() {
 function licence() {
   const l = S.me && S.me.licence;
   const s = l && typeof l === "object" ? l.state : S.spaces && S.spaces.license;
-  const shown = s === "owner" ? "agency" : s;
-  return Object.hasOwn(BADGES, shown) ? shown : "free";
+  return Object.hasOwn(BADGES, s) ? s : "free";
 }
 
 function spaceName() {

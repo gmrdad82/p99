@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { request } from "node:http";
 import { join } from "node:path";
-import { bindingLicence, licenseState, linkShown } from "../../src/license.js";
+import { bindingLicence, linkOf, licenseState, linkShown, stateOf } from "../../src/license.js";
 
 function deployWords(root) {
   const source = readFileSync(join(root, "..", "src", "license.rs"), "utf8");
@@ -47,8 +47,8 @@ export async function licenceStories({ base, call, browse, mint, check, here, pl
 
   await check("story: every licence word deploy binds must reach the panel as the link that licence pays for", () => {
     const { hides, states } = deployWords(root);
-    assert.deepEqual(states, ["free", "studio", "agency", "owner", "ff"]);
-    assert.deepEqual(hides, ["agency", "owner"]);
+    assert.deepEqual(states, ["free", "studio", "agency", "ff"]);
+    assert.deepEqual(hides, ["agency"]);
     for (const state of states) {
       const binding = hides.includes(state) ? "hideable" : "shown";
       const env = { LICENSE_STATE: state, LICENSE_LINK: binding };
@@ -57,6 +57,7 @@ export async function licenceStories({ base, call, browse, mint, check, here, pl
       assert.equal(linkShown(bindingLicence(env), {}), true, state);
       assert.equal(linkShown(bindingLicence(env), { link: true }), true, state);
     }
+    assert.equal(licenseState({ LICENSE_STATE: "owner" }), "agency");
     for (const word of ["", "Owner", "OWNER", " owner", "owner ", "trial", "pro", "f&f", "friends-family"]) {
       assert.equal(licenseState({ LICENSE_STATE: word }), "free", JSON.stringify(word));
     }
@@ -65,7 +66,20 @@ export async function licenceStories({ base, call, browse, mint, check, here, pl
     }
   });
 
-  await check("story: an Agency or Owner Worker must hide the link only on the host that turned it off", async () => {
+  await check("story: a key of the old owner group must read as a customer at its tier, never lapsing at 9999", () => {
+    for (const [tier, state] of [["agency", "agency"], ["studio", "studio"]]) {
+      const claims = { type: "timed", tier, group: "owner", paid_through: "9999-12-31" };
+      for (const built of ["2026-10-29", "2099-01-01", "9999-12-31"]) {
+        assert.equal(stateOf(claims, built), state, `${tier} ${built}`);
+      }
+      assert.equal(linkOf(stateOf(claims, "2026-10-29")), tier === "agency" ? "hideable" : "shown");
+    }
+    const ff = { type: "timed", tier: "studio", group: "friends-family", paid_through: "9999-12-31" };
+    assert.equal(stateOf(ff, "2099-01-01"), "ff");
+    assert.equal(linkOf("ff"), "shown");
+  });
+
+  await check("story: an Agency Worker must hide the link only on the host that turned it off", async () => {
     const adaHere = await mint("Ada Lovelace", "ada@example.com", [here]);
     const adaThere = await mint("Ada Lovelace", "ada@example.com", [there]);
     try {
