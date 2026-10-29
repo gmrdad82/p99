@@ -110,8 +110,8 @@ impl Codes {
         shared.rescoped(self.source.rescope());
         self.scope = shared.scoped();
         cx.reload();
-        let source = self.source.clone();
-        cx.detach(move || Msg::Waiting(false, source.waiting()));
+        let (source, scoped) = (self.source.clone(), self.scope);
+        cx.detach(move || Msg::Waiting(false, scoped, source.waiting()));
     }
 
     pub fn badge(mut self, badge: Badge) -> Self {
@@ -312,9 +312,9 @@ impl Screen<Msg> for Codes {
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::CodeDeleted(code, result) => self.erased(&code, result, cx),
-            Msg::Waiting(_, result) => {
+            Msg::Waiting(_, scoped, result) => {
                 if let Some(shared) = &self.shared {
-                    tally(shared, &result);
+                    tally(shared, scoped, &result);
                 }
             }
             _ => {}

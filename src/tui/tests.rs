@@ -480,9 +480,12 @@ fn p_with_no_projects_says_how_to_file_one() {
 fn a_failed_count_stays_quiet_and_a_failed_w_says_why() {
     let mut app = run(sample());
     settled(&mut app);
-    let quiet = app.event(INBOX, Msg::Waiting(false, Err("not an owner (403)".into())));
+    let quiet = app.event(
+        INBOX,
+        Msg::Waiting(false, 0, Err("not an owner (403)".into())),
+    );
     assert!(!quiet.contains("not an owner"), "{quiet}");
-    let loud = app.event(INBOX, Msg::Waiting(true, Err("offline now".into())));
+    let loud = app.event(INBOX, Msg::Waiting(true, 0, Err("offline now".into())));
     assert!(loud.contains("offline now"), "{loud}");
 }
 
@@ -505,7 +508,7 @@ fn a_late_project_or_needs_you_answer_never_opens_over_typing() {
     let typed = app.event(INBOX, Msg::Projects(Ok(names)));
     assert!(!typed.contains("All projects"), "{typed}");
     let cards = app.source.waiting().expect("the sample waits");
-    let still = app.event(INBOX, Msg::Waiting(true, Ok(cards)));
+    let still = app.event(INBOX, Msg::Waiting(true, 0, Ok(cards)));
     assert!(!still.contains("Needs you ·"), "{still}");
     assert!(still.contains("Filter"), "{still}");
     let failed = app.event(INBOX, Msg::Projects(Err("offline".into())));

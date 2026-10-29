@@ -159,10 +159,14 @@ impl Source {
     }
 
     pub fn named(&self) -> Vec<String> {
+        self.lookup().0
+    }
+
+    pub fn lookup(&self) -> (Vec<String>, bool) {
         match self {
-            Source::Demo(..) => vec![super::demo::SPACE.to_owned()],
+            Source::Demo(..) => (vec![super::demo::SPACE.to_owned()], true),
             Source::Live(live) => live.named(),
-            Source::Broken(_) => Vec::new(),
+            Source::Broken(_) => (Vec::new(), true),
         }
     }
 
@@ -408,11 +412,11 @@ impl Live {
         next
     }
 
-    fn named(&self) -> Vec<String> {
+    fn named(&self) -> (Vec<String>, bool) {
         let Ok(clients) = self.clients() else {
-            return self.spaces.clone();
+            return (self.spaces.clone(), false);
         };
-        thread::scope(|s| {
+        let found: Vec<Option<String>> = thread::scope(|s| {
             let asks: Vec<_> = clients
                 .iter()
                 .map(|client| {
@@ -425,16 +429,21 @@ impl Live {
                 })
                 .collect();
             asks.into_iter()
-                .zip(&self.spaces)
-                .map(|(ask, slug)| {
+                .map(|ask| {
                     ask.join()
                         .ok()
                         .flatten()
                         .filter(|name| !name.trim().is_empty())
-                        .unwrap_or_else(|| slug.clone())
                 })
                 .collect()
-        })
+        });
+        let whole = found.iter().all(Option::is_some);
+        let names = found
+            .into_iter()
+            .zip(&self.spaces)
+            .map(|(name, slug)| name.unwrap_or_else(|| slug.clone()))
+            .collect();
+        (names, whole)
     }
 
     fn clients(&self) -> Result<&[Client], String> {

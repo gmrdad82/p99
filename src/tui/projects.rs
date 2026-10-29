@@ -222,11 +222,17 @@ impl Source {
                     let name = names.get(space).map_or("", String::as_str);
                     let answer = self
                         .client(space, None)
-                        .and_then(|client| client.json::<ProjectList>("GET", "/v1/projects", None));
+                        .and_then(|client| match client.space() {
+                            Ok(view) => Ok(view.projects.into_iter().map(|p| p.name).collect()),
+                            Err(error) if error.ends_with("(404)") => client
+                                .json::<ProjectList>("GET", "/v1/projects", None)
+                                .map(|list| list.projects.into_iter().map(|p| p.name).collect()),
+                            Err(error) => Err(error),
+                        });
                     match answer {
-                        Ok(list) => {
+                        Ok(names) => {
                             answered = true;
-                            lists.push(list.projects.into_iter().map(|p| p.name).collect());
+                            lists.push(names);
                         }
                         Err(error) if unrouted(&error) => {}
                         Err(error) => {
