@@ -416,7 +416,7 @@ async function clip() {
   await r.tick(300);
   await r.click(".p99-mark-done");
   await r.skip(400);
-  await r.until(() => inside(p, ".p99-regions:not([hidden]) .p99-region img"), 15000);
+  await r.until(() => inside(p, ".p99-regions:not([hidden]) .p99-region canvas"), 15000);
   await r.tick(200);
   await r.panelTo(".p99-regions");
   await r.tick(800);

@@ -46,7 +46,7 @@ Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each agai
 
 ## On your site
 
-**One tag, every page.** The loader is a classic script of about 2 KB that draws the "+" in its own closed Shadow DOM, only for people holding a personal code. For everyone else it reads nothing and draws nothing. It adds one element and one global, `P99`, and works under a strict Content-Security-Policy: no `'unsafe-inline'`, no `eval`, no frames, nothing from another origin.
+**One tag, every page.** The loader is a classic script of about 2 KB that draws the "+" in its own closed Shadow DOM, only for people holding a personal code. For everyone else it reads nothing and draws nothing. It adds one element and one global, `P99`, and works under a strict Content-Security-Policy: no `'unsafe-inline'`, no `eval`, no `data:` images, nothing from another origin; `default-src 'self'` alone is enough.
 
 ```html
 <script src="/_p99/p99.js" async></script>

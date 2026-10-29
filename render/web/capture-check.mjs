@@ -23,7 +23,7 @@ const vendor = readFileSync(join(repo, "worker", "src", "web", "vendor", "modern
 const shot = readFileSync(join(repo, "worker", "src", "web", "shot.js"), "utf8");
 const capture = `const ms = (() => {\nvar exports = {}, module = {};\n${vendor}\nreturn exports;\n})();\n${shot}`;
 const panel = readFileSync(args.panel, "utf8") +
-  "\nexport function __check() { root = document.createElement(\"div\"); document.body.append(root); o = { host: null, root, ring: [] }; return capture; }\n";
+  "\nexport function __check() { root = document.createElement(\"div\"); document.body.append(root); o = { host: null, root, ring: [] }; me = { capture: \"on\", mask: [] }; return capture; }\n";
 const page = readFileSync(join(here, "capture", "page.html"));
 
 const hues = [24, 200, 140, 330, 50, 260, 0, 170, 90, 300, 220, 10, 120, 280];
@@ -40,6 +40,10 @@ const server = createServer((req, res) => {
   if (path === "/") return send(200, "text/html; charset=utf-8", page);
   if (path === "/_p99/capture.js") return send(200, "text/javascript", capture);
   if (path === "/_p99/panel.js") return send(200, "text/javascript", panel);
+  if (path === "/_p99/frame.html") {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-security-policy": "default-src 'none'; img-src data:; frame-ancestors 'self'" });
+    return res.end("<!doctype html><title>P99</title>");
+  }
   let m = /^\/media\/poster-(\d+)\.svg$/.exec(path);
   if (m) return send(200, "image/svg+xml", poster(Number(m[1])));
   m = /^\/slow\/shot-(\d+)\.svg$/.exec(path);

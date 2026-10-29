@@ -3,9 +3,11 @@ const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAA
 const CAPTURE_DEADLINE = 10000;
 const MEDIA_TIMEOUT = 8000;
 const VIDEO_STYLE = ["position", "top", "right", "bottom", "left", "z-index", "float", "margin", "transform", "transform-origin", "border", "border-radius", "opacity", "filter", "clip-path", "vertical-align", "object-fit", "object-position", "grid-area", "flex", "align-self", "justify-self", "order"];
+const CONTROL = /[\u0000-\u0008\v\f\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu;
+const WAY = "p99:shot";
 const PACKED_STYLE = ["background-image", "border-image-source", "-webkit-border-image", "-webkit-mask-image", "mask-image", "list-style-image"];
 
-let env = null, fonts = null, shots = 0;
+let env = null, fonts = null, shots = 0, framed = null, blocked = false;
 
 export function capture(e, full, since) {
   env = e;
@@ -225,14 +227,15 @@ function shoot(full, deadline) {
   });
   const skip = new Set();
   const slots = [];
-  document.querySelectorAll("video").forEach((v) => {
+  document.querySelectorAll("video, canvas").forEach((v) => {
     if (v.closest("[data-p99-ignore]") || !v.parentElement) return;
     skip.add(v);
     const cs = getComputedStyle(v);
     const style = {};
     VIDEO_STYLE.forEach((k) => { style[k] = cs.getPropertyValue(k); });
     style.display = cs.display === "inline" ? "inline-block" : cs.display;
-    slots.push({ v, parent: v.parentElement, w: v.offsetWidth, h: v.offsetHeight, style, poster: v.poster && sameOrigin(v.poster) ? v.poster : null, fill: v.poster ? "#111" : "transparent" });
+    const poster = v.nodeName === "CANVAS" ? drawing(v) : v.poster && sameOrigin(v.poster) ? v.poster : null;
+    slots.push({ v, parent: v.parentElement, w: v.offsetWidth, h: v.offsetHeight, style, poster, fill: v.poster ? "#111" : "transparent" });
   });
   const groups = new Map();
   slots.forEach((s) => {
@@ -260,6 +263,8 @@ function shoot(full, deadline) {
     ctx = sandbox = null;
   };
   const late = new Promise((_, no) => { timer = setTimeout(() => no(Object.assign(new Error("capture took too long"), { slow: true })), Math.max(0, deadline)); });
+  const inert = document.implementation.createHTMLDocument("");
+  if (way() === "frame") frameDoc().catch(() => {});
   const work = fontCss()
     .then((css) => {
       sandbox = probe();
@@ -276,14 +281,15 @@ function shoot(full, deadline) {
         fetchFn: (url) => (fragment(url) ? BLANK : sameOrigin(url) ? false : BLANK),
         features: { restoreScrollPosition: true, fixSvgXmlDecode: safari },
         filter: (node) => !ignored(node) && !skip.has(node),
-        onCloneNode: (clone) => dress(clone, { full, sx, sy, hidden, fixes, groupList, blanks, shown, fill })
+        onCloneNode: (clone) => dress(inert.adoptNode(clone), { full, sx, sy, hidden, fixes, groupList, blanks, shown, fill })
       });
     })
     .then((c) => {
       ctx = c;
       ctx.timeout = MEDIA_TIMEOUT;
-      return ms.domToCanvas(ctx);
-    });
+      return ms.domToForeignObjectSvg(ctx);
+    })
+    .then((svg) => paint(svg, Math.floor(W * scale), Math.floor(H * scale), safari ? ctx.drawImageCount : 0));
   return Promise.race([work, late]).then((canvas) => {
     done();
     cover(canvas, boxes, full, sx, sy);
@@ -292,6 +298,98 @@ function shoot(full, deadline) {
   }, (e) => {
     done();
     throw e;
+  });
+}
+function drawing(c) {
+  try {
+    const u = c.toDataURL();
+    return u.length > 6 ? u : null;
+  } catch (x) {
+    return null;
+  }
+}
+function way() {
+  try {
+    const w = localStorage.getItem(WAY);
+    if (w === "page" || w === "frame") return w;
+  } catch (x) {}
+  return framesBarred() ? "page" : "frame";
+}
+function framesBarred() {
+  return Array.from(document.querySelectorAll("meta[http-equiv]")).some((m) => {
+    if (m.httpEquiv.toLowerCase() !== "content-security-policy") return false;
+    const rules = {};
+    m.content.split(";").forEach((r) => {
+      const [name, ...list] = r.trim().toLowerCase().split(/\s+/);
+      if (name && !(name in rules)) rules[name] = list;
+    });
+    const list = rules["frame-src"] || rules["child-src"] || rules["default-src"];
+    return !!list && !list.includes("'self'") && !list.includes("*");
+  });
+}
+function frameDoc() {
+  const f = framed && framed.el;
+  if (f && f.isConnected && framed.doc && f.contentDocument === framed.doc) return Promise.resolve(framed.doc);
+  if (f && f.isConnected && !framed.doc) return framed.ready;
+  if (f) f.remove();
+  const el = document.createElement("iframe");
+  el.hidden = true;
+  el.tabIndex = -1;
+  el.setAttribute("aria-hidden", "true");
+  el.setAttribute("sandbox", "allow-same-origin");
+  const at = "/_p99/frame.html?v=" + V;
+  const ready = new Promise((ok, no) => {
+    el.addEventListener("load", () => {
+      let doc = null;
+      try { doc = el.contentDocument; } catch (x) {}
+      if (doc && doc.location && doc.location.pathname === "/_p99/frame.html") {
+        if (framed && framed.el === el) framed.doc = doc;
+        ok(doc);
+      } else no(new Error("the capture frame didn't load"));
+    }, { once: true });
+  });
+  framed = { el, ready, doc: null };
+  ready.catch(() => { if (framed && framed.el === el) { el.remove(); framed = null; } });
+  el.src = at;
+  env.root.append(el);
+  return ready;
+}
+function load(doc, url) {
+  const img = doc.createElement("img");
+  img.decoding = "sync";
+  img.src = url;
+  return img.decode().then(() => img);
+}
+function via(w, url) {
+  return w === "frame" ? frameDoc().then((doc) => load(doc, url)) : load(document, url);
+}
+function keep(w) {
+  try { localStorage.setItem(WAY, w); } catch (x) {}
+}
+function decode(url) {
+  const first = way(), other = first === "frame" ? "page" : "frame";
+  blocked = false;
+  const heard = (e) => { if (/^data|\/_p99\/frame\.html/.test(e.blockedURI || "")) blocked = true; };
+  document.addEventListener("securitypolicyviolation", heard);
+  const done = () => document.removeEventListener("securitypolicyviolation", heard);
+  return via(first, url)
+    .catch(() => via(other, url).then((img) => { keep(other); return img; }))
+    .then((img) => { done(); return img; }, () => new Promise((r) => setTimeout(r, 0)).then(() => {
+      done();
+      throw Object.assign(new Error("the screenshot couldn't be drawn"), { why: blocked ? "capture_blocked" : "capture_failed" });
+    }));
+}
+function paint(svg, w, h, redraws) {
+  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(new XMLSerializer().serializeToString(svg).replace(CONTROL, ""));
+  return decode(url).then((img) => {
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d");
+    const draw = () => { g.clearRect(0, 0, w, h); g.drawImage(img, 0, 0, w, h); };
+    draw();
+    const again = (i) => (i >= redraws ? c : new Promise((r) => setTimeout(r, i + 20)).then(() => { draw(); return again(i + 1); }));
+    return again(0);
   });
 }
 function fragment(url) {
@@ -395,7 +493,7 @@ function dress(clone, c) {
     n.removeAttribute("data-p99-vp");
     if (!list) return;
     list.slice().sort((a, b) => a.at - b.at).forEach((s, i) => {
-      const ph = s.poster ? document.createElement("img") : document.createElement("div");
+      const ph = clone.ownerDocument.createElement(s.poster ? "img" : "div");
       if (s.poster) ph.src = s.poster;
       else ph.style.background = s.fill;
       Object.keys(s.style).forEach((k) => ph.style.setProperty(k, s.style[k]));

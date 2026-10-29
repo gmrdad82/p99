@@ -161,6 +161,7 @@ const STATIC_FILES = {
   "/_p99/avatar.js": { source: avatarSource, type: JS_TYPE },
   "/_p99/p99.css": { source: cssSource, type: "text/css; charset=utf-8" },
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
+  "/_p99/frame.html": { source: "<!doctype html><title>P99</title>", type: "text/html; charset=utf-8", csp: "default-src 'none'; img-src data:; frame-ancestors 'self'" },
   "/_p99/art/concrete.webp": { bytes: concreteWebp, type: "image/webp" },
   "/_p99/art/concrete-2x.webp": { bytes: concrete2xWebp, type: "image/webp" },
   "/_p99/art/concrete.png": { bytes: concretePng, type: "image/png" },
@@ -1470,6 +1471,7 @@ async function serveStatic(request, env, url) {
       "content-type": file.type,
       "cache-control": immutable ? "public, max-age=31536000, immutable" : "public, max-age=300",
       "x-content-type-options": "nosniff",
+      ...(file.csp ? { "content-security-policy": file.csp } : {}),
     },
   });
 }

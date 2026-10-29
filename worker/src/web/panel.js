@@ -1,6 +1,7 @@
 const V = "__P99_VERSION__";
 const MAX_FILE = 20 * 1024 * 1024;
 const MAX_FILES = 30;
+const THUMB = 640;
 const MAX_MARKS = 10;
 const SLOW_MS = 4000;
 const GIVE_UP_MS = 20000;
@@ -10,7 +11,6 @@ const BUSY_GIVE_UP_MS = 10000;
 const DISCORD = "https://discord.gg/XsNcn3kYzn";
 const PITOMD = "https://pitomd.com";
 const BADGES = { free: "Free", studio: "Studio", agency: "Agency", ff: "F&F" };
-const BLANK = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 const KINDS = ["bug", "feature", "improvement", "question", "task"];
 const STATUSES = ["inbox", "doing", "review", "done"];
 const ROBOT = "🤖";
@@ -168,6 +168,7 @@ const WORDS = {
   capture_slow: "The page took too long to capture; you can send without it.",
   capture_mask: "This browser can't read the areas this site keeps private, so no screenshot was taken; you can send without one.",
   capture_unknown: "This site's capture settings didn't load, so no screenshot was taken; you can send without one.",
+  capture_blocked: "This site's security settings block the screenshot, so your report goes without one.",
   marking: "Drag a box over the area. Esc stops.",
   mark_hint: "Drag a box over the area; you can mark several.",
   mark_n: "Area {n}",
@@ -368,18 +369,17 @@ function blobOf(id) {
   }
   return S.files.get(id);
 }
-function dataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(fr.result);
-    fr.onerror = () => reject(fr.error);
-    fr.readAsDataURL(blob);
-  });
-}
+function picture(label) { return h("canvas", { role: "img", "aria-label": label, width: 1, height: 1 }); }
 function thumb(a) {
-  const img = h("img", { alt: a.name || say("preview"), src: BLANK });
-  blobOf(a.id).then(dataUrl).then((u) => { img.src = u; }, () => {});
-  return img;
+  const c = picture(a.name || say("preview"));
+  blobOf(a.id).then((b) => createImageBitmap(b)).then((bmp) => {
+    const k = Math.min(1, THUMB / bmp.width);
+    c.width = Math.max(1, Math.round(bmp.width * k));
+    c.height = Math.max(1, Math.round(bmp.height * k));
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close();
+  }, () => {});
+  return c;
 }
 function download(a) {
   return (e) => {
@@ -1321,16 +1321,17 @@ function pickOne(label, name, now, find) {
 }
 function disc(p, size) {
   const person = typeof p === "string" ? { username: p } : p || {};
-  const img = h("img", { class: "p99-disc", alt: "", width: size, height: size, src: BLANK });
+  const box = h("span", { class: "p99-disc", "aria-hidden": "true" });
+  box.style.width = box.style.height = size + "px";
   if (!S.avatar) {
     S.avatar = import("/_p99/avatar.js?v=" + V);
     S.avatar.catch(() => { S.avatar = null; });
   }
   S.avatar.then((m) => {
-    img.src = m.avatarSrc(person.username, size);
-    return m.picture && m.picture(person, blob);
-  }).then((u) => { if (u) img.src = u; }, () => {});
-  return img;
+    box.replaceChildren(m.avatarNode(person.username, size));
+    return m.face(person, blob, size).then((c) => { if (c) box.replaceChildren(c); });
+  }).catch(() => {});
+  return box;
 }
 function handle(p) {
   return p && p.username ? "@" + p.username : "";
@@ -1593,16 +1594,12 @@ function release(c) {
   c.width = 0;
   c.height = 0;
 }
-function image(src) { return h("img", { src, alt: say("preview") }); }
 function preview(canvas, max) {
-  const w = Math.min(max || 640, canvas.width);
-  const c = document.createElement("canvas");
-  c.width = w;
-  c.height = Math.max(1, Math.round(canvas.height * (w / canvas.width)));
+  const c = picture(say("preview"));
+  c.width = Math.min(max || THUMB, canvas.width);
+  c.height = Math.max(1, Math.round(canvas.height * (c.width / canvas.width)));
   c.getContext("2d").drawImage(canvas, 0, 0, c.width, c.height);
-  const src = c.toDataURL("image/jpeg", 0.8);
-  release(c);
-  return image(src);
+  return c;
 }
 function accent() {
   return (panel && getComputedStyle(panel).getPropertyValue("--p99-accent").trim()) || "#3b7dd8";
@@ -1655,10 +1652,11 @@ function marked(d, page) {
   const slot = page ? "pagePreview" : "shotPreview";
   if (!d[slot] || d[slot].key !== key) {
     const full = drawMarks(shot, d.marks, page);
-    d[slot] = { key, src: preview(full, page ? 320 : 640).src };
+    if (d[slot]) release(d[slot].view);
+    d[slot] = { key, view: preview(full, page ? 320 : THUMB) };
     release(full);
   }
-  return image(d[slot].src);
+  return d[slot].view;
 }
 function crop(shot, rect) {
   const k = shot.scale;
@@ -1675,7 +1673,9 @@ function newDraft(off) {
     if (d.shot) release(d.shot.canvas);
     if (d.page) release(d.page.canvas);
     d.marks.forEach((m) => release(m.crop));
-    d.shot = d.page = null;
+    if (d.shotPreview) release(d.shotPreview.view);
+    if (d.pagePreview) release(d.pagePreview.view);
+    d.shot = d.page = d.shotPreview = d.pagePreview = null;
     d.marks = [];
   };
   d.shotReady = off ? Promise.resolve(null) : new Promise((resolve) => {

@@ -1,4 +1,4 @@
-import { avatarSrc, picture } from "/_p99/avatar.js?v=__P99_VERSION__";
+import { avatarNode, face as drawn } from "/_p99/avatar.js?v=__P99_VERSION__";
 
 const ARRIVE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 const TRAVEL = "cubic-bezier(0.4, 0, 0.2, 1)";
@@ -72,8 +72,8 @@ const CSS = `
 .p99-card-top .p99-who{margin-left:auto}
 .p99-card-project{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--p99-muted);font:var(--p99-weight-medium) var(--p99-text-xs) var(--p99-font-text)}
 .p99-who{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;overflow:hidden;border-radius:50%;background:color-mix(in srgb,var(--p99-accent) 22%,var(--p99-raised));border:1px solid color-mix(in srgb,var(--p99-accent) 50%,var(--p99-rule));color:var(--p99-ink);font:var(--p99-weight-bold) var(--p99-text-xs)/1 var(--p99-font-text)}
-.p99-who img{display:block;width:100%;height:100%;object-fit:cover}
-.p99-who:has(img){border-color:var(--p99-rule);background:var(--p99-raised)}
+.p99-who>*{display:block;width:100%;height:100%;object-fit:cover}
+.p99-who:has(>*){border-color:var(--p99-rule);background:var(--p99-raised)}
 .p99-card.is-placeholder{border:2px dashed;border-color:color-mix(in srgb,var(--p99-accent-line) 70%,var(--p99-rule));background:color-mix(in srgb,var(--p99-accent) 8%,transparent);box-shadow:none}
 .p99-card.is-placeholder>*{visibility:hidden}
 .p99-card.is-lifted{scale:1.03;z-index:1;border-color:var(--p99-accent-line);box-shadow:0 0 0 2px color-mix(in srgb,var(--p99-accent-line) 45%,transparent),0 10px 24px rgba(12,26,43,.3)}
@@ -284,10 +284,11 @@ function src(u) { return typeof u === "string" && (/^\/(?![\/\\])/.test(u) || /^
 function face(p) {
   const name = (p && p.username) || "";
   const direct = src(p && p.avatar);
-  const img = h("img", { src: direct && direct[0] !== "/" ? direct : avatarSrc(name, 28), alt: "", width: 28, height: 28, draggable: "false" });
-  if (typeof B.ctx.blob === "function" && (!direct || direct[0] === "/")) picture(p, B.ctx.blob).then((u) => { if (u) img.src = u; });
-  else if (direct && direct[0] === "/") img.src = direct;
-  return [img];
+  if (direct && direct[0] !== "/") return [h("img", { src: direct, alt: "", width: 28, height: 28, draggable: "false" })];
+  const art = avatarNode(name, 28);
+  if (typeof B.ctx.blob === "function") drawn(p, B.ctx.blob, 28).then((c) => { if (c) art.replaceWith(c); });
+  else if (direct) art.replaceWith(h("img", { src: direct, alt: "", width: 28, height: 28, draggable: "false" }));
+  return [art];
 }
 
 function who(p) {
