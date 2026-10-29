@@ -1043,41 +1043,31 @@ fn hosts_add(config: &mut Config, global: &Global, args: &AddArgs) -> Result<(),
     if !valid_host(&host) {
         return Err(format!("{host} is not a host name; try example.com"));
     }
-    let mut project = crate::card::project(&args.project)?;
-    let account = config.account(global.account.as_deref())?.0.to_owned();
-    if let Ok(client) = Client::for_account(config, &account, &global.agent)
-        && let Ok(view) = client.space()
-    {
-        match view
-            .projects
-            .iter()
-            .find(|p| p.name.eq_ignore_ascii_case(&project))
-        {
-            Some(found) => project = found.name.clone(),
-            None => return Err(missing_project(&project, &account)),
-        }
-    }
+    let asked = crate::card::project(&args.project)?;
+    let account = config.account(named(global))?.0.to_owned();
+    let view = Client::for_account(config, &account, &global.agent)?
+        .space()
+        .map_err(crate::card::refusal)?;
+    let project = view
+        .projects
+        .iter()
+        .find(|p| p.name.eq_ignore_ascii_case(&asked))
+        .map(|p| p.name.clone())
+        .ok_or_else(|| missing_project(&asked, &account))?;
     let kept = config.hosts.get(&host).cloned().unwrap_or_default();
-    config.hosts.insert(
-        host.clone(),
-        Host {
-            account: account.clone(),
-            env: args.env.clone(),
-            ..kept
-        },
-    );
+    let held = Host {
+        account: account.clone(),
+        env: args.env.clone(),
+        ..kept
+    };
+    crate::setup::add_route(config, &account, &host)?;
+    let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
+    let entry = client.put_host(&host, &args.env, &held.pushed(), Some(&project))?;
+    config.hosts.insert(host.clone(), held);
     if let Some(space) = config.accounts.get_mut(&account) {
         space.place(&host, &project);
     }
     config.save()?;
-    crate::setup::add_route(config, &account, &host)?;
-    let client = Client::for_account(config, &account, &global.agent)?.aimed(Some(&host));
-    let entry = client.put_host(
-        &host,
-        &args.env,
-        &config.hosts[&host].pushed(),
-        Some(&project),
-    )?;
     let known = client.envs()?;
     let current = known.iter().find(|e| e.name == args.env);
     if args.kind.is_some() || current.is_none() {
@@ -1379,6 +1369,7 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         );
         Grant::of(projects)
     } else if projects.is_empty() {
+        whole_note(config, global, &account, args.owner);
         Grant::whole()
     } else {
         Grant::of(projects)
@@ -1403,6 +1394,21 @@ fn invite(config: &Config, global: &Global, args: &InviteArgs) -> Result<(), Str
         return print_json(&value);
     }
     crate::links::report(&minted, mine, asked)
+}
+
+fn whole_note(config: &Config, global: &Global, account: &str, owner: bool) {
+    if named(global).is_none() {
+        return;
+    }
+    let name = config
+        .accounts
+        .get(account)
+        .map_or(account, |s| s.title(account));
+    let role = if owner { " as an Owner" } else { "" };
+    eprintln!(
+        "{}: --space {account} with no --project grants the whole space {name}{role}; --project <name> grants less",
+        crate::NAME
+    );
 }
 
 fn space_ref(config: &Config, slug: &str) -> Value {
@@ -1430,6 +1436,9 @@ fn grant_set(config: &Config, global: &Global, args: &GrantArgs) -> Result<(), S
     };
     let scoped = without_whole(global);
     let account = account_for(config, &scoped, None, &projects)?;
+    if grant.space {
+        whole_note(config, global, &account, false);
+    }
     let client = Client::for_account(config, &account, &global.agent)?;
     let code = client
         .set_grant(args.id, &grant)

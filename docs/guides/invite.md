@@ -15,7 +15,7 @@ P99 has no passwords and no sign-up. Each person you invite gets a **personal co
 p99 invite --project Shop --project Blog --name "Grace Hopper" --email grace@example.com
 ```
 
-`--space` alone grants the whole space; `--project` repeats, and with `--space <slug>` names which space when the config has several. Without a space named, P99 uses the one that holds the projects. A host list in place of the grant (`p99 invite example.com …`) still works: P99 grants the projects those hosts are in and says so.
+`--space` alone grants the whole space; `--project` repeats, and with `--space <slug>` names which space when the config has several. Without a space named, P99 uses the one that holds the projects. `--space <slug>` with no `--project` grants that whole space too, and P99 says so before it sends anything. A host list in place of the grant (`p99 invite example.com …`) still works: P99 grants the projects those hosts are in and says so.
 
 ```text
 Grace Hopper <grace@example.com>

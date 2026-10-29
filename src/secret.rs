@@ -17,12 +17,24 @@ pub const WAIT: Duration = Duration::from_secs(20);
 
 const FIELDS: [&str; 3] = ["file", "env", "command"];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Secret {
     Text(String),
     File(String),
     Env(String),
     Command(Vec<String>),
+}
+
+impl fmt::Debug for Secret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Secret::Text(text) if text.is_empty() => f.write_str("Text(\"\")"),
+            Secret::Text(_) => f.write_str("Text(<redacted>)"),
+            Secret::File(path) => f.debug_tuple("File").field(path).finish(),
+            Secret::Env(name) => f.debug_tuple("Env").field(name).finish(),
+            Secret::Command(argv) => f.debug_tuple("Command").field(argv).finish(),
+        }
+    }
 }
 
 impl Default for Secret {
@@ -376,6 +388,27 @@ mod tests {
         token: Secret,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         other: Option<Secret>,
+    }
+
+    #[test]
+    fn debug_never_prints_an_inline_secret() {
+        let held = Holder {
+            token: Secret::from("cf-live-token-1234"),
+            other: Some(Secret::Env("P99_TOKEN".into())),
+        };
+        let shown = format!("{held:?} {:#?}", held.token);
+        assert!(!shown.contains("cf-live-token-1234"), "{shown}");
+        assert!(shown.contains("Text(<redacted>)"), "{shown}");
+        assert!(shown.contains("Env(\"P99_TOKEN\")"), "{shown}");
+        assert_eq!(format!("{:?}", Secret::default()), "Text(\"\")");
+        assert_eq!(
+            format!("{:?}", Secret::File("~/.p99-token".into())),
+            "File(\"~/.p99-token\")"
+        );
+        assert_eq!(
+            format!("{:?}", Secret::Command(vec!["pass".into(), "p99".into()])),
+            "Command([\"pass\", \"p99\"])"
+        );
     }
 
     fn parsed(text: &str) -> Result<Holder, String> {

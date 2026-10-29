@@ -34,6 +34,43 @@ fn segments<'a>(req: &'a Req, prefix: &str) -> Vec<&'a str> {
         .collect()
 }
 
+pub const PROJECTS: [&str; 2] = ["Shop", "Blog"];
+
+pub fn put_host(host: &str, body: &Value) -> Reply {
+    let project = match body.get("project").and_then(Value::as_str) {
+        Some(asked) => match PROJECTS
+            .iter()
+            .find(|p| p.eq_ignore_ascii_case(asked.trim()))
+        {
+            Some(found) => Some(*found),
+            None => {
+                return Reply::problem(
+                    400,
+                    &format!("no project is called {asked}; p99 projects add makes one"),
+                );
+            }
+        },
+        None => None,
+    };
+    let project = match project {
+        Some(found) => found,
+        None if HOSTS.contains(&host) => project_of(host),
+        None => {
+            return Reply::problem(
+                400,
+                &format!("a new host needs a project: p99 hosts add {host} --project <name>"),
+            );
+        }
+    };
+    Reply::ok(json!({
+        "host": host,
+        "env": body["env"],
+        "config": body["config"],
+        "project": project,
+        "created_at": "2026-10-01T09:30:00.000Z",
+    }))
+}
+
 fn number(raw: &str) -> i64 {
     raw.parse().unwrap_or(0)
 }
@@ -46,13 +83,7 @@ pub fn worker(req: &Req) -> Reply {
             host_entry("shop.example.com", "production"),
             host_entry("blog.example.com", "production"),
         ]})),
-        ("PUT", ["hosts", host]) => Reply::ok(json!({
-            "host": host,
-            "env": body["env"],
-            "config": body["config"],
-            "project": body.get("project").cloned().unwrap_or_else(|| json!(project_of(host))),
-            "created_at": "2026-10-01T09:30:00.000Z",
-        })),
+        ("PUT", ["hosts", host]) => put_host(host, &body),
         ("PATCH", ["hosts", host]) => Reply::ok(json!({
             "host": host,
             "env": "production",
@@ -92,7 +123,7 @@ pub fn worker(req: &Req) -> Reply {
                 &["shop.example.com"],
             );
             held["grant"] = body["grant"].clone();
-            Reply::ok(held)
+            Reply::ok(json!({"code": held}))
         }
         ("POST", ["codes"]) => {
             let projects: Vec<&str> = body["grant"]["projects"]

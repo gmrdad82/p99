@@ -324,11 +324,12 @@ impl Client {
     }
 
     pub fn set_grant(&self, id: i64, grant: &Grant) -> Result<Code, String> {
-        self.json(
+        let reply: Value = self.json(
             "PATCH",
             &format!("/v1/codes/{id}"),
             Some(json!({"grant": grant})),
-        )
+        )?;
+        one(reply, "code")
     }
 
     pub fn relink(&self, id: i64, relink: &crate::wire::Relink) -> Result<Minted, String> {
@@ -703,6 +704,14 @@ fn problem(reply: &Reply) -> String {
 
 fn parse<T: DeserializeOwned>(reply: &Reply) -> Result<T, String> {
     serde_json::from_slice(&reply.bytes).map_err(|e| format!("unexpected answer: {e}"))
+}
+
+fn one<T: DeserializeOwned>(mut value: Value, name: &str) -> Result<T, String> {
+    let held = value.get_mut(name).map(Value::take).unwrap_or(Value::Null);
+    if held.is_null() {
+        return Err(format!("unexpected answer: no {name} in the reply"));
+    }
+    serde_json::from_value(held).map_err(|e| format!("unexpected answer: {e}"))
 }
 
 fn field<T: DeserializeOwned>(mut value: Value, name: &str) -> Result<Vec<T>, String> {
