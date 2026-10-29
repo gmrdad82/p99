@@ -1,13 +1,13 @@
-# Importing items
+# Importing cards
 
-`p99 import` brings items from another tracker into P99 and keeps their keys: `BUG-3` stays `BUG-3`, with its comments, files, history, landings and who has read it. Text stays UTF-8 from end to end, so accents and diacritics arrive as they left.
+`p99 import` brings cards over from another tracker into P99 and keeps their keys: `BUG-3` stays `BUG-3`, with its comments, files, history, landings and who has read it. Text stays UTF-8 from end to end, so accents and diacritics arrive as they left.
 
 ```
 p99 import ./bundle --host example.com --dry-run
 p99 import ./bundle --host example.com
 ```
 
-`--host` names a host P99 already serves (`p99 hosts add` first); every imported item belongs to it. `--json` prints the summary as JSON and sends the progress lines to standard error. Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them.
+`--host` names a host P99 already serves (`p99 hosts add` first); every imported card belongs to it. `--json` prints the summary as JSON and sends the progress lines to standard error. Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them.
 
 ## The bundle
 
@@ -19,11 +19,11 @@ bundle/
   files/receipt.png
 ```
 
-`bundle.jsonl` holds one JSON object per line, `"type"` first. Blank lines are skipped. Times are ISO 8601 (`2025-03-01T10:00:00Z`); the Worker stores them in UTC.
+`bundle.jsonl` holds one JSON object per line, `"type"` first. A card is an `item` record, and the other records name their card in `item`; these are the bundle's field names and stay as they are. Blank lines are skipped. Times are ISO 8601 (`2025-03-01T10:00:00Z`); the Worker stores them in UTC.
 
 | Type | Fields |
 | --- | --- |
-| `item` | `key` (`BUG-3`; the number is taken from it, the prefix must match the kind), `kind`, `title`, `body`, `status` (`inbox`, `doing`, `review` or `done`, or a P99 1.x status such as `resolved`), `resolution` (with done: `fixed`, `abandoned` or `duplicate`; `fixed` when left out), `duplicate_of` (a key or null), `reporter` `{email, name, agent, via}`, `assignee` (an e-mail or null; it shows as that person's username, made from the e-mail when they have none), `env` (null: the host's environment), `page` `{url, path, title}` (null: the host's front page), `context` `{}`, `marks` `[]`, `created_at`, `updated_at`, `closed_at` |
+| `item` | `key` (`BUG-3`; the number is taken from it, the prefix must match the kind), `kind`, `title`, `body`, `status` (`inbox`, `doing`, `review` or `done`, or a P99 1.x status such as `resolved`), `resolution` (with done: `fixed`, `abandoned` or `duplicate`; `fixed` when left out), `duplicate_of` (a key or null), `reporter` `{email, name, agent, via}` (the person who filed it), `assignee` (an e-mail or null; it shows as that person's username, made from the e-mail when they have none), `env` (null: the host's environment), `page` `{url, path, title}` (null: the card is on no page), `context` `{}`, `marks` `[]`, `created_at`, `updated_at`, `closed_at` |
 | `comment` | `item` (a key), `uid` (a stable id of your own), `author` `{email, name, agent, via, manager}`, `body`, `internal`, `created_at` |
 | `attachment` | `item`, `uid`, `comment` (a comment's `uid`, or null), `role` (`file`, `screenshot`, `page` or `region`), `mark` (a region's mark index), `name` (null: the file's name), `content_type`, `file` (a path inside the bundle directory), `internal`, `created_at` |
 | `event` | `item`, `actor` `{email, agent, via}` (or null for the system), `kind`, `detail` `{}`, `internal`, `at` |
@@ -31,11 +31,11 @@ bundle/
 | `read` | `item`, `email`, `at` |
 | `manager` | `email` |
 
-`via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per item, and a file's first bytes must match its `content_type` (the same types the panel takes). An item that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported items land in the one board's lanes by their status (`inbox` in `New`, `doing` in `In progress`, `review` in `Landed`, `done` in `Done`) with no place of their own, so each sits at the top of its lane, newest first.
+`via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per card, and a file's first bytes must match its `content_type` (the same types the panel takes). A card that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported cards land in the one board's lanes by their status (`inbox` in `New`, `doing` in `In progress`, `review` in `Landed`, `done` in `Done`) with no place of their own, so each sits at the top of its lane, newest first.
 
 A `manager` line imports nothing. It names an Owner: P99's Owners are people with an Owner code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every Owner in the bundle who has neither yet, with the `p99 invite --owner` line to mint one.
 
-A `landing` records when an item first reached an environment, so P99 never announces that landing again. The item shows the environment at once.
+A `landing` records when a card first reached an environment, so P99 never announces that landing again. The card shows the environment at once.
 
 ## A complete example
 
@@ -83,15 +83,15 @@ Before it sends anything, `p99 import` reads the whole bundle and checks every l
 
 An import can stop and run again at any point, and running it twice changes nothing the second time:
 
-- an item whose key already exists with the same title is left as it is; with another title it is a conflict, reported and never overwritten;
+- a card whose key already exists with the same title is left as it is; with another title it is a conflict, listed and never overwritten;
 - comments and attachments are matched by `uid`, so keep each `uid` stable between runs; a file is uploaded only when the Worker does not hold it yet;
-- events are matched by item, kind and time, landings by item and environment, reads by item and person.
+- events are matched by card, kind and time, landings by card and environment, reads by card and person.
 
 The command ends with a summary (JSON with `--json`) and exits with an error when there were conflicts.
 
 ## Numbering
 
-P99 keys every item `<PREFIX>-<number>` over one numbering for all kinds (`BUG` `FEAT` `IMP` `Q` `TASK`). An imported item keeps its number, so a bundle must not use one number twice, even across kinds. New items continue above the highest number in the space: after importing `BUG-7`, the next item filed is 8 or higher. A number already held by an item with another title is a conflict; import into a fresh space, or renumber the bundle, to avoid them.
+P99 keys every card `<PREFIX>-<number>` over one numbering for all kinds (`BUG` `FEAT` `IMP` `Q` `TASK`). An imported card keeps its number, so a bundle must not use one number twice, even across kinds. New cards continue above the highest number in the space: after importing `BUG-7`, the next card filed is 8 or higher. A number already held by a card with another title is a conflict; import into a fresh space, or renumber the bundle, to avoid them.
 
 ## The routes
 
@@ -101,4 +101,4 @@ The CLI talks to three signed routes, which take the key `p99` only:
 | --- | --- |
 | `POST /_p99/v1/import?host=&dry_run=1\|0` | a JSON array of up to 500 records (the CLI sends 200); answers `{"dry_run","counts":{"<type>":{"new","existing","conflicts":[{"ref","reason"}]}},"upload":[uid],"managers":[email]}`. `attachment` records are only checked here: `upload` lists the ones whose files the Worker does not hold yet. |
 | `PUT /_p99/v1/import/attachments/{uid}?host=&item=&comment=&role=&mark=&name=&internal=&created_at=` | one file as the raw body, `Content-Type` its type; `comment` is the comment's `uid`; 201 attachment, or 200 when it is already stored |
-| `POST /_p99/v1/import/finish?host=` | `{"items":[key],"duplicates":[{"item","duplicate_of"}]}` links duplicates and recounts the items' comments, files and activity; answers `{"recounted","duplicates":{"linked","conflicts"}}` |
+| `POST /_p99/v1/import/finish?host=` | `{"items":[key],"duplicates":[{"item","duplicate_of"}]}` links duplicates and recounts the cards' comments, files and activity; answers `{"recounted","duplicates":{"linked","conflicts"}}` |

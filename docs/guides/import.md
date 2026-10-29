@@ -1,15 +1,15 @@
 ---
-title: Import existing items
-description: Move items from another tracker into P99 with p99 import, keeping their keys, comments, files and history, and run it again safely.
+title: Import existing cards
+description: Move cards over from another tracker into P99 with p99 import, keeping their keys, comments, files and history, and run it again safely.
 sidebar:
   order: 7
 ---
 
-`p99 import` brings items from another tracker into P99 and keeps their keys: `BUG-3` stays `BUG-3`, with its comments, files, history, landings and who has read it. Text stays UTF-8 from end to end, so accents arrive as they left.
+`p99 import` brings cards over from another tracker into P99 and keeps their keys: `BUG-3` stays `BUG-3`, with its comments, files, history, landings and who has read it. Text stays UTF-8 from end to end, so accents arrive as they left.
 
 ## 1. Add the host
 
-Every imported item belongs to one host P99 already serves, and every host belongs to a project:
+Every imported card belongs to one host P99 already serves, and every host belongs to a project:
 
 ```sh
 p99 projects add "Example site"
@@ -26,7 +26,7 @@ bundle/
   files/receipt.png
 ```
 
-Each line has a `"type"`: `item`, `comment`, `attachment`, `event`, `landing`, `read` or `manager`. A minimal item with one comment:
+Each line has a `"type"`: `item` (a card), `comment`, `attachment`, `event`, `landing`, `read` or `manager`. A minimal card with one comment:
 
 ```json
 {"type":"item","key":"BUG-7","kind":"bug","title":"The café menu shows the wrong price","body":"The crème brûlée costs 12,50 € on the menu and 13 € at checkout.","status":"resolved","duplicate_of":null,"reporter":{"email":"ada@example.com","name":"Ada Lovelace","agent":false},"assignee":"grace@example.com","env":"production","page":{"url":"https://example.com/menu","path":"/menu","title":"Menu"},"context":{},"marks":[],"created_at":"2025-03-01T10:00:00Z","updated_at":"2025-03-04T08:00:00Z","closed_at":"2025-03-04T08:00:00Z"}
@@ -37,9 +37,9 @@ Each line has a `"type"`: `item`, `comment`, `attachment`, `event`, `landing`, `
 
 Keep these in mind while you write the exporter:
 
-- A key's prefix must match its kind (`BUG` bug, `FEAT` feature, `IMP` improvement, `Q` question, `TASK` task), and P99 numbers all kinds in one sequence, so no two items may share a number, even across kinds.
+- A key's prefix must match its kind (`BUG` bug, `FEAT` feature, `IMP` improvement, `Q` question, `TASK` task), and P99 numbers all kinds in one sequence, so no two cards may share a number, even across kinds.
 - Give every comment and attachment a `uid` that stays the same between runs: that is how a second run knows what it already sent.
-- P99's own limits apply: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MiB and 30 per item, and each file's first bytes must match its `content_type`.
+- P99's own limits apply: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MiB and 30 per card, and each file's first bytes must match its `content_type`.
 
 ## 3. Check it
 
@@ -55,9 +55,9 @@ p99 import ./bundle --host example.com --dry-run
 p99 import ./bundle --host example.com
 ```
 
-It sends the records in batches, uploads the files the Worker doesn't hold yet, links duplicates, recounts each item's comments and files, and ends with a summary per type. `--json` prints the summary as JSON and sends the progress lines to standard error.
+It sends the records in batches, uploads the files the Worker doesn't hold yet, links duplicates, recounts each card's comments and files, and ends with a summary per type. `--json` prints the summary as JSON and sends the progress lines to standard error.
 
-Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them. New items filed afterwards continue above the highest number in the space: after importing `BUG-7`, the next item is 8 or higher.
+Imports sign with the space's own key, so they run from the CLI only, and the daily limits never apply to them. New cards filed afterwards continue above the highest number in the space: after importing `BUG-7`, the next card is 8 or higher.
 
 ## 5. Make the Owners
 
@@ -71,7 +71,7 @@ p99 invite example.com --owner --name "Grace Hopper" --email grace@example.com
 
 An import can stop and run again at any point, and a second run of the same bundle changes nothing:
 
-- an item whose key already exists with the same title is left as it is; with another title it is a **conflict**, reported and never overwritten;
-- comments and attachments are matched by `uid`, events by item, kind and time, landings by item and environment, reads by item and person.
+- a card whose key already exists with the same title is left as it is; with another title it is a **conflict**, listed and never overwritten;
+- comments and attachments are matched by `uid`, events by card, kind and time, landings by card and environment, reads by card and person.
 
 The command exits with an error when there were conflicts. Import into a fresh space, or renumber the bundle, to avoid them.
