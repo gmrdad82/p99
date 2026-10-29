@@ -166,8 +166,8 @@ export async function knownProject(c, raw) {
   return { id: project.id, name: project.name };
 }
 
-function targetHost(c, body) {
-  if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env };
+function targetHost(c, body, project) {
+  if (c.browser) return c.hostRow.host && c.hostRow.project_id === project.id ? { host: c.hostRow.host, env: c.hostRow.env } : { host: null, env: "" };
   const name = c.scope.all ? (body.host ?? null) : c.scope.host;
   if (name === null) return { host: null, env: "" };
   const host = typeof name === "string" ? c.dir.hosts.get(name.toLowerCase()) : null;
@@ -209,7 +209,7 @@ export async function postCard(c) {
   if (title === null) K.fail(400, `title must be 1 to ${K.MAX_TITLE_CHARS} characters`);
   const text = K.clean(body.body ?? "");
   if (!K.isChars(text, 0, K.MAX_BODY_CHARS)) K.fail(400, `body must be at most ${K.MAX_BODY_CHARS} characters`);
-  const target = targetHost(c, body);
+  const target = targetHost(c, body, project);
   const lanes = await cardsBoard(c);
   const lane = { ...laneAt(lanes, 0), closes: 0 };
   const place = await topOf(c, lanes.board, lane.id, 0);

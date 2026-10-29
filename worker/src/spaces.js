@@ -3,7 +3,7 @@ import { grantFromBody, hostsOf, projectNamed, reachesProject, storedGrant } fro
 
 export const PERSON_GRANTS = "only a person changes a grant";
 export const WHOLE_SPACE = "only a code for the whole space makes projects";
-export const HOSTLESS_REPORT = "a report is filed on a site; open the panel on one of the project's sites";
+export const HOSTLESS_REPORT = "there is no site here: file the card from the board, or open the panel on one of the project's sites";
 
 let S = null;
 
