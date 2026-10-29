@@ -1633,10 +1633,11 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const [counts, username, waiting, avatar] = await Promise.all([
+  const [counts, username, waiting, needs, avatar] = await Promise.all([
     countsFor(c, c.url.searchParams.get("path")),
     usernameFor(c),
     waitingCount(c),
+    waitingCount(c, ["needs-you"]),
     c.env.DB.prepare("SELECT avatar FROM people WHERE email = ?1").bind(c.actor.email).first(),
   ]);
   const config = c.hostRow.config;
@@ -1650,7 +1651,7 @@ async function getMe(c) {
     host: c.hostRow.host,
     env: c.hostRow.env,
     version: c.env.VERSION || "dev",
-    counts: { ...counts, waiting },
+    counts: { ...counts, waiting, needs_you: needs },
     theme: config.theme || {},
     strings: config.strings || {},
     mask: config.mask || [],

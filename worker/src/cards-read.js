@@ -397,8 +397,8 @@ export async function getCard(c, rawKey) {
   return K.json(200, answer);
 }
 
-function waitingLanes(q, column) {
-  return `${column} IN (${WAITING_LANES.map((word) => q.bind(laneIndex(word))).join(", ")})`;
+function waitingLanes(q, column, words = WAITING_LANES) {
+  return `${column} IN (${words.map((word) => q.bind(laneIndex(word))).join(", ")})`;
 }
 
 export function waitingListStatement(c) {
@@ -408,13 +408,13 @@ export function waitingListStatement(c) {
   return c.env.DB.prepare(listSql(scope, lanes, [], q.bind(MAX_CARDS_LIMIT), true)).bind(...q.binds);
 }
 
-export function waitingCountStatement(c) {
+export function waitingCountStatement(c, words = WAITING_LANES) {
   const q = K.query();
   const scope = scopeOf(boardView(c), q);
   return c.env.DB.prepare(
     `WITH ${LANES_CTE}
      SELECT count(*) AS n FROM items i JOIN lanes ON lanes.label_id = i.label_id
-     WHERE i.project IS NOT NULL AND ${scope("i")} AND ${waitingLanes(q, "lanes.lane")}`,
+     WHERE i.project IS NOT NULL AND ${scope("i")} AND ${waitingLanes(q, "lanes.lane", words)}`,
   ).bind(...q.binds);
 }
 

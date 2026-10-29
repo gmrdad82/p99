@@ -1272,13 +1272,13 @@ try {
       onPlus: !!r.querySelector(".w .f .n"),
     };
   });
-  const owner = (waiting, replies, page) => meWith({ mine_open: 1, mine_unread: replies + 40, replies, page_open: page, waiting }, true);
-  const visitor = (replies, page, open = 1) => meWith({ mine_open: open, mine_unread: replies + 40, replies, page_open: page, waiting: null }, false);
+  const owner = (needs, replies, page, waiting = needs) => meWith({ mine_open: 1, mine_unread: replies + 40, replies, page_open: page, waiting, needs_you: needs }, true);
+  const visitor = (replies, page, open = 1) => meWith({ mine_open: open, mine_unread: replies + 40, replies, page_open: page, waiting: null, needs_you: null }, false);
   const words = (blue, page) => `Your items: ${blue} waiting, ${page} on this page`;
 
   for (const [name, me, want] of [
-    ["an Owner with cards waiting sees their count at the top right in the accent and this page's open items at the top left, never on the +", owner(3, 2, 7), { menu: true, text: "3", page: "7", label: words(3, 7), onPlus: false }],
-    ["an Owner's waiting count counts before the replies waiting for them, however small", owner(1, 9, 9), { menu: true, text: "1", page: "9", label: words(1, 9), onPlus: false }],
+    ["an Owner sees the cards in Needs you plus the replies waiting for them at the top right in the accent, and this page's open items at the top left, never on the +", owner(3, 2, 7), { menu: true, text: "5", page: "7", label: words(5, 7), onPlus: false }],
+    ["an Owner's Landed and Stuck cards never count at the top right, only Needs you and replies", owner(1, 2, 9, 55), { menu: true, text: "3", page: "9", label: words(3, 9), onPlus: false }],
     ["an Owner with nothing waiting sees the replies waiting for them, never their own moves", owner(0, 4, 5), { menu: true, text: "4", page: "5", label: words(4, 5), onPlus: false }],
     ["an Owner with nothing waiting and no reply sees only this page's open items, at the top left", owner(0, 0, 5), { menu: true, text: "", page: "5", label: words(0, 5), onPlus: false }],
     ["an Owner with nothing at all keeps the ⋯ button and no count", owner(0, 0, 0), { menu: true, text: "", page: "", label: words(0, 0), onPlus: false }],

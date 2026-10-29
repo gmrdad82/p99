@@ -20,9 +20,9 @@ export async function getWaiting(c) {
   return K.json(200, { count: counted.results[0]?.n ?? 0, cards: await cardsOf(c, listed.results) });
 }
 
-export async function waitingCount(c) {
+export async function waitingCount(c, words) {
   if (!c.manager) return null;
-  const row = await waitingCountStatement(c).first();
+  const row = await waitingCountStatement(c, words).first();
   return row ? row.n : 0;
 }
 
