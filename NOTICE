@@ -49,6 +49,15 @@ project's own test vectors (src/index.test.js, same commit).
 The TUI's sample boards (p99 tui --demo, src/tui/demo/boards.rs) port its
 midpoint rule alone, from the same file and commit, to order their cards.
 
+The authenticator mail's QR code, worker/src/qr.js, ports the encoder of
+Project Nayuki's QR Code generator library (MIT,
+https://github.com/nayuki/QR-Code-generator, commit
+3c6d0b3cefb4e049dc337e82237c9644399716a8, typescript-javascript/qrcodegen.ts):
+byte mode at error correction level M, its Reed-Solomon blocks, module
+placement, masks and penalty rule; the PNG around it is P99's own. Under its
+licence below. worker/test/qr.test.mjs checks the port against that library's
+own Python output (python/qrcodegen.py, same commit).
+
 The images in docs/images/ are made from this repository's own sources, and
 are licensed with the code. inbox.gif, board.gif and setup.gif are recorded
 by prec from the shots in render/terminal.toml (p99 tui --demo on sample data,
@@ -207,6 +216,29 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+----- QR Code generator library (Project Nayuki), Readme.markdown
+
+Copyright (c) Project Nayuki. (MIT License)
+https://www.nayuki.io/page/qr-code-generator-library
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+* The above copyright notice and this permission notice shall be included in
+  all copies or substantial portions of the Software.
+
+* The Software is provided "as is", without warranty of any kind, express or
+  implied, including but not limited to the warranties of merchantability,
+  fitness for a particular purpose and noninfringement. In no event shall the
+  authors or copyright holders be liable for any claim, damages or other
+  liability, whether in an action of contract, tort or otherwise, arising from,
+  out of or in connection with the Software or the use or other dealings in the
+  Software.
 
 ----- Saira (c9d45ed2d56abb57e97c615cb89d0b9c9319e848), OFL.txt
 
