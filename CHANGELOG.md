@@ -12,7 +12,7 @@ All notable changes to P99 are listed here, newest first.
 - The P99 page opens on the space and its board, narrowed by project; the header stays put on every view, the wordmark is smaller, close buttons share one shape, the P99 mark goes home, and scrollbars are thin.
 - Set your own picture on Profile, and an Owner can paste the licence key there; the badge changes at once.
 - A host can list areas to keep out of screenshots (`p99 hosts set --mask`), or turn screenshots off (`--capture off`); masked areas never leave the browser, and anything marked `data-p99-redact` stays masked as before.
-- Setup asks where each secret comes from: a file only you can read, an environment variable, or a command such as `op read`, `pass` or `bw`. 1Password is never required.
+- Setup asks where each secret comes from: a file only you can read, an environment variable, or a command such as `op read`, `pass` or `bw`. No password manager is required.
 - A valid Studio or Agency key hides the panel's small P99 logo.
 - The TUI shows the space's name, switches space with `S`, and every filter now really filters (search, projects, Needs you, codes).
 
