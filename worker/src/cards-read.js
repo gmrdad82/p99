@@ -1,7 +1,8 @@
 import { boardView, inView } from "./boards.js";
-import { projectFilterSql } from "./grants.js";
+import { projectFilterSql, reachSql } from "./grants.js";
 import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
 import { peopleOf } from "./people.js";
+import { withAvatars } from "./avatars.js";
 
 const DONE_LANE = LANES.length - 1;
 const SOURCES = { human: 0, agent: 1 };
@@ -45,7 +46,7 @@ const CHANGED_AT = "COALESCE(e.at, i.created_at)";
 const CHANGED_AGENT = "CASE WHEN e.id IS NULL THEN i.reporter_agent ELSE e.actor_agent END";
 
 function columnsSql(body) {
-  return `i.id, i.kind, i.project, i.title, ${body ? "i.body," : ""} i.host, i.open, i.created_at, i.comment_count,
+  return `i.id, i.kind, (SELECT p.name FROM projects p WHERE p.id = i.project_id) AS project, i.title, ${body ? "i.body," : ""} i.host, i.open, i.created_at, i.comment_count,
       i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, lb.name AS label_name,
       ${CHANGED_AT} AS changed_at, e.id AS changed_event,
       COALESCE(e.actor_email, i.reporter_email) AS changed_email,
@@ -113,7 +114,7 @@ function scopeOf(v, q) {
   const host = v.host ? q.bind(v.host) : null;
   return (item) =>
     [
-      project ? `(${item}.project_id IN (SELECT value FROM json_each(${project})) OR ${item}.host IN (SELECT value FROM json_each(${reached})))` : null,
+      project ? reachSql(item, project, reached) : null,
       host ? `${item}.host = ${host}` : null,
     ]
       .filter(Boolean)
@@ -246,11 +247,17 @@ async function cardRow(c, raw, body = false) {
   K.fail(409, notCard(K.keyOf(item.kind, item.id)));
 }
 
+function cardPeople(card) {
+  return [card.reporter, card.changed_by, ...card.links.map((link) => link.by)];
+}
+
 export async function loadCard(c, raw) {
   K.requireManager(c);
   const row = await cardRow(c, raw);
   await settle(c, [row], [row.id]);
-  return cardOf(row, (await linksFor(c, [row.id])).get(row.id));
+  const card = cardOf(row, (await linksFor(c, [row.id])).get(row.id));
+  await withAvatars(c.env.DB, cardPeople(card));
+  return card;
 }
 
 function encodeCursor(row) {
@@ -370,7 +377,7 @@ export async function getCard(c, rawKey) {
     const { results } = await DB.prepare("SELECT email, username FROM people WHERE email IN (SELECT value FROM json_each(?1))").bind(JSON.stringify(mentioned)).all();
     for (const r of results) handles.set(r.email, r.username);
   }
-  return K.json(200, {
+  const answer = {
     card: { ...cardOf(row, links.map(linkOf)), body: row.body },
     comments: comments.map((cm) => ({
       id: cm.id,
@@ -385,23 +392,9 @@ export async function getCard(c, rawKey) {
       by: ev.by_email ? personOf(ev.by_name, ev.by_username, ev.by_agent, ev.by_via) : null,
       at: ev.at,
     })),
-  });
-}
-
-export async function listProjects(c) {
-  K.requireEmptyBody(c);
-  K.requireManager(c);
-  const v = boardView(c);
-  const q = K.query();
-  const { results } = await c.env.DB.prepare(
-    `SELECT p.name, g.open, g.done FROM
-       (SELECT i.project_id AS id, sum(i.open) AS open, sum(1 - i.open) AS done FROM items i
-        WHERE i.project IS NOT NULL AND ${scopeOf(v, q)("i")} GROUP BY i.project_id) g
-     JOIN projects p ON p.id = g.id ORDER BY p.name COLLATE NOCASE, p.name`,
-  )
-    .bind(...q.binds)
-    .all();
-  return K.json(200, { projects: results.map((r) => ({ name: r.name, open: r.open, done: r.done })) });
+  };
+  await withAvatars(DB, [...cardPeople(answer.card), ...answer.comments.map((cm) => cm.author), ...answer.events.map((ev) => ev.by)]);
+  return K.json(200, answer);
 }
 
 function waitingLanes(q, column) {
@@ -429,7 +422,9 @@ export async function cardsOf(c, rows) {
   const ids = rows.map((row) => row.id);
   await settle(c, rows, ids);
   const links = await linksFor(c, ids);
-  return rows.map((row) => cardOf(row, links.get(row.id)));
+  const cards = rows.map((row) => cardOf(row, links.get(row.id)));
+  await withAvatars(c.env.DB, cards.flatMap(cardPeople));
+  return cards;
 }
 
 export function cardFilters(c, params, q, where) {
@@ -443,5 +438,4 @@ export function cardFilters(c, params, q, where) {
 export const CARD_READS = [
   ["GET", /^\/cards$/, listCards],
   ["GET", /^\/cards\/([^/]+)$/, getCard],
-  ["GET", /^\/projects$/, listProjects],
 ];

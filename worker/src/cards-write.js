@@ -1,7 +1,7 @@
 import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PERSON_CLOSES, laneIndex, notCard, personOf, projectName, refuseAgentUncard } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
-import { projectNamed, reachesItem } from "./grants.js";
+import { projectNamed, reachesProject } from "./grants.js";
 
 export const CARDS_BOARD = "Cards";
 const LANE_COLORS = ["#539bf5", "#986ee2", "#c69026", "#e0823d", "#e5534b", "#39a5a0"];
@@ -100,7 +100,8 @@ function projectEvent(c, itemId, detail) {
 
 function projectStatement(c, itemId, from, project) {
   return c.env.DB.prepare(
-    "UPDATE items SET project = ?3, project_id = COALESCE(?5, project_id), updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2",
+    `UPDATE items SET project = ?3, project_id = COALESCE(?5, (SELECT h.project_id FROM hosts h WHERE h.host = items.host), project_id),
+       updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2`,
   ).bind(itemId, from, project ? project.name : null, c.now, project ? project.id : null);
 }
 
@@ -148,7 +149,7 @@ async function cardRow(c, rawKey) {
 
 const PROJECT_BY_NAME = "SELECT id, name FROM projects WHERE name = ?1";
 
-export async function knownProject(c, raw, host = null) {
+export async function knownProject(c, raw) {
   const name = projectName(raw);
   const { DB } = c.env;
   let project = projectNamed(c.dir, name) ?? (await DB.prepare(PROJECT_BY_NAME).bind(name).first());
@@ -161,7 +162,7 @@ export async function knownProject(c, raw, host = null) {
     project = made.results[0];
     K.forgetDirectory();
   }
-  if (!reachesItem(c.reach, { project_id: project.id, host })) K.fail(404, `no project is called ${name}`);
+  if (!reachesProject(c.reach, project.id)) K.fail(404, `no project is called ${name}`);
   return { id: project.id, name: project.name };
 }
 
@@ -201,7 +202,7 @@ export async function postCard(c) {
     if (existing.reporter_email !== c.actor.email || existing.project === null) K.fail(409, "client_uid is already used");
     return replay(existing.id);
   }
-  const project = await knownProject(c, body.project, c.browser ? c.hostRow.host : null);
+  const project = await knownProject(c, body.project);
   const kind = body.kind === undefined || body.kind === null ? "feature" : body.kind;
   if (typeof kind !== "string" || !Object.hasOwn(K.KIND_PREFIXES, kind)) K.fail(400, "kind must be bug, feature, improvement, question or task");
   const title = K.validTitle(body.title);
@@ -368,14 +369,15 @@ export async function patchProject(c, row, body) {
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
   refuseAgentUncard(c, row, body);
   const from = row.project ?? null;
-  const project = body.project === null ? null : await knownProject(c, body.project, row.host ?? null);
+  const project = body.project === null ? null : await knownProject(c, body.project);
   const name = project ? project.name : null;
   const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
   if (from === name) return answer();
   const { DB } = c.env;
   const results = await DB.batch([projectStatement(c, row.id, from, project), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
   if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
-  K.push(c, "change", row, { what: ["project"] });
+  const after = project ? project.id : (c.dir.hosts.get(row.host)?.project_id ?? row.project_id ?? null);
+  K.push(c, "change", row, { what: ["project"], projects: [...new Set([row.project_id, after].filter((id) => id !== null && id !== undefined))] });
   return answer();
 }
 

@@ -36,7 +36,9 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     const found = read.json.cards.find((cd) => cd.key === plain);
     assert.ok(found, JSON.stringify(read.json.cards.map((cd) => cd.key)));
     assert.deepEqual(Object.keys(found).sort(), BOARD_CARD);
-    assert.deepEqual([found.status, found.project, found.host, found.assignee, found.lane >= 1], ["new", null, here, null, true]);
+    const hostProject = (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === here).project;
+    assert.ok(hostProject);
+    assert.deepEqual([found.status, found.project, found.host, found.assignee, found.lane >= 1], ["new", hostProject, here, null, true]);
     assert.deepEqual([found.changed_by.name, found.changed_by.agent, found.changed_by.via], ["Ada Lovelace", false, null]);
     assert.match(found.changed_by.username, /^[a-z0-9][a-z0-9._-]{1,28}[a-z0-9]$/);
     const lanes = read.json.cards.map((cd) => LANES.indexOf(cd.status));

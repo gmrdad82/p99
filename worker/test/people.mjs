@@ -15,7 +15,8 @@ export async function peopleChecks({ call, browse, mint, check, issueBody, here,
     const names = seen.json.people.map((p) => p.username);
     assert.ok(names.includes("pia.moss") && names.includes("pia.moss2") && names.includes("rex.holt"), names.join(","));
     assert.ok(!names.includes("sam.away") && !names.includes("tom.gone"), names.join(","));
-    for (const p of seen.json.people) assert.deepEqual(Object.keys(p).sort(), ["role", "username"]);
+    for (const p of seen.json.people) assert.deepEqual(Object.keys(p).sort(), ["avatar", "role", "username"]);
+    assert.ok(seen.json.people.every((p) => p.avatar === null), "nobody here has a picture");
     assert.equal(seen.json.people.find((p) => p.username === "rex.holt").role, "owner");
     assert.equal(/@/.test(JSON.stringify(seen.json)), false);
     assert.equal((await browse("GET", "/me", twin.secret)).json.username, "pia.moss2");
@@ -52,15 +53,15 @@ export async function peopleChecks({ call, browse, mint, check, issueBody, here,
     assert.equal((await assign("nobody.here")).status, 400);
     const given = await assign("@pia.moss");
     assert.equal(given.status, 200, JSON.stringify(given.json));
-    assert.deepEqual(given.json.assignee, { username: "pia.moss" });
-    assert.deepEqual((await assign("me")).json.assignee, { username: "captain.rex" });
+    assert.deepEqual(given.json.assignee, { username: "pia.moss", avatar: null });
+    assert.deepEqual((await assign("me")).json.assignee, { username: "captain.rex", avatar: null });
     assert.equal((await browse("PATCH", "/me", rex.secret, { username: "rex.holt" })).status, 200);
     const thread = await browse("GET", `/issues/${key}`, rex.secret);
-    assert.deepEqual(thread.json.issue.assignee, { username: "rex.holt" });
+    assert.deepEqual(thread.json.issue.assignee, { username: "rex.holt", avatar: null });
     const moves = thread.json.events.filter((e) => e.kind === "assignee").map((e) => e.detail);
     assert.deepEqual(moves, [{ from: null, to: { username: "pia.moss" } }, { from: { username: "pia.moss" }, to: { username: "rex.holt" } }]);
     const listed = await call("GET", `/_p99/v1/issues?scope=all&host=${here}&limit=5`);
-    assert.deepEqual(listed.json.issues.find((i) => i.key === key).assignee, { username: "rex.holt" });
+    assert.deepEqual(listed.json.issues.find((i) => i.key === key).assignee, { username: "rex.holt", avatar: null });
     for (const text of [JSON.stringify(thread.json.issue.assignee), JSON.stringify(moves), JSON.stringify(listed.json.issues.map((i) => i.assignee))]) {
       assert.equal(text.includes("rex@example.com") || text.includes("pia@example.com"), false);
     }
@@ -86,6 +87,6 @@ export async function peopleChecks({ call, browse, mint, check, issueBody, here,
     const people = (await call("GET", "/_p99/v1/people")).json.people.map((p) => p.username);
     for (const name of ["zoe.angstrom", "zoe.angstrom2", "admin2"]) assert.ok(people.includes(name), people.join(","));
     const legacy = await call("GET", "/_p99/v1/issues/BUG-902");
-    assert.deepEqual(legacy.json.issue.assignee, { username: "old.hand" });
+    assert.deepEqual(legacy.json.issue.assignee, { username: "old.hand", avatar: null });
   });
 }

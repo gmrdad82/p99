@@ -26,8 +26,6 @@ export function grantOf(row, dir) {
 export function reachOf(grant, dir) {
   if (grant.space) return EVERYWHERE;
   const projects = grant.projects;
-  const every = dir.projects.size > 0 && [...dir.projects.keys()].every((id) => projects.includes(id));
-  if (every) return EVERYWHERE;
   return { all: false, projects, hosts: [...dir.hosts.values()].filter((h) => projects.includes(h.project_id)).map((h) => h.host).sort() };
 }
 
@@ -40,7 +38,13 @@ export function reachesProject(reach, id) {
 }
 
 export function reachesItem(reach, row) {
-  return reachesProject(reach, row.project_id) || (!reach.all && Boolean(row.host) && (reach.hosts ?? []).includes(row.host));
+  if (reach.all) return true;
+  if (row.project_id !== null && row.project_id !== undefined) return reach.projects.includes(row.project_id);
+  return Boolean(row.host) && (reach.hosts ?? []).includes(row.host);
+}
+
+export function reachSql(item, projects, hosts) {
+  return `(${item}.project_id IN (SELECT value FROM json_each(${projects})) OR (${item}.project_id IS NULL AND ${item}.host IN (SELECT value FROM json_each(${hosts}))))`;
 }
 
 export function reachesHost(reach, dir, host) {
@@ -105,9 +109,7 @@ export function projectFilterSql(names, bind, alias = "i") {
 export function viewSql(v, bind, alias = "i") {
   const parts = [];
   if (!v.all && Array.isArray(v.projects)) {
-    parts.push(
-      `(${alias}.project_id IN (SELECT value FROM json_each(${bind(JSON.stringify(v.projects))})) OR ${alias}.host IN (SELECT value FROM json_each(${bind(JSON.stringify(v.hosts ?? []))})))`,
-    );
+    parts.push(reachSql(alias, bind(JSON.stringify(v.projects)), bind(JSON.stringify(v.hosts ?? []))));
   }
   if (v.host) parts.push(`${alias}.host = ${bind(v.host)}`);
   return parts.length > 0 ? parts.join(" AND ") : "1";

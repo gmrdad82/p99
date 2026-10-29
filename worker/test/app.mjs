@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { cspChecks, getter } from "./csp.mjs";
 import { ipKey } from "../src/tries.js";
 import { licenseState } from "../src/license.js";
+import { HOSTLESS_REPORT } from "../src/spaces.js";
 
 export const APP_HOST = "app.localhost";
 export const LICENSE_STATE = "owner";
@@ -224,6 +225,31 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal(file.status, 200, file.text);
     assert.equal(file.headers["content-security-policy"], "default-src 'none'; sandbox");
     assert.equal(file.headers["x-frame-options"], "DENY");
+  });
+
+  await check("a code whose projects have no site yet still opens the page on the space, files cards there and no report", async () => {
+    assert.equal((await call("POST", "/_p99/v1/projects", { body: { name: "Page Hostless" } })).status, 201);
+    const minted = await call("POST", "/_p99/v1/codes", {
+      body: { name: "Ida Rhodes", email: "ida.page@example.com", grant: { projects: ["Page Hostless"] }, role: "owner", totp: true, mail: false },
+    });
+    assert.equal(minted.status, 201, JSON.stringify(minted.json));
+    const signed = await signIn("ida.page@example.com", totpOf(minted.json.totp_key));
+    assert.equal(signed.status, 200, signed.text);
+    const token = tokenOf(signed);
+    const me = await app("GET", "/_p99/api/me?path=%2F", { token });
+    assert.equal(me.status, 200, me.text);
+    assert.deepEqual([me.json.host, me.json.project, me.json.projects], [null, null, ["Page Hostless"]]);
+    const space = await app("GET", "/_p99/api/space", { token });
+    assert.equal(space.status, 200, space.text);
+    assert.deepEqual(space.json.projects, [{ name: "Page Hostless", hosts: [], open: 0, closed: 0 }]);
+    assert.equal((await app("GET", "/_p99/api/board", { token })).status, 200);
+    const card = await app("POST", "/_p99/api/cards", { token, body: { client_uid: randomUUID(), project: "Page Hostless", title: "Filed from the space" } });
+    assert.equal(card.status, 201, card.text);
+    assert.deepEqual([card.json.card.host, card.json.card.project], [null, "Page Hostless"]);
+    const report = await app("POST", "/_p99/api/issues", { token, body: issueBody() });
+    assert.equal(report.status, 400, report.text);
+    assert.equal(report.json.message, HOSTLESS_REPORT);
+    assert.equal((await app("GET", `/_p99/api/me?host=${here}`, { token })).status, 404);
   });
 
   await check("a session dies the moment its code is revoked, relinked or its authenticator is set up again", async () => {

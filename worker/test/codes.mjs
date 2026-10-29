@@ -122,7 +122,7 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     assert.equal(theirs.json.manager, false);
     const people = (await browse("GET", "/people", owner.secret)).json.people;
     assert.ok(people.length > 0);
-    for (const p of people) assert.deepEqual(Object.keys(p).sort(), ["role", "username"]);
+    for (const p of people) assert.deepEqual(Object.keys(p).sort(), ["avatar", "role", "username"]);
     const filed = await browse("POST", "/issues", user.secret, issueBody({ title: "Role words on a comment" }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));
     const key = filed.json.key;

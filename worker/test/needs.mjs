@@ -355,12 +355,13 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     const boss = await mint("Emmy Noether", "emmy@example.com", [here], true);
     const seen = await browse("GET", "/cards/waiting", boss.secret);
     assert.equal(seen.status, 200, JSON.stringify(seen.json));
-    assert.ok(seen.json.cards.every((cd) => cd.host === here));
+    const hostProject = (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === here).project;
+    assert.ok(seen.json.cards.every((cd) => cd.project === hostProject), "a project grant sees only its project's waiting cards, whatever their host");
     const me = await browse("GET", "/me", boss.secret);
     assert.equal(me.status, 200);
     assert.equal(typeof me.json.counts.waiting, "number");
     assert.equal(me.json.counts.waiting, seen.json.count);
-    assert.equal(me.json.counts.waiting, (await waiting(here)).count);
+    assert.equal(me.json.counts.waiting, (await waiting()).cards.filter((cd) => cd.project === hostProject).length);
   });
 
   await check("a project change is quiet: it never reopens, moves, mails or tells the visitor", async () => {
@@ -452,11 +453,11 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
       assert.equal(many.count, before.count + 501);
       assert.equal(many.cards.length, 500);
       assert.ok(many.count > many.cards.length);
-      const boss = await mint("Sophie Germain", "sophie@example.com", [here], true);
+      const boss = (await call("POST", "/_p99/v1/codes", { actor: ada, body: { name: "Sophie Germain", email: "sophie@example.com", grant: { space: true }, role: "owner", mail: false } })).json;
       const me = await browse("GET", "/me", boss.secret);
       assert.equal(me.status, 200, JSON.stringify(me.json));
       assert.ok(me.json.counts.waiting > 500, JSON.stringify(me.json.counts));
-      assert.equal(me.json.counts.waiting, (await waiting(here)).count);
+      assert.equal(me.json.counts.waiting, many.count);
     } finally {
       if (seeded) d1count("DELETE FROM items WHERE client_uid LIKE 'seed-waiting-%' RETURNING 0 AS n");
     }

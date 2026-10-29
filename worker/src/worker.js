@@ -8,6 +8,7 @@ import {
   LABEL_JOIN,
   START_LABEL,
   closeItem,
+  closeRescoped,
   publisher,
   redeemTicket,
   liveSockets,
@@ -22,8 +23,8 @@ import {
 import { flushHooks, hookRoutes, noteHook, noteLanded } from "./hooks.js";
 import { LICENCE_ROUTES, licenceOf, licensed, linkShown, settingStatement, useLicenceKit } from "./license.js";
 import { EVERYWHERE, PARKED, projectFilterSql, grantFromBody, grantFromHosts, grantJson, grantOf, hostsOf, parked, projectNamed, projectNames, reachOf, reachesItem, reachesProject, storedGrant, viewSql } from "./grants.js";
-import { PROJECT_ROUTES, SIGNED_SPACE_ROUTES, SPACE_ROUTES, spaceOf, useSpaceKit } from "./spaces.js";
-import { AVATAR_READS, AVATAR_ROUTES, avatarUrl, useAvatarKit } from "./avatars.js";
+import { HOSTLESS_REPORT, PROJECT_ROUTES, SIGNED_SPACE_ROUTES, SPACE_ROUTES, spaceOf, useSpaceKit } from "./spaces.js";
+import { AVATAR_READS, AVATAR_ROUTES, avatarUrl, useAvatarKit, withAvatars } from "./avatars.js";
 import { maskRefusal } from "./selectors.js";
 import { deleteGithub, githubDelivery, githubLinks, githubLinksStatement, listGithub, openGithubIssue, putGithub, useKit as useGithubKit } from "./github.js";
 import { bindLabels, labelFilters, refuseGone } from "./labels.js";
@@ -845,7 +846,7 @@ function summaryOf(row, c, lc) {
     stage: stageOf(row),
     label: c.manager ? row.label_name : null,
     resolution: row.resolution ?? null,
-    project: c.manager ? (row.project ?? null) : null,
+    project: c.manager ? (c.dir.projects.get(row.project_id)?.name ?? null) : null,
     title: row.title,
     host: row.host,
     env: row.origin_env,
@@ -957,7 +958,9 @@ async function issueResponse(c, id, status) {
     ...landingStatements(c.env, [id]),
   ]);
   const row = results[0].results[0];
-  return json(status, issueOf({ ...row, unread: 0 }, c, landingContext(results.slice(1, 4), c.dir)));
+  const issue = issueOf({ ...row, unread: 0 }, c, landingContext(results.slice(1, 4), c.dir));
+  await withAvatars(c.env.DB, [issue.assignee]);
+  return json(status, issue);
 }
 
 function pageLink(row) {
@@ -1042,6 +1045,15 @@ async function codesRevoked(env) {
   }
 }
 
+async function socketsRescoped(env, code = null) {
+  if (!env.HUB) return;
+  try {
+    await hubOf(env).rescoped(code);
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+  }
+}
+
 async function openStream(c) {
   if (!c.env.HUB) fail(404, "this Worker has no push yet; run p99 deploy");
   if ((c.request.headers.get("upgrade") || "").toLowerCase() !== "websocket") fail(400, "the stream takes a WebSocket upgrade");
@@ -1085,6 +1097,10 @@ export class P99Hub extends DurableObject {
 
   async revoked() {
     await liveSockets(this.env.DB, this.#sockets());
+  }
+
+  async rescoped(code) {
+    closeRescoped(this.#sockets(), code);
   }
 
   #sockets() {
@@ -1580,8 +1596,12 @@ async function getCounts(c) {
 }
 
 async function getMe(c) {
-  const [counts, username, waiting] = await Promise.all([countsFor(c, c.url.searchParams.get("path")), usernameFor(c), waitingCount(c)]);
-  const avatar = await c.env.DB.prepare("SELECT avatar FROM people WHERE email = ?1").bind(c.actor.email).first();
+  const [counts, username, waiting, avatar] = await Promise.all([
+    countsFor(c, c.url.searchParams.get("path")),
+    usernameFor(c),
+    waitingCount(c),
+    c.env.DB.prepare("SELECT avatar FROM people WHERE email = ?1").bind(c.actor.email).first(),
+  ]);
   const config = c.hostRow.config;
   const licence = c.dir.licence;
   return json(200, {
@@ -1673,7 +1693,7 @@ async function listIssues(c) {
   const limit = limitText === null ? DEFAULT_LIST_LIMIT : Number(limitText);
   if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIST_LIMIT) fail(400, `limit must be 1 to ${MAX_LIST_LIMIT}`);
   const activity = c.manager ? "i.activity_at" : "i.public_activity_at";
-  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.project, i.title, i.host, i.origin_env, i.page_url, i.page_path,
+  const sql = `SELECT i.id, i.kind, i.open, i.resolution, i.project, i.project_id, i.title, i.host, i.origin_env, i.page_url, i.page_path,
       i.page_title, i.reporter_email, i.reporter_name, i.reporter_agent, i.reporter_via, i.assignee, i.created_at, i.updated_at,
       i.comment_count, i.public_comment_count, i.attachment_count, i.public_attachment_count, ${LABEL_COLUMNS},
       ${assigneeColumn()}, ${activity} > COALESCE(r.read_at, '') AS unread
@@ -1692,11 +1712,13 @@ async function listIssues(c) {
     issues: page.map((row) => summaryOf(row, c, lc)),
     next_cursor: more ? String(page[page.length - 1].id) : null,
   };
+  await withAvatars(c.env.DB, answer.issues.map((issue) => issue.assignee));
   if (!cursor) answer.total = more ? (await c.env.DB.prepare(counting.sql).bind(...counting.binds).first()).n : page.length;
   return json(200, answer);
 }
 
 function creationTarget(c, body) {
+  if (c.browser && !c.hostRow.host) fail(400, HOSTLESS_REPORT);
   if (c.browser) return { host: c.hostRow.host, env: c.hostRow.env, project_id: c.hostRow.project_id };
   const name = (c.scope.all ? null : c.scope.host) ?? body.host;
   const host = typeof name === "string" ? c.dir.hosts.get(name) : null;
@@ -1876,6 +1898,7 @@ async function getIssue(c, rawKey) {
     merged: mergedOf(mergedRows, c),
   };
   if (follower) Object.assign(issue, { body: "", context: {}, marks: [] });
+  await withAvatars(DB, [issue.assignee]);
   return json(200, {
     issue,
     comments: comments.map((cm) => commentOf(cm, c, byComment.get(cm.id) || [])),
@@ -2482,6 +2505,7 @@ async function putHost(c, rawHost) {
   const [put] = await DB.batch(statements);
   const row = put.results[0];
   forgetDirectory();
+  if (moving) await socketsRescoped(c.env);
   return json(200, hostJson(row, c.dir, project));
 }
 
@@ -3418,7 +3442,7 @@ useGithubKit({
 
 usePeopleKit({ fail, json, managersOf, isUniqueViolation, readJson, requireEmptyBody, requireManager, maxJson: MAX_JSON_BYTES });
 
-useSpaceKit({ codeOf, codesRevoked, decodeURIComponentSafe, forgetCodes: () => codeCache.clear(), forgetDirectory, hostJson });
+useSpaceKit({ codeOf, socketsRescoped, decodeURIComponentSafe, forgetCodes: () => codeCache.clear(), forgetDirectory, hostJson });
 
 useLicenceKit({ fail, forgetDirectory, json, readJson, requireEmptyBody, maxJson: MAX_JSON_BYTES });
 
@@ -3514,7 +3538,7 @@ function browserRun(request, env, ctx, url, path, dir, hostRow, code, now) {
     scope: { all: false, host: hostRow.host },
     reach: code.reach ?? reachOf(grantOf(code, dir), dir),
     hostRow,
-    actionEnv: hostRow.env,
+    actionEnv: hostRow.host ? hostRow.env : null,
     now,
     outbox: [],
     pushes: [],

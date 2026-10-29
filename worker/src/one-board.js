@@ -4,6 +4,7 @@ import { cardsBoard } from "./cards-write.js";
 import { peopleOf } from "./people.js";
 import { namedBy, sameFolded } from "./text.js";
 import { viewSql } from "./grants.js";
+import { withAvatars } from "./avatars.js";
 
 export const BOARDS_GONE = "boards are one per space; see p99 board";
 
@@ -59,7 +60,7 @@ export function oneBoardSql(v, filter) {
       WHERE ${scope}),
     ranked AS (
       SELECT id, lane, ord, row_number() OVER (PARTITION BY lane ORDER BY ord IS NOT NULL, ord, id DESC) AS place FROM placed)
-    SELECT r.lane, r.ord, r.place, i.id, i.kind, i.project, i.title, i.host, i.assignee, lb.name AS label_name,
+    SELECT r.lane, r.ord, r.place, i.id, i.kind, (SELECT p.name FROM projects p WHERE p.id = i.project_id) AS project, i.title, i.host, i.assignee, lb.name AS label_name,
       COALESCE(e.at, i.created_at) AS changed_at, ${CHANGED_EMAIL} AS changed_email, ${CHANGED_AGENT} AS changed_agent,
       CASE WHEN e.id IS NULL THEN i.reporter_via ELSE e.actor_via END AS changed_via,
       CASE WHEN ${CHANGED_EMAIL} = i.reporter_email AND i.reporter_name <> '' THEN i.reporter_name
@@ -116,7 +117,9 @@ async function oneBoard(c) {
   const { DB } = c.env;
   const [lanes, rows] = await DB.batch([DB.prepare(LANES_SQL), DB.prepare(sql).bind(...binds)]);
   await settle(c, rows.results);
-  return { board: { lanes: lanesOf(lanes.results) }, cards: rows.results.map(boardCardOf) };
+  const cards = rows.results.map(boardCardOf);
+  await withAvatars(DB, cards.map((card) => card.changed_by));
+  return { board: { lanes: lanesOf(lanes.results) }, cards };
 }
 
 export async function getOneBoard(c) {
@@ -195,7 +198,7 @@ export async function moveByLane(c, body) {
   if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
   plan.after();
   const key = K.keyOf(row.kind, row.id);
-  if (place) pushOf(c, { type: "order", board: one.board, key, order: place.key, host: row.host, ...(place.rows.length > 1 ? { rebalanced: true } : {}) });
+  if (place) pushOf(c, { type: "order", board: one.board, key, order: place.key, host: row.host, projects: row.project_id === null || row.project_id === undefined ? [] : [row.project_id], ...(place.rows.length > 1 ? { rebalanced: true } : {}) });
   return K.json(200, {
     card: {
       key,

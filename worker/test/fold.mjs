@@ -174,9 +174,21 @@ export function lane(db, name) {
     .map((r) => r.item_id);
 }
 
+const PROJECTS_SHIM = `CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, created_at TEXT NOT NULL);
+  ALTER TABLE items ADD COLUMN project_id INTEGER;
+  INSERT OR IGNORE INTO projects (name, created_at) SELECT DISTINCT trim(project), '' FROM items WHERE trim(project) <> '';
+  UPDATE items SET project_id = (SELECT id FROM projects WHERE name = trim(items.project));`;
+
 export function boardRows(db, v, filter) {
   const { sql, binds } = oneBoardSql(v, { projects: [], hosts: [], source: null, statuses: [], ...filter });
-  return db.prepare(sql).all(...binds);
+  const shimmed = !db.prepare("PRAGMA table_info(items)").all().some((c) => c.name === "project_id");
+  if (!shimmed) return db.prepare(sql).all(...binds);
+  db.exec(`SAVEPOINT board_rows; ${PROJECTS_SHIM}`);
+  try {
+    return db.prepare(sql).all(...binds).map((r) => ({ ...r }));
+  } finally {
+    db.exec("ROLLBACK TO board_rows; RELEASE board_rows;");
+  }
 }
 
 export const ALL = { all: true, host: null };

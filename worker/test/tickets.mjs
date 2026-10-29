@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fanOut, liveCodes, liveSockets, publisher, redeemTicket, storeTicket } from "../src/boards.js";
+import { RESCOPED, closeRescoped, fanOut, liveCodes, liveSockets, publisher, redeemTicket, storeTicket } from "../src/boards.js";
 
 function fakeDB({ live = [], broken = false } = {}) {
   const queries = [];
@@ -190,7 +190,7 @@ export async function ticketChecks({ check }) {
     assert.equal(all.sent[1].hosts, undefined, "the hosts list leaked into the event");
   });
 
-  await check("[tickets] a project grant's socket hears its projects' events and its hosts' events, never another project's, and never the projects list", async () => {
+  await check("[tickets] a project grant's socket hears its projects' events and its hosts' projectless events, never another project's even on its host, and never the projects list", async () => {
     const granted = fakeSocket({ hosts: ["example.com"], projects: [2], code: null });
     const all = fakeSocket({ hosts: null, projects: null, code: null });
     await fanOut(fakeDB(), pairs(granted, all), [
@@ -198,11 +198,31 @@ export async function ticketChecks({ check }) {
       { type: "item", host: "example.com", projects: [9], key: "P-6" },
       { type: "item", host: "shop.example.com", projects: [9], key: "P-7" },
       { type: "item", host: null, projects: [], key: "P-8" },
+      { type: "item", host: "example.com", projects: [], key: "P-9" },
+      { type: "order", host: "example.com", projects: [2], key: "P-10" },
       { type: "labels" },
     ]);
-    assert.deepEqual(granted.sent.map((e) => e.key ?? e.type), ["P-5", "P-6", "labels"]);
-    assert.deepEqual(all.sent.map((e) => e.key ?? e.type), ["P-5", "P-6", "P-7", "P-8", "labels"]);
+    assert.deepEqual(granted.sent.map((e) => e.key ?? e.type), ["P-5", "P-9", "P-10", "labels"]);
+    assert.deepEqual(all.sent.map((e) => e.key ?? e.type), ["P-5", "P-6", "P-7", "P-8", "P-9", "P-10", "labels"]);
     assert.ok(all.sent.every((e) => e.projects === undefined), "the projects list leaked into the event");
+  });
+
+  await check("[tickets] a grant change closes that code's sockets, and a host move closes every project-scoped socket, so each reconnects with a new ticket", async () => {
+    const changed = fakeSocket({ hosts: ["example.com"], projects: [2], code: 7 });
+    const wholeChanged = fakeSocket({ hosts: null, projects: null, code: 7 });
+    const other = fakeSocket({ hosts: ["example.com"], projects: [2], code: 8 });
+    const whole = fakeSocket({ hosts: null, projects: null, code: 9 });
+    const key = fakeSocket({ hosts: null, projects: null, code: null });
+    const kept = closeRescoped(pairs(changed, wholeChanged, other, whole, key), 7);
+    assert.deepEqual(kept.map(([socket]) => socket), [other, whole, key]);
+    assert.deepEqual(changed.closed, { code: 4003, reason: RESCOPED });
+    assert.deepEqual(wholeChanged.closed, { code: 4003, reason: RESCOPED });
+    assert.equal(other.closed, null);
+    const moved = closeRescoped(pairs(other, whole, key));
+    assert.deepEqual(moved.map(([socket]) => socket), [whole, key]);
+    assert.deepEqual(other.closed, { code: 4003, reason: RESCOPED });
+    assert.equal(whole.closed, null);
+    assert.equal(key.closed, null);
   });
 
   await check("[tickets] publishes reach every socket in call order even when the first one's D1 read answers last", async () => {
