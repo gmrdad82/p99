@@ -46,10 +46,8 @@ const TIOCSWINSZ: c_ulong = 0x8008_7467;
 const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
 
-static NAMING: Mutex<()> = Mutex::new(());
-
 pub fn pty() -> (File, File) {
-    let _held = NAMING.lock().unwrap();
+    let _held = crate::NAMING.lock().unwrap();
     let fd = unsafe { posix_openpt(O_RDWR | O_NOCTTY | O_CLOEXEC) };
     assert!(fd >= 0, "{}", std::io::Error::last_os_error());
     let master = unsafe { File::from_raw_fd(fd) };

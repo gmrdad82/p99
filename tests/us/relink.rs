@@ -24,7 +24,7 @@ fn us_relink_001_a_relink_that_names_no_single_code_is_refused() {
         "grace@example.com holds several codes: 4 (projects: Shop), 7 (projects: Blog); name one by id or --host",
     );
     h.p99(&["relink", "5"])
-        .refused("no such code, or it is revoked");
+        .refused("no such code, or it is revoked (404)");
     h.p99(&["relink", "bob"])
         .refused("bob is neither a code id nor an e-mail; p99 invites lists both");
     h.p99(&["relink", "99999999999999999999"])

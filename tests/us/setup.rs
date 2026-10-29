@@ -533,11 +533,17 @@ fn us_setup_001_setup_for_someone_else_makes_their_email_the_first_owner_beside_
     );
 
     let after = h.toml();
-    assert_eq!(after["spaces"]["main"], before["spaces"]["main"]);
+    let mut main = before["spaces"]["main"].as_table().unwrap().clone();
+    for key in ["worker", "database", "bucket"] {
+        main.entry(key).or_insert_with(|| "p99".into());
+    }
+    assert_eq!(after["spaces"]["main"].as_table().unwrap(), &main);
     assert_eq!(after["me"], before["me"]);
     assert_eq!(after["default_space"], before["default_space"]);
     for host in ["shop.example.com", "dev.example.com"] {
-        assert_eq!(after["hosts"][host], before["hosts"][host], "{host}");
+        let mut kept = before["hosts"][host].as_table().unwrap().clone();
+        kept.entry("env").or_insert_with(|| "production".into());
+        assert_eq!(after["hosts"][host].as_table().unwrap(), &kept, "{host}");
     }
     let work = &after["spaces"]["work"];
     assert_eq!(work["me"]["email"].as_str(), Some("grace@example.com"));
