@@ -7,6 +7,7 @@ import {
   S,
   SEND,
   TITLE,
+  apart,
   asData,
   closing,
   codeFor,
@@ -263,6 +264,9 @@ export default async function (kit) {
       const [card, pass, name] = read.spreads;
       assert.ok(card >= 0 && card <= 30, `the card field is one solid block (${JSON.stringify(read)})`);
       assert.ok(pass >= 0 && pass <= 30, `the password is one solid block (${JSON.stringify(read)})`);
+      const [cardMean, passMean, nameMean] = read.means;
+      assert.ok(apart(cardMean, passMean) <= 12, `the password is painted the same colour as the card (${JSON.stringify(read.means)})`);
+      assert.ok(apart(cardMean, nameMean) > 12, `the name field is not that colour (${JSON.stringify(read.means)})`);
       assert.ok(name > 80, `the name field still shows, so the read can fail (${JSON.stringify(read)})`);
       const stored = JSON.stringify(t);
       assert.ok(!stored.includes("4242 4242"), "no card number rides along");

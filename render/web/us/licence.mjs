@@ -11,11 +11,11 @@ async function code(kit, body) {
   return made.json;
 }
 
-async function signIn(kit, page, email, key) {
+async function signIn(kit, page, email, key, ahead = 0) {
   await page.goto(kit.appUrl("/"));
   await page.locator("#signin input[name=email]").waitFor(WAIT);
   await page.fill("#signin input[name=email]", email);
-  await page.fill("#signin input[name=totp]", kit.totp(key));
+  await page.fill("#signin input[name=totp]", kit.totp(key, kit.clock.now() + ahead));
   await page.click("#signin button[type=submit]");
   await page.waitForFunction(
     () => {
@@ -33,9 +33,10 @@ export default async function (kit) {
     const email = `ada.page.${tag}@example.com`;
     const owner = await code(kit, { name: "Ada Lovelace", email, role: "owner", totp: true });
     assert.equal(typeof owner.totp_key, "string");
+    const api = await code(kit, { name: "Ada Lovelace", email: `ada.api.${tag}@example.com`, role: "owner" });
     const visitor = await code(kit, { name: "Grace Hopper", email: `grace.page.${tag}@example.com`, role: "user" });
     const host = kit.space.projects.find((p) => p.hosts.length > 0).hosts[0];
-    const before = (await kit.browse("GET", "/me", owner.secret)).json.license;
+    const before = (await kit.browse("GET", "/me", api.secret)).json.license;
     const pages = [];
     const panelOf = async () => {
       const site = await kit.page();
@@ -53,10 +54,10 @@ export default async function (kit) {
         };
       });
     };
-    const profile = async () => {
+    const profile = async (ahead = 0) => {
       const page = await kit.page();
       pages.push(page);
-      await signIn(kit, page, email, owner.totp_key);
+      await signIn(kit, page, email, owner.totp_key, ahead);
       await page.evaluate(() => (location.hash = "#profile"));
       await page.waitForFunction(() => document.getElementById("app").dataset.screen === "profile" && !document.querySelector("#app .app-wait"), null, WAIT);
       return page;
@@ -74,7 +75,7 @@ export default async function (kit) {
       await page.waitForFunction((w) => document.querySelector(".app-licence .app-status")?.textContent === w, SAVED, WAIT);
       assert.match(await page.getAttribute(".app-bar .app-badge", "src"), /\/_p99\/badges\/studio\.svg/);
       assert.equal(await page.inputValue(".app-licence textarea[name=licence]"), "");
-      const me = (await kit.browse("GET", "/me", owner.secret)).json;
+      const me = (await kit.browse("GET", "/me", api.secret)).json;
       assert.equal(me.license, "studio");
       assert.equal(me.licensed, true);
       assert.equal(me.licence.stored, true);
@@ -84,20 +85,20 @@ export default async function (kit) {
       assert.equal(licensed.lockup, false, "the panel no longer shows the small P99 logo");
       assert.equal(licensed.by, false, "the panel no longer shows the by PITO.MD link");
 
-      const gone = await kit.browse("DELETE", "/licence", owner.secret);
+      const gone = await kit.browse("DELETE", "/licence", api.secret);
       assert.equal(gone.status, 200, JSON.stringify(gone.json));
       removed = true;
-      assert.equal((await kit.browse("GET", "/me", owner.secret)).json.license, before, "removing the key puts the earlier licence back");
+      assert.equal((await kit.browse("GET", "/me", api.secret)).json.license, before, "removing the key puts the earlier licence back");
       const after = await panelOf();
       assert.doesNotMatch(after.badge, /\/_p99\/badges\/studio\.svg/, "the panel badge is no longer studio");
       assert.equal(after.lockup, true, "the small P99 logo is back");
       assert.equal(after.by, true, "the by PITO.MD link is back");
-      const again = await profile();
+      const again = await profile(30000);
       assert.doesNotMatch((await again.getAttribute(".app-bar .app-badge", "src")) || "", /\/_p99\/badges\/studio\.svg/, "the page badge is no longer studio");
     } finally {
       for (const page of pages) await page.close().catch(() => {});
-      if (!removed) await kit.browse("DELETE", "/licence", owner.secret).catch(() => {});
+      if (!removed) await kit.browse("DELETE", "/licence", api.secret).catch(() => {});
     }
-    assert.equal((await kit.browse("GET", "/me", owner.secret)).json.license, before);
+    assert.equal((await kit.browse("GET", "/me", api.secret)).json.license, before);
   });
 }

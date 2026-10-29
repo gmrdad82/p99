@@ -38,7 +38,7 @@ export async function codeFor(kit, host, person, owner = false) {
 }
 
 export async function titled(kit, title, query = "") {
-  const r = await signed(kit, "GET", `/issues?status=any&q=${encodeURIComponent(title)}${query}`);
+  const r = await signed(kit, "GET", `/issues?scope=all&status=any&q=${encodeURIComponent(title)}${query}`);
   return (r.json.issues || []).filter((i) => i.title === title);
 }
 
@@ -146,22 +146,25 @@ export const READ = `(async ({ src, width, rects, colours }) => {
   const d = g.getImageData(0, 0, bmp.width, bmp.height).data;
   const scale = bmp.width / width;
   const spread = (r) => {
-    const x0 = Math.max(0, Math.floor((r.x + 3) * scale)), y0 = Math.max(0, Math.floor((r.y + 3) * scale));
-    const x1 = Math.min(bmp.width, Math.ceil((r.x + r.w - 3) * scale)), y1 = Math.min(bmp.height, Math.ceil((r.y + r.h - 3) * scale));
+    const x0 = Math.max(0, Math.floor((r.x + 8) * scale)), y0 = Math.max(0, Math.floor((r.y + 8) * scale));
+    const x1 = Math.min(bmp.width, Math.ceil((r.x + r.w - 8) * scale)), y1 = Math.min(bmp.height, Math.ceil((r.y + r.h - 8) * scale));
     if (x1 <= x0 || y1 <= y0) return -1;
-    const lo = [255, 255, 255], hi = [0, 0, 0];
+    const lo = [255, 255, 255], hi = [0, 0, 0], sum = [0, 0, 0];
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
       const i = (y * bmp.width + x) * 4;
-      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], d[i + k]); hi[k] = Math.max(hi[k], d[i + k]); }
+      for (let k = 0; k < 3; k++) { lo[k] = Math.min(lo[k], d[i + k]); hi[k] = Math.max(hi[k], d[i + k]); sum[k] += d[i + k]; }
     }
+    const n = (x1 - x0) * (y1 - y0);
+    means.push(sum.map((v) => Math.round(v / n)));
     return Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
   };
+  const means = [];
   const counts = {};
   for (const [name, rgb] of Object.entries(colours || {})) counts[name] = 0;
   for (let i = 0; i < d.length; i += 4) {
     for (const [name, [r, gg, b]] of Object.entries(colours || {})) if (Math.hypot(d[i] - r, d[i + 1] - gg, d[i + 2] - b) < 80) counts[name]++;
   }
-  return { width: bmp.width, height: bmp.height, spreads: (rects || []).map(spread), counts };
+  return { width: bmp.width, height: bmp.height, spreads: (rects || []).map(spread), means, counts };
 })`;
 
 export const readImage = (p, args) => p.evaluate(`${READ}(${JSON.stringify(args)})`);
@@ -194,3 +197,5 @@ export async function closing(p, fn) {
     await p.close().catch(() => {});
   }
 }
+
+export const apart = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
