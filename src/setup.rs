@@ -932,7 +932,9 @@ fn run_sql(run: &[Step], plan: Option<&Value>, park: &[u64]) -> String {
 
 fn apply(cf: &Cloudflare, entry: &Account, steps: Steps) -> Result<Migrated, String> {
     let (account, db) = (entry.account_id.as_str(), entry.database_id.as_str());
-    cf.query(account, db, MIGRATIONS_TABLE, &[])?;
+    if !steps.todo.is_empty() {
+        cf.query(account, db, MIGRATIONS_TABLE, &[])?;
+    }
     let mut out = Migrated {
         applied: Vec::new(),
         already: steps.already,
