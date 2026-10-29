@@ -999,7 +999,7 @@ try {
     await ctx.close();
   });
 
-  await story("switching to Your items while a report uploads keeps the list when the upload finishes", async () => {
+  await story("switching to Your cards while a report uploads keeps the list when the upload finishes", async () => {
     const { ctx, p } = await visit();
     const uploading = gate();
     let held = 0;
@@ -1014,7 +1014,7 @@ try {
     });
     await openForm(p);
     await shotReady(p);
-    const title = tag("Sent, then Your items opened");
+    const title = tag("Sent, then Your cards opened");
     await write(p, title);
     await p.locator(SEND).click();
     await until("the held upload", () => held >= 1);
@@ -1274,7 +1274,7 @@ try {
   });
   const owner = (needs, replies, page, waiting = needs) => meWith({ mine_open: 1, mine_unread: replies + 40, replies, page_open: page, waiting, needs_you: needs }, true);
   const visitor = (replies, page, open = 1) => meWith({ mine_open: open, mine_unread: replies + 40, replies, page_open: page, waiting: null, needs_you: null }, false);
-  const words = (blue, page) => `Your items: ${blue} waiting, ${page} on this page`;
+  const words = (blue, page) => `Your cards: ${blue} waiting, ${page} on this page`;
 
   for (const [name, me, want] of [
     ["an Owner sees the cards in Needs you plus the replies waiting for them at the top right in the accent, and this page's open items at the top left, never on the +", owner(3, 2, 7), { menu: true, text: "5", page: "7", label: words(5, 7), onPlus: false }],
@@ -1821,7 +1821,7 @@ try {
     const { ctx, p, seen } = await mePage({ ...visitor(0, 0, 0), capture: "off" });
     await openForm(p);
     const form = await p.evaluate(() => { const f = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new"); return { capture: !!f.querySelector(".p99-capture"), mark: !!f.querySelector(".p99-mark-start"), note: f.querySelector(".p99-no-shot")?.textContent ?? null }; });
-    check(`no capture section and a plain note (${JSON.stringify(form)})`, !form.capture && !form.mark && form.note === "This site doesn't send screenshots, so your report goes without one.");
+    check(`no capture section and a plain note (${JSON.stringify(form)})`, !form.capture && !form.mark && form.note === "This site doesn't send screenshots, so your card goes without one.");
     const title = tag("Filed with capture off");
     await write(p, title);
     await p.locator(SEND).click();

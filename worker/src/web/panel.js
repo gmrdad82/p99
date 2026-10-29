@@ -62,7 +62,7 @@ const WORDS = {
   status_abandoned: "Dropped",
   status_duplicate: "Duplicate",
   only_branch: "The fix is written but isn't in a build yet.",
-  list_title: "Items",
+  list_title: "Cards",
   view_label: "Show",
   view_project: "This project",
   view_projects: "Projects",
@@ -91,11 +91,14 @@ const WORDS = {
   filter_every_kind: "Any kind",
   list_empty: "Nothing here.",
   list_empty_filtered: "Nothing matches these filters.",
-  list_no_match: "No issues match “{q}”.",
+  list_no_match: "No cards match “{q}”.",
   unread_mark: "New for you",
   comments: { one: "1 comment", other: "{count} comments" },
   more: "More",
   new_title: "What happened?",
+  new_card: "New card",
+  new_project: "Project",
+  project_needed: "Pick a project.",
   new_kind: "Kind",
   new_title_label: "Title",
   new_title_hint: "In a few words, what's wrong or what you need",
@@ -109,14 +112,14 @@ const WORDS = {
   mask_areas: "Hide this site's private areas",
   new_files: "Files",
   new_files_hint: "Add files: pick them, drop them here or paste them",
-  no_capture: "This site doesn't send screenshots, so your report goes without one.",
+  no_capture: "This site doesn't send screenshots, so your card goes without one.",
   new_privacy_text: "The page's address, your browser, your screen and the page's last script errors go with it, so we see what happened.",
   new_privacy: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords and the fields this site marks as private are blanked.",
   new_privacy_shown: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords are blanked; you chose to show this site's private areas.",
   send: "Send",
   cancel: "Cancel",
   back: "Back to the list",
-  filed_by: "Sent by {who}, {when}",
+  filed_by: "Filed by {who}, {when}",
   updated: "changed {when}",
   assigned_to: "assigned to {who}",
   duplicate_of: "merged into {n}",
@@ -144,13 +147,14 @@ const WORDS = {
   abandon: "Drop it",
   reopen: "Reopen",
   edit: "Edit what you wrote",
+  edit_any: "Edit the title and details",
   delete: "Delete {key}",
   delete_warn: "Its comments, files and history go with it, and this can't be undone.",
   delete_type: "Type {key} to confirm",
   delete_go: "Hold to delete {key}",
   delete_hold: "Keep holding until the button fills.",
   event_system: "P99",
-  event_created: "opened the item",
+  event_created: "opened the card",
   event_status: "changed the status: {from} → {to}",
   event_kind: "changed the kind: {from} → {to}",
   event_assignee: "assigned it to {to}",
@@ -162,6 +166,11 @@ const WORDS = {
   event_mail: "e-mail sent to {to}",
   event_mail_failed: "the e-mail to {to} didn't go out",
   event_labels: "changed the labels: {list}",
+  event_link: "linked {ref}",
+  links: "Links",
+  link_label: "Link",
+  link_hint: "A request, commit, tag or URL",
+  link_add: "Add",
   move_to: "Move to",
   move_drop: "Drop (close without fixing)",
   moved: "this card moved; refreshed",
@@ -172,7 +181,7 @@ const WORDS = {
   capture_slow: "The page took too long to capture; you can send without it.",
   capture_mask: "This browser can't read the areas this site keeps private, so no screenshot was taken; you can send without one.",
   capture_unknown: "This site's capture settings didn't load, so no screenshot was taken; you can send without one.",
-  capture_blocked: "This site's security settings block the screenshot, so your report goes without one.",
+  capture_blocked: "This site's security settings block the screenshot, so your card goes without one.",
   marking: "Drag a box over the area. Esc stops.",
   mark_hint: "Drag a box over the area; you can mark several.",
   mark_n: "Area {n}",
@@ -180,7 +189,7 @@ const WORDS = {
   mark_cancel: "Cancel",
   too_many_marks: "You can mark up to 10 areas.",
   too_big: "“{name}” is over 20 MB.",
-  too_many_files: "An item holds up to 30 files.",
+  too_many_files: "A card holds up to 30 files.",
   file_type: "P99 takes images, PDFs, text, CSV, JSON, zip and office files.",
   title_needed: "Add a title.",
   too_long: "That's over {n} characters; shorten it to send.",
@@ -189,7 +198,7 @@ const WORDS = {
   upload_failed: "“{name}” didn't upload; try again.",
   upload_refused: "“{name}” didn't upload: {why}.",
   filed: "Sent as {key}. Replies show up here.",
-  sent_partial: "{key} was sent, but some files didn't upload; you can add them again from the item."
+  sent_partial: "{key} was sent, but some files didn't upload; you can add them again from the card."
 };
 
 let o = null;
@@ -224,6 +233,7 @@ export function open(opts) {
       if (busyView(v)) { if (!S.view) busy(); }
       else if (opts.key) item(opts.key);
       else if (opts.view === "list") list(S.list || defaultList());
+      else if (opts.view === "card") cardFlow();
       else fileFlow();
     };
     if (S.verify) verify(go);
@@ -496,7 +506,7 @@ function openBoard() {
   close(true);
   const resume = o.closed ? () => open(Object.assign({}, o, { view: "list", key: null })) : null;
   const p = picked();
-  Promise.all([boardModule(), home()]).then(([m]) => m.open({ root, call, me, h, blob, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })) }), () => {});
+  Promise.all([boardModule(), home()]).then(([m]) => m.open({ root, call, me, h, blob, host: o.space, query: () => boardQuery(picked()), keep: carded(p) ? (c) => !!c.project : null, pickWord: pickWord(), closed: resume, item: (key, from) => open(Object.assign({}, o, { view: "item", key, from })), add: (from) => open(Object.assign({}, o, { view: "card", key: null, from })) }), () => {});
 }
 function home() {
   if (o.space) return Promise.resolve(null);
@@ -892,11 +902,15 @@ function fillProjects(box, p) {
   }).catch(() => { delete box.dataset.asked; });
 }
 function listQuery(f, cursor) {
-  const q = new URLSearchParams({ scope: f.scope, status: f.status || "open" });
   const p = picked();
+  const scope = p.view === "projects" ? "all" : f.scope;
+  const lane = /^lane:/.test(f.status || "") ? f.status.slice(5) : "";
+  const q = new URLSearchParams({ scope, status: lane ? "any" : f.status || "open" });
+  if (lane) q.set("label", lane);
   if (p.source) q.set("source", p.source);
-  if (p.view === "project" && S.homeName && f.scope === "all") q.append("project", S.homeName);
-  if (f.scope === "page") q.set("path", location.pathname);
+  if (p.view === "project" && S.homeName && scope === "all") q.append("project", S.homeName);
+  if (p.view === "projects") p.projects.forEach((n) => q.append("project", n));
+  if (scope === "page") q.set("path", location.pathname);
   if (f.kind) q.set("kind", f.kind);
   if (f.q) q.set("q", f.q);
   if (cursor) q.set("cursor", cursor);
@@ -912,9 +926,9 @@ function list(f) {
   const results = view.querySelector(".p99-results");
   const form = view.querySelector(".p99-filters");
   const p = picked();
-  const cards = carded(p);
-  form.hidden = cards;
-  view.querySelector(".p99-tabs").hidden = cards;
+  const cards = carded(p) && !(p.view === "projects" && (f.kind || f.q || (f.status && f.status !== "open")));
+  form.hidden = carded(p) && p.view !== "projects";
+  view.querySelector(".p99-tabs").hidden = carded(p);
   for (const a of view.querySelectorAll(".p99-tabs a")) {
     if (a.dataset.scope === f.scope) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
@@ -1000,10 +1014,16 @@ function more(box, add, page, cursor) {
   });
   box.append(b);
 }
+function lanes() {
+  const at = (l) => { const n = LANE_NAMES.indexOf(l.name.toLowerCase()); return n < 0 ? LANE_NAMES.length : n; };
+  return call("GET", "/labels").then((r) => ((r && r.labels) || []).filter((l) => l && typeof l.name === "string").sort((a, b) => at(a) - at(b)));
+}
 function filters(f) {
+  const now = f.status || "open";
   const status = h("select", { name: "status" },
-    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(STATUSES.filter((s) => s !== "done").map((s) => [s, statusWord(s)]))
-      .map(([v, l]) => h("option", { value: v, selected: (f.status || "open") === v, text: l })));
+    [["open", say("filter_open")], ["closed", say("filter_closed")], ["any", say("filter_any")]].concat(owner() ? [] : STATUSES.filter((s) => s !== "done").map((s) => [s, statusWord(s)]))
+      .map(([v, l]) => h("option", { value: v, selected: now === v, text: l })));
+  if (owner()) lanes().then((list) => status.append(...list.map((l) => h("option", { value: "lane:" + l.name, selected: now === "lane:" + l.name, text: l.name }))), () => {});
   const kind = h("select", { name: "kind" }, [["", say("filter_every_kind")]].concat(KINDS.map((k) => [k, say("kind_" + k)])).map(([v, l]) => h("option", { value: v, selected: f.kind === v, text: l })));
   const q = h("input", { type: "search", name: "q", value: f.q || "", placeholder: say("filter_search_hint"), autocomplete: "off", maxlength: "400" });
   let timer = 0;
@@ -1134,7 +1154,7 @@ function thread(t) {
     loose.length ? fileList(loose) : null,
     h("ol", { class: "p99-thread" }, entries(t, byId, mine)),
     commentForm(i, manager));
-  if (manager) view.append(manageForm(i), deleteBox(i));
+  if (manager) view.append(manageForm(i), linkBox(i, t), editForm(i, "edit_any"), deleteBox(i));
   else if (mine) {
     const acts = h("div", { class: "p99-reporter-actions" });
     const wrap = h("div", { class: "p99-reporter" }, acts, statusLine());
@@ -1170,6 +1190,7 @@ function eventText(ev) {
   if (ev.kind === "assignee") return obj.to ? say("event_assignee", { to: handle(obj.to) }) : say("event_unassigned");
   if (ev.kind === "labels") return say("event_labels", { list: (obj.added || []).map((n) => "+" + n).concat((obj.removed || []).map((n) => "−" + n)).join(" ") });
   if (ev.kind === "mail") return say(obj.ok === false ? "event_mail_failed" : "event_mail", { to: obj.to || "" });
+  if (ev.kind === "link") return say("event_link", { ref: obj.ref || "" });
   if (ev.kind === "landed") return say("event_landed", { env: obj.env || obj.to || "" });
   if (ev.kind === "merge") return obj.into ? say("duplicate_of", { n: obj.into }) : say("event_merge", { item: obj.item || "" });
   if (("event_" + ev.kind) in WORDS) return say("event_" + ev.kind, { to: obj.to == null ? "" : obj.to, env: obj.env || "" });
@@ -1402,13 +1423,17 @@ function manageForm(i) {
     const data = changed(form);
     if ("duplicate_of" in data) data.duplicate_of = data.duplicate_of || null;
     if ("assignee" in data && !data.assignee) data.assignee = null;
+    const into = data.duplicate_of;
+    if (into) delete data.duplicate_of;
     const to = form.querySelector(".p99-move-to select");
     const drop = to.selectedOptions[0] && to.selectedOptions[0].dataset.drop;
-    if (!drop && to.value === i.label) return patch(i.key, data, form);
+    const move = drop || to.value !== i.label;
+    if (!move && !into) return patch(i.key, data, form);
     if (form.p99Busy) return;
     form.p99Busy = true;
     status(form, say("sending"));
-    call("POST", "/move", JSON.stringify(drop ? { key: i.key, from: i.label, to: drop, resolution: "abandoned" } : { key: i.key, from: i.label, to: to.value })).then(() => {
+    const moved = move ? call("POST", "/move", JSON.stringify(drop ? { key: i.key, from: i.label, to: drop, resolution: "abandoned" } : { key: i.key, from: i.label, to: to.value })) : Promise.resolve();
+    moved.then(() => (into ? call("POST", "/merge", JSON.stringify({ into, items: [i.key] })) : null)).then(() => {
       form.p99Busy = false;
       return Object.keys(data).length ? patch(i.key, data, form) : item(i.key);
     }, (e) => {
@@ -1422,12 +1447,10 @@ function manageForm(i) {
 function moveTo(i) {
   const now = h("option", { value: i.label, selected: true, text: i.label });
   const sel = h("select", null, now);
-  call("GET", "/labels").then((r) => {
+  lanes().then((labels) => {
     const seen = new Set([i.label.toLowerCase()]);
     const more = [];
     let shut = null;
-    const at = (l) => { const n = LANE_NAMES.indexOf(l.name.toLowerCase()); return n < 0 ? LANE_NAMES.length : n; };
-    const labels = ((r && r.labels) || []).filter((l) => l && typeof l.name === "string").sort((a, b) => at(a) - at(b));
     for (const l of labels) {
       if (!shut && l.closes) shut = l.name;
       if (seen.has(l.name.toLowerCase())) continue;
@@ -1488,9 +1511,37 @@ function deleteBox(i) {
   btn.addEventListener("click", (e) => { if (!e.detail) go(); });
   return box;
 }
-function editForm(i) {
+function linkBox(i, t) {
+  const links = (t.events || []).filter((ev) => ev.kind === "link" && ev.detail && typeof ev.detail.ref === "string").reverse();
+  const input = h("input", { name: "ref", maxlength: "200", autocomplete: "off", spellcheck: "false", placeholder: say("link_hint"), required: true });
+  const form = h("form", { class: "p99-links", novalidate: true },
+    h("h3", { text: say("links") }),
+    links.length ? h("ul", { class: "p99-link-list" }, links.map((ev) => h("li", null,
+      /^https?:\/\/\S+$/.test(ev.detail.ref) ? h("a", { href: ev.detail.ref, target: "_blank", rel: "noopener noreferrer", text: ev.detail.ref }) : h("code", { text: ev.detail.ref }),
+      ev.detail.note ? [" · ", ev.detail.note] : null,
+      h("small", null, " · ", person(ev.actor_name || ev.actor, ev.agent, ev.via), " · ", h("time", { text: when(ev.at) }))))) : null,
+    h("div", { class: "p99-link-add" }, h("label", { class: "p99-field" }, h("span", { text: say("link_label") }), input), h("button", { type: "submit", text: say("link_add") })),
+    statusLine());
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const ref = input.value.trim();
+    if (!ref) return input.focus();
+    if (form.p99Busy) return;
+    form.p99Busy = true;
+    const send = form.querySelector("button[type=submit]");
+    send.disabled = true;
+    status(form, say("sending"));
+    call("POST", "/cards/" + enc(i.key) + "/links", JSON.stringify({ ref, note: null })).then(() => item(i.key), (e) => {
+      form.p99Busy = false;
+      send.disabled = false;
+      status(form, problem(e));
+    });
+  });
+  return form;
+}
+function editForm(i, word) {
   const form = h("form", { class: "p99-edit", novalidate: true },
-    h("h3", { text: say("edit") }),
+    h("h3", { text: say(word || "edit") }),
     h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "400", value: i.title, required: true })),
     h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "4", text: i.body || "" })),
     statusLine(),
@@ -1777,6 +1828,29 @@ function newDraft(off) {
   });
   return d;
 }
+function cardFlow() {
+  if (!owner()) return list(S.list || defaultList());
+  const form = S.view === "card" && scroller.querySelector(".p99-new");
+  if (form) return form.elements.title.focus();
+  clearOutlines();
+  if (S.draft) S.draft.dispose();
+  const d = (S.draft = newDraft(true));
+  d.card = true;
+  S.view = "card";
+  S.seq++;
+  const f = newForm(d);
+  mount(f, f.elements.title);
+}
+function projectPick(form) {
+  const sel = h("select", { name: "project", required: true });
+  Promise.all([home(), call("GET", "/projects")]).then(([at, r]) => {
+    const want = o.project || at || "";
+    const names = ((r && r.projects) || []).map((x) => x && x.name).filter((n) => typeof n === "string" && (o.space || !at || n === at));
+    sel.append(...names.map((n) => h("option", { value: n, selected: n === want, text: n })));
+    if (!names.length) status(form, say("projects_none"));
+  }, (e) => status(form, loadProblem(e)));
+  return h("label", { class: "p99-field" }, h("span", { text: say("new_project") }), sel);
+}
 function fileFlow() {
   const form = S.view === "new" && scroller.querySelector(".p99-new");
   if (form) return form.elements.title.focus();
@@ -1791,17 +1865,18 @@ function fileFlow() {
 }
 function newForm(d) {
   const kinds = KINDS.filter((k) => k !== "task" || owner());
+  const card = !!d.card;
   const pick = (role, checked, disabled, label, fig, name) => h("div", { class: "p99-pick", "data-role": role, hidden: !!name },
     h("label", null, h("input", { type: "checkbox", name: name || "attach", value: role, checked, disabled }), " ", h("span", { text: label })), fig);
   const input = h("input", { type: "file", name: "files", multiple: true });
   const drop = h("div", { class: "p99-drop" }, h("label", null, h("span", { text: say("new_files_hint") }), input));
-  const form = h("form", { class: "p99-view p99-new", "data-view": "new", novalidate: true },
-    h("h2", { id: "p99-title", text: say("new_title") }),
+  const form = h("form", { class: "p99-view p99-new", "data-view": card ? "card" : "new", novalidate: true },
+    h("h2", { id: "p99-title", text: say(card ? "new_card" : "new_title") }),
     h("fieldset", { class: "p99-kinds" }, h("legend", { text: say("new_kind") }), kinds.map((k, i) =>
       h("label", null, h("input", { type: "radio", name: "kind", value: k, checked: i === 0 }), " ", h("span", { text: say("kind_" + k) })))),
     h("label", { class: "p99-field" }, h("span", { text: say("new_title_label") }), h("input", { name: "title", maxlength: "400", required: true, autocomplete: "off", placeholder: say("new_title_hint") })),
     h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "5", placeholder: say("new_body_hint") })),
-    d.off ? h("p", { class: "p99-note p99-no-shot", role: "note", text: say("no_capture") }) : h("section", { class: "p99-capture", "aria-label": say("new_capture") },
+    card ? null : d.off ? h("p", { class: "p99-note p99-no-shot", role: "note", text: say("no_capture") }) : h("section", { class: "p99-capture", "aria-label": say("new_capture") },
       h("fieldset", { class: "p99-shots-pick" }, h("legend", { text: say("new_capture") }),
         pick("mask", true, false, say("mask_areas"), null, "mask"),
         pick("screenshot", true, false, say("attach_screen"), h("figure", { class: "p99-shot", "data-role": "screenshot" })),
@@ -1810,9 +1885,10 @@ function newForm(d) {
       h("div", { class: "p99-capture-actions" }, h("button", { type: "button", class: "p99-mark-start", text: say("new_mark"), onclick: () => startMarking(form) })),
       h("ol", { class: "p99-marks" })),
     h("section", { class: "p99-attach", "aria-label": say("new_files") }, drop, h("ul", { class: "p99-file-list" })),
-    h("p", { class: "p99-note p99-privacy", text: say(d.off ? "new_privacy_text" : "new_privacy") }),
+    card ? null : h("p", { class: "p99-note p99-privacy", text: say(d.off ? "new_privacy_text" : "new_privacy") }),
     statusLine(),
     h("div", { class: "p99-actions" }, h("button", { type: "button", text: say("cancel"), onclick: () => close() }), h("button", { type: "submit", text: say("send") })));
+  if (card) form.querySelector(".p99-kinds").before(projectPick(form));
   input.addEventListener("change", () => { addFiles(form, input.files); input.value = ""; });
   drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("is-over"); });
   drop.addEventListener("dragleave", () => drop.classList.remove("is-over"));
@@ -2098,6 +2174,8 @@ function submitNew(form) {
   }
   if (over(title, 200)) return refuse(form, form.elements.title, 200);
   if (over(form.elements.body.value, 20000)) return refuse(form, form.elements.body, 20000);
+  const project = d.card ? form.elements.project.value : "";
+  if (d.card && !project) return status(form, say("project_needed"));
   const send = form.querySelector("button[type=submit]");
   d.busy = true;
   send.disabled = true;
@@ -2105,6 +2183,8 @@ function submitNew(form) {
   const kind = form.querySelector("input[name=kind]:checked");
   const filed = d.key
     ? Promise.resolve({ key: d.key })
+    : d.card
+    ? retrying(() => call("POST", "/cards", JSON.stringify({ client_uid: d.uid, project, kind: kind ? kind.value : "bug", title, body: form.elements.body.value }))).then((res) => ({ key: res.card.key }))
     : lib().then((m) => m.context(o, d.at), () => ({ url: d.at.origin + d.at.path, user_agent: navigator.userAgent, p99: V })).then((context) => {
         const body = fit({
           client_uid: d.uid,
@@ -2133,7 +2213,7 @@ function submitNew(form) {
         d.dispose();
         if (S.draft !== d) return;
         S.draft = null;
-        if (S.view === "new") item(res.key);
+        if (S.view === "new" || S.view === "card") item(res.key);
       });
   }).catch((e) => {
     d.busy = false;

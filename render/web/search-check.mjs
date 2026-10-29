@@ -153,7 +153,7 @@ try {
 
     await search(p, "zebra");
     s = await settled(p);
-    check(`a search with no match ends in its empty line (${s.empty})`, !s.waiting && s.rows.length === 0 && s.empty === "No issues match “zebra”." && s.field && s.tagged);
+    check(`a search with no match ends in its empty line (${s.empty})`, !s.waiting && s.rows.length === 0 && s.empty === "No cards match “zebra”." && s.field && s.tagged);
 
     await p.route(searchOf("bad"), (r) => r.fulfill({ status: 400, contentType: "application/json", body: '{"message":"status must be open, closed, any or a status key; label= keeps one label"}' }));
     await search(p, "bad");
@@ -168,7 +168,7 @@ try {
     await p.unroute(down);
     await p.locator(S(".p99-results .p99-failed .p99-retry")).click();
     s = await settled(p);
-    check(`Retry runs the same search again, ends, and leaves focus in the field (${s.empty})`, !s.waiting && s.empty === "No issues match “down”." && s.field);
+    check(`Retry runs the same search again, ends, and leaves focus in the field (${s.empty})`, !s.waiting && s.empty === "No cards match “down”." && s.field);
 
     await p.route(searchOf("throws"), (r) => r.fulfill({ status: 200, contentType: "application/json", body: '{"issues":[null]}' }));
     await search(p, "throws");
@@ -203,7 +203,7 @@ try {
     await p.unroute(slow);
     await p.locator(S(".p99-results .p99-slow .p99-retry")).click();
     s = await settled(p);
-    check(`  and its Retry ends the search, focus in the field (${s.empty})`, !s.waiting && s.empty === "No issues match “slow”." && s.field);
+    check(`  and its Retry ends the search, focus in the field (${s.empty})`, !s.waiting && s.empty === "No cards match “slow”." && s.field);
 
     await search(p, "");
     s = await settled(p);

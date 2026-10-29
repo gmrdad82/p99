@@ -89,7 +89,7 @@ export default async function (kit) {
       await search(p, q);
       const s = await settled(kit, p, (x) => x.empty !== null);
       assert.equal(s.rows.length, 0);
-      assert.equal(s.empty, `No issues match “${q}”.`);
+      assert.equal(s.empty, `No cards match “${q}”.`);
       assert.ok(s.field && s.value === q, "the field stays, with the words");
     });
   });
@@ -207,7 +207,7 @@ export default async function (kit) {
       assert.equal(d.back, "rgb(163, 38, 106)", "this page's count is red-purple");
       const blue = me.counts.waiting || me.counts.replies;
       assert.equal(d.blue, blue > 99 ? "99+" : blue ? String(blue) : "", "the blue count is only what waits or the replies, never the page's items");
-      assert.equal(d.label, `Your items: ${blue} waiting, 3 on this page`);
+      assert.equal(d.label, `Your cards: ${blue} waiting, 3 on this page`);
       if (shots) await snapDots(p, "us-dots-light.png");
       await listButton(p).click();
       const g = await kit.until("the grouped list", async () => {
@@ -265,6 +265,65 @@ export default async function (kit) {
       });
       assert.equal(g.grouped, false, `no groups and no headings (${JSON.stringify(g)})`);
       assert.ok(here.some((k) => g.keys.includes(k)), "the other page's items list as before");
+    });
+  });
+
+  const LANES = ["New", "Planned", "In progress", "Needs you", "Stuck", "Landed", "Done"];
+  const statusOptions = (p) =>
+    p.waitForFunction(
+      (n) => {
+        const s = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-filters select[name=status]");
+        return s && s.options.length >= n ? Array.from(s.options, (o) => [o.value, o.textContent]) : null;
+      },
+      3 + LANES.length,
+      { timeout: 20000 },
+    ).then((h) => h.jsonValue());
+
+  await kit.check("us-find-001 an owners status filter lists the seven lanes and keeps the one picked", async () => {
+    const owner = await seed();
+    const planned = await fileOn(shop, tag("Planned: wrap the gift in paper"));
+    const fresh = await fileOn(shop, tag("New: the voucher box is too narrow"));
+    const moved = await kit.call("POST", "/_p99/v1/move", { actor: ADA, body: { key: planned, from: "New", to: "Planned" } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    const p = await openList(kit, shop, owner);
+    await closing(p, async () => {
+      const options = await statusOptions(p);
+      assert.deepEqual(options.map(([, text]) => text), ["Open", "Closed", "Any", ...LANES], `the Owner's Status lists the lanes (${JSON.stringify(options)})`);
+      const asked = p.waitForRequest((r) => { const u = new URL(r.url()); return u.pathname === "/_p99/api/issues" && u.searchParams.get("label") === "Planned"; });
+      await p.locator(S(".p99-filters select[name=status]")).selectOption("lane:Planned");
+      const u = new URL((await asked).url());
+      assert.equal(u.searchParams.get("status"), "any");
+      const s = await settled(kit, p, (x) => x.keys.includes(planned));
+      assert.ok(s.keys.includes(planned), `the Planned card lists (${s.keys})`);
+      assert.ok(!s.keys.includes(fresh), `a New card does not (${s.keys})`);
+      assert.equal(await p.locator(S(".p99-filters select[name=status]")).inputValue(), "lane:Planned", "the pick stays");
+    });
+  });
+
+  await kit.check("us-find-001 the projects view takes the kind lane and search filters", async () => {
+    const owner = await seed();
+    const word = `velvet${RUN}`;
+    const idea = (await signed(kit, "POST", `/issues?host=${shop}`, issueBody("/checkout", { title: tag(`Offer ${word} gift boxes`), kind: "feature" }))).json.key;
+    const bug = await fileOn(shop, tag(`The ${word} swatch is the wrong colour`));
+    const p = await openList(kit, shop, owner, { scope: null });
+    await closing(p, async () => {
+      await p.locator(S(".p99-pick select[name=view]")).selectOption("projects");
+      await p.locator(S(".p99-projects input[name=project][value=Shop]")).check();
+      await settled(kit, p);
+      assert.equal(await p.locator(S(".p99-filters")).isVisible(), true, "the filters show on Projects");
+      const asked = p.waitForRequest((r) => { const u = new URL(r.url()); return u.pathname === "/_p99/api/issues" && u.searchParams.get("q") === word; });
+      await search(p, word);
+      const u = new URL((await asked).url());
+      assert.deepEqual([u.searchParams.get("scope"), u.searchParams.getAll("project")], ["all", ["Shop"]]);
+      let s = await settled(kit, p, (x) => x.keys.includes(idea) && x.keys.includes(bug));
+      assert.deepEqual([...s.keys].sort(), [idea, bug].sort(), `the search keeps the Shop cards with the word (${s.keys})`);
+      await p.locator(S(".p99-filters select[name=kind]")).selectOption("feature");
+      s = await settled(kit, p, (x) => !x.keys.includes(bug));
+      assert.deepEqual(s.keys, [idea], `the kind keeps the idea (${s.keys})`);
+      await statusOptions(p);
+      await p.locator(S(".p99-filters select[name=status]")).selectOption("lane:Done");
+      s = await settled(kit, p, (x) => !x.keys.includes(idea));
+      assert.equal(s.empty, `No cards match “${word}”.`, `no done idea matches (${s.keys})`);
     });
   });
 }

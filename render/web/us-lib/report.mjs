@@ -11,7 +11,7 @@ export const TITLE = S(".p99-new input[name=title]");
 export const SEND = S(".p99-new .p99-actions button[type=submit]");
 export const RETRY = S(".p99-new .p99-status-line .p99-retry");
 export const FAILED = "Couldn't send; try again.";
-export const NO_SHOT = "This site doesn't send screenshots, so your report goes without one.";
+export const NO_SHOT = "This site doesn't send screenshots, so your card goes without one.";
 
 export function projectOf(kit, name) {
   const found = kit.space.projects.find((p) => p.name === name);
