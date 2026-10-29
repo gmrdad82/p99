@@ -56,7 +56,6 @@ useBoardKit({
   keyOf,
   parseKey,
   readJson: async (c) => c.body,
-  refuseAgentClose: () => {},
   requireManager,
   sendMail: () => {},
   REPORTERS_TOKEN: "reporters",

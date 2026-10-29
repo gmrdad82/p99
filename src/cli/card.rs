@@ -80,7 +80,7 @@ pub enum CardAction {
     #[command(about = "comment on a card, with files; --internal for Owners only")]
     Comment(CardCommentArgs),
     #[command(
-        about = "move a card to a lane, at its top, or close it as abandoned or duplicate; only a person moves it to done"
+        about = "move a card to a lane, at its top; done closes it as fixed, or close it as abandoned or duplicate"
     )]
     Status(CardStatusArgs),
     #[command(about = "move a card to a lane, or beside another card in it")]
@@ -1031,7 +1031,7 @@ mod tests {
         for stays in [
             "this card moved; refreshed (409)",
             "client_uid is already used (409)",
-            "only a person closes a card (403)",
+            "only a person changes a grant (403)",
             "no item FEAT-99 (404)",
             "BUG-12 is not a card",
         ] {

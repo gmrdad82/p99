@@ -5,21 +5,34 @@ import { ada, adaBot, fileAs, places, reporter, thread, ticketHeard, uniqueTitle
 export default async function (kit) {
   const { shop, blog, shopProject } = places(kit);
 
-  await kit.check("us-agent-001 an agent cannot close a card as done", async () => {
-    const made = await kit.call("POST", "/_p99/v1/cards", {
-      actor: ada,
-      body: { client_uid: randomUUID(), project: shopProject, title: uniqueTitle("Export keeps every audio track"), host: shop },
-    });
-    assert.equal(made.status, 201, JSON.stringify(made.json));
-    const key = made.json.card.key;
-    const closing = await kit.call("POST", `/_p99/v1/cards/${key}/status`, { actor: adaBot, body: { status: "done" } });
-    assert.equal(closing.status, 403, JSON.stringify(closing.json));
-    assert.equal(closing.json.message, "only a person closes a card");
-    const patched = await kit.call("PATCH", `/_p99/v1/issues/${key}`, { actor: adaBot, body: { status: "done" } });
-    assert.equal(patched.status, 403, JSON.stringify(patched.json));
-    const stored = (await thread(kit, key, shop)).issue;
-    assert.equal(stored.closed_at, null);
-    assert.equal(stored.resolution, null);
+  await kit.check("us-agent-001 an agent moves a card to done and closes it as fixed", async () => {
+    const filed = async (title) => {
+      const made = await kit.call("POST", "/_p99/v1/cards", {
+        actor: ada,
+        body: { client_uid: randomUUID(), project: shopProject, title: uniqueTitle(title), host: shop },
+      });
+      assert.equal(made.status, 201, JSON.stringify(made.json));
+      return made.json.card.key;
+    };
+    const closedByTheRobot = async (key) => {
+      const stored = await thread(kit, key, shop);
+      assert.equal(stored.issue.resolution, "fixed");
+      assert.ok(stored.issue.closed_at);
+      const card = (await kit.call("GET", `/_p99/v1/cards/${key}`, { actor: ada })).json.card;
+      assert.deepEqual([card.status, card.changed_by.name, card.changed_by.agent], ["done", "Ada Lovelace", true]);
+    };
+    const byStatus = await filed("Export keeps every audio track");
+    const closing = await kit.call("POST", `/_p99/v1/cards/${byStatus}/status`, { actor: adaBot, body: { status: "done" } });
+    assert.equal(closing.status, 200, JSON.stringify(closing.json));
+    await closedByTheRobot(byStatus);
+    const byMove = await filed("Export names every track");
+    const moved = await kit.call("POST", "/_p99/v1/move", { actor: adaBot, body: { key: byMove, from: "new", to: "done" } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    await closedByTheRobot(byMove);
+    const byPatch = await filed("Export keeps the track order");
+    const patched = await kit.call("PATCH", `/_p99/v1/issues/${byPatch}`, { actor: adaBot, body: { status: "done" } });
+    assert.equal(patched.status, 200, JSON.stringify(patched.json));
+    await closedByTheRobot(byPatch);
   });
 
   await kit.check("us-agent-001 an agent links moves and answers a card filed on a site", async () => {

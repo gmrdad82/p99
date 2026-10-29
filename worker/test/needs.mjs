@@ -76,7 +76,6 @@ async function leaveChecks(check) {
     fail: (status, message) => {
       throw new Refused(status, message);
     },
-    refuseAgentClose: () => {},
     keyOf: (kind, id) => `T-${id}`,
     push: (c, type, row, detail) => pushed.push({ type, key: `T-${row.id}`, ...detail }),
   };

@@ -217,7 +217,11 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"card":made})
         }
         ("POST", "/v1/cards/FEAT-41/status") if body["status"] == "done" => {
-            return (403, r#"{"message":"only a person closes a card"}"#.into());
+            let mut closed = card.clone();
+            closed["status"] = json!("done");
+            closed["label"] = json!("Done");
+            closed["lane"] = json!(null);
+            json!({"card":closed})
         }
         ("POST", "/v1/cards/FEAT-41/status") if body["status"] == "needs-you" => {
             let mut moved = card.clone();
@@ -597,14 +601,6 @@ fn the_contracts_refusals_come_through_as_one_line() {
     assert_eq!(plain.stdout, "BUG-12 is in stuck\n");
     assert_eq!(worker.last().path, "/v1/move");
     assert_eq!(worker.last().body["from"], "New");
-    refused(
-        &run(
-            &worker,
-            "refusals",
-            &["--agent", "card", "status", "FEAT-41", "done"],
-        ),
-        "only a person closes a card",
-    );
     let run = run(&worker, "refusals", &["card", "show", "FE AT"]);
     assert_eq!(run.code, Some(1));
     assert!(run.stdout.is_empty());
@@ -1214,6 +1210,23 @@ fn cards_era(_: &str, path: &str, _: &Value) -> (u16, String) {
         return (404, r#"{"message":"no item waiting"}"#.into());
     }
     (404, r#"{"message":"no such route"}"#.into())
+}
+
+#[test]
+fn an_agents_card_status_done_closes_the_card_as_its_person_would() {
+    let worker = Worker::start(answers);
+    let file = config("agent_done", &worker.url);
+    let done = p99(
+        &file,
+        &["card", "status", "FEAT-41", "done"],
+        &[("P99_AGENT", "pci")],
+        None,
+    );
+    assert_eq!(done.code, Some(0), "{}", done.stderr);
+    assert_eq!(done.stdout, "FEAT-41 is now Done (done)\n");
+    let seen = worker.last();
+    assert_eq!(seen.body["status"], "done");
+    assert_eq!(seen.actor["agent"], true);
 }
 
 #[test]

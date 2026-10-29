@@ -642,8 +642,8 @@ mod tests {
     fn refusals_lose_the_status_and_an_old_worker_says_deploy() {
         assert_eq!(refusal("no item FEAT-99 (404)".into()), "no item FEAT-99");
         assert_eq!(
-            refusal("only a person closes a card (403)".into()),
-            "only a person closes a card"
+            refusal("only a person changes a grant (403)".into()),
+            "only a person changes a grant"
         );
         assert_eq!(refusal("no such route (404)".into()), NOT_YET);
         assert_eq!(

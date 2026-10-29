@@ -1,4 +1,4 @@
-import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PAGE_NEEDS_HOST, PERSON_CLOSES, laneIndex, notCard, personOf, projectName } from "./cards.js";
+import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PAGE_NEEDS_HOST, laneIndex, notCard, personOf, projectName } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
 import { projectNamed, reachesProject } from "./grants.js";
@@ -192,14 +192,6 @@ function noteOf(raw) {
   return text;
 }
 
-export const AGENT_CLOSES = ["duplicate", "abandoned"];
-
-export function refuseAgentClose(c, row, to, resolution) {
-  if (AGENT_CLOSES.includes(resolution)) return to;
-  if (c.actor && c.actor.agent && row && row.project !== null && row.project !== undefined && to && to.closes) K.fail(403, PERSON_CLOSES);
-  return to;
-}
-
 export async function postCard(c) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
@@ -286,7 +278,6 @@ export async function postCardStatus(c, rawKey) {
   if (note !== null && !K.isChars(note, 0, K.MAX_BODY_CHARS)) K.fail(400, `note must be at most ${K.MAX_BODY_CHARS} characters`);
   if (note !== null && !K.isUid(body.client_uid)) K.fail(400, UID_RULE);
   const closing = index === LANES.length - 1;
-  if (closing) refuseAgentClose(c, row, { closes: 1 });
   const key = K.keyOf(row.kind, row.id);
   const { DB } = c.env;
   if (note !== null) {

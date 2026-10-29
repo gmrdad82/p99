@@ -146,7 +146,7 @@ fn us_agent_001_an_agents_command_is_signed_and_shown_as_adas_name_with_the_robo
 fn us_agent_001_a_parse_error_exits_2_and_a_refusal_exits_1_in_one_line() {
     let h = Home::new("us-agent-exit", |req: &Req| {
         if req.under("POST", "/_p99/v1/cards/") {
-            Reply::problem(403, "only a person closes a card")
+            Reply::problem(409, "this card moved; refreshed")
         } else {
             fake::any(req)
         }
@@ -154,8 +154,8 @@ fn us_agent_001_a_parse_error_exits_2_and_a_refusal_exits_1_in_one_line() {
     let parse = h.p99(&["--agent", "comment"]);
     parse.clap("the following required arguments were not provided:");
     assert!(parse.stdout.is_empty(), "{}", parse.stdout);
-    let refused = h.p99(&["--agent=writer", "card", "status", "FEAT-41", "done"]);
-    refused.refused("only a person closes a card");
+    let refused = h.p99(&["--agent=writer", "card", "status", "FEAT-41", "stuck"]);
+    refused.refused("this card moved; refreshed");
     assert!(refused.stdout.is_empty(), "{}", refused.stdout);
     assert_eq!(refused.stderr.lines().count(), 1, "{}", refused.stderr);
     let bad_key = h.p99(&["--agent", "show", "x"]);

@@ -41,7 +41,6 @@ useKit({
   keyOf,
   parseKey,
   readJson: async (c) => c.body,
-  refuseAgentClose: () => {},
   requireManager: (c) => {
     if (!c.manager) throw new Refused(403, "only managers may do this");
   },

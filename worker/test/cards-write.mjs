@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, PERSON_CLOSES, PROJECT_RULE } from "../src/cards.js";
+import { LANES, LANE_NAMES, PROJECT_RULE } from "../src/cards.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const graceBot = { email: "grace@example.com", name: "Grace Hopper", agent: true, via: "pci·splicer·writer" };
@@ -182,59 +182,48 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.deepEqual(statusEvents, ["fixed", "in_progress"]);
   });
 
-  await check("only a person closes a card: an agent is refused on /status done, /move into the closing lane and PATCH status", async () => {
-    const key = (await file({ title: "Agent tries to close" })).json.card.key;
+  await check("an agent closes a card as its person would: /status done, /move into Done and PATCH status close it as fixed, shown with the robot", async () => {
     const done = await doneName();
-    const byStatus = await status(key, "done", graceBot);
-    assert.equal(byStatus.status, 403);
-    assert.equal(byStatus.json.message, PERSON_CLOSES);
-    const withNote = await status(key, "done", graceBot, { note: "Shipped", client_uid: randomUUID() });
-    assert.equal(withNote.status, 403);
-    assert.equal((await issue(key)).comments.length, 0);
-    assert.equal((await status(key, "landed", graceBot)).status, 200);
     const ownerBot = { ...owner, agent: true, via: "pci" };
-    const ownerPerson = { email: owner.email, name: owner.name, agent: false };
-    const byMove = await call("POST", "/_p99/v1/move", { actor: ownerBot, body: { key, from: "Landed", to: done } });
-    assert.equal(byMove.status, 403);
-    assert.equal(byMove.json.message, PERSON_CLOSES);
-    for (const [from, to] of [["Landed", "Stuck"], ["Stuck", "Landed"]]) {
-      const lane = await call("POST", "/_p99/v1/move", { actor: ownerBot, body: { key, from, to } });
-      assert.equal(lane.status, 200, JSON.stringify(lane.json));
-      assert.equal((await issue(key)).issue.label, to);
-    }
-    const byPatch = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body: { status: "done" } });
-    assert.equal(byPatch.status, 403);
-    assert.equal(byPatch.json.message, PERSON_CLOSES);
-    const before = (await issue(key)).events.length;
-    for (const body of [
-      { title: "Renamed by an agent", status: "done" },
-      { kind: "bug", assignee: null, body: "New details", status: "done" },
-    ]) {
-      const mixed = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body });
-      assert.equal(mixed.status, 403, JSON.stringify(body));
-      assert.equal(mixed.json.message, PERSON_CLOSES);
-    }
-    let stored = await issue(key);
-    assert.equal(stored.issue.title, "Agent tries to close");
-    assert.equal(stored.issue.kind, "feature");
-    assert.equal(stored.issue.body, "");
-    assert.equal(stored.events.length, before);
-    assert.equal(stored.issue.stage, "in_progress");
-    assert.equal(stored.issue.label, "Landed");
-    const personMove = await call("POST", "/_p99/v1/move", { actor: ownerPerson, body: { key, from: "Landed", to: done } });
-    assert.equal(personMove.status, 200, JSON.stringify(personMove.json));
-    assert.equal((await issue(key)).issue.stage, "fixed");
-    assert.equal((await status(key, "landed", graceBot)).status, 200);
-    const personPatch = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: ada, body: { status: "done" } });
-    assert.equal(personPatch.status, 200);
-    assert.equal(personPatch.json.stage, "fixed");
-    stored = await issue(key);
-    assert.equal(stored.issue.resolution, "fixed");
-    const redone = await status(key, "done", graceBot);
-    assert.equal(redone.status, 403, "done is a person's word even on a card that is already done");
-    assert.equal(redone.json.message, PERSON_CLOSES);
+    const closedBy = async (key) => {
+      const stored = await issue(key);
+      assert.deepEqual([stored.issue.stage, stored.issue.resolution, stored.issue.label], ["fixed", "fixed", done]);
+      assert.ok(stored.issue.closed_at);
+      const card = (await call("GET", `/_p99/v1/cards/${key}`, { actor: ada })).json.card;
+      assert.deepEqual([card.status, card.changed_by.agent], ["done", true]);
+      return stored;
+    };
 
-    const item = await plain("An agent may still close a plain item");
+    const byStatus = (await file({ title: "Closed by an agent's status" })).json.card.key;
+    const uid = randomUUID();
+    const withNote = await status(byStatus, "done", graceBot, { note: "Shipped", client_uid: uid });
+    assert.equal(withNote.status, 200, JSON.stringify(withNote.json));
+    assert.equal(withNote.json.card.status, "done");
+    assert.equal(withNote.json.comment.author.agent, true);
+    const stored = await closedBy(byStatus);
+    assert.deepEqual(stored.comments.map((cm) => cm.body), ["Shipped"]);
+    const label = stored.events.filter((ev) => ev.kind === "label").at(-1);
+    assert.deepEqual([label.detail.to, label.agent, label.via], [done, true, "pci·splicer·writer"]);
+    const again = await status(byStatus, "done", graceBot);
+    assert.equal(again.status, 200, "done again keeps a done card done");
+    assert.equal((await issue(byStatus)).issue.resolution, "fixed");
+
+    const byMove = (await file({ title: "Closed by an agent's move" })).json.card.key;
+    assert.equal((await status(byMove, "landed", graceBot)).status, 200);
+    const moved = await call("POST", "/_p99/v1/move", { actor: ownerBot, body: { key: byMove, from: "Landed", to: done } });
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    await closedBy(byMove);
+    const back = await call("POST", "/_p99/v1/move", { actor: ownerBot, body: { key: byMove, from: done, to: "Landed" } });
+    assert.equal(back.status, 200, JSON.stringify(back.json));
+    assert.equal((await issue(byMove)).issue.closed_at, null);
+
+    const byPatch = (await file({ title: "Closed by an agent's PATCH" })).json.card.key;
+    const patched = await call("PATCH", `/_p99/v1/issues/${byPatch}`, { actor: graceBot, body: { title: "Renamed by an agent", status: "done" } });
+    assert.equal(patched.status, 200, JSON.stringify(patched.json));
+    assert.equal(patched.json.stage, "fixed");
+    assert.equal((await closedBy(byPatch)).issue.title, "Renamed by an agent");
+
+    const item = await plain("An agent closes a plain item too");
     const plainClose = await call("PATCH", `/_p99/v1/issues/${item}`, { actor: graceBot, body: { status: "done" } });
     assert.equal(plainClose.status, 200);
     assert.equal(plainClose.json.stage, "fixed");
@@ -265,7 +254,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await issue(key)).issue.closed_at, null);
   });
 
-  await check("an item says its project to an Owner; any Owner moves a done card back by a lane's name or word, and an agent never closes one", async () => {
+  await check("an item says its project to an Owner; any Owner or their agent moves a card into and out of Done by a lane's name or word", async () => {
     const key = (await file({ title: "Reopened by its lane" })).json.card.key;
     const done = await doneName();
     const other = { email: "grace@example.com", name: "Grace Hopper", agent: false };
@@ -283,10 +272,15 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(byWord.status, 200, JSON.stringify(byWord.json));
     card = (await call("GET", `/_p99/v1/cards/${key}`, { actor: ada })).json.card;
     assert.deepEqual([card.status, card.label], ["needs-you", "Needs you"]);
+    const otherBot = { ...other, agent: true, via: "pci" };
+    let from = "Needs you";
     for (const to of [done, "done"]) {
-      const agentClose = await call("POST", "/_p99/v1/move", { actor: { ...other, agent: true, via: "pci" }, body: { key, from: "Needs you", to } });
-      assert.equal(agentClose.status, 403, to);
-      assert.equal(agentClose.json.message, PERSON_CLOSES);
+      const agentClose = await call("POST", "/_p99/v1/move", { actor: otherBot, body: { key, from, to } });
+      assert.equal(agentClose.status, 200, `${to} ${JSON.stringify(agentClose.json)}`);
+      assert.deepEqual([(await issue(key)).issue.label, (await issue(key)).issue.resolution], [done, "fixed"]);
+      const reopened = await call("POST", "/_p99/v1/move", { actor: otherBot, body: { key, from: done, to: "needs-you" } });
+      assert.equal(reopened.status, 200, JSON.stringify(reopened.json));
+      from = "needs-you";
     }
     assert.equal((await issue(key)).issue.label, "Needs you");
   });
@@ -517,7 +511,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(card.changed_by.via, "pci·splicer·writer");
   });
 
-  await check("an agent closes a card as abandoned or as a duplicate of another card, shown as an agent, and still never as done", async () => {
+  await check("an agent closes a card as abandoned, as a duplicate of another card or as done, shown as an agent", async () => {
     const target = (await file({ title: "The story card" })).json.card.key;
     const dropped = (await file({ title: "Dropped by an agent" })).json.card.key;
     const folded = (await file({ title: "Folded into the story" })).json.card.key;
@@ -537,9 +531,12 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(card.changed_by.agent, true);
     assert.equal(card.changed_by.name, "Grace Hopper");
     const done = await status(target, "done", graceBot);
-    assert.equal(done.status, 403);
-    assert.equal(done.json.message, PERSON_CLOSES);
-    assert.equal((await issue(target)).issue.closed_at, null);
+    assert.equal(done.status, 200, JSON.stringify(done.json));
+    stored = await issue(target);
+    assert.equal(stored.issue.resolution, "fixed");
+    assert.ok(stored.issue.closed_at);
+    card = (await call("GET", `/_p99/v1/cards/${target}`, { actor: ada })).json.card;
+    assert.equal(card.changed_by.agent, true);
   });
 
   await check("a lane that closes by mistake still leaves done the only close of a card", async () => {

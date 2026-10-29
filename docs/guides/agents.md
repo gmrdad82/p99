@@ -70,7 +70,7 @@ Each event has `type` (`item` for a new card, `comment`, `change`, `attachment`,
 ## Exit codes
 
 - `0`: done.
-- `1`: refused or failed after the command was understood; one line on standard error, `p99: <why>`, such as `p99: only a person closes a card`.
+- `1`: refused or failed after the command was understood; one line on standard error, `p99: <why>`, such as `p99: this card moved; refreshed`.
 - `2`: the command line could not be parsed; standard error carries clap's message and the usage line.
 
 ## Point an agent at its tools

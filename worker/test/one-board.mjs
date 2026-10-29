@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, PERSON_CLOSES } from "../src/cards.js";
+import { LANES, LANE_NAMES } from "../src/cards.js";
 import { BOARDS_GONE } from "../src/one-board.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
@@ -93,7 +93,7 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await call("GET", `/_p99/v1/issues/${a}?host=${here}`, { actor: ada })).json.issue.label, "In progress");
   });
 
-  await check("[board] Done closes as fixed or the given resolution, any other lane reopens, and an agent can't close a card", async () => {
+  await check("[board] Done closes as fixed or the given resolution, any other lane reopens, and an agent closes a card as its person would", async () => {
     const plain = await fileOn(here, "Close by lane");
     const closed = await move({ key: plain, from: "New", to: "done" });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
@@ -110,11 +110,11 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await move({ key: plain, from: "Done", to: "new", resolution: "fixed" })).status, 400);
     const robot = await fileOn(here, "An agent closes a plain item");
     assert.equal((await move({ key: robot, from: "New", to: "done" }, adaBot)).status, 200);
-    const key = await card("A card for a person to close");
-    const refused = await move({ key, from: "New", to: "done" }, adaBot, "");
-    assert.equal(refused.status, 403);
-    assert.equal(refused.json.message, PERSON_CLOSES);
-    assert.equal((await move({ key, from: "New", to: "Needs you" }, adaBot, "")).status, 200);
+    const key = await card("A card an agent closes");
+    const byAgent = await move({ key, from: "New", to: "done" }, adaBot, "");
+    assert.equal(byAgent.status, 200, JSON.stringify(byAgent.json));
+    assert.deepEqual(await keysIn("done", [key], ""), [key]);
+    assert.equal((await move({ key, from: "done", to: "Needs you" }, adaBot, "")).status, 200);
     assert.deepEqual(await keysIn("needs-you", [key], ""), [key]);
     assert.equal((await move({ key, from: "needs-you", to: "done" }, ada, "")).status, 200);
   });

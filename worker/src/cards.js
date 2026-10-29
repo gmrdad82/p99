@@ -8,7 +8,6 @@ export const MAX_NOTE_CHARS = 200;
 export const DEFAULT_CARDS_LIMIT = 200;
 export const MAX_CARDS_LIMIT = 500;
 export const NOT_YET = "this Worker has no cards yet; run p99 deploy";
-export const PERSON_CLOSES = "only a person closes a card";
 export const PAGE_NEEDS_HOST = "a page needs a host; name the card's host or leave the page out";
 export const ROBOT = "🤖";
 export const PROJECT_RULE = `a project name has 1 to ${MAX_PROJECT_CHARS} characters`;
