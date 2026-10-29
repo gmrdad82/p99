@@ -147,7 +147,12 @@ export function gitRepo(messages) {
     git("add", `change-${n}.txt`);
     git("commit", "-q", "-m", message);
   });
-  return { dir, env: { GIT_DIR: join(dir, ".git"), GIT_WORK_TREE: dir }, drop: () => rmSync(dir, { recursive: true, force: true }) };
+  const head = () => {
+    const run = spawnSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8", env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" } });
+    assert.equal(run.status, 0, run.stderr);
+    return run.stdout.trim();
+  };
+  return { dir, head, env: { GIT_DIR: join(dir, ".git"), GIT_WORK_TREE: dir }, drop: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
 export async function environments(kit) {

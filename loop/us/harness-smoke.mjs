@@ -34,37 +34,47 @@ export default async function (kit) {
     await page.goto(kit.siteUrl(host, `/#p99=${code}`));
     await page.locator("p99-root >> .w .f").waitFor({ timeout: 20000 });
 
-    const slack = await kit.call("PUT", `/_p99/v1/hooks/${host}`, {
-      actor: ada,
-      body: { service: "slack", url: "https://hooks.slack.com/services/T0001/B0002/loopkitaaaabbbb", events: ["new"] },
-    });
-    assert.equal(slack.status, 200, JSON.stringify(slack.json));
-    const linked = await kit.call("PUT", `/_p99/v1/github/${host}`, { actor: ada, body: { repo: "acme/shop" } });
-    assert.equal(linked.status, 200, JSON.stringify(linked.json));
+    const added = [];
+    try {
+      const slack = await kit.call("PUT", `/_p99/v1/hooks/${host}`, {
+        actor: ada,
+        body: { service: "slack", url: "https://hooks.slack.com/services/T0001/B0002/loopkitaaaabbbb", events: ["new"] },
+      });
+      assert.equal(slack.status, 200, JSON.stringify(slack.json));
+      const linked = await kit.call("PUT", `/_p99/v1/github/${host}`, { actor: ada, body: { repo: "acme/shop" } });
+      assert.equal(linked.status, 200, JSON.stringify(linked.json));
 
-    await kit.clock.set("2030-01-01T09:00:00.000Z");
-    const filed = await kit.browse("POST", "/issues", code, kit.issueBody({ title: `Loop ${tag}` }), host);
-    assert.equal(filed.status, 201, JSON.stringify(filed.json));
-    const key = filed.json.key;
-    assert.ok(filed.json.created_at.startsWith("2030-01-01"), filed.json.created_at);
+      await kit.clock.set("2030-01-01T09:00:00.000Z");
+      const filed = await kit.browse("POST", "/issues", code, kit.issueBody({ title: `Loop ${tag}` }), host);
+      assert.equal(filed.status, 201, JSON.stringify(filed.json));
+      const key = filed.json.key;
+      added.push(key);
+      assert.ok(filed.json.created_at.startsWith("2030-01-01"), filed.json.created_at);
 
-    let heard = await watch.next(10000);
-    while (heard && heard.key !== key) heard = await watch.next(10000);
-    assert.equal(heard?.key, key, watch.stderr());
+      let heard = await watch.next(10000);
+      while (heard && heard.key !== key) heard = await watch.next(10000);
+      assert.equal(heard?.key, key, watch.stderr());
 
-    const post = await kit.until("the Slack post", () => kit.hooks.posts().find((p) => JSON.stringify(p.body).includes(key)));
-    assert.equal(post.service, "slack");
+      const post = await kit.until("the Slack post", () => kit.hooks.posts().find((p) => JSON.stringify(p.body).includes(key)));
+      assert.equal(post.service, "slack");
 
-    const opened = await kit.call("POST", `/_p99/v1/issues/${key}/github`, { actor: ada });
-    assert.ok([200, 201].includes(opened.status), JSON.stringify(opened.json));
-    assert.ok(kit.github.issues().some((asked) => asked.method === "POST" && asked.path === "/repos/acme/shop/issues" && asked.body.title === `Loop ${tag}`));
+      const opened = await kit.call("POST", `/_p99/v1/issues/${key}/github`, { actor: ada });
+      assert.ok([200, 201].includes(opened.status), JSON.stringify(opened.json));
+      assert.ok(kit.github.issues().some((asked) => asked.method === "POST" && asked.path === "/repos/acme/shop/issues" && asked.body.title === `Loop ${tag}`));
 
-    await kit.clock.advance(DAY);
-    const later = await kit.file(host, { title: `Loop ${tag} later` });
-    assert.ok(later.created_at.startsWith("2030-01-02"), later.created_at);
-    assert.ok(new Date(kit.clock.now()).toISOString().startsWith("2030-01-02"));
+      await kit.clock.advance(DAY);
+      const later = await kit.file(host, { title: `Loop ${tag} later` });
+      added.push(later.key);
+      assert.ok(later.created_at.startsWith("2030-01-02"), later.created_at);
+      assert.ok(new Date(kit.clock.now()).toISOString().startsWith("2030-01-02"));
 
-    const screen = await kit.tui("");
-    assert.ok(screen.includes(`Loop ${tag}`), screen);
+      const screen = await kit.tui("");
+      assert.ok(screen.includes(`Loop ${tag}`), screen);
+    } finally {
+      for (const key of added) await kit.call("DELETE", `/_p99/v1/issues/${key}?host=${host}`, { actor: ada });
+      await kit.call("DELETE", `/_p99/v1/github/${host}`, { actor: ada });
+      await kit.call("DELETE", `/_p99/v1/hooks/${host}`, { actor: ada });
+      await kit.clock.reset();
+    }
   });
 }

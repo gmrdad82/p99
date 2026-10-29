@@ -27,8 +27,11 @@ export default async function (kit) {
       const item = body.items.find((i) => i.id === filed.key);
       assert.ok(item, JSON.stringify(body));
       assert.deepEqual(Object.keys(item).sort(), ["content_text", "date_published", "id", "tags", "title"]);
+      const sha = repo.head();
+      assert.match(sha, /^[0-9a-f]{40}$/, "the fix's commit SHA was found");
+      const short = sha.slice(0, 7);
       for (const raw of [text, JSON.stringify(body)]) {
-        for (const secret of [lin.email, lin.name, "private steps", "secret page", "/orders", announced.stdout.match(/[0-9a-f]{8}/)?.[0]]) {
+        for (const secret of [lin.email, lin.name, "private steps", "secret page", "/orders", sha, short]) {
           assert.equal(raw.includes(secret), false, secret);
         }
       }
