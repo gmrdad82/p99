@@ -2,6 +2,20 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.5 — 2026-10-29
+
+### Added
+
+- The person filing a report chooses whether to hide the site's private areas: "Hide this site's private areas" is checked by default, and unchecking it shows them in the screenshot. Passwords, and anything typed inside those areas, stay blank either way.
+- The ⋯ button has a second count, in red-purple on its left: the open items filed on the page you're on. Its list starts with them, under "On this page", then everything else.
+- An invite with an authenticator now goes out as two mails: the access mail, with step-by-step setup and one button per site (the busiest site first), and a separate mail with the authenticator QR code and key. `p99 invites totp` mails the setup too; `--no-mail` keeps printing it.
+
+### Changed
+
+- The blue count on ⋯ counts only real replies: your own comments and your agents' moves no longer raise it.
+- The screen capture checkboxes sit on one row with their labels.
+- The loader is 1,946 bytes gzipped; placing the buttons above a site's own element loads on its own, only on sites that ask for it.
+
 ## v1.13.4 — 2026-10-29
 
 ### Fixed
