@@ -21,7 +21,7 @@ const CODE = "boarddraft01";
 export const USER_CODE = "boardvisit01";
 const VIEW = { width: 1440, height: 900 };
 const SIZES = [["360", { width: 360, height: 780 }], ["411", { width: 411, height: 860 }], ["1440", VIEW]];
-const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
+const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml", ".webp": "image/webp", ".png": "image/png" };
 const STRICT = "default-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 const ADA = { name: "Ada Lovelace", email: "ada@example.com", username: "ada.lovelace" };
 const GRACE = { name: "Grace Hopper", email: "grace@example.com", username: "grace.hopper" };
@@ -144,6 +144,10 @@ function serveFile(res, path) {
     res.writeHead(200, { "content-type": TYPES[".html"], "content-security-policy": STRICT, "cache-control": "no-cache" });
     return res.end(page.replace(/<style>[\s\S]*?<\/style>/, '<link rel="stylesheet" href="/host.css">'));
   }
+  if (path === "/light" || path === "/dark") {
+    res.writeHead(200, { "content-type": TYPES[".html"], "cache-control": "no-cache" });
+    return res.end(forced(readFileSync(join(here, "site", "checkout.html"), "utf8"), path.slice(1)));
+  }
   let full = null;
   if (path === "/" || path === "/checkout") full = join(here, "site", "checkout.html");
   else if (path.startsWith("/_p99/")) full = join(web, path.slice(6));
@@ -151,10 +155,19 @@ function serveFile(res, path) {
     res.writeHead(404, { "content-type": "text/plain" });
     return res.end("not found");
   }
-  let text = readFileSync(full, "utf8").split("__P99_VERSION__").join("draft");
-  if (path === "/_p99/p99.js") text = text.split("__P99_HOST__").join(JSON.stringify({ t: "#b5621e" }));
+  let text = readFileSync(full);
+  if (/\.(js|css|html|svg)$/.test(full)) {
+    text = text.toString("utf8").split("__P99_VERSION__").join("draft");
+    if (path === "/_p99/p99.js") text = text.split("__P99_HOST__").join(JSON.stringify({ t: "#b5621e" }));
+  }
   res.writeHead(200, { "content-type": TYPES[extname(full)] || "application/octet-stream", "cache-control": "no-cache" });
   res.end(text);
+}
+
+export function forced(page, scheme) {
+  const dark = /@media \(prefers-color-scheme:dark\)\{:root\{([^}]*)\}\}/;
+  const own = dark.exec(page)[1];
+  return page.replace("color-scheme:light dark", `color-scheme:${scheme}`).replace(dark, scheme === "dark" ? `:root{${own}}` : "");
 }
 
 export function stub() {
@@ -315,7 +328,7 @@ export async function board(browser, back, opts = {}) {
     const u = new URL(r.url());
     if (u.pathname.startsWith("/_p99/api/")) seen.push({ method: r.method(), path: u.pathname.slice(9), query: u.search, body: r.postData() ? JSON.parse(r.postData()) : null });
   });
-  await p.goto(`${ORIGIN}/${opts.strict ? "strict" : "checkout"}#p99=${back.code}`);
+  await p.goto(`${ORIGIN}/${opts.page || (opts.strict ? "strict" : "checkout")}#p99=${back.code}`);
   await p.waitForFunction(() => {
     const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w button:not(.f)");
     return b && !b.hidden;
@@ -329,6 +342,63 @@ export async function board(browser, back, opts = {}) {
 }
 
 const R = (p, fn, arg) => p.evaluate(fn, arg);
+
+function luminance([r, g, b]) {
+  const f = (v) => ((v /= 255) <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+}
+const contrast = (a, b) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m);
+  return Math.round(((x + 0.05) / (y + 0.05)) * 100) / 100;
+};
+const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+
+export async function themeOf(p, host = "p99-root", bare = false) {
+  const bareCss = ":host{--p99-art:none!important;--p99-head-art:none!important}";
+  const probe = ".p99-board-name h2,.p99-live,.p99-board .p99-logo,.p99-board-new,.p99-board .p99-x{visibility:hidden!important}.p99-board-head{transition:none!important}";
+  if (bare) await p.evaluate(([h, css]) => { const r = document.querySelector(h).shadowRoot; const s = new CSSStyleSheet(); s.replaceSync(css); s.__p99Probe = true; r.adoptedStyleSheets = r.adoptedStyleSheets.concat([s]); }, [host, bareCss]);
+  const facts = await p.evaluate((h) => {
+    const r = document.querySelector(h).shadowRoot;
+    const box = (e) => { const b = e.getBoundingClientRect(); return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) }; };
+    const title = r.querySelector("#p99-board-title");
+    const live = r.querySelector(".p99-live");
+    const card = r.querySelector(".p99-card");
+    return { title: getComputedStyle(title).color, live: getComputedStyle(live).color, card: getComputedStyle(card).backgroundColor, at: { title: box(title), live: box(live) } };
+  }, host);
+  await p.evaluate(([h, css]) => { const r = document.querySelector(h).shadowRoot; const s = new CSSStyleSheet(); s.replaceSync(css); s.__p99Probe = true; r.adoptedStyleSheets = r.adoptedStyleSheets.concat([s]); }, [host, probe]);
+  const shots = {};
+  for (const k of ["title", "live"]) shots[k] = (await p.screenshot({ clip: facts.at[k], animations: "disabled" })).toString("base64");
+  await p.evaluate((h) => { const r = document.querySelector(h).shadowRoot; r.adoptedStyleSheets = r.adoptedStyleSheets.filter((x) => !x.__p99Probe); }, host);
+  const blank = await p.context().newPage();
+  const behind = await blank.evaluate(async (all) => {
+    const out = {};
+    for (const [k, b64] of Object.entries(all)) {
+      const img = new Image();
+      img.src = "data:image/png;base64," + b64;
+      await img.decode();
+      const c = document.createElement("canvas");
+      c.width = img.width;
+      c.height = img.height;
+      const g = c.getContext("2d");
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const sum = [0, 0, 0];
+      for (let i = 0; i < d.length; i += 4) for (let j = 0; j < 3; j++) sum[j] += d[i + j];
+      out[k] = sum.map((v) => Math.round(v / (d.length / 4)));
+    }
+    return out;
+  }, shots);
+  await blank.close();
+  if (bare) await p.evaluate((h) => { const r = document.querySelector(h).shadowRoot; r.adoptedStyleSheets = r.adoptedStyleSheets.filter((x) => !x.__p99Probe); }, host);
+  const dark = (c) => luminance(c) < 0.18;
+  return {
+    title: contrast(rgb(facts.title), behind.title),
+    live: contrast(rgb(facts.live), behind.live),
+    ground: dark(behind.title) ? "dark" : "light",
+    cards: dark(rgb(facts.card)) ? "dark" : "light",
+    behind,
+  };
+}
 const column = (p, label) => R(p, (l) => {
   const c = Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-col")).find((x) => x.dataset.label === l);
   return c ? Array.from(c.querySelectorAll(".p99-card"), (e) => e.dataset.id) : null;
@@ -979,6 +1049,19 @@ async function check(back) {
       }
     }
     ok(`360, 411 and 1440 wide, light and dark: the head fits and nothing scrolls sideways (stills in ${out})`);
+
+    for (const [page, scheme] of [["light", "light"], ["light", "dark"], ["dark", "dark"], ["dark", "light"]]) {
+      const s = await board(browser, back, { scheme, page, motion: "reduce" });
+      for (const bare of [false, true]) {
+        const at = `a ${page} page in a ${scheme} browser${bare ? ", the texture not loaded" : ""}`;
+        const t = await themeOf(s.p, "p99-root", bare);
+        assert.ok(t.title >= 4.5 && t.live >= 4.5, `${at}: the head's words read at 4.5:1 or more on their own background ${JSON.stringify(t)}`);
+        assert.ok(t.ground === scheme && t.cards === scheme, `${at}: the background and the cards are both ${scheme} ${JSON.stringify(t)}`);
+      }
+      await s.p.screenshot({ path: join(out, `board-page-${page}-browser-${scheme}.png`), animations: "disabled" });
+      await s.ctx.close();
+    }
+    ok("a light or dark page in a light or dark browser, with or without the texture: the board's background, lanes and cards take the browser's theme, and the head's title and LIVE read at 4.5:1 or more");
     console.log(`${passed} checks passed against the ${back.name}`);
   } finally {
     await browser.close();
