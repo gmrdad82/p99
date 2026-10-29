@@ -10,6 +10,9 @@ mod live;
 #[path = "cli/stub.rs"]
 mod stub;
 
+#[cfg(unix)]
+pub static NAMING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[path = "us/agent.rs"]
 mod agent;
 #[path = "us/board.rs"]

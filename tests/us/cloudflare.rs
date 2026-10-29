@@ -201,7 +201,10 @@ fn cloud(cf: &mut Cloud, req: &Req) -> Reply {
     if cf.refuse {
         return Reply::cf_error(401, 1000, "Invalid API Token");
     }
-    if cf.denied.iter().any(|d| path.ends_with(d)) {
+    if cf.denied.iter().any(|d| match d.split_once(' ') {
+        Some((method, end)) => req.method == method && path.ends_with(end),
+        None => path.ends_with(d),
+    }) {
         return Reply::cf_error(403, 10000, "Authentication error");
     }
     let s: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();

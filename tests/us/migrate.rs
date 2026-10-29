@@ -647,6 +647,7 @@ fn us_migrate_002_a_plan_whose_counts_change_before_the_deploy_refuses_and_says_
         text.contains("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n"),
         "{text}"
     );
+    let before = cf.lock().unwrap().state();
     let n = cf_calls(&h).len();
     let out = h.p99(&["deploy", "--accept-plan", &plan_hash(&text)]);
     assert_eq!(out.code, Some(1), "{}", out.stderr);
@@ -666,6 +667,13 @@ fn us_migrate_002_a_plan_whose_counts_change_before_the_deploy_refuses_and_says_
     assert!(uploads_in(&later).is_empty());
     assert_eq!(applied(&cf), first(15));
     assert_eq!(cf.lock().unwrap().binding("VERSION")["text"], "1.9.0");
+    {
+        let state = cf.lock().unwrap();
+        assert_eq!(state.state(), before);
+        assert_eq!(state.binding("DB")["database_id"], "db1");
+        assert_eq!(state.binding("BUCKET")["bucket_name"], "p99");
+        assert!(state.worker);
+    }
     never_shows(&[&out], &[]);
 }
 

@@ -139,8 +139,15 @@ fn us_invite_002_an_invite_that_does_not_say_what_it_grants_is_refused_and_nothi
 #[test]
 fn us_invite_003_invites_set_without_a_choice_or_with_an_unknown_project_is_refused() {
     let h = Home::new("us-invite-set", |req: &Req| {
-        if req.is("PATCH", "/_p99/v1/codes/4") && req.json()["grant"]["projects"][0] == "Nope" {
-            Reply::problem(400, "no project is called Nope; p99 projects add makes one")
+        let asked = req.json()["grant"]["projects"][0]
+            .as_str()
+            .map(str::to_owned);
+        let unknown = asked.as_deref().filter(|p| !fake::PROJECTS.contains(p));
+        if let (true, Some(asked)) = (req.is("PATCH", "/_p99/v1/codes/4"), unknown) {
+            Reply::problem(
+                400,
+                &format!("no project is called {asked}; p99 projects add makes one"),
+            )
         } else {
             fake::any(req)
         }
@@ -156,6 +163,8 @@ fn us_invite_003_invites_set_without_a_choice_or_with_an_unknown_project_is_refu
     let tried = h.stub.calls("PATCH", "/_p99/v1/codes/4");
     assert_eq!(tried.len(), 1);
     assert_eq!(tried[0].json()["grant"], json!({"projects": ["Nope"]}));
+    h.p99(&["invites", "set", "4", "--project", "Shop"]).ok();
+    assert_eq!(h.stub.calls("PATCH", "/_p99/v1/codes/4").len(), 2);
     let parked = h.p99(&["invites", "set", "4", "--park"]);
     parked.ok();
     assert_eq!(
