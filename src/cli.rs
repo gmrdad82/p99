@@ -443,13 +443,8 @@ pub struct FileArgs {
     pub title: String,
     #[arg(long, help = "the text, or - to read it from standard input")]
     pub body: Option<String>,
-    #[arg(
-        long,
-        value_name = "path",
-        default_value = "/",
-        help = "the page it is about"
-    )]
-    pub page: String,
+    #[arg(long, value_name = "path", help = "the page it is about, if any")]
+    pub page: Option<String>,
     #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
     pub attach: Vec<PathBuf>,
 }
@@ -1834,7 +1829,7 @@ fn print_thread(thread: &Thread) {
             format!("  from {}", issue.env)
         }
     );
-    if !issue.page.url.is_empty() {
+    if !issue.page.path.is_empty() && !issue.page.url.is_empty() {
         out!("page: {}", issue.page.url);
     }
     if let Some(assignee) = &issue.assignee {
@@ -1975,7 +1970,11 @@ fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String>
         Some(text) => text_arg(text)?,
         None => String::new(),
     };
-    let path = crate::wire::page_path(&args.page);
+    let path = args
+        .page
+        .as_deref()
+        .map(crate::wire::page_path)
+        .unwrap_or_default();
     let issue = NewIssue {
         client_uid: crate::client::uid(),
         host: Some(host.clone()),
@@ -1983,7 +1982,10 @@ fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String>
         title: args.title.clone(),
         body,
         page: PageRef {
-            url: format!("https://{host}{path}"),
+            url: format!(
+                "https://{host}{}",
+                if path.is_empty() { "/" } else { &path }
+            ),
             path,
             title: String::new(),
         },

@@ -366,6 +366,36 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     assert.equal(spoofed.json.page.url, `https://${here}/orders`);
   });
 
+  await check("story widget: a signed client files on no page and it never counts on /; the browser must name its page; a bad path is refused", async () => {
+    const owner = await mint("Ada Lovelace", "ada@example.com", [here], true);
+    const homeOpen = async () => (await browse("GET", "/me?path=%2F", owner.secret)).json.counts.page_open;
+    const before = await homeOpen();
+    const left = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed with no page", page: undefined }) });
+    assert.equal(left.status, 201, JSON.stringify(left.json));
+    assert.deepEqual(left.json.page, { url: `https://${here}/`, path: "", title: "" });
+    const blank = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed with an empty path", page: { url: `https://${here}/`, path: "", title: "" } }) });
+    assert.equal(blank.status, 201, JSON.stringify(blank.json));
+    assert.equal(blank.json.page.path, "");
+    assert.equal(blank.json.page.url, `https://${here}/`);
+    assert.equal(await homeOpen(), before, "neither counts on /");
+    const home = await call("GET", `/_p99/v1/issues?host=${here}&scope=page&status=open&limit=100&path=%2F`);
+    assert.equal(home.status, 200, JSON.stringify(home.json));
+    assert.ok(!home.json.issues.some((i) => i.key === left.json.key || i.key === blank.json.key), "neither lists on /");
+    assert.equal((await call("GET", `/_p99/v1/issues?host=${here}&scope=page&path=`)).status, 400, "no page is not a page to list");
+    for (const page of [{ url: `https://${here}/x`, path: "x", title: "" }, { url: `https://${here}/x`, path: "//evil.example/x", title: "" }, { url: `https://${here}/`, path: "/a b", title: "" }]) {
+      const bad = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "Filed on a bad path", page }) });
+      assert.equal(bad.status, 400, `${page.path}: ${JSON.stringify(bad.json)}`);
+      assert.equal(bad.json.message, "page must have an http(s) url, a path starting with / and a title");
+    }
+    for (const page of [undefined, { url: `https://${here}/`, path: "", title: "" }]) {
+      const panel = await browse("POST", "/issues", mary.secret, issueBody({ title: "Filed by the panel with no page", page }));
+      assert.equal(panel.status, 400, JSON.stringify(panel.json));
+    }
+    const reported = await browse("POST", "/issues", owner.secret, issueBody({ title: "Filed by the panel on /", page: { url: `https://${here}/`, path: "/", title: "Home" } }));
+    assert.equal(reported.status, 201, JSON.stringify(reported.json));
+    assert.equal(await homeOpen(), before + 1, "a panel report on / counts on /");
+  });
+
   await check("story widget: a host taken off P99 stops its widget at once: loader, panel and filing all answer 404, and its items stay", async () => {
     const host = "retired.example";
     assert.equal((await call("POST", "/_p99/v1/projects", { body: { name: "Retired site" } })).status, 201);

@@ -722,7 +722,7 @@ pub fn page_path(raw: &str) -> String {
         && !path.contains('\\')
         && !path.chars().any(|c| c.is_control() || c.is_whitespace())
         && path.chars().count() <= 512;
-    if ok { path.to_owned() } else { "/".to_owned() }
+    if ok { path.to_owned() } else { String::new() }
 }
 
 pub fn open(status: &str) -> bool {

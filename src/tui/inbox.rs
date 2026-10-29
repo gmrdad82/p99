@@ -918,14 +918,15 @@ fn lines(
         }
     }
     out.push(Line::from(facts));
-    out.push(Line::from(vec![
-        Span::styled(issue.page.path.clone(), palette.ink),
-        dot(),
-        match &issue.assignee {
-            Some(to) => Span::styled(format!("assigned to {to}"), palette.ink),
-            None => Span::styled("unassigned", palette.muted),
-        },
-    ]));
+    let mut placed = Vec::new();
+    if !issue.page.path.is_empty() {
+        placed.extend([Span::styled(issue.page.path.clone(), palette.ink), dot()]);
+    }
+    placed.push(match &issue.assignee {
+        Some(to) => Span::styled(format!("assigned to {to}"), palette.ink),
+        None => Span::styled("unassigned", palette.muted),
+    });
+    out.push(Line::from(placed));
     let mut reported = vec![
         Span::styled(who, palette.strong),
         Span::styled(

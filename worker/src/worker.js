@@ -978,7 +978,7 @@ function pageLink(row) {
   if (!row.host || !isHostName(row.host)) return null;
   try {
     const origin = `https://${row.host}`;
-    const url = new URL(`${origin}${row.page_path}`);
+    const url = new URL(`${origin}${row.page_path || "/"}`);
     if (url.origin !== origin) return null;
     url.search = "";
     url.hash = `p99=${keyOf(row.kind, row.id)}`;
@@ -1275,6 +1275,10 @@ function validPage(page) {
   const title = clean(page.title ?? "");
   if (!isText(title, 0, 300)) return null;
   return { url, path, title };
+}
+
+function pageless(page) {
+  return page === undefined || page === null || (isObject(page) && page.path === "");
 }
 
 function validBox(box, keys) {
@@ -1786,7 +1790,7 @@ async function createIssue(c) {
   if (title === null) fail(400, `title must be 1 to ${MAX_TITLE_CHARS} characters`);
   const text = clean(body.body ?? "");
   if (!isChars(text, 0, MAX_BODY_CHARS)) fail(400, `body must be at most ${MAX_BODY_CHARS} characters`);
-  const page = validPage(body.page);
+  const page = c.browser || !pageless(body.page) ? validPage(body.page) : { url: "", path: "", title: "" };
   if (!page) fail(400, "page must have an http(s) url, a path starting with / and a title");
   const context = body.context ?? {};
   if (!isObject(context)) fail(400, "context must be an object");
@@ -1795,7 +1799,7 @@ async function createIssue(c) {
   const marks = validMarks(body.marks);
   if (marks === null) fail(400, `marks must be at most ${MAX_MARKS} marks with rect, viewport and elements`);
   const target = creationTarget(c, body);
-  page.url = `https://${target.host}${page.path}`;
+  page.url = `https://${target.host}${page.path || "/"}`;
   checkUsage(c, "issues", 1, used);
   const byUid = "FROM items WHERE client_uid = ?1";
   const reporter = reporterJson(c);
@@ -2842,7 +2846,7 @@ function importPerson(value, what) {
 }
 
 function importPage(page, host) {
-  if (page === undefined || page === null) return { url: `https://${host}/`, path: "/", title: "" };
+  if (pageless(page)) return { url: `https://${host}/`, path: "", title: "" };
   if (!isObject(page)) fail(400, "page must be an object");
   let path = page.path;
   if (path === undefined || path === null) {

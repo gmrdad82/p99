@@ -434,6 +434,28 @@ events
 }
 
 #[test]
+fn show_prints_no_page_line_for_an_item_filed_on_no_page() {
+    let h = Home::new("show-no-page", |req: &Req| {
+        if req.is("GET", "/_p99/v1/issues/12") {
+            let mut t = full_thread();
+            t["issue"]["page"] =
+                json!({"url": "https://shop.example.com/", "path": "", "title": ""});
+            Reply::ok(t)
+        } else {
+            fake::any(req)
+        }
+    });
+    let out = h.p99(&["show", "12"]);
+    out.ok();
+    assert!(
+        !out.stdout.contains("page:"),
+        "no page line: {}",
+        out.stdout
+    );
+    assert!(out.stdout.contains("assigned to @ada.lovelace"));
+}
+
+#[test]
 fn show_json_is_the_thread() {
     let h = home("show-json");
     let out = h.p99(&["show", "12", "--json"]);
@@ -520,7 +542,25 @@ fn file_sends_the_item_with_the_page_and_then_each_attachment() {
 }
 
 #[test]
-fn file_json_and_an_unsafe_page_falls_back_to_the_root() {
+fn file_without_a_page_files_on_no_page() {
+    let h = home("file-no-page");
+    h.p99(&[
+        "file",
+        "shop.example.com",
+        "--kind",
+        "bug",
+        "--title",
+        "The receipts export is slow",
+    ])
+    .ok();
+    let body = h.stub.call("POST", "/_p99/v1/issues").json();
+    assert_eq!(body["page"]["path"], "");
+    assert_eq!(body["page"]["url"], "https://shop.example.com/");
+    assert_eq!(body["page"]["title"], "");
+}
+
+#[test]
+fn file_json_and_an_unsafe_page_files_on_no_page() {
     let h = home("file-json");
     let out = h.p99(&[
         "file",
@@ -538,7 +578,8 @@ fn file_json_and_an_unsafe_page_falls_back_to_the_root() {
     assert_eq!(answer["issue"]["key"], "BUG-21");
     assert_eq!(answer["attachments"], json!([]));
     let body = h.stub.call("POST", "/_p99/v1/issues").json();
-    assert_eq!(body["page"]["path"], "/");
+    assert_eq!(body["page"]["path"], "");
+    assert_eq!(body["page"]["url"], "https://shop.example.com/");
     assert_eq!(body["body"], "");
     assert_eq!(body["kind"], "question");
 }

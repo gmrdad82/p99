@@ -1012,6 +1012,21 @@ fn a_thread_shows_where_its_fix_landed_its_links_and_its_history() {
 }
 
 #[test]
+fn a_thread_on_no_page_shows_no_path_before_its_assignee() {
+    let mut item = Demo::new().thread("BUG-2").expect("the sample has it");
+    item.issue.page.path = String::new();
+    item.issue.page.url = "https://example.com/".into();
+    let text = said(&lines(&item, 120, &palette(), NOW, &units()));
+    assert!(
+        text.iter()
+            .any(|line| line.trim() == "assigned to @ada.lovelace"),
+        "{}",
+        text.join("\n")
+    );
+    assert!(!text.iter().any(|line| line.trim_start().starts_with("·")));
+}
+
+#[test]
 fn a_thread_names_a_branch_only_landing_and_a_drop() {
     let mut demo = Demo::new();
     let branch = said(&lines(

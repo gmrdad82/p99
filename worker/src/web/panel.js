@@ -1027,9 +1027,9 @@ function filters(f) {
 }
 function hereMark(at) { return at ? h("span", { class: "p99-here", text: say("tab_page") }) : null; }
 function row(r, at) {
-  const meta = [h("span", { class: "p99-path", text: (r.page && r.page.path) || "" })];
-  if (owner() && r.reporter) meta.push(" · ", h("span", { class: "p99-reporter" }, person(r.reporter, false, "")));
-  meta.push(" · ", h("time", { text: when(r.created_at) }));
+  const meta = r.page && r.page.path ? [h("span", { class: "p99-path", text: r.page.path }), " · "] : [];
+  if (owner() && r.reporter) meta.push(h("span", { class: "p99-reporter" }, person(r.reporter, false, "")), " · ");
+  meta.push(h("time", { text: when(r.created_at) }));
   if (r.comments > 0) meta.push(" · ", h("span", { class: "p99-comments", text: say("comments", { count: r.comments }, r.comments) }));
   return h("li", { class: "p99-item", "data-status": stateOf(r), "data-kind": r.kind, "data-unread": !!r.unread, "data-here": !!at },
     h("a", { href: "#p99=" + r.key, onclick: (e) => { e.preventDefault(); item(r.key); } },
