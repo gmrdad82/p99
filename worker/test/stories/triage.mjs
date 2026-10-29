@@ -115,8 +115,8 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
       assert.equal(changed.status, 200, JSON.stringify(changed.json));
       return changed.json.assignee;
     };
-    assert.deepEqual(await to(`@${hedy.toUpperCase()}`), { username: hedy });
-    assert.deepEqual((await ada.list()).json.issues.find((i) => i.key === key).assignee, { username: hedy });
+    assert.deepEqual(await to(`@${hedy.toUpperCase()}`), { username: hedy, avatar: null });
+    assert.deepEqual((await ada.list()).json.issues.find((i) => i.key === key).assignee, { username: hedy, avatar: null });
     const me = await to("me");
     assert.ok(me && me.username && me.username !== hedy, JSON.stringify(me));
     for (const [assignee, said] of [

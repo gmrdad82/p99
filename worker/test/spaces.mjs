@@ -361,16 +361,20 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     const lapsed = await browse("PUT", "/licence", owner.secret, { key: licenceKey({ tier: "agency", paid_through: "2020-01-01" }) });
     assert.equal(lapsed.status, 400);
     assert.match(lapsed.json.message, /covers builds up to 2020-01-01/);
-    const put = await browse("PUT", "/licence", owner.secret, { key });
-    assert.equal(put.status, 200, JSON.stringify(put.json));
-    assert.deepEqual(put.json.licence, { state: "studio", link: "shown", stored: true });
-    const me = (await browse("GET", "/me", owner.secret)).json;
-    assert.equal(me.license, "studio");
-    assert.equal(me.licensed, true);
-    assert.equal(me.licence.stored, true);
-    const agency = await call("PUT", "/_p99/v1/licence", { actor: ada, body: { key: licenceKey({ tier: "agency", paid_through: "2099-12-31" }) } });
-    assert.deepEqual(agency.json.licence, { state: "agency", link: "hideable", stored: true });
-    const removed = await browse("DELETE", "/licence", owner.secret);
+    let removed = null;
+    try {
+      const put = await browse("PUT", "/licence", owner.secret, { key });
+      assert.equal(put.status, 200, JSON.stringify(put.json));
+      assert.deepEqual(put.json.licence, { state: "studio", link: "shown", stored: true });
+      const me = (await browse("GET", "/me", owner.secret)).json;
+      assert.equal(me.license, "studio");
+      assert.equal(me.licensed, true);
+      assert.equal(me.licence.stored, true);
+      const agency = await call("PUT", "/_p99/v1/licence", { actor: ada, body: { key: licenceKey({ tier: "agency", paid_through: "2099-12-31" }) } });
+      assert.deepEqual(agency.json.licence, { state: "agency", link: "hideable", stored: true });
+    } finally {
+      removed = await browse("DELETE", "/licence", owner.secret);
+    }
     assert.equal(removed.status, 200);
     assert.equal(removed.json.removed, true);
     const after = (await browse("GET", "/me", owner.secret)).json;

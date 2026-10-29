@@ -80,7 +80,7 @@ export async function hideableLinkChecks({ call, browse, mint, check, here, plac
     const served = await call("GET", "/_p99/panel.js?v=dev");
     assert.equal(served.status, 200);
     const source = await served.response.text();
-    assert.match(source, /me && me\.link === false \? null : h\("a", \{ class: "p99-by"/);
+    assert.match(source, /\(me && me\.link === false\) \? null : h\("a", \{ class: "p99-by"/);
     const env = (await call("GET", "/_p99/v1/hosts")).json.hosts.find((h) => h.host === here).env;
     const ada = await mint("Ada Lovelace", "ada@example.com", [here]);
     try {

@@ -317,6 +317,6 @@ export async function webramBoardChecks({ check, browse, mint, work }) {
       assert.deepEqual(read.json.cards.filter((c) => c.status === status).map((c) => c.key), keys, status);
     }
     assert.ok(read.json.cards.every((c) => c.host === BUSIEST));
-    for (const path of ["/boards/21", "/boards/22", "/boards/23"]) assert.equal((await browse("GET", path, owner.secret)).status, 404, path);
+    for (const path of ["/boards/21", "/boards/22", "/boards/23"]) assert.equal((await browse("GET", path, owner.secret)).status, 410, path);
   });
 }

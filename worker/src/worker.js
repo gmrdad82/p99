@@ -642,13 +642,18 @@ function query(firstBinds = []) {
   };
 }
 
+function reachFor(c) {
+  return c.manager ? c.reach : EVERYWHERE;
+}
+
 function scopeClause(c, q, alias = "i") {
-  const sql = viewSql({ all: c.reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts }, (v) => q.bind(v), alias);
+  const reach = reachFor(c);
+  const sql = viewSql({ all: reach.all && c.scope.all, host: c.scope.all ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts }, (v) => q.bind(v), alias);
   return sql === "1" ? null : sql;
 }
 
 function inScope(c, row) {
-  return reachesItem(c.reach, row) && (c.browser || c.scope.all || row.host === c.scope.host);
+  return reachesItem(reachFor(c), row) && (c.browser || c.scope.all || row.host === c.scope.host);
 }
 
 function usageQuery(c, field) {
@@ -1911,7 +1916,8 @@ async function getIssue(c, rawKey) {
 
 function readMark(c, id) {
   const q = query([c.actor.email, id, c.now]);
-  const v = { all: c.reach.all && (c.browser || c.scope.all), host: c.browser || c.scope.all ? null : c.scope.host, projects: c.reach.projects, hosts: c.reach.hosts };
+  const reach = reachFor(c);
+  const v = { all: reach.all && (c.browser || c.scope.all), host: c.browser || c.scope.all ? null : c.scope.host, projects: reach.projects, hosts: reach.hosts };
   const seen = viewSql(v, (value) => q.bind(value), "items");
   return c.env.DB.prepare(
     `INSERT INTO reads (actor_email, item_id, read_at)

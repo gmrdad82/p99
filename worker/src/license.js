@@ -254,7 +254,7 @@ async function putLicence(c) {
   K.forgetDirectory();
   const state = stateOf(read.claims, built);
   return K.json(200, {
-    licence: { state, link: linkOf(state) },
+    licence: { state, link: linkOf(state), stored: true },
     tier: read.claims.group === "owner" || read.claims.group === "friends-family" ? "agency" : read.claims.tier,
     studio: typeof read.claims.studio === "string" ? read.claims.studio : null,
     paid_through: read.claims.paid_through,
