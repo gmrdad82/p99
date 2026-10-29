@@ -64,7 +64,7 @@ P99 works under a strict policy such as:
 default-src 'none'; script-src 'nonce-…' https://shop.example.com/_p99/; connect-src 'self'; style-src 'self'; img-src 'self'; frame-src 'self'; font-src 'self'; frame-ancestors 'none'
 ```
 
-Give the tag the page's nonce, and allow the `https://<host>/_p99/` path in `script-src`: the loader imports `panel.js` and `capture.js` from there. P99 styles its Shadow DOM through constructable stylesheets only, so `style-src` needs no `'unsafe-inline'`. It fetches only same-origin URLs, uses no inline handlers, `eval` or workers, and adds one element and one global, `P99`, to the page. `default-src 'self'` alone is enough. Captures are decoded in one hidden same-origin frame, `/_p99/frame.html`, so `img-src` needs no `data:` or `blob:` as long as `frame-src` allows `'self'`; [docs/hosts.md](../hosts.md#content-security-policy) has the details.
+Give the tag the page's nonce, and allow the `https://<host>/_p99/` path in `script-src`: the loader imports `panel.js` and `capture.js` from there. P99 styles its Shadow DOM through constructable stylesheets only, so `style-src` needs no `'unsafe-inline'`. It fetches only same-origin URLs, uses no inline handlers, `eval` or workers, and adds one element and one global, `P99`, to the page. `default-src 'self'` alone is enough. Captures are decoded in one hidden same-origin frame, `/_p99/frame.html`, so `img-src` needs no `data:` or `blob:` as long as `frame-src` allows `'self'`; [The host reference](../reference/hosts.md#content-security-policy) has the details.
 
 ## 6. Hosts behind Cloudflare Access
 
