@@ -2,6 +2,21 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.7 — 2026-10-29
+
+### Changed
+
+- Everything people file is a card. P99 no longer speaks of reports or items: the + makes a "New card", ⋯ lists "Your cards", and the TUI, the CLI, the mails and the docs say card throughout. Nothing filed before is lost or changed; the API's routes and JSON fields keep their names.
+- One set of commands: `p99 card new` (with `--project` or `--host`, `--kind`, `--title`, `--body`, `--page` and `--attach`), `p99 card comment` (with `--attach` and `--internal`), `p99 card status` and `p99 card move`. `p99 file`, `p99 comment`, `p99 status` and `p99 move` still run for this release and say their new name.
+- A card filed from the terminal or by an agent without a page is on no page, so it never counts on a site's home page.
+
+### Added
+
+- Owners can make a card from the board, on a site or on the P99 page, in a chosen project with no page; edit a card's title and details; add and see a card's links; and merge a duplicate into the other card, all in the browser.
+- The TUI makes cards (`n`), attaches files to a reply (`tab`), edits title and details (`e`), links a card (`l`), lists a card's files and saves one (`f`), and merges a duplicate.
+- `p99 list --page <path>` and `p99 list --source human|agent`.
+- Every card works on every card command and route, whether it was filed from a site or from a project; `/cards` takes a page.
+
 ## v1.13.6 — 2026-10-29
 
 ### Changed
