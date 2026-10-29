@@ -114,7 +114,7 @@ test("the authenticator mail walks through the app, the QR code, the key in four
     mail.text,
     [
       "Grace, this is the second mail from P99, sent apart from your link. It sets up the 6-digit code P99 asks for the first time each browser opens your link.",
-      "1. If you have no authenticator app yet, install one: 1Password, Google Authenticator, Microsoft Authenticator or your phone's built-in passwords app all work.",
+      "1. If you have no authenticator app yet, install one: Google Authenticator, Microsoft Authenticator, your password manager or your phone's built-in passwords app all work.",
       `2. In the app, add an account and type this key: JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP\nOn your phone, this link adds it in one tap: ${uri}`,
       `3. The account appears as "P99: ${GRACE}". It shows a 6-digit code that changes every 30 seconds.`,
       "4. When P99 asks, enter the code it shows at that moment.",

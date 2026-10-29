@@ -101,7 +101,7 @@ export function composeTotpMail({ name, email, key, kind, theme, qrSide }) {
       ? `${first}, your P99 link now asks for a 6-digit code from an authenticator app, the first time each browser opens it. Set it up once:`
       : `${first}, this is the second mail from P99, sent apart from your ${kind === "relink" ? "new " : ""}link. It sets up the 6-digit code P99 asks for the first time each browser opens your link.`;
   const replace = kind === "invite" ? null : "If your authenticator already has P99 for this e-mail, replace it with this one: the old one no longer works.";
-  const apps = "If you have no authenticator app yet, install one: 1Password, Google Authenticator, Microsoft Authenticator or your phone's built-in passwords app all work.";
+  const apps = "If you have no authenticator app yet, install one: Google Authenticator, Microsoft Authenticator, your password manager or your phone's built-in passwords app all work.";
   const add = "In the app, add an account: scan the QR code below, or type the key.";
   const shows = `The account appears as "P99: ${email}". It shows a 6-digit code that changes every 30 seconds.`;
   const enter = "When P99 asks, enter the code it shows at that moment.";

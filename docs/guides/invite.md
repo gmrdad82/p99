@@ -139,7 +139,7 @@ p99 invite --project Shop --name "Grace Hopper" --email grace@example.com --totp
 p99 invites totp 3
 ```
 
-With mail on, P99 mails the person the setup in a message of its own, apart from the link: which authenticator apps work (1Password, Google Authenticator, Microsoft Authenticator, or the phone's built-in passwords app), the QR code to scan, the key in groups of four to type, and a link that adds it in one tap on a phone. The account shows as "P99: <their e-mail>", with a 6-digit code that changes every 30 seconds. The terminal says the setup went and prints no key. With `--no-mail`, or when the mail doesn't go out, the terminal prints the setup instead:
+With mail on, P99 mails the person the setup in a message of its own, apart from the link: which authenticator apps work (Google Authenticator, Microsoft Authenticator, a password manager, or the phone's built-in passwords app), the QR code to scan, the key in groups of four to type, and a link that adds it in one tap on a phone. The account shows as "P99: <their e-mail>", with a 6-digit code that changes every 30 seconds. The terminal says the setup went and prints no key. With `--no-mail`, or when the mail doesn't go out, the terminal prints the setup instead:
 
 ```text
 key:    <32 base32 characters>   (paste it as a one-time password or setup key; totp is the same as a link)
