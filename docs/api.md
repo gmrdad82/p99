@@ -140,7 +140,7 @@ A code object is `{"id","name","email","hosts","grant","role","manager","hint","
 `GET /_p99/v1/stream` is signed like every other route, with an empty body, and upgrades to a WebSocket held by the Durable Object `P99Hub`, one per space. Every successful write sends each open socket one text message, a JSON event:
 
 ```json
-{"type":"comment","key":"BUG-12","host":"shop.example.com","title":"The total does not update","by":{"name":"Ada Lovelace","agent":true,"via":"pci"},"at":"2026-10-15T09:30:00.000Z","internal":false}
+{"type":"comment","key":"BUG-12","host":"shop.example.com","project":"Shop","space":"example","title":"The total does not update","by":{"name":"Ada Lovelace","agent":true,"via":"pci"},"at":"2026-10-15T09:30:00.000Z","internal":false}
 ```
 
 | `type` | When | Adds |
@@ -157,7 +157,7 @@ A code object is `{"id","name","email","hosts","grant","role","manager","hint","
 
 A move's events carry the item's host. A reader patches its board in place on `label`, `order` and `delete` and reads it again on anything else.
 
-`title` is the item's title after the change and `by` the actor, `null` for a write without one. Internal comments and files are included, since only the signed API listens. A socket opened with `host=<host>` hears only that host's events; an unlisted host answers 404. The socket answers the text `ping` with `pong`, which keeps it open through idle proxies; the CLI and the TUI send one every 30 seconds and reconnect when it drops. A Worker without the `HUB` binding (one not deployed since live updates came) answers 404 `this Worker has no push yet; run p99 deploy`, and its writes skip the event. The event is sent after the response, so a write never waits on it, and a socket that is not open misses it: a client that reconnects reads the list again.
+`project` names the item's project (`null` when the event has none) and `space` the space's slug. `title` is the item's title after the change and `by` the actor, `null` for a write without one. Internal comments and files are included, since only the signed API listens. A socket opened with `host=<host>` hears only that host's events; an unlisted host answers 404. The socket answers the text `ping` with `pong`, which keeps it open through idle proxies; the CLI and the TUI send one every 30 seconds and reconnect when it drops. A Worker without the `HUB` binding (one not deployed since live updates came) answers 404 `this Worker has no push yet; run p99 deploy`, and its writes skip the event. The event is sent after the response, so a write never waits on it, and a socket that is not open misses it: a client that reconnects reads the list again.
 
 ## Items
 

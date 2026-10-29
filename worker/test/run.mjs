@@ -832,6 +832,16 @@ async function run() {
     assert.equal((await call("DELETE", `/_p99/v1/hooks/${here}`)).status, 404);
   });
 
+  await check("without LOOP_TEST the test clock route answers 404, even on a local host", async () => {
+    for (const body of [{ advance: 86400000 }, { at: "2030-01-01T00:00:00.000Z" }, { real: true }]) {
+      const asked = await fetch(`${base}/_p99/test/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      assert.equal(asked.status, 404, JSON.stringify(body));
+    }
+    const filed = await call("POST", `/_p99/v1/issues?host=${here}`, { body: issueBody({ title: "The clock stays real" }) });
+    assert.equal(filed.status, 201, JSON.stringify(filed.json));
+    assert.ok(Math.abs(Date.parse(filed.json.created_at) - Date.now()) < 60000, filed.json.created_at);
+  });
+
   const hookSecret = "github-hook-secret";
   const deliver = async (event, payload, { id = randomUUID(), secret = hookSecret, signature } = {}) => {
     const bytes = Buffer.from(JSON.stringify(payload));

@@ -80,7 +80,7 @@ export default async function (kit) {
     }
   });
 
-  await kit.red("us-agent-002 each watch event names its project and space", "watch events carry no project or space name yet", async () => {
+  await kit.check("us-agent-002 each watch event names its project and space", async () => {
     const watching = await kit.watch();
     try {
       const grace = await reporter(kit, shop, "Grace Hopper");
