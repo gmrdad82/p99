@@ -54,6 +54,7 @@ The same keys live in the host's table in the config (`[hosts."shop.example.com"
 
 - A page carrying `<meta name="p99" content="off">` never loads P99, nor does any path in the host's `off` list: there the loader draws nothing, reads nothing and captures nothing.
 - `data-p99-redact` on an element blanks it in every capture and keeps its text out of marked regions; `data-p99-ignore` leaves it out of captures altogether.
+- The person filing can uncheck "Hide this site's private areas" to send those areas, and the host's `mask` areas, as they are; password fields and what was typed in those areas stay blanked, and the preview shows what goes.
 - Addresses are recorded without their query string and hash.
 
 ## 5. Content-Security-Policy

@@ -9,10 +9,10 @@ const PACKED_STYLE = ["background-image", "border-image-source", "-webkit-border
 
 let env = null, fonts = null, shots = 0, framed = null, blocked = false;
 
-export function capture(e, full, since) {
+export function capture(e, full, since, bare) {
   env = e;
   if (!masks().whole) return Promise.reject(Object.assign(new Error("a mask selector can't be read here"), { why: "capture_mask" }));
-  return shoot(full, CAPTURE_DEADLINE - (Date.now() - (since || Date.now())));
+  return shoot(full, CAPTURE_DEADLINE - (Date.now() - (since || Date.now())), !!bare);
 }
 export function readable(e) {
   env = e;
@@ -169,7 +169,7 @@ function cover(canvas, boxes, full, sx, sy) {
 function ignored(n) {
   return n.nodeType === 1 && (n === env.host || n.hasAttribute("data-p99-ignore") || n.nodeName === "NOSCRIPT");
 }
-function shoot(full, deadline) {
+function shoot(full, deadline, bare) {
   const vw = document.documentElement.clientWidth || innerWidth, vh = innerHeight;
   const sx = Math.round(scrollX), sy = Math.round(scrollY);
   const fixes = [];
@@ -204,8 +204,15 @@ function shoot(full, deadline) {
   const hidden = [];
   const boxes = [];
   const fill = fillOf();
-  everywhere(document, hush(), []).forEach((n) => {
+  let hid = 0;
+  if (bare) everywhere(document, secret(), []).forEach((n) => {
     if (n.closest("[data-p99-ignore]") || n === env.host) return;
+    mark(n, "data-p99-bare", "");
+    hid++;
+  });
+  everywhere(document, bare ? "input[type=password]" : hush(), []).forEach((n) => {
+    if (n.closest("[data-p99-ignore]") || n === env.host) return;
+    if (!bare && !n.matches("input[type=password]")) hid++;
     const b = n.getBoundingClientRect();
     mark(n, "data-p99-hide", String(hidden.length));
     hidden.push({ w: Math.round(b.width), h: Math.round(b.height) });
@@ -281,7 +288,7 @@ function shoot(full, deadline) {
         fetchFn: (url) => (fragment(url) ? BLANK : sameOrigin(url) ? false : BLANK),
         features: { restoreScrollPosition: true, fixSvgXmlDecode: safari },
         filter: (node) => !ignored(node) && !skip.has(node),
-        onCloneNode: (clone) => dress(inert.adoptNode(clone), { full, sx, sy, hidden, fixes, groupList, blanks, shown, fill })
+        onCloneNode: (clone) => dress(inert.adoptNode(clone), { full, sx, sy, hidden, fixes, groupList, blanks, shown, fill, bare })
       });
     })
     .then((c) => {
@@ -294,7 +301,7 @@ function shoot(full, deadline) {
     done();
     cover(canvas, boxes, full, sx, sy);
     shots++;
-    return { id: shots, canvas, sx, sy, vw, vh, scale: canvas.width / W };
+    return { id: shots, canvas, sx, sy, vw, vh, scale: canvas.width / W, hid };
   }, (e) => {
     done();
     throw e;
@@ -455,12 +462,13 @@ function dress(clone, c) {
     }
     n.style.background = "#e4e1dc";
   });
-  clone.querySelectorAll("input[type=password], [data-p99-hide] input, [data-p99-hide] textarea, [data-p99-redact] input, [data-p99-redact] textarea").forEach((n) => {
+  clone.querySelectorAll("input[type=password], [data-p99-hide] input, [data-p99-hide] textarea, [data-p99-redact] input, [data-p99-redact] textarea, [data-p99-bare] input, [data-p99-bare] textarea, input[data-p99-bare], textarea[data-p99-bare]").forEach((n) => {
     n.removeAttribute("value");
     n.value = "";
     n.textContent = "";
   });
-  clone.querySelectorAll("[data-p99-hide], [data-p99-redact]").forEach((n) => {
+  clone.querySelectorAll("[data-p99-bare]").forEach((n) => n.removeAttribute("data-p99-bare"));
+  clone.querySelectorAll(c.bare ? "[data-p99-hide]" : "[data-p99-hide], [data-p99-redact]").forEach((n) => {
     const i = n.getAttribute("data-p99-hide");
     const box = i === null ? null : c.hidden[Number(i)];
     n.removeAttribute("data-p99-hide");

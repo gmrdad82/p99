@@ -104,11 +104,13 @@ const WORDS = {
   attach_screen: "Attach the screen",
   attach_page: "Attach the whole page",
   attach_regions: "Attach the marked areas",
+  mask_areas: "Hide this site's private areas",
   new_files: "Files",
   new_files_hint: "Add files: pick them, drop them here or paste them",
   no_capture: "This site doesn't send screenshots, so your report goes without one.",
   new_privacy_text: "The page's address, your browser, your screen and the page's last script errors go with it, so we see what happened.",
   new_privacy: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords and the fields this site marks as private are blanked.",
+  new_privacy_shown: "The capture, the page's address, your browser, your screen and the page's last script errors go with it, so we see what you saw. Passwords are blanked; you chose to show this site's private areas.",
   send: "Send",
   cancel: "Cancel",
   back: "Back to the list",
@@ -1571,12 +1573,12 @@ function settled() {
   if (me) return Promise.resolve(me);
   return call("GET", "/me?path=" + enc(location.pathname)).then((m) => (m ? (me = m) : null), () => null);
 }
-function capture(full) {
+function capture(full, shown) {
   const since = Date.now();
   return settled().then((m) => {
     if (!m) throw Object.assign(new Error("capture settings missing"), { why: "capture_unknown" });
     if (shotsOff()) throw new Error("capture off");
-    return lib().then((l) => l.capture(shield(), full, since));
+    return lib().then((l) => l.capture(shield(), full, since, shown));
   });
 }
 function why(e) {
@@ -1654,18 +1656,78 @@ function marked(d, page) {
   }
   return d[slot].view;
 }
-function crop(shot, rect) {
+function crop(shot, rect, ox, oy) {
   const k = shot.scale;
   const c = document.createElement("canvas");
   c.width = Math.max(1, Math.round(rect.w * k));
   c.height = Math.max(1, Math.round(rect.h * k));
-  c.getContext("2d").drawImage(shot.canvas, Math.round(rect.x * k), Math.round(rect.y * k), c.width, c.height, 0, 0, c.width, c.height);
+  c.getContext("2d").drawImage(shot.canvas, Math.round((rect.x + (ox || 0)) * k), Math.round((rect.y + (oy || 0)) * k), c.width, c.height, 0, 0, c.width, c.height);
   return c;
+}
+function letGo(set) {
+  if (!set) return;
+  if (set.shot) release(set.shot.canvas);
+  if (set.page) release(set.page.canvas);
+  set.crops.forEach(release);
+}
+function sameView(a, b) { return a === b || (!!a && !!b && a.sx === b.sx && a.sy === b.sy && a.vw === b.vw); }
+function showAreas(form, d, shown) {
+  const now = { shown: d.shown, shot: d.shot, page: d.page, crops: new Map(d.marks.map((m) => [m, m.crop])) };
+  const back = d.held;
+  const pb = box(form, "page");
+  d.held = now;
+  d.shown = shown;
+  if (back && back.shown === shown && sameView(back.shot, now.shot) && (!pb.checked || back.page) && d.marks.every((m) => !now.crops.get(m) || back.crops.get(m))) {
+    d.shot = back.shot;
+    d.page = back.page;
+    d.marks.forEach((m) => { m.crop = back.crops.get(m) || null; });
+    paintShot(form);
+    paintMarks(form);
+    return;
+  }
+  letGo(back);
+  d.shot = d.page = null;
+  d.marks.forEach((m) => { m.crop = null; });
+  d.retaking = true;
+  const at = { sx: Math.round(scrollX), sy: Math.round(scrollY), vw: document.documentElement.clientWidth || innerWidth };
+  const seen = (m, s) => { const v = m.mark.viewport; return sameView(s, { sx: v.scroll_x, sy: v.scroll_y, vw: v.w }); };
+  const needPage = pb.checked || d.marks.some((m) => now.crops.get(m) && !seen(m, at));
+  const work = capture(false, shown).catch(() => null).then((s) => Promise.resolve(needPage && s ? capture(true, shown).catch(() => null) : null).then((p) => [s, p]));
+  const done = work.then(([s, p]) => {
+    d.retaking = false;
+    d.pageReady = null;
+    if (S.draft !== d || d.held !== now) return letGo({ shot: s, page: p, crops: new Map() });
+    if (!s || (needPage && !p)) {
+      letGo({ shot: s, page: p, crops: new Map() });
+      d.held = null;
+      d.shown = now.shown;
+      d.shot = now.shot;
+      d.page = now.page;
+      d.marks.forEach((m) => { m.crop = now.crops.get(m) || null; });
+      status(form, say("capture_failed"));
+    } else {
+      d.shot = s;
+      d.page = p;
+      d.marks.forEach((m) => {
+        if (!now.crops.get(m)) return;
+        const v = m.mark.viewport;
+        m.crop = seen(m, s) ? crop(s, m.mark.rect) : crop(p, m.mark.rect, v.scroll_x, v.scroll_y);
+      });
+    }
+    paintShot(form);
+    paintMarks(form);
+  });
+  d.shotReady = done;
+  d.pageReady = needPage ? done : null;
+  paintShot(form);
+  paintMarks(form);
 }
 
 function newDraft(off) {
-  const d = { at: here(), uid: uid(), shot: null, shotErr: false, page: null, pageReady: null, marks: [], files: [], key: null, uploads: null, started: !!off, off: !!off };
+  const d = { at: here(), uid: uid(), shot: null, shotErr: false, page: null, pageReady: null, marks: [], files: [], key: null, uploads: null, started: !!off, off: !!off, hides: false, shown: false, held: null, retaking: false };
   d.dispose = () => {
+    letGo(d.held);
+    d.held = null;
     if (d.shot) release(d.shot.canvas);
     if (d.page) release(d.page.canvas);
     d.marks.forEach((m) => release(m.crop));
@@ -1678,7 +1740,7 @@ function newDraft(off) {
     d.startShot = () => {
       if (d.started) return;
       d.started = true;
-      capture(false).then((s) => { d.shot = s; resolve(s); }, (e) => { d.shotErr = why(e); resolve(null); });
+      capture(false, false).then((s) => { d.shot = s; d.hides = s.hid > 0; resolve(s); }, (e) => { d.shotErr = why(e); resolve(null); });
     };
   });
   return d;
@@ -1697,8 +1759,8 @@ function fileFlow() {
 }
 function newForm(d) {
   const kinds = KINDS.filter((k) => k !== "task" || owner());
-  const pick = (role, checked, disabled, label, fig) => h("div", { class: "p99-pick", "data-role": role },
-    h("label", null, h("input", { type: "checkbox", name: "attach", value: role, checked, disabled }), " ", h("span", { text: label })), fig);
+  const pick = (role, checked, disabled, label, fig, name) => h("div", { class: "p99-pick", "data-role": role, hidden: !!name },
+    h("label", null, h("input", { type: "checkbox", name: name || "attach", value: role, checked, disabled }), " ", h("span", { text: label })), fig);
   const input = h("input", { type: "file", name: "files", multiple: true });
   const drop = h("div", { class: "p99-drop" }, h("label", null, h("span", { text: say("new_files_hint") }), input));
   const form = h("form", { class: "p99-view p99-new", "data-view": "new", novalidate: true },
@@ -1709,13 +1771,14 @@ function newForm(d) {
     h("label", { class: "p99-field" }, h("span", { text: say("new_body_label") }), h("textarea", { name: "body", maxlength: "40000", rows: "5", placeholder: say("new_body_hint") })),
     d.off ? h("p", { class: "p99-note p99-no-shot", role: "note", text: say("no_capture") }) : h("section", { class: "p99-capture", "aria-label": say("new_capture") },
       h("fieldset", { class: "p99-shots-pick" }, h("legend", { text: say("new_capture") }),
+        pick("mask", true, false, say("mask_areas"), null, "mask"),
         pick("screenshot", true, false, say("attach_screen"), h("figure", { class: "p99-shot", "data-role": "screenshot" })),
         pick("page", false, false, say("attach_page"), h("figure", { class: "p99-shot", "data-role": "page" })),
         pick("region", false, true, say("attach_regions"), h("div", { class: "p99-regions", "data-role": "region" }))),
       h("div", { class: "p99-capture-actions" }, h("button", { type: "button", class: "p99-mark-start", text: say("new_mark"), onclick: () => startMarking(form) })),
       h("ol", { class: "p99-marks" })),
     h("section", { class: "p99-attach", "aria-label": say("new_files") }, drop, h("ul", { class: "p99-file-list" })),
-    h("p", { class: "p99-note", text: say(d.off ? "new_privacy_text" : "new_privacy") }),
+    h("p", { class: "p99-note p99-privacy", text: say(d.off ? "new_privacy_text" : "new_privacy") }),
     statusLine(),
     h("div", { class: "p99-actions" }, h("button", { type: "button", text: say("cancel"), onclick: () => close() }), h("button", { type: "submit", text: say("send") })));
   input.addEventListener("change", () => { addFiles(form, input.files); input.value = ""; });
@@ -1728,10 +1791,11 @@ function newForm(d) {
   });
   form.addEventListener("change", (e) => {
     const t = e.target;
+    if (t.name === "mask") return showAreas(form, d, !t.checked);
     if (t.name !== "attach") return;
     if (t.value === "page" && t.checked && !d.page && !d.pageReady) {
       if (planned(d, form) > MAX_FILES) { t.checked = false; return status(form, say("too_many_files")); }
-      d.pageReady = capture(true).then((s) => { d.page = s; }, (e) => { status(form, say(why(e))); t.checked = false; }).then(() => {
+      d.pageReady = Promise.resolve(d.shotReady).then(() => capture(true, d.shown)).then((s) => { d.page = s; }, (e) => { status(form, say(why(e))); t.checked = false; }).then(() => {
         d.pageReady = null;
         if (S.draft === d) paintShot(form);
       });
@@ -1770,6 +1834,11 @@ function paintShot(form, draft) {
   if (d.page) pf.append(marked(d, true));
   else if (d.pageReady) pf.append(h("div", { class: "p99-shimmer p99-shot-wait" }), h("figcaption", { text: say("capturing_page") }));
   pf.hidden = !pb.checked;
+  const mb = form.querySelector("input[name=mask]");
+  mb.closest(".p99-pick").hidden = !d.hides;
+  mb.disabled = d.retaking || !!d.pageReady;
+  mb.checked = !d.shown;
+  form.querySelector(".p99-privacy").textContent = say(d.shown ? "new_privacy_shown" : "new_privacy");
 }
 function paintMarks(form) {
   const d = S.draft;
@@ -1823,7 +1892,7 @@ function paintFiles(form) {
 
 function startMarking(form) {
   const d = S.draft;
-  if (!d || S.marking) return;
+  if (!d || S.marking || d.retaking) return;
   if (d.marks.length >= MAX_MARKS) return status(form, say("too_many_marks"));
   Promise.all([lib(), settled()]).then(([m, known]) => {
     if (S.draft !== d || S.marking || !S.open) return;
@@ -1906,8 +1975,10 @@ function marking(form, d, lib) {
     if (keep && fresh.length) {
       status(form, say("capturing"));
       const same = d.shot && d.shot.sx === view.scroll_x && d.shot.sy === view.scroll_y && d.shot.vw === view.w;
-      const ready = same ? Promise.resolve(d.shot) : capture(false).then((s) => {
+      const ready = same ? Promise.resolve(d.shot) : capture(false, d.shown).then((s) => {
         if (d.shot) release(d.shot.canvas);
+        letGo(d.held);
+        d.held = null;
         d.shot = s;
         d.shotErr = false;
         return s;

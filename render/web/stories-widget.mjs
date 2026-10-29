@@ -1659,6 +1659,97 @@ try {
     await ctx.close();
   });
 
+  const HIDE = S(".p99-new input[name=mask]");
+  const SHOWN = (n) => n.red > 300 && n.magenta > 300 && n.yellow > 100 && n.cyan > 100;
+  const retaken = (p) => p.waitForFunction(() => {
+    const f = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new");
+    return f && !f.querySelector(".p99-shot-wait") && f.querySelector(".p99-shot[data-role=screenshot] canvas") && !f.querySelector("input[name=mask]").disabled;
+  }, null, { timeout: 30000 });
+
+  await story("unchecking Hide this site's private areas shows them in the screen, the whole page and the marked area, in the previews and in what is sent", async () => {
+    const { ctx, p } = await mePage(privateMe);
+    await plant(p);
+    const sent = await catching(p);
+    await openForm(p);
+    await shotReady(p);
+    await write(p, tag("Private areas shown on purpose"));
+    await p.locator(S(".p99-mark-start")).click();
+    await p.locator("p99-root >> .p99-mark-layer").waitFor({ timeout: 10000 });
+    await p.mouse.move(40, 110);
+    await p.mouse.down();
+    await p.mouse.move(740, 270, { steps: 8 });
+    await p.mouse.up();
+    await p.locator("p99-root >> .p99-mark-done").click();
+    await p.locator(S(".p99-regions .p99-region canvas")).waitFor({ timeout: 30000 });
+    await p.locator(S(".p99-new input[name=attach][value=page]")).check();
+    await p.locator(S(".p99-shot[data-role=page] canvas")).waitFor({ timeout: 30000 });
+    check("the hide checkbox is shown and checked", (await p.locator(HIDE).isVisible()) && (await p.locator(HIDE).isChecked()));
+    await p.locator(HIDE).uncheck();
+    await retaken(p);
+    await p.locator(S(".p99-shot[data-role=page] canvas")).waitFor({ timeout: 30000 });
+    await p.locator(S(".p99-regions .p99-region canvas")).waitFor({ timeout: 30000 });
+    const screen = await scan(p, await imageOf(p, ".p99-shot[data-role=screenshot] canvas"));
+    const page = await scan(p, await imageOf(p, ".p99-shot[data-role=page] canvas"));
+    const region = await scan(p, await imageOf(p, ".p99-regions .p99-region canvas"));
+    check(`the screen, page and region previews show the private colours (${JSON.stringify({ screen, page, region })})`, SHOWN(screen) && page.red > 100 && page.magenta > 100 && SHOWN(region));
+    await p.locator(SEND).click();
+    await until("the three uploads", () => sent.screenshot && sent.page && sent.region, 30000);
+    const up = { screen: await scan(p, asData(sent.screenshot)), page: await scan(p, asData(sent.page)), region: await scan(p, asData(sent.region)) };
+    check(`what is sent shows them too (${JSON.stringify(up)})`, SHOWN(up.screen) && SHOWN(up.page) && SHOWN(up.region));
+    await ctx.close();
+  });
+
+  await story("checking Hide this site's private areas again hides them in every preview and in what is sent", async () => {
+    const { ctx, p } = await mePage(privateMe);
+    await plant(p);
+    const sent = await catching(p);
+    await openForm(p);
+    await shotReady(p);
+    await p.locator(HIDE).uncheck();
+    await retaken(p);
+    await p.locator(S(".p99-new input[name=attach][value=page]")).check();
+    await p.locator(S(".p99-shot[data-role=page] canvas")).waitFor({ timeout: 30000 });
+    await p.locator(HIDE).check();
+    await retaken(p);
+    await p.locator(S(".p99-shot[data-role=page] canvas")).waitFor({ timeout: 30000 });
+    const screen = await scan(p, await imageOf(p, ".p99-shot[data-role=screenshot] canvas"));
+    const page = await scan(p, await imageOf(p, ".p99-shot[data-role=page] canvas"));
+    check(`both previews are private again (${JSON.stringify({ screen, page })})`, PRIVATE(screen) && screen.fill > 3000 && PRIVATE(page) && page.orange > 300);
+    await write(p, tag("Private areas hidden again"));
+    await p.locator(SEND).click();
+    await until("the uploads", () => sent.screenshot && sent.page, 30000);
+    const up = { screen: await scan(p, asData(sent.screenshot)), page: await scan(p, asData(sent.page)) };
+    check(`what is sent holds none of them (${JSON.stringify(up)})`, PRIVATE(up.screen) && PRIVATE(up.page) && up.screen.fill > 3000);
+    await ctx.close();
+  });
+
+  await story("a host whose masks match nothing here, on a page with nothing marked, offers no hide checkbox", async () => {
+    const { ctx, p } = await mePage({ ...privateMe, mask: [".nothing-matches-this"] });
+    await p.evaluate(() => document.querySelectorAll("[data-p99-redact]").forEach((n) => n.removeAttribute("data-p99-redact")));
+    await openForm(p);
+    await shotReady(p);
+    const note = await p.locator(S(".p99-new .p99-privacy")).textContent();
+    check(`no hide checkbox, and the note keeps its wording (${note})`, !(await p.locator(HIDE).isVisible()) && note.endsWith("Passwords and the fields this site marks as private are blanked."));
+    await ctx.close();
+  });
+
+  for (const scheme of ["light", "dark"]) {
+    await story(`${scheme}: each capture checkbox sits on one row with its label, the box first`, async () => {
+      const { ctx, p } = await mePage(privateMe, scheme);
+      await plant(p);
+      await openForm(p);
+      await shotReady(p);
+      await p.locator(HIDE).waitFor({ state: "visible", timeout: 10000 });
+      const rows = await p.evaluate(() => Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-shots-pick > .p99-pick")).map((d) => {
+        const box = d.querySelector("input").getBoundingClientRect();
+        const text = d.querySelector("label span").getBoundingClientRect();
+        return { role: d.dataset.role, dy: Math.abs((box.top + box.bottom) / 2 - (text.top + text.bottom) / 2), gap: text.left - box.right };
+      }));
+      check(`the hide checkbox and the three attach checkboxes each read [box] Label on one row (${JSON.stringify(rows)})`, rows.map((r) => r.role).join() === "mask,screenshot,page,region" && rows.every((r) => r.dy <= 2 && r.gap > 0 && r.gap < 24));
+      await ctx.close();
+    });
+  }
+
   await story("a mask selector this browser can't read means no screenshot at all, and the form says why", async () => {
     const { ctx, p } = await mePage({ ...privateMe, mask: [".p99-story-mask", "::not a selector("] });
     await plant(p);

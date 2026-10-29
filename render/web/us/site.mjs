@@ -14,6 +14,7 @@ import {
   openForm,
   passCode,
   plus,
+  previewSrc,
   readImage,
   rectOf,
   shotReady,
@@ -131,6 +132,37 @@ export default async function (kit) {
         assert.ok(sent.spreads[1] > 60, `the filed screenshot shows the heading: ${JSON.stringify(sent.spreads)}`);
       });
       assert.deepEqual(await brokenImages(p), [], "no broken image in the panel or the board");
+      assert.deepEqual(await violations(p), [], "nothing P99 does breaks the policy");
+      assert.deepEqual(blocked, []);
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  await kit.check("us-site-001 under a self only header policy the reporter can show the masked areas with no violation", async () => {
+    const owner = await guardedOwner(kit, shop);
+    const { p, errors, blocked } = await lockedVisit(kit, shop, owner.code);
+    await closing(p, async () => {
+      await passCode(kit, p, owner.key);
+      await shotReady(p);
+      const width = await viewportWidth(p);
+      const rects = [await rectOf(p, ".card-number")];
+      const hide = p.locator(S(".p99-new input[name=mask]"));
+      const blank = await kit.page();
+      const read = async () => readImage(blank, { src: await previewSrc(p, ".p99-shot[data-role=screenshot] canvas"), width, rects });
+      assert.ok((await hide.isVisible()) && (await hide.isChecked()), "the host's masks are hidden by default");
+      const masked = await read();
+      assert.ok(apart(masked.means[0], [59, 125, 216]) < 40, `the card line is covered: ${JSON.stringify(masked)}`);
+      await hide.uncheck();
+      await p.waitForFunction(() => {
+        const f = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new");
+        return f && !f.querySelector(".p99-shot-wait") && f.querySelector(".p99-shot[data-role=screenshot] canvas") && !f.querySelector("input[name=mask]").disabled;
+      }, null, { timeout: 30000 });
+      const shown = await read();
+      assert.ok(shown.spreads[0] > 60 && apart(shown.means[0], [59, 125, 216]) >= 40, `the card line's text shows: ${JSON.stringify(shown)}`);
+      await hide.check();
+      const again = await read();
+      assert.ok(apart(again.means[0], [59, 125, 216]) < 40, `the card line is covered again: ${JSON.stringify(again)}`);
+      await blank.close();
       assert.deepEqual(await violations(p), [], "nothing P99 does breaks the policy");
       assert.deepEqual(blocked, []);
       assert.deepEqual(errors, []);

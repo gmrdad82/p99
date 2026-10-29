@@ -17,6 +17,7 @@ import {
   inPage,
   issueBody,
   openForm,
+  previewSrc,
   readImage,
   rectOf,
   shotReady,
@@ -32,6 +33,17 @@ import {
 } from "../us-lib/report.mjs";
 
 const NOTE = Buffer.from("order 1042: card accepted, Pay disabled\n");
+const HIDE = S(".p99-new input[name=mask]");
+const NOTE_HIDDEN = "Passwords and the fields this site marks as private are blanked.";
+const NOTE_SHOWN = "Passwords are blanked; you chose to show this site's private areas.";
+const privacyNote = (p) => p.locator(S(".p99-new .p99-privacy")).textContent();
+const capturing = (p) => p.locator(S(".p99-new .p99-shot-wait")).count();
+const recaptured = (p) =>
+  p.waitForFunction(() => {
+    const f = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-new");
+    return f && !f.querySelector(".p99-shot-wait") && f.querySelector(".p99-shot[data-role=screenshot] canvas") && !f.querySelector("input[name=mask]").disabled;
+  }, null, { timeout: 30000 });
+
 const isPost = (r) => r.method() === "POST" && new URL(r.url()).pathname === "/_p99/api/issues";
 const isPut = (r) => r.method() === "PUT" && /^\/_p99\/api\/issues\/[^/]+\/attachments\//.test(new URL(r.url()).pathname);
 const isItemGet = (r) => r.method() === "GET" && /^\/_p99\/api\/issues\/[^/]+$/.test(new URL(r.url()).pathname);
@@ -272,6 +284,84 @@ export default async function (kit) {
       assert.ok(!stored.includes("4242 4242"), "no card number rides along");
       assert.ok(!stored.includes(secret), "no password rides along");
       assert.equal(t.issue.page.url, `https://${shop}/checkout`, "the page address loses its query");
+    });
+  });
+
+  await kit.check("us-report-002 the reporter can show the sites private areas and a password stays blank", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    const secret = `hunter2-${RUN}`;
+    const { p, errors } = await visit(kit, shop, { code });
+    await closing(p, async () => {
+      await p.evaluate(() => {
+        const note = document.createElement("p");
+        note.id = "us-private";
+        note.setAttribute("data-p99-redact", "");
+        note.textContent = "Grace Hopper · 12 Analytical Row · +44 20 7946 0000";
+        note.style.cssText = "position:absolute;left:48px;top:96px;z-index:9;margin:0;width:520px;height:56px;padding:12px 16px;box-sizing:border-box;background:#fff7d6;color:#1a1200;font:700 22px system-ui";
+        const pass = document.createElement("input");
+        pass.type = "password";
+        pass.id = "us-pass";
+        pass.style.cssText = "position:absolute;left:600px;top:96px;z-index:9;width:240px;height:56px;box-sizing:border-box;background:#ffffff;color:#000000;font:700 28px monospace";
+        document.body.append(note, pass);
+      });
+      await p.locator("#us-pass").fill(secret);
+      const width = await viewportWidth(p);
+      const rects = [await rectOf(p, "#us-private"), await rectOf(p, "#us-pass")];
+      await openForm(p);
+      await shotReady(p);
+      const read = async () => readImage(p, { src: await previewSrc(p, ".p99-shot[data-role=screenshot] canvas"), width, rects });
+
+      assert.ok(await p.locator(HIDE).isVisible(), "the form offers to hide this site's private areas");
+      assert.ok(await p.locator(HIDE).isChecked(), "hiding them is the default");
+      assert.equal(await p.locator(S(".p99-pick[data-role=mask] span")).textContent(), "Hide this site's private areas");
+      assert.ok((await privacyNote(p)).endsWith(NOTE_HIDDEN));
+      const masked = await read();
+      assert.ok(masked.spreads[0] <= 30, `the private area is one solid block (${JSON.stringify(masked)})`);
+      assert.ok(masked.spreads[1] <= 30, `the password is one solid block (${JSON.stringify(masked)})`);
+
+      await p.locator(HIDE).uncheck();
+      await recaptured(p);
+      const shown = await read();
+      assert.ok(shown.spreads[0] > 60, `the private area's own pixels show in the preview (${JSON.stringify(shown)})`);
+      assert.ok(shown.spreads[1] <= 30, `the password is still one solid block (${JSON.stringify(shown)})`);
+      assert.ok((await privacyNote(p)).endsWith(NOTE_SHOWN), "the note says she chose to show them");
+
+      await p.locator(HIDE).check();
+      assert.equal(await capturing(p), 0, "checking it again reuses the masked capture, with no new one");
+      const again = await read();
+      assert.ok(again.spreads[0] <= 30 && apart(again.means[0], masked.means[0]) <= 12, `the private area is hidden again (${JSON.stringify(again)})`);
+      assert.ok((await privacyNote(p)).endsWith(NOTE_HIDDEN));
+
+      await p.locator(HIDE).uncheck();
+      assert.equal(await capturing(p), 0, "unchecking once more reuses the capture that shows them");
+      const title = tag("The address line on the checkout");
+      await write(p, title);
+      await p.locator(SEND).click();
+      await threadShown(p);
+      const [item] = await titled(kit, title);
+      assert.ok(item, "the report is filed");
+      const t = await thread(kit, item.key);
+      const shot = t.attachments.find((a) => a.role === "screenshot");
+      assert.ok(shot, "it carries a screenshot");
+      const sent = await readImage(p, { src: asData(await fileBytes(kit, shot.id), shot.type), width, rects });
+      assert.ok(sent.spreads[0] > 60, `the stored screenshot shows the private area (${JSON.stringify(sent)})`);
+      assert.ok(sent.spreads[1] <= 30, `the stored screenshot keeps the password one solid block (${JSON.stringify(sent)})`);
+      assert.ok(!JSON.stringify(t).includes(secret), "no password rides along");
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  await kit.check("us-report-002 a page with nothing to hide offers no choice", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    const { p, errors } = await visit(kit, shop, { code, path: "/strict.html" });
+    await closing(p, async () => {
+      assert.equal(await p.evaluate(() => document.querySelectorAll("[data-p99-redact]").length), 0, "the page marks nothing private");
+      await openForm(p);
+      await shotReady(p);
+      assert.equal(await p.locator(HIDE).count(), 1);
+      assert.ok(!(await p.locator(HIDE).isVisible()), "no hide checkbox shows");
+      assert.ok((await privacyNote(p)).endsWith(NOTE_HIDDEN), "the note keeps its wording");
+      assert.deepEqual(errors, []);
     });
   });
 }
