@@ -100,7 +100,7 @@ const DEFAULT_LIST_LIMIT = 50;
 const MAX_CODE_HOSTS = 50;
 const SNIFF_BYTES = 1024;
 const DAILY_LIMITS = { issues: 30, comments: 200, bytes: 100 * 1024 * 1024 };
-const DAILY_PHRASES = { issues: "30 items", comments: "200 comments", bytes: "100 MB of files" };
+const DAILY_PHRASES = { issues: "30 cards", comments: "200 comments", bytes: "100 MB of files" };
 const MAIL_CAP = 100;
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 const CODE_ALPHABET = "0123456789abcdefghjkmnpqrstvwxyz";
@@ -120,7 +120,7 @@ const MAX_MERGE_ITEMS = 50;
 
 const ATTACHMENT_ROLES = ["screenshot", "page", "region", "file"];
 const CAPTURE_ROLES = ["screenshot", "page", "region"];
-const CAPTURE_OFF = "this site takes no screenshots; the report is filed without one";
+const CAPTURE_OFF = "this site takes no screenshots; the card is filed without one";
 const IMAGE_TYPES = new Set(["image/webp", "image/png", "image/jpeg"]);
 const BLOCKED_NAMES = /\.(html?|xhtml|svg|xml|js|mjs|cjs|jar|exe|msi|dll|com|scr|bat|cmd|ps1|vbs|hta|lnk|sh|dmg|app|url|webloc)[.\s]*$/i;
 const ZIP = [0x50, 0x4b, 0x03, 0x04];
@@ -720,7 +720,7 @@ const ITEM_SELECT = `SELECT i.*, d.kind AS duplicate_kind, ${LABEL_COLUMNS}, ${a
 
 function itemKeyId(raw) {
   const id = parseKey(raw);
-  if (id === null) fail(404, "no such item");
+  if (id === null) fail(404, "no such card");
   return id;
 }
 
@@ -740,7 +740,7 @@ function isFollower(c, row) {
 }
 
 function allowedItem(c, row, follows = false) {
-  if (!row || !inScope(c, row) || (!c.manager && row.reporter_email !== c.actor.email && !follows)) fail(404, "no such item");
+  if (!row || !inScope(c, row) || (!c.manager && row.reporter_email !== c.actor.email && !follows)) fail(404, "no such card");
   return row;
 }
 
@@ -1490,11 +1490,11 @@ async function postBuilds(c) {
   const seen = new Set();
   const items = [];
   for (const entry of listed) {
-    if (!entry || typeof entry !== "object") fail(400, "every item must be an object");
+    if (!entry || typeof entry !== "object") fail(400, "every entry of items must be an object");
     const itemId = parseKey(entry.id);
-    if (itemId === null) fail(400, "an item id is not a key or a number");
+    if (itemId === null) fail(400, "an entry's id is not a card key or a number");
     if (entry.rel !== "fixes" && entry.rel !== "refs") fail(400, "rel must be fixes or refs");
-    if (!isText(entry.sha, 7, 64) || !/^[0-9a-f]+$/.test(entry.sha)) fail(400, "an item sha is not a commit id");
+    if (!isText(entry.sha, 7, 64) || !/^[0-9a-f]+$/.test(entry.sha)) fail(400, "an entry's sha is not a commit id");
     const subject = typeof entry.subject === "string" ? clean(entry.subject).slice(0, 300) : "";
     const unique = `${itemId} ${entry.rel} ${entry.sha}`;
     if (seen.has(unique)) continue;
@@ -1707,7 +1707,7 @@ async function listIssues(c) {
     if (asked.resolution && status !== "done") where.push(`i.resolution = ${q.bind(asked.resolution)}`);
   } else if (asked) where.push(`i.open = 1 AND i.label_id = (SELECT id FROM labels WHERE role = ${q.bind(asked.role)})`);
   else if (status !== "any") fail(400, "status must be open, closed, any or a status key; label= keeps one label");
-  if (params.has("board")) fail(400, "items sit on no board; a board shows the items whose label is one of its columns");
+  if (params.has("board")) fail(400, "cards sit on no board; a board shows the cards whose label is one of its columns");
   const kind = params.get("kind");
   if (kind) {
     if (!KIND_PREFIXES[kind]) fail(400, "kind is not known");
@@ -1987,15 +1987,15 @@ async function postMerge(c) {
   requireManager(c);
   const body = await readJson(c, MAX_JSON_BYTES);
   const into = parseKey(body.into);
-  if (into === null) fail(400, "into must name an item");
+  if (into === null) fail(400, "into must name a card");
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > MAX_MERGE_ITEMS) {
-    fail(400, `items must list 1 to ${MAX_MERGE_ITEMS} items`);
+    fail(400, `items must list 1 to ${MAX_MERGE_ITEMS} cards`);
   }
   const named = new Map();
   for (const raw of body.items) {
     const id = parseKey(raw);
-    if (id === null) fail(400, `${String(raw).slice(0, 40)} is not an item key`);
-    if (id === into) fail(400, "an item cannot merge into itself");
+    if (id === null) fail(400, `${String(raw).slice(0, 40)} is not a card key`);
+    if (id === into) fail(400, "a card cannot merge into itself");
     named.set(id, String(raw));
   }
   const { DB } = c.env;
@@ -2004,14 +2004,14 @@ async function postMerge(c) {
     .all();
   const byId = new Map(results.map((r) => [r.id, r]));
   const target = byId.get(into);
-  if (!target || !inScope(c, target)) fail(404, `no such item ${String(body.into).slice(0, 40)}`);
+  if (!target || !inScope(c, target)) fail(404, `no such card ${String(body.into).slice(0, 40)}`);
   const targetKey = keyOf(target.kind, target.id);
   if (target.duplicate_of !== null) {
     fail(409, `${targetKey} is merged into ${keyOf(target.duplicate_kind, target.duplicate_of)}; merge into that one`);
   }
   const sources = [...named].map(([id, raw]) => {
     const row = byId.get(id);
-    if (!row || !inScope(c, row)) fail(404, `no such item ${raw.slice(0, 40)}`);
+    if (!row || !inScope(c, row)) fail(404, `no such card ${raw.slice(0, 40)}`);
     return row;
   });
   const folded = (r) => r.duplicate_of === into && !r.open && r.resolution === "duplicate";
@@ -2086,9 +2086,9 @@ async function patchIssue(c, rawKey) {
       duplicateOf = null;
     } else {
       const target = parseKey(body.duplicate_of);
-      if (target === null || target === row.id) fail(400, "duplicate_of must name another item");
+      if (target === null || target === row.id) fail(400, "duplicate_of must name another card");
       const exists = await c.env.DB.prepare("SELECT id, host, origin_env, project_id FROM items WHERE id = ?1").bind(target).first();
-      if (!exists || !inScope(c, exists)) fail(400, "duplicate_of names no item");
+      if (!exists || !inScope(c, exists)) fail(400, "duplicate_of names no card");
       duplicateOf = target;
     }
   }
@@ -2308,7 +2308,7 @@ async function storeReserved(c, reserved, made, length) {
 
 async function putAttachment(c, rawKey, rawUid) {
   const row = await loadItem(c, rawKey);
-  if (isFollower(c, row) && !c.url.searchParams.get("comment")) fail(404, "no such item");
+  if (isFollower(c, row) && !c.url.searchParams.get("comment")) fail(404, "no such card");
   const uid = decodeURIComponentSafe(rawUid);
   if (!isUid(uid)) fail(400, "client_uid must be 1 to 64 letters, digits, dots, dashes or underscores");
   const { DB } = c.env;
@@ -2350,7 +2350,7 @@ async function putAttachment(c, rawKey, rawUid) {
   if (role === "region") {
     const marks = parseJson(row.marks_json, []);
     mark = markText !== null && /^\d{1,2}$/.test(markText) ? Number(markText) : -1;
-    if (mark < 0 || mark >= marks.length) fail(400, "a region needs mark, the index of one of the item's marks");
+    if (mark < 0 || mark >= marks.length) fail(400, "a region needs mark, the index of one of the card's marks");
   } else if (markText !== null && markText !== "") {
     fail(400, "only a region carries a mark");
   }
@@ -2365,7 +2365,7 @@ async function putAttachment(c, rawKey, rawUid) {
   let internal = false;
   if (commentParam) {
     if (!comment || (comment.internal && !c.manager) || (!c.manager && comment.author_email !== c.actor.email)) {
-      fail(404, "no such comment on this item");
+      fail(404, "no such comment on this card");
     }
     commentId = comment.id;
     internal = Boolean(comment.internal);
@@ -2375,7 +2375,7 @@ async function putAttachment(c, rawKey, rawUid) {
   const length = Number(declared);
   if (length > MAX_FILE_BYTES) fail(413, "a file may be at most 20 MB");
   if (length === 0 || !c.request.body) fail(400, "the file is empty");
-  if (row.attachment_count >= MAX_FILES_PER_ITEM) fail(409, `an item holds at most ${MAX_FILES_PER_ITEM} files`);
+  if (row.attachment_count >= MAX_FILES_PER_ITEM) fail(409, `a card holds at most ${MAX_FILES_PER_ITEM} files`);
   checkUsage(c, "bytes", length, used);
   if (!reserved) {
     reserved = await DB.prepare(
@@ -3130,11 +3130,11 @@ async function postImport(c) {
   const itemReady = (r) => {
     const target = known.get(r.item);
     if (!target) {
-      if (!dry) conflict(r, `no item ${r.item} on ${host}`);
+      if (!dry) conflict(r, `no card ${r.item} on ${host}`);
       return dry;
     }
     if (target.host !== host) {
-      conflict(r, `item ${r.item} belongs to ${target.host}`);
+      conflict(r, `card ${r.item} belongs to ${target.host}`);
       return false;
     }
     return true;
@@ -3162,7 +3162,7 @@ async function postImport(c) {
     } else if (r.type === "comment") {
       const owner = commentItems.get(r.uid);
       if (owner === r.item) tally.existing += 1;
-      else if (owner !== undefined) conflict(r, `uid ${r.uid} is a comment on item ${owner}`);
+      else if (owner !== undefined) conflict(r, `uid ${r.uid} is a comment on card ${owner}`);
       else {
         commentItems.set(r.uid, r.item);
         tally.new += 1;
@@ -3172,8 +3172,8 @@ async function postImport(c) {
     } else if (r.type === "attachment") {
       const found = files.get(r.uid);
       const onComment = r.comment ? commentItems.get(r.comment) : r.item;
-      if (found && found.item_id !== r.item) conflict(r, `uid ${r.uid} is a file of item ${found.item_id}`);
-      else if (onComment !== undefined && onComment !== r.item) conflict(r, `comment ${r.comment} is on item ${onComment}`);
+      if (found && found.item_id !== r.item) conflict(r, `uid ${r.uid} is a file of card ${found.item_id}`);
+      else if (onComment !== undefined && onComment !== r.item) conflict(r, `comment ${r.comment} is on card ${onComment}`);
       else if (onComment === undefined && !dry) conflict(r, `no comment ${r.comment}`);
       else if (found && found.stored_at) tally.existing += 1;
       else {
@@ -3218,8 +3218,8 @@ async function finishImport(c) {
   const linked = [];
   for (const [item, target] of links) {
     const row = rows.get(item);
-    if (!row || row.host !== host) conflicts.push({ ref: String(item), reason: `no item ${item} on ${host}` });
-    else if (!rows.has(target)) conflicts.push({ ref: String(item), reason: `duplicate_of names no item ${target}` });
+    if (!row || row.host !== host) conflicts.push({ ref: String(item), reason: `no card ${item} on ${host}` });
+    else if (!rows.has(target)) conflicts.push({ ref: String(item), reason: `duplicate_of names no card ${target}` });
     else if (row.duplicate_of === null) linked.push([item, target]);
   }
   const mine = ids.filter((id) => rows.has(id) && rows.get(id).host === host);
@@ -3236,7 +3236,7 @@ async function putImportAttachment(c, rawUid) {
   const params = c.url.searchParams;
   const settle = async (status, found) => {
     if (c.request.body) await c.request.body.cancel().catch(() => {});
-    if (status === 409) fail(409, "uid is already a file of another item");
+    if (status === 409) fail(409, "uid is already a file of another card");
     return json(200, attachmentOf(found));
   };
   const uid = decodeURIComponentSafe(rawUid);
@@ -3245,7 +3245,7 @@ async function putImportAttachment(c, rawUid) {
   if (itemId === null) fail(400, "item must be a key such as BUG-3");
   const { DB } = c.env;
   const row = await DB.prepare("SELECT id, host, marks_json, reporter_email, origin_env FROM items WHERE id = ?1").bind(itemId).first();
-  if (!row || row.host !== host) fail(404, "no such item");
+  if (!row || row.host !== host) fail(404, "no such card");
   const byUid = DB.prepare("SELECT * FROM attachments WHERE client_uid = ?1").bind(uid);
   let reserved = await byUid.first();
   let made = false;
@@ -3258,7 +3258,7 @@ async function putImportAttachment(c, rawUid) {
   if (role === "region") {
     const marks = parseJson(row.marks_json, []);
     mark = markText !== null && /^\d{1,2}$/.test(markText) ? Number(markText) : -1;
-    if (mark < 0 || mark >= marks.length) fail(400, "a region needs mark, the index of one of the item's marks");
+    if (mark < 0 || mark >= marks.length) fail(400, "a region needs mark, the index of one of the card's marks");
   } else if (markText !== null && markText !== "") {
     fail(400, "only a region carries a mark");
   }
@@ -3277,7 +3277,7 @@ async function putImportAttachment(c, rawUid) {
     const comment = await DB.prepare("SELECT id, internal, author_email FROM comments WHERE client_uid = ?1 AND item_id = ?2")
       .bind(commentUid, row.id)
       .first();
-    if (!comment) fail(404, "no such comment on this item");
+    if (!comment) fail(404, "no such comment on this card");
     commentId = comment.id;
     actor = comment.author_email;
     internal = internal || Boolean(comment.internal);
@@ -3291,7 +3291,7 @@ async function putImportAttachment(c, rawUid) {
   const stored = await DB.prepare("SELECT count(*) AS n FROM attachments WHERE item_id = ?1 AND stored_at IS NOT NULL")
     .bind(row.id)
     .first();
-  if (stored.n >= MAX_FILES_PER_ITEM) fail(409, `an item holds at most ${MAX_FILES_PER_ITEM} files`);
+  if (stored.n >= MAX_FILES_PER_ITEM) fail(409, `a card holds at most ${MAX_FILES_PER_ITEM} files`);
   if (!reserved) {
     reserved = await DB.prepare(
       `INSERT INTO attachments (item_id, client_uid, comment_id, internal, role, name, type, bytes, sha256, r2_key,

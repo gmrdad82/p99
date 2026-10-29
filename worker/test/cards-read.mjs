@@ -96,7 +96,7 @@ async function unitChecks(check) {
   });
 
   await check("a plain item's refusal names it and the command that makes it a card", async () => {
-    assert.equal(notCard("BUG-12"), "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>");
+    assert.equal(notCard("BUG-12"), "BUG-12 has no project of its own; give it one with p99 edit BUG-12 --project <name>");
   });
 
   await check("a card row becomes the contract's card: status by lane, lane null when done, persons without e-mails", async () => {
@@ -509,11 +509,11 @@ export async function cardReadChecks({ call, browse, mint, check, issueBody, her
     for (const [raw, shown] of [["FEAT-999999", "FEAT-999999"], ["999999", "999999"], ["not-a-key", "not-a-key"]]) {
       const missing = await call("GET", `/_p99/v1/cards/${raw}`, { actor: ada });
       assert.equal(missing.status, 404, raw);
-      assert.equal(missing.json.message, `no item ${shown}`);
+      assert.equal(missing.json.message, `no card ${shown}`);
     }
     const hidden = await call("GET", `/_p99/v1/cards/${alphaThere.key}?host=${here}`, { actor: ada });
     assert.equal(hidden.status, 404);
-    assert.equal(hidden.json.message, `no item ${alphaThere.key}`);
+    assert.equal(hidden.json.message, `no card ${alphaThere.key}`);
     assert.equal((await call("GET", `/_p99/v1/cards/${alphaThere.key}?host=${there}`, { actor: ada })).status, 200);
   });
 

@@ -67,7 +67,7 @@ export function palette(theme) {
 }
 
 function lines(data) {
-  const kind = KIND_LABELS[data.kind] || "Item";
+  const kind = KIND_LABELS[data.kind] || "Card";
   const quoted = `“${data.title}”`;
   switch (data.template) {
     case "created":

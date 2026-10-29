@@ -261,7 +261,7 @@ async function unitChecks(check) {
     assert.deepEqual(anchorOf({ before: "BUG-12" }), { side: "before", raw: "BUG-12", id: 12 });
     assert.deepEqual(anchorOf({ after: "7" }), { side: "after", raw: "7", id: 7 });
     assert.throws(() => anchorOf({ before: "BUG-1", after: "BUG-2" }), refused(400, "give before or after, not both"));
-    assert.throws(() => anchorOf({ after: "not a key" }), refused(400, "not a key is not an item key"));
+    assert.throws(() => anchorOf({ after: "not a key" }), refused(400, "not a key is not a card key"));
   });
 
   await check("[fold] a move's from matches the item's lane by name or by word, else it moved", async () => {

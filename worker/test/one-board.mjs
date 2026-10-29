@@ -89,7 +89,7 @@ export async function oneBoardChecks({ call, browse, mint, check, issueBody, her
     assert.equal((await move({ key: a, to: "planned" })).status, 400);
     assert.equal((await move({ key: a, from: "In progress", to: "planned", before: 7 })).status, 400);
     const long = await move({ key: `BUG-${"1".repeat(40)}`, from: "In progress", to: "planned" });
-    assert.deepEqual([long.status, long.json.message], [400, "key must be an item key"]);
+    assert.deepEqual([long.status, long.json.message], [400, "key must be a card key"]);
     assert.equal((await call("GET", `/_p99/v1/issues/${a}?host=${here}`, { actor: ada })).json.issue.label, "In progress");
   });
 

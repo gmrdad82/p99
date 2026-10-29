@@ -237,13 +237,13 @@ export async function importChecks({ call, check, here, there }) {
     assert.equal(said.status, 200, JSON.stringify(said.json));
     const reasons = (type) => said.json.counts[type].conflicts.map((c) => `${c.ref}: ${c.reason}`);
     assert.deepEqual(reasons("comment"), [
-      `imp-cross-c: item 9806 belongs to ${there}`,
-      "imp-far-c: uid imp-far-c is a comment on item 9806",
-      `imp-orphan-c: no item 9899 on ${here}`,
+      `imp-cross-c: card 9806 belongs to ${there}`,
+      "imp-far-c: uid imp-far-c is a comment on card 9806",
+      `imp-orphan-c: no card 9899 on ${here}`,
     ]);
-    assert.deepEqual(reasons("read"), [`9806 ${ADA.email}: item 9806 belongs to ${there}`]);
-    assert.deepEqual(reasons("attachment"), ["imp-cross-a: comment imp-far-c is on item 9806", "imp-lost-a: no comment imp-no-such-c"]);
-    assert.deepEqual(reasons("landing"), [`9899 production: no item 9899 on ${here}`]);
+    assert.deepEqual(reasons("read"), [`9806 ${ADA.email}: card 9806 belongs to ${there}`]);
+    assert.deepEqual(reasons("attachment"), ["imp-cross-a: comment imp-far-c is on card 9806", "imp-lost-a: no comment imp-no-such-c"]);
+    assert.deepEqual(reasons("landing"), [`9899 production: no card 9899 on ${here}`]);
     assert.deepEqual(said.json.upload, []);
     const dry = await post([comment("BUG-9899", "imp-orphan-c"), { type: "attachment", item: "BUG-9899", uid: "imp-orphan-a", comment: "imp-orphan-c" }]);
     assert.deepEqual([dry.json.counts.comment.new, dry.json.counts.attachment.new, dry.json.counts.comment.conflicts.length], [1, 1, 0]);
@@ -301,9 +301,9 @@ export async function importChecks({ call, check, here, there }) {
     assert.equal(first.json.recounted, 2);
     assert.equal(first.json.duplicates.linked, 1);
     assert.deepEqual(first.json.duplicates.conflicts, [
-      { ref: "9898", reason: `no item 9898 on ${here}` },
-      { ref: "9806", reason: `no item 9806 on ${here}` },
-      { ref: "9808", reason: "duplicate_of names no item 9897" },
+      { ref: "9898", reason: `no card 9898 on ${here}` },
+      { ref: "9806", reason: `no card 9806 on ${here}` },
+      { ref: "9808", reason: "duplicate_of names no card 9897" },
     ]);
     const again = await finish({ items: [], duplicates: [{ item: "BUG-9809", duplicate_of: "BUG-9808" }] });
     assert.deepEqual(again.json, { recounted: 0, duplicates: { linked: 0, conflicts: [] } });
@@ -318,16 +318,16 @@ export async function importChecks({ call, check, here, there }) {
     const cases = [
       ["bad%20uid", ok, {}, 400, "uid must be 1 to 64 letters, digits, dots, dashes or underscores"],
       ["imp-a-1", { ...ok, item: "receipt" }, {}, 400, "item must be a key such as BUG-3"],
-      ["imp-a-1", { ...ok, item: "BUG-9896" }, {}, 404, "no such item"],
-      ["imp-a-1", ok, { host: there }, 404, "no such item"],
+      ["imp-a-1", { ...ok, item: "BUG-9896" }, {}, 404, "no such card"],
+      ["imp-a-1", ok, { host: there }, 404, "no such card"],
       ["imp-a-1", { ...ok, role: "photo" }, {}, 400, "role must be screenshot, page, region or file"],
-      ["imp-a-1", { ...ok, role: "region", mark: "0" }, { type: "image/png" }, 400, "a region needs mark, the index of one of the item's marks"],
-      ["imp-a-1", { ...ok, role: "region" }, { type: "image/png" }, 400, "a region needs mark, the index of one of the item's marks"],
+      ["imp-a-1", { ...ok, role: "region", mark: "0" }, { type: "image/png" }, 400, "a region needs mark, the index of one of the card's marks"],
+      ["imp-a-1", { ...ok, role: "region" }, { type: "image/png" }, 400, "a region needs mark, the index of one of the card's marks"],
       ["imp-a-1", { ...ok, mark: "0" }, {}, 400, "only a region carries a mark"],
       ["imp-a-1", { item: "BUG-9810" }, {}, 400, "name must be 1 to 200 characters, no slashes"],
       ["imp-a-1", { ...ok, name: "../receipt.txt" }, {}, 400, "name must be 1 to 200 characters, no slashes"],
       ["imp-a-1", { ...ok, name: "receipt.html" }, {}, 400, "the file's name must not end in an executable or web page extension"],
-      ["imp-a-1", { ...ok, comment: "imp-no-such-c" }, {}, 404, "no such comment on this item"],
+      ["imp-a-1", { ...ok, comment: "imp-no-such-c" }, {}, 404, "no such comment on this card"],
       ["imp-a-1", { ...ok, created_at: "soon" }, {}, 400, "created_at must be a date and time"],
     ];
     for (const [uid, params, options, status, message] of cases) {
@@ -361,9 +361,9 @@ export async function importChecks({ call, check, here, there }) {
     assert.equal(again.json.id, stored.json.id);
     const taken = await put("imp-a-2", { item: "BUG-9811", name: "café.txt" });
     assert.equal(taken.status, 409, JSON.stringify(taken.json));
-    assert.equal(taken.json.message, "uid is already a file of another item");
+    assert.equal(taken.json.message, "uid is already a file of another card");
     const listed = await post([{ type: "attachment", item: "BUG-9811", uid: "imp-a-2" }, { type: "attachment", item: "BUG-9810", uid: "imp-a-2", comment: "imp-att-note" }], { dry: false });
-    assert.deepEqual(listed.json.counts.attachment, { new: 0, existing: 1, conflicts: [{ ref: "imp-a-2", reason: "uid imp-a-2 is a file of item 9810" }] });
+    assert.deepEqual(listed.json.counts.attachment, { new: 0, existing: 1, conflicts: [{ ref: "imp-a-2", reason: "uid imp-a-2 is a file of card 9810" }] });
     const thread = await call("GET", `/_p99/v1/issues/BUG-9810?host=${here}`);
     assert.equal(thread.json.attachments.length, 1, JSON.stringify(thread.json.attachments));
     assert.equal(thread.json.attachments[0].name, "café.txt");
@@ -380,7 +380,7 @@ export async function importChecks({ call, check, here, there }) {
     }
     const over = await put("imp-cap-31", { item: "BUG-9812", name: "receipt-31.txt" });
     assert.equal(over.status, 409, JSON.stringify(over.json));
-    assert.equal(over.json.message, "an item holds at most 30 files");
+    assert.equal(over.json.message, "a card holds at most 30 files");
     const again = await put("imp-cap-30", { item: "BUG-9812", name: "receipt-30.txt" });
     assert.equal(again.status, 200, JSON.stringify(again.json));
     const thread = await call("GET", `/_p99/v1/issues/BUG-9812?host=${here}`);

@@ -135,7 +135,7 @@ async function itemRow(c, rawKey) {
   try {
     return await K.loadItem(c, rawKey);
   } catch (error) {
-    if (error && error.status === 404) K.fail(404, `no item ${shownKey(rawKey)}`);
+    if (error && error.status === 404) K.fail(404, `no card ${shownKey(rawKey)}`);
     throw error;
   }
 }

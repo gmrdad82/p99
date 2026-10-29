@@ -545,7 +545,7 @@ export async function backupChecks({ check, root }) {
     assert.deepEqual(held.forward, []);
     assert.equal(held.dropped, undefined);
     assert.ok(pages.every((p) => p.run === runRow(db).started_at), "the rewritten page still names its run");
-    assert.ok(lines.some((l) => l.includes(`merge pointer cleared on items ${merged}`)), lines.join("\n"));
+    assert.ok(lines.some((l) => l.includes(`merge pointer cleared on cards ${merged}`)), lines.join("\n"));
   });
 
   await check("[backup] a merge target filed before the cut and kept keeps its pointer across items pages", async () => {

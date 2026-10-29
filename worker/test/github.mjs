@@ -154,7 +154,7 @@ export async function githubChecks({ base, call, check, issueBody, here, there }
     assert.equal(asked.agent, "p99");
     assert.equal(asked.version, "2022-11-28");
     assert.equal(asked.body.title, "The cart forgets the gift note");
-    assert.ok(asked.body.body.startsWith(`P99 item ${item.key}`), asked.body.body);
+    assert.ok(asked.body.body.startsWith(`P99 card ${item.key}`), asked.body.body);
     assert.ok(asked.body.body.includes(`\`Fixes: ${item.key}\``), asked.body.body);
     const again = await open(item.key);
     assert.equal(again.status, 200, JSON.stringify(again.json));

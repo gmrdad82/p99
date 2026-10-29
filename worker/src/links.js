@@ -48,7 +48,7 @@ export function composeLinkMail({ name, hosts, secret, totp, totpMail, renewed, 
   const role = owner ? "an Owner" : "a User";
   const of = space ? ` of ${space}` : "";
   const subject = renewed ? `Your new P99 link for ${space || listed(hosts)}` : `Your P99 access for ${space || listed(hosts)}`;
-  const reach = `you can now report bugs and ideas on ${listed(hosts)} with P99, as ${role}${of}.`;
+  const reach = `you can now file bugs and ideas on ${listed(hosts)} with P99, as ${role}${of}.`;
   const lead = renewed ? `${first}, here is your new P99 link: the old one no longer works. ${reach[0].toUpperCase()}${reach.slice(1)}` : `${first}, ${reach}`;
   const steps = [];
   if (totpMail) steps.push({ text: "First, set up your authenticator: a second mail from P99, sent separately, has the code to scan." });
@@ -61,8 +61,8 @@ export function composeLinkMail({ name, hosts, secret, totp, totpMail, renewed, 
   });
   if (totp) steps.push({ text: "The first time, P99 asks for the 6-digit code your authenticator shows. After that the browser is remembered." });
   const plus =
-    "On the site, the + in the corner opens P99: describe the bug or idea; a screenshot of the page goes with it, with the site's private areas hidden unless you choose to show them. The ⋯ next to it lists your items and their replies.";
-  const board = owner ? ` As an Owner you also get the board, where every card and item${of} moves through its lanes.` : "";
+    "On the site, the + in the corner opens P99: describe the bug or idea; a screenshot of the page goes with it, with the site's private areas hidden unless you choose to show them. The ⋯ next to it lists your cards and their replies.";
+  const board = owner ? ` As an Owner you also get the board, where every card${of} moves through its lanes.` : "";
   steps.push({ text: plus + board });
   if (owner && app && totp) {
     const page = `https://${app}/`;

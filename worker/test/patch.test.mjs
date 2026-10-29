@@ -272,7 +272,7 @@ test("a patch writes only the fields its body names, keeping a cleared assignee 
 });
 
 test("the details' refusal names an Owner, the role word every output uses, never a manager", () => {
-  assert.equal(BODY_REFUSED, "only an Owner, or the reporter while the item is new, may change the details");
+  assert.equal(BODY_REFUSED, "only an Owner, or the person who filed it while the card is new, may change the details");
   assert.doesNotMatch(`${BODY_REFUSED} ${TITLE_REFUSED}`, /manager|member/i);
 });
 

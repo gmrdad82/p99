@@ -205,7 +205,7 @@ export async function widgetStories({ base, browse, mint, check, issueBody, here
     const over = await browse("POST", "/issues", hedy.secret, issueBody({ title: "One too many" }));
     assert.equal(over.status, 429, JSON.stringify(over.json));
     assert.equal(over.json.error, "rate_limited");
-    assert.match(over.json.message, /^today's limit of 30 items/);
+    assert.match(over.json.message, /^today's limit of 30 cards/);
     assert.equal(rows("items", "reporter_email = 'hedy@example.com'"), 1);
     assert.equal(used("hedy@example.com", "issues"), 30);
 

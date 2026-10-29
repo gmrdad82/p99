@@ -231,7 +231,7 @@ async function linksFor(c, ids) {
 
 async function cardRow(c, raw, body = false) {
   const id = K.parseKey(raw);
-  if (id === null) K.fail(404, `no item ${shownKey(raw)}`);
+  if (id === null) K.fail(404, `no card ${shownKey(raw)}`);
   const v = boardView(c);
   const q = K.query();
   const scope = scopeOf(v, q);
@@ -243,7 +243,7 @@ async function cardRow(c, raw, body = false) {
   const row = card.results[0];
   if (row) return row;
   const item = plain.results[0];
-  if (!item || !inView(v, item)) K.fail(404, `no item ${shownKey(raw)}`);
+  if (!item || !inView(v, item)) K.fail(404, `no card ${shownKey(raw)}`);
   K.fail(409, notCard(K.keyOf(item.kind, item.id)));
 }
 

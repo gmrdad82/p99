@@ -201,7 +201,7 @@ async function oneLane(c, index) {
 
 export async function closeItem(c, row, resolution, opts = {}) {
   const to = row.label_closes ? { id: row.label_id, name: row.label_name, role: row.label_role, closes: 1 } : await oneLane(c, -1);
-  if (!to) K.fail(409, "no lane closes items; run p99 deploy");
+  if (!to) K.fail(409, "no lane closes cards; run p99 deploy");
   return applyLabel(c, row, to, { ...opts, resolution });
 }
 
@@ -249,7 +249,7 @@ export async function postMove(c) {
   K.requireManager(c);
   const body = await K.readJson(c, K.MAX_JSON_BYTES);
   for (const f of ["key", "from", "to"]) if (typeof body[f] !== "string" || body[f].length === 0) K.fail(400, `${f} is required`);
-  for (const f of ["before", "after"]) if (body[f] !== undefined && body[f] !== null && typeof body[f] !== "string") K.fail(400, `${f} must be an item key`);
+  for (const f of ["before", "after"]) if (body[f] !== undefined && body[f] !== null && typeof body[f] !== "string") K.fail(400, `${f} must be a card key`);
   return moveByLane(c, body);
 }
 

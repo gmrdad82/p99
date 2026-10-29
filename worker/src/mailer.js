@@ -234,7 +234,7 @@ async function optOutPage(request, env, url, host, keyOf) {
   const key = escapeHtml(keyOf(item.kind, item.id));
   const title = escapeHtml(item.title);
   const body = off
-    ? `<h1>No more mail about ${key}</h1><p>${escapeHtml(claim.email)} won't get mail about ${key}, “${title}”, any more. Other items still mail you as before.</p><form method="post"><input type="hidden" name="undo" value="1"><button>Undo</button></form>`
+    ? `<h1>No more mail about ${key}</h1><p>${escapeHtml(claim.email)} won't get mail about ${key}, “${title}”, any more. Other cards still mail you as before.</p><form method="post"><input type="hidden" name="undo" value="1"><button>Undo</button></form>`
     : `<h1>Mail about ${key} is back on</h1><p>${escapeHtml(claim.email)} will get mail about ${key}, “${title}”, again.</p><form method="post"><button>Stop it again</button></form>`;
   return page(200, `P99: ${keyOf(item.kind, item.id)}`, body, theme);
 }

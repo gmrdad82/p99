@@ -140,7 +140,7 @@ export function anchorOf(body) {
   if (before === null && after === null) return null;
   const anchor = before !== null ? { side: "before", raw: String(before) } : { side: "after", raw: String(after) };
   const id = K.parseKey(anchor.raw);
-  if (id === null) K.fail(400, `${anchor.raw} is not an item key`);
+  if (id === null) K.fail(400, `${anchor.raw} is not a card key`);
   return { ...anchor, id };
 }
 
@@ -150,9 +150,9 @@ export function sawLane(lanes, row, from) {
 }
 
 export async function moveByLane(c, body) {
-  if (body.key.length > MAX_KEY_CHARS) K.fail(400, "key must be an item key");
+  if (body.key.length > MAX_KEY_CHARS) K.fail(400, "key must be a card key");
   const id = K.parseKey(body.key);
-  if (id === null) K.fail(404, `no item ${body.key}`);
+  if (id === null) K.fail(404, `no card ${body.key}`);
   const anchor = anchorOf(body);
   const v = boardView(c);
   const { DB } = c.env;
@@ -168,7 +168,7 @@ export async function moveByLane(c, body) {
   )
     .bind(id, one.board)
     .first();
-  if (!row || !inView(v, row)) K.fail(404, `no item ${body.key}`);
+  if (!row || !inView(v, row)) K.fail(404, `no card ${body.key}`);
   if (!sawLane(one.lanes, row, body.from)) K.fail(409, MOVED, "moved");
   const to = { id: target.id, name: target.name, role: target.role, closes: target.closes };
   const resolution = body.resolution ?? null;

@@ -1104,7 +1104,7 @@ async function run() {
     wranglerSync(["d1", "execute", "DB", "--local", "--persist-to", state, "--command", `DELETE FROM board_columns WHERE board_id = ${cards}`]);
     try {
       const closed = await call("PATCH", `/_p99/v1/issues/${key}?host=${here}`, { body: { resolution: "fixed" } });
-      assert.deepEqual([closed.status, closed.json.message], [409, "no lane closes items; run p99 deploy"]);
+      assert.deepEqual([closed.status, closed.json.message], [409, "no lane closes cards; run p99 deploy"]);
       assert.deepEqual([events(), d1count(`SELECT label_id AS n FROM items WHERE id = ${id}`)], before);
       assert.equal(d1count(`SELECT closed_at IS NULL AS n FROM items WHERE id = ${id}`), 1);
     } finally {

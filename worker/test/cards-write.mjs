@@ -316,7 +316,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await status(key, "planned", ada, { note: "x".repeat(20001), client_uid: randomUUID() })).status, 400);
     const scoped = await call("POST", `/_p99/v1/cards/${key}/status?host=${there}`, { actor: ada, body: { status: "planned" } });
     assert.equal(scoped.status, 404);
-    assert.equal(scoped.json.message, `no item ${key}`);
+    assert.equal(scoped.json.message, `no card ${key}`);
     assert.equal((await issue(key)).issue.label, "Stuck");
     const blank = await status(key, "planned", ada, { note: "   " });
     assert.equal(blank.status, 200);
@@ -358,7 +358,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(blankNote.json.link.note, null);
     const scoped = await call("POST", `/_p99/v1/cards/${key}/links?host=${there}`, { actor: graceBot, body: { ref: "pci#9" } });
     assert.equal(scoped.status, 404);
-    assert.equal(scoped.json.message, `no item ${key}`);
+    assert.equal(scoped.json.message, `no card ${key}`);
     const events = (await issue(key)).events.filter((ev) => ev.kind === "link");
     assert.equal(events.length, 5);
     assert.deepEqual(events[4].detail, { ref: "pci#2701", note: null });
@@ -402,9 +402,9 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal(stored.events.some((ev) => ev.kind === "link"), false);
     for (const missing of [await status("FEAT-999999", "planned"), await link("FEAT-999999", { ref: "x" }), await comment("FEAT-999999", { body: "x" })]) {
       assert.equal(missing.status, 404);
-      assert.equal(missing.json.message, "no item FEAT-999999");
+      assert.equal(missing.json.message, "no card FEAT-999999");
     }
-    assert.equal((await status("nonsense", "planned")).json.message, "no item nonsense");
+    assert.equal((await status("nonsense", "planned")).json.message, "no card nonsense");
     const visitor = await mint("Ada Lovelace", "ada@example.com", [here]);
     const key = (await file({ title: "Visitors can't touch" })).json.card.key;
     assert.equal((await browse("POST", `/cards/${key}/status`, visitor.secret, { status: "planned" })).status, 403);

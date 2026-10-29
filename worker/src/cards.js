@@ -9,7 +9,7 @@ export const DEFAULT_CARDS_LIMIT = 200;
 export const MAX_CARDS_LIMIT = 500;
 export const NOT_YET = "this Worker has no cards yet; run p99 deploy";
 export const PERSON_CLOSES = "only a person closes a card";
-export const PERSON_UNCARDS = "only a person turns a card back into an item";
+export const PERSON_UNCARDS = "only a person takes a card off its project";
 export const ROBOT = "🤖";
 export const PROJECT_RULE = `a project name has 1 to ${MAX_PROJECT_CHARS} characters`;
 
@@ -32,7 +32,7 @@ export function laneWord(index) {
 }
 
 export function notCard(key) {
-  return `${key} is not a card; give it a project with p99 edit ${key} --project <name>`;
+  return `${key} has no project of its own; give it one with p99 edit ${key} --project <name>`;
 }
 
 export function personOf(name, username, agent, via) {

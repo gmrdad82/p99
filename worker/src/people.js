@@ -117,7 +117,7 @@ export async function assigneeEmail(c, row, raw) {
   )
     .bind(asked, row.project_id ?? null, JSON.stringify(K.managersOf(c.env)))
     .first();
-  if (!found) K.fail(400, `@${asked} is not a member of ${c.dir.projects.get(row.project_id)?.name ?? row.host ?? "this item's project"}`);
+  if (!found) K.fail(400, `@${asked} is not a member of ${c.dir.projects.get(row.project_id)?.name ?? row.host ?? "this card's project"}`);
   return found.email;
 }
 

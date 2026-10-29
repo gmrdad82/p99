@@ -257,7 +257,7 @@ export async function backupStep(env, nowDate = new Date()) {
   await sweepRun(env, run);
   await DB.prepare("UPDATE backup_runs SET finished_at = ?2 WHERE date = ?1").bind(run.date, now).run();
   await pruneBackups(env);
-  const cleared = (held.cleared ?? []).length > 0 ? `; merge pointer cleared on items ${held.cleared.join(", ")}, their target deleted mid-run` : "";
+  const cleared = (held.cleared ?? []).length > 0 ? `; merge pointer cleared on cards ${held.cleared.join(", ")}, their target deleted mid-run` : "";
   const dropped = Object.entries(held.dropped ?? {})
     .map(([name, ids]) => `; ${name} rows ${ids.join(", ")} left out, their lane gone`)
     .join("");

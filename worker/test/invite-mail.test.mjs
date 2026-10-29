@@ -41,11 +41,11 @@ test("the link mail names the space, the role and the hosts, and numbers its ste
   assert.equal(
     mail.text,
     [
-      "Grace, you can now report bugs and ideas on shop.example.com and blog.example.com with P99, as a User of Example.",
+      "Grace, you can now file bugs and ideas on shop.example.com and blog.example.com with P99, as a User of Example.",
       "1. First, set up your authenticator: a second mail from P99, sent separately, has the code to scan.",
       `2. Open your link once in each browser you use:\nOpen P99 on ${SHOP}: https://${SHOP}/#p99=${SECRET}\nOpen P99 on ${BLOG}: https://${BLOG}/#p99=${SECRET}`,
       "3. The first time, P99 asks for the 6-digit code your authenticator shows. After that the browser is remembered.",
-      "4. On the site, the + in the corner opens P99: describe the bug or idea; a screenshot of the page goes with it, with the site's private areas hidden unless you choose to show them. The ⋯ next to it lists your items and their replies.",
+      "4. On the site, the + in the corner opens P99: describe the bug or idea; a screenshot of the page goes with it, with the site's private areas hidden unless you choose to show them. The ⋯ next to it lists your cards and their replies.",
       "The link is personal: don't forward it.",
       "— P99",
     ].join("\n\n") + "\n",
@@ -59,8 +59,8 @@ test("the link mail names the space, the role and the hosts, and numbers its ste
 
 test("an Owner hears of the board and, with an authenticator and a P99 page, of signing in there", () => {
   const mail = link({ owner: true });
-  assert.ok(mail.text.startsWith("Grace, you can now report bugs and ideas on shop.example.com and blog.example.com with P99, as an Owner of Example.\n"));
-  assert.ok(mail.text.includes("As an Owner you also get the board, where every card and item of Example moves through its lanes."));
+  assert.ok(mail.text.startsWith("Grace, you can now file bugs and ideas on shop.example.com and blog.example.com with P99, as an Owner of Example.\n"));
+  assert.ok(mail.text.includes("As an Owner you also get the board, where every card of Example moves through its lanes."));
   assert.ok(
     mail.text.includes(
       `5. You can also open the board from anywhere at https://p99.example.com/: sign in with ${GRACE} and the 6-digit code your authenticator shows.`,
@@ -75,7 +75,7 @@ test("an Owner hears of the board and, with an authenticator and a P99 page, of 
 test("without an authenticator the steps are the link and the +, and without a space name the hosts name it", () => {
   const mail = link({ totp: false, totpMail: false, space: null, hosts: [SHOP] });
   assert.equal(mail.subject, `Your P99 access for ${SHOP}`);
-  assert.ok(mail.text.startsWith(`Grace, you can now report bugs and ideas on ${SHOP} with P99, as a User.\n`));
+  assert.ok(mail.text.startsWith(`Grace, you can now file bugs and ideas on ${SHOP} with P99, as a User.\n`));
   assert.ok(mail.text.includes("\n1. Open your link once"));
   assert.ok(mail.text.includes("\n2. On the site"));
   assert.equal(/authenticator|6-digit/.test(mail.text + mail.html), false);
@@ -84,7 +84,7 @@ test("without an authenticator the steps are the link and the +, and without a s
 test("a new link says the old one stopped, and a carried authenticator skips the setup step", () => {
   const mail = link({ renewed: true, totpMail: false, owner: true });
   assert.equal(mail.subject, "Your new P99 link for Example");
-  assert.ok(mail.text.startsWith("Grace, here is your new P99 link: the old one no longer works. You can now report bugs and ideas on"));
+  assert.ok(mail.text.startsWith("Grace, here is your new P99 link: the old one no longer works. You can now file bugs and ideas on"));
   assert.equal(mail.text.includes("second mail"), false);
   assert.ok(mail.text.includes("\n2. The first time, P99 asks for the 6-digit code"));
 });

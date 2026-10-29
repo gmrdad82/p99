@@ -199,7 +199,7 @@ export default async function (kit) {
       const textOrder = [...link.text.matchAll(/^Open P99 on (\S+): /gm)].map((m) => m[1]);
       assert.deepEqual(textOrder, hosts);
       assert.match(link.text, /as an Owner of Example\./);
-      assert.ok(link.text.includes("As an Owner you also get the board, where every card and item of Example moves through its lanes."));
+      assert.ok(link.text.includes("As an Owner you also get the board, where every card of Example moves through its lanes."));
       assert.ok(link.text.includes(`You can also open the board from anywhere at https://${kit.space.app}/: sign in with ${email} and the 6-digit code your authenticator shows.`));
       assert.ok(link.text.includes("The link is personal: don't forward it."));
     } finally {

@@ -62,7 +62,7 @@ async function unitChecks(check) {
     assert.doesNotThrow(() => refuseAgentUncard({ actor: graceBot }, item, { project: null }));
     assert.doesNotThrow(() => refuseAgentUncard({ actor: graceBot }, card, {}));
     assert.doesNotThrow(() => refuseAgentUncard({ actor: null }, card, { project: null }));
-    assert.equal(PERSON_UNCARDS, "only a person turns a card back into an item");
+    assert.equal(PERSON_UNCARDS, "only a person takes a card off its project");
   });
 }
 

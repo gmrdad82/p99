@@ -8,8 +8,8 @@ export function bindLabels(helpers) {
 }
 
 const GONE = {
-  priority: "items have no priority: an item's place in its lane is its priority, so move it up or down the lane",
-  labels: "an item has one label, its state; set it with POST /move",
+  priority: "cards have no priority: a card's place in its lane is its priority, so move it up or down the lane",
+  labels: "a card has one label, its state; set it with POST /move",
 };
 
 export function refuseGone(body) {
@@ -23,7 +23,7 @@ export async function labelFilters(c, params, q, where) {
   const wanted = params.getAll("label");
   if (wanted.length === 0) return;
   requireManager(c);
-  if (wanted.length > 1) fail(400, "an item has one label; ask for one");
+  if (wanted.length > 1) fail(400, "a card has one label; ask for one");
   const asked = wanted[0].trim().replace(/\s+/g, " ");
   const { results } = await c.env.DB.prepare(LANES_SQL).all();
   const ids = namedBy(results, asked, (l) => l.name).map((l) => q.bind(l.id));

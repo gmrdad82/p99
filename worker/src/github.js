@@ -188,7 +188,7 @@ export async function openGithubIssue(c, rawKey) {
     throw error;
   }
   const link = K.pageLink(row);
-  const body = [`P99 item ${key}${link ? `: ${link}` : ""}`, "", `A pull request that carries \`Fixes: ${key}\` marks it fixed in P99 when it merges.`].join("\n");
+  const body = [`P99 card ${key}${link ? `: ${link}` : ""}`, "", `A pull request that carries \`Fixes: ${key}\` marks it fixed in P99 when it merges.`].join("\n");
   let answer;
   try {
     answer = await callGithub(c.env, token, "POST", `/repos/${setup.repo}/issues`, { title: row.title, body });

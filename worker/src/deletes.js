@@ -56,7 +56,7 @@ export async function deleteIssue(c, rawKey) {
     ...ITEM_TABLES.map((table) => DB.prepare(`DELETE FROM ${table} WHERE item_id = ?1`).bind(row.id)),
     DB.prepare("DELETE FROM items WHERE id = ?1 RETURNING id").bind(row.id),
   ]);
-  if (done[done.length - 1].results.length === 0) K.fail(404, "no such item");
+  if (done[done.length - 1].results.length === 0) K.fail(404, "no such card");
   const was = new Map(done[0].results.map((r) => [r.id, r.name]));
   const keys = done[1].results.map((r) => r.r2_key);
   const unlinked = done[3].results;

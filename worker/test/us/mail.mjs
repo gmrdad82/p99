@@ -17,7 +17,9 @@ export default async function (kit) {
     assert.ok(link, heard.text);
     const off = await fetch(`${kit.origin(shop)}/_p99/mail?t=${link[1]}`);
     assert.equal(off.status, 200);
-    assert.match(await off.text(), /No more mail about/);
+    const page = await off.text();
+    assert.match(page, /No more mail about/);
+    assert.match(page, /Other cards still mail you as before\./);
     await reply(kit, first.key, shop, "Still looking.");
     await reply(kit, second.key, shop, "Fixed on our side.");
     await kit.until("the other item's mail", async () => (await mailsFor(kit, grace.email, `[${second.key}]`)).length === 1);
