@@ -28,10 +28,10 @@
 .app-mark { display: block; flex: none; border-radius: var(--p99-radius-sm); line-height: 0; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-mark:active { transform: scale(0.97); }
 .app-lockup { display: block; width: auto; height: 36px; pointer-events: none; }
-.app-bar-name { display: flex; flex: 1; align-items: center; gap: var(--p99-space-sm); min-width: 0; }
+.app-bar-who { display: flex; flex: 1; align-items: center; justify-content: flex-end; gap: var(--p99-space-sm); min-width: 0; }
 .app-space-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--p99-weight-bold) var(--p99-text-sm)/var(--p99-leading-tight) var(--p99-font-text); letter-spacing: var(--p99-tracking-caps); text-transform: uppercase; }
 .app-pill { display: flex; flex: none; }
-.app-badge { display: block; flex: none; width: auto; height: 32px; margin: -3px -8px -12px -3px; pointer-events: none; }
+.app-badge { display: block; flex: none; width: auto; height: 24px; pointer-events: none; }
 .app-badge-in { animation: app-badge-in var(--p99-motion-panel) var(--p99-ease-enter) var(--p99-motion-fast) both; }
 .app-me { display: inline-grid; flex: none; place-items: center; border-radius: 50%; text-decoration: none; transition: transform var(--p99-motion-fast) var(--p99-ease-enter); }
 .app-me:active { transform: scale(0.94); }
@@ -107,7 +107,7 @@ p99-root.app-board { display: flex; flex: 1; flex-direction: column; min-height:
   .app-back:hover { color: var(--p99-ink); }
 }
 @media (max-width: 599px) {
-  .app-lockup { height: 28px; }
+  .app-lockup { height: 24px; }
   .app-bar-in { gap: var(--p99-space-sm); }
   .app-wide { height: calc(100dvh - var(--app-bar) - var(--p99-space-xl) - var(--p99-space-md)); }
   p99-root.app-board { border-radius: var(--p99-radius-md); }

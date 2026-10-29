@@ -53,7 +53,7 @@ P99 works under a strict policy such as `default-src 'none'; script-src 'nonce-â
 | `mask` | CSS selectors the panel blanks in every capture, besides anything marked `data-p99-redact`; at most 50, each at most 200 characters (`p99 hosts set <host> --mask '<selector>'`, repeated; `--mask none` clears them). The Worker refuses a selector that does not parse and says so |
 | `capture` | `on` (the default) or `off`: with `off` the panel files the text report with no screenshot and says so (`p99 hosts set <host> --capture off`) |
 | `feed` | `true` serves the host's feed of fixed items at `/_p99/feed` (`p99 feed on <host>`); off by default |
-| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency or Owner key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the space's licence badge to everyone with a code |
+| `link` | `false` hides the small "by PITO.MD" link in the panel's head (`p99 hosts set <host> --pitomd-link off`, and `on` shows it again); only an Agency key may hide it, so with any other key the link shows whatever this says; `off` takes hold once a `p99 deploy` has run with that key. The same head shows the space's licence badge to everyone with a code |
 
 ## Slack and Discord
 

@@ -194,8 +194,7 @@ fn colours(state: State, truecolor: bool) -> (Color, Color) {
     let (face, ink, indexed) = match state {
         State::Free => (0xb4c2d1, 0x13202f, (250, 234)),
         State::Studio => (0x2c66b8, 0xffffff, (25, 231)),
-        State::Agency => (0x1d4785, 0xffffff, (24, 231)),
-        State::Owner => (0xe0a32a, 0x241500, (178, 16)),
+        State::Agency | State::Owner => (0x1d4785, 0xffffff, (24, 231)),
         State::Ff => (0xb8264d, 0xffffff, (125, 231)),
     };
     if truecolor {
@@ -259,6 +258,15 @@ mod tests {
     }
 
     #[test]
+    fn an_owner_key_shows_the_agency_pill_in_its_colours() {
+        let owner = settled(State::Owner, &palette());
+        let agency = settled(State::Agency, &palette());
+        assert_eq!(text(&owner), "▐Agency▌");
+        assert_eq!(owner.parts(), agency.parts());
+        assert!(!text(&owner).contains("Owner"));
+    }
+
+    #[test]
     fn mono_pads_with_reversed_spaces() {
         let badge = settled(State::Studio, &palette().mono());
         assert_eq!(text(&badge), " Studio ");
@@ -287,13 +295,13 @@ mod tests {
         for step in 1..=20 {
             badge.moment(now + EASE * step / 20);
             let drawn = text(&badge);
-            assert_eq!(drawn.chars().count(), 7);
+            assert_eq!(drawn.chars().count(), 8);
             let pill = drawn.chars().take_while(|c| *c != '─').count();
             assert!(pill >= seen);
             assert!(drawn.chars().skip(pill).all(|c| c == '─'));
             seen = pill;
         }
-        assert_eq!(seen, 7);
+        assert_eq!(seen, 8);
         assert!(!badge.easing());
     }
 

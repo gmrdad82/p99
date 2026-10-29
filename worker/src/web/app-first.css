@@ -11,12 +11,19 @@ body {
   min-height: 100dvh;
   margin: 0;
   background-color: var(--p99-glow);
+  color: var(--p99-ink);
+  font: 400 var(--p99-text-md)/var(--p99-leading-normal) var(--p99-font-text);
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background-color: var(--p99-glow);
   background-image: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.06) 28%, transparent 52%), var(--p99-art);
   background-size: 100% 100%, 400px 400px;
   background-blend-mode: normal, multiply;
-  background-attachment: fixed;
-  color: var(--p99-ink);
-  font: 400 var(--p99-text-md)/var(--p99-leading-normal) var(--p99-font-text);
+  pointer-events: none;
 }
 .app {
   display: grid;

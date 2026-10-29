@@ -97,7 +97,7 @@ fn the_licence_still_follows_the_state_asked_for() {
     for (word, label) in [
         ("studio", "Studio"),
         ("agency", "Agency"),
-        ("owner", "Owner"),
+        ("owner", "Agency"),
         ("ff", "F&F"),
     ] {
         let text = out(&p99_with(

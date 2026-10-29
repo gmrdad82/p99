@@ -9,6 +9,11 @@ type = "Text"
 globs = ["**/web/*.js", "**/web/*.css", "**/web/*.svg"]
 fallthrough = false
 
+[[rules]]
+type = "Data"
+globs = ["**/web/art/*.webp", "**/web/art/*.png"]
+fallthrough = false
+
 [[d1_databases]]
 binding = "DB"
 database_name = "p99"

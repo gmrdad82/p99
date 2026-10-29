@@ -11,6 +11,7 @@ pub const COMPATIBILITY_DATE: &str = "2026-09-15";
 
 const ES: &str = "application/javascript+module";
 const TEXT: &str = "text/plain";
+const DATA: &str = "application/octet-stream";
 
 macro_rules! worker {
     ($name:literal, $kind:expr) => {
@@ -76,13 +77,18 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/app.css", TEXT),
     worker!("web/app-first.css", TEXT),
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
-    worker!("web/art/concrete.svg", TEXT),
-    worker!("web/art/concrete-dark.svg", TEXT),
+    worker!("web/art/concrete.webp", DATA),
+    worker!("web/art/concrete-2x.webp", DATA),
+    worker!("web/art/concrete.png", DATA),
+    worker!("web/art/concrete-2x.png", DATA),
+    worker!("web/art/concrete-dark.webp", DATA),
+    worker!("web/art/concrete-dark-2x.webp", DATA),
+    worker!("web/art/concrete-dark.png", DATA),
+    worker!("web/art/concrete-dark-2x.png", DATA),
     worker!("web/art/lockup-dark.svg", TEXT),
     worker!("web/badges/free.svg", TEXT),
     worker!("web/badges/studio.svg", TEXT),
     worker!("web/badges/agency.svg", TEXT),
-    worker!("web/badges/owner.svg", TEXT),
     worker!("web/badges/ff.svg", TEXT),
 ];
 
@@ -215,6 +221,30 @@ mod tests {
         for file in wanted {
             assert!(bundled.contains(&file.as_str()), "{file} is not bundled");
         }
+    }
+
+    #[test]
+    fn every_texture_tile_uploads_as_bytes_and_nothing_else_does() {
+        for (name, kind, bytes) in MODULES {
+            let picture = name.ends_with(".webp") || name.ends_with(".png");
+            assert_eq!(*kind == DATA, picture, "{name}");
+            if name.ends_with(".webp") {
+                assert!(
+                    bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+                    "{name}"
+                );
+            }
+            if name.ends_with(".png") {
+                assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "{name}");
+            }
+        }
+        for base in ["concrete", "concrete-dark"] {
+            for tail in [".webp", "-2x.webp", ".png", "-2x.png"] {
+                let name = format!("web/art/{base}{tail}");
+                assert!(MODULES.iter().any(|m| m.0 == name), "{name} is not bundled");
+            }
+        }
+        assert!(!MODULES.iter().any(|m| m.0.contains("owner")));
     }
 
     #[test]

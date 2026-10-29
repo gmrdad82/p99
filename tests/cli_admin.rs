@@ -508,7 +508,7 @@ fn hosts_set_refuses_bad_values_before_saving_or_pushing() {
     h.p99(&["hosts", "set", "shop.example.com", "--string", " =x"])
         .refused(" =x has no key");
     h.p99(&["hosts", "set", "shop.example.com", "--pitomd-link", "off"])
-        .refused("Only an Agency or Owner key hides the 'by PITO.MD' link");
+        .refused("Only an Agency key hides the 'by PITO.MD' link");
     h.p99(&["hosts", "set", "gone.example.com", "--corner", "top-left"])
         .refused("no host is called gone.example.com; p99 hosts lists them");
     h.p99(&["hosts", "set", "shop.example.com", "--corner", "middle"])

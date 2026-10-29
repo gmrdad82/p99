@@ -80,10 +80,15 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     const script = await app("GET", "/_p99/app.js?v=dev", { page: false });
     assert.equal(script.status, 200);
     assert.match(script.headers["cache-control"], /immutable/);
-    assert.match(script.text, /"Owner"/);
+    assert.match(script.text, /"Agency"/);
+    assert.doesNotMatch(script.text, /"Owner"/);
     assert.doesNotMatch(script.text, /Manager/);
     assert.equal((await app("GET", "/_p99/app.css?v=dev", { page: false })).status, 200);
     assert.equal((await app("GET", "/_p99/panel.js?v=dev", { page: false })).status, 200);
+    const tile = await app("GET", "/_p99/art/concrete-dark-2x.webp?v=dev", { page: false });
+    assert.equal(tile.status, 200);
+    assert.equal(tile.headers["content-type"], "image/webp");
+    assert.equal((await app("GET", "/_p99/badges/owner.svg?v=dev", { page: false })).status, 404);
     assert.equal((await app("GET", "/_p99/p99.js", { page: false })).status, 404);
     assert.equal((await fetch(`${base}/_p99/app.js?v=dev`)).status, 404);
     assert.equal((await fetch(`${base}/`)).status, 404);

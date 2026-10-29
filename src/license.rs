@@ -128,7 +128,7 @@ impl State {
             State::Free => "Free",
             State::Studio => "Studio",
             State::Agency => "Agency",
-            State::Owner => "Owner",
+            State::Owner => "Agency",
             State::Ff => "F&F",
         }
     }
@@ -371,7 +371,7 @@ fn link_word(state: State) -> &'static str {
     if state.may_hide_link() {
         "this key may hide the 'by PITO.MD' link"
     } else {
-        "always shown; only an Agency or Owner key hides it"
+        "always shown; only an Agency key hides it"
     }
 }
 
@@ -687,6 +687,7 @@ mod tests {
             assert!(claims.state(Some(built)).may_hide_link());
         }
         assert_eq!(State::Owner.word(), "owner");
+        assert_eq!(State::Owner.label(), "Agency");
         assert_eq!(State::Owner.link_binding(), "hideable");
     }
 
