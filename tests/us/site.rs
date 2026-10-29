@@ -62,7 +62,7 @@ fn us_site_001_hosts_add_routes_the_host_into_its_project_and_hosts_set_pushes_i
     assert!(
         moved
             .stdout
-            .contains("shop.example.com is in the project Blog now; its items moved with it"),
+            .contains("shop.example.com is in the project Blog now; its cards moved with it"),
         "{}",
         moved.stdout
     );

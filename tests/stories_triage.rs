@@ -1147,7 +1147,7 @@ fn a_search_always_ends_in_results_a_no_match_line_or_one_plain_error() {
 
     let none = home.run(&["list", "-q", "nothing like this"]);
     assert_eq!(none.code, Some(0), "{}", none.err);
-    assert_eq!(none.out, "no items\n");
+    assert_eq!(none.out, "no cards\n");
     let none = home.ok(&["list", "-q", "nothing like this", "--json"]);
     let none: Value = serde_json::from_str(&none).unwrap();
     assert_eq!(
@@ -1156,7 +1156,7 @@ fn a_search_always_ends_in_results_a_no_match_line_or_one_plain_error() {
     );
 
     let slow = home.ok(&["list", "-q", "slow"]);
-    assert_eq!(slow, "no items\n");
+    assert_eq!(slow, "no cards\n");
 
     lone_error(&home.run(&["list", "-q", "boom"]), "D1 is down (500)");
     lone_error(
@@ -1222,13 +1222,13 @@ fn an_owner_with_520_items_pages_through_each_once_and_is_told_when_more_follow(
 
     let exact = home.run(&["list", "--limit", "520"]);
     assert_eq!(exact.out.lines().count(), 520);
-    assert!(!exact.err.contains("more items follow"), "{}", exact.err);
+    assert!(!exact.err.contains("more cards follow"), "{}", exact.err);
 
     let first = home.run(&["list"]);
     assert_eq!(first.code, Some(0));
     assert_eq!(first.out.lines().count(), 50);
     assert!(
-        first.err.contains("more items follow; raise --limit"),
+        first.err.contains("more cards follow; raise --limit"),
         "{}",
         first.err
     );
@@ -1244,7 +1244,7 @@ fn a_list_limit_of_zero_never_tells_the_owner_their_inbox_is_empty() {
     let home = Home::of("zero", &stub);
     let zero = home.run(&["list", "--limit", "0"]);
     assert!(
-        !zero.out.contains("no items"),
+        !zero.out.contains("no cards"),
         "three items wait, yet the CLI said: {}",
         zero.out
     );
@@ -1271,8 +1271,8 @@ fn an_empty_page_that_still_carries_a_cursor_ends_the_list_without_saying_more_f
     let empty = home.run(&["list", "--limit", "10"]);
     assert!(began.elapsed() < Duration::from_secs(30));
     assert_eq!(empty.code, Some(0), "{}", empty.err);
-    assert_eq!(empty.out.trim(), "no items");
-    assert!(!empty.err.contains("more items follow"), "{}", empty.err);
+    assert_eq!(empty.out.trim(), "no cards");
+    assert!(!empty.err.contains("more cards follow"), "{}", empty.err);
     assert_eq!(stub.sent("GET", "/v1/issues").len(), 1);
     let json: Value = serde_json::from_str(&home.ok(&["list", "--json"])).unwrap();
     assert_eq!(json["more"], false);
@@ -1296,7 +1296,7 @@ fn an_empty_page_that_still_carries_a_cursor_ends_the_list_without_saying_more_f
     let some = home.run(&["list", "--limit", "10"]);
     assert_eq!(some.code, Some(0), "{}", some.err);
     assert_eq!(some.out.lines().count(), 3, "{}", some.out);
-    assert!(!some.err.contains("more items follow"), "{}", some.err);
+    assert!(!some.err.contains("more cards follow"), "{}", some.err);
     assert_eq!(stub.sent("GET", "/v1/issues").len(), 2);
 }
 
@@ -1322,7 +1322,7 @@ fn a_list_across_two_accounts_keeps_to_the_limit_and_says_more_follow() {
         both.out
     );
     assert!(
-        both.err.contains("more items follow"),
+        both.err.contains("more cards follow"),
         "the main account holds more, yet nothing said so: {}",
         both.err
     );
@@ -1352,7 +1352,7 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
 
     let before = stub.seen().len();
     let bad = home.run(&["card", "move", "BUG-", "--to", "in-progress"]);
-    lone_error(&bad, "BUG- is not an item key; try BUG-12 or 12");
+    lone_error(&bad, "BUG- is not a card key; try BUG-12 or 12");
     assert_eq!(
         stub.seen().len(),
         before,

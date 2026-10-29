@@ -93,7 +93,7 @@ export default async function (kit) {
     const run = await kit.p99(["people", "rename", from, to]);
     assert.equal(run.code, 0, run.stderr);
     const lines = run.stdout.trimEnd().split("\n");
-    assert.match(lines[0], new RegExp(`^moved ${from} to ${to}: 1 items, \\d+ assigned, \\d+ comments, \\d+ events, \\d+ attachments, 1 codes$`));
+    assert.match(lines[0], new RegExp(`^moved ${from} to ${to}: 1 cards, \\d+ assigned, \\d+ comments, \\d+ events, \\d+ attachments, 1 codes$`));
     assert.equal(lines[1], "set the same e-mail in your config's [me] so new work lands there too");
     const read = await kit.call("GET", `/_p99/v1/issues/${filed.json.key}?host=${host}`, { actor: ada });
     assert.equal(read.status, 200, JSON.stringify(read.json));

@@ -35,7 +35,7 @@ const O_CLOEXEC: c_int = 0o2000000;
 const O_CLOEXEC: c_int = 0;
 const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
-const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.\nType k3x9 to delete it: ";
+const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's cards and comments stay.\nType k3x9 to delete it: ";
 
 fn pty() -> (File, File) {
     let _held = crate::NAMING.lock().unwrap();

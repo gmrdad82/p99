@@ -291,7 +291,7 @@ pub fn plan(
         let shown = usernames.get(&email).map(|u| agent_shown(u));
         if shown.is_none() {
             decisions.push(format!(
-                "{} acts through agents but has no code and no assigned items, so 0012 gives them no username: mint them a code, or accept that their agent actions show without one",
+                "{} acts through agents but has no code and no assigned cards, so 0012 gives them no username: mint them a code, or accept that their agent actions show without one",
                 person(&text(&row, "name"), &email)
             ));
         }
@@ -310,7 +310,7 @@ pub fn plan(
         let prefix = KINDS.iter().find(|(k, _)| *k == kind).map(|(_, p)| *p);
         if prefix.is_none() {
             decisions.push(format!(
-                "{} items have the kind {kind}, which is not one of the five: change their kind first",
+                "{} cards have the kind {kind}, which is not one of the five: change their kind first",
                 count(&row, "items")
             ));
         }
@@ -555,7 +555,7 @@ fn lanes_plan(
     if tagged > 0 {
         decisions.push(format!(
             "{} carry {} beyond their label; 0011 keeps them untouched and unused: say later whether a migration drops them",
-            many(tagged, "item"),
+            many(tagged, "card"),
             many(tags.len() as i64, "tag")
         ));
     }
@@ -732,7 +732,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             ));
         }
         out.push_str(
-            "\n1.7 states become labels (0004, then 0011): one label per item, its column, and the stage reporters see\n",
+            "\n1.7 states become labels (0004, then 0011): one label per card, its column, and the stage the people who filed it see\n",
         );
         for row in list(&plan["statuses"]) {
             out.push_str(&format!(
@@ -751,12 +751,12 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
             out.push_str(&format!(
                 "  {}: {}\n",
                 text(&row, "name"),
-                many(count(&row, "items"), "item")
+                many(count(&row, "items"), "card")
             ));
         }
         render_members(&mut out, plan);
     } else if plan.get("labels").is_some() {
-        out.push_str("\nStates become labels (0011): one label per item, its column\n");
+        out.push_str("\nStates become labels (0011): one label per card, its column\n");
         for row in list(&plan["labels"]) {
             out.push_str(&format!(
                 "  {:<10} -> {:<14} {} open, {} in all\n",
@@ -779,7 +779,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
                 "  {} \"{}\" ({host}{nest}), {}\n",
                 text(&row, "slug"),
                 text(&row, "name"),
-                many(count(&row, "items"), "item")
+                many(count(&row, "items"), "card")
             ));
         }
         let order = list(&plan["order"]);
@@ -800,13 +800,13 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
         }
         out.push_str(&format!(
             "\nTags beyond the label (0011 keeps them untouched; a later migration drops them on your word): {}\n",
-            many(count(plan, "tagged"), "item")
+            many(count(plan, "tagged"), "card")
         ));
         for row in list(&plan["tags"]) {
             out.push_str(&format!(
                 "  {}: {}\n",
                 text(&row, "tag"),
-                many(count(&row, "items"), "item")
+                many(count(&row, "items"), "card")
             ));
         }
         render_members(&mut out, plan);
@@ -876,7 +876,7 @@ fn render(account: &str, plan: &Value, hash: &str) -> String {
     out.push_str(&format!(
         "  {}\n",
         if kinds.is_empty() {
-            "no items".to_owned()
+            "no cards".to_owned()
         } else {
             kinds.join(", ")
         }

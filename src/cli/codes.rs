@@ -60,7 +60,7 @@ pub(crate) fn kept(id: i64) -> String {
 fn typed_back(input: &mut impl BufRead, err: &mut impl Write, code: &Code) -> Result<bool, String> {
     let _ = writeln!(
         err,
-        "{:>4}  revoked  {} <{}>  {}  ...{}\nDeleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.",
+        "{:>4}  revoked  {} <{}>  {}  ...{}\nDeleting it removes the code and its browsers' sign-ins for good; the person's cards and comments stay.",
         code.id,
         crate::wire::clean(&code.name),
         crate::wire::clean(&code.email),
@@ -166,7 +166,7 @@ mod tests {
         );
         assert_eq!(
             lines[1],
-            "Deleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay."
+            "Deleting it removes the code and its browsers' sign-ins for good; the person's cards and comments stay."
         );
         assert_eq!(lines[2], "Type 3fpd to delete it: ");
         let (_, owner) = ask(&code(9, "7k2q", true, true), "\n");

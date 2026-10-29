@@ -442,7 +442,11 @@ pub fn lower(section: &Value) -> Option<String> {
         ))
     };
     for key in KEPT {
-        let what = if key == "open" { "open items" } else { key };
+        let what = match key {
+            "open" => "open cards",
+            "items" => "cards",
+            other => other,
+        };
         if count(after, key) < count(before, key) {
             return refuse(what.to_owned(), count(before, key), count(after, key));
         }
@@ -455,7 +459,7 @@ pub fn lower(section: &Value) -> Option<String> {
             .find(|p| text(p, "project") == name)
             .map_or(0, |p| count(p, "items"));
         if now < count(&card, "items") {
-            return refuse(format!("items in {name}"), count(&card, "items"), now);
+            return refuse(format!("cards in {name}"), count(&card, "items"), now);
         }
     }
     None
@@ -511,13 +515,13 @@ pub fn refusal(message: &str, run: &[&str]) -> Option<String> {
         .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
         .collect();
     let left = match what.as_str() {
-        "items" => "fewer items than before",
-        "open" => "fewer open items than before",
+        "items" => "fewer cards than before",
+        "open" => "fewer open cards than before",
         "comments" => "fewer comments than before",
         "events" => "fewer events than before",
         "attachments" => "fewer attachments than before",
         "codes" => "fewer codes than before",
-        "cards" => "a project holding fewer items than it had cards",
+        "cards" => "a project holding fewer cards than it had before",
         "hosts" => "a host in no project",
         _ => return None,
     };
@@ -545,7 +549,7 @@ fn grant_words(grant: &Value) -> String {
 fn totals_line(side: &Value) -> String {
     format!(
         "{} ({} open), {}, {}, {}, {}",
-        many(count(side, "items"), "item", "items"),
+        many(count(side, "items"), "card", "cards"),
         count(side, "open"),
         many(count(side, "comments"), "comment", "comments"),
         many(count(side, "events"), "event", "events"),
@@ -594,10 +598,10 @@ pub fn render(out: &mut String, plan: &Value) {
             } else {
                 hosts.join(", ")
             },
-            many(count(project, "items"), "item", "items"),
+            many(count(project, "items"), "card", "cards"),
             count(project, "open"),
             if cards > 0 {
-                format!(", {} named it", many(cards, "card", "cards"))
+                format!(", {cards} named it")
             } else {
                 String::new()
             }
@@ -622,13 +626,13 @@ pub fn render(out: &mut String, plan: &Value) {
     }
     let strays = list(&section["strays"]);
     if !strays.is_empty() {
-        out.push_str("  items on hosts the space no longer has:\n");
+        out.push_str("  cards on hosts the space no longer has:\n");
     }
     for stray in strays {
         out.push_str(&format!(
             "    {}: {} -> {}\n",
             text(&stray, "host"),
-            many(count(&stray, "items"), "item", "items"),
+            many(count(&stray, "items"), "card", "cards"),
             stray["project"].as_str().unwrap_or("no project")
         ));
     }
@@ -667,7 +671,7 @@ pub fn render(out: &mut String, plan: &Value) {
     out.push_str(&format!(
         "  old tags (item_labels, which nothing reads): {} on {}; 0018 drops the table\n",
         many(count(tags, "rows"), "row", "rows"),
-        many(count(tags, "items"), "item", "items")
+        many(count(tags, "items"), "card", "cards")
     ));
     out.push_str(
         "  new and empty: the settings a pasted licence key goes in, and each person's avatar\n",
@@ -682,11 +686,11 @@ pub fn render(out: &mut String, plan: &Value) {
     ));
     out.push_str(&format!("  after:  {}\n", totals_line(&counts["after"])));
     out.push_str(&format!(
-        "  items by project after: {}\n",
+        "  all cards by project after: {}\n",
         per(&counts["after"]["projects"])
     ));
     out.push_str("  the deploy counts again inside 0018: if any count is lower after it, 0018 rolls back, nothing is written and the Worker is not uploaded\n");
-    out.push_str("  a new item, comment, event, attachment or code before the deploy changes this plan's hash: read the plan again then\n");
+    out.push_str("  a new card, comment, event, attachment or code before the deploy changes this plan's hash: read the plan again then\n");
 }
 
 #[cfg(test)]
@@ -967,17 +971,17 @@ mod tests {
         assert!(
             lower(&open)
                 .unwrap()
-                .contains("7 open items where there are 8")
+                .contains("7 open cards where there are 8")
         );
         let mut cards = section.clone();
         cards["counts"]["after"]["projects"] = json!([{ "project": "Roadmap", "items": 4 }]);
         assert!(
             lower(&cards)
                 .unwrap()
-                .contains("leave 4 items in Roadmap where there are 5")
+                .contains("leave 4 cards in Roadmap where there are 5")
         );
         cards["counts"]["after"]["projects"] = json!([]);
-        assert!(lower(&cards).unwrap().contains("leave 0 items in Roadmap"));
+        assert!(lower(&cards).unwrap().contains("leave 0 cards in Roadmap"));
         let plan = json!({ "spaces": fewer });
         assert!(parked(Some(&plan), &[]).is_err());
         assert!(parked(Some(&json!({ "spaces": section })), &[2]).is_ok());
@@ -1083,12 +1087,12 @@ mod tests {
             .contains("left a host in no project, so 0017_delete_archived.sql with 0018_spaces.sql rolled back")
         );
         for (what, said) in [
-            ("items", "fewer items than"),
-            ("open", "fewer open items"),
+            ("items", "fewer cards than"),
+            ("open", "fewer open cards"),
             ("events", "fewer events"),
             ("attachments", "fewer attachments"),
             ("codes", "fewer codes"),
-            ("cards", "a project holding fewer items than it had cards"),
+            ("cards", "a project holding fewer cards than it had before"),
         ] {
             let message = format!("CHECK constraint failed: spaces_kept_{what}");
             assert!(
@@ -1116,20 +1120,20 @@ mod tests {
         render(&mut out, &json!({ "spaces": section }));
         for want in [
             "\nSpaces and projects (0018): the space main, shown as Example Co\n",
-            "    Site: dev.example.com, example.com; 5 items (2 open)\n",
-            "    Roadmap: no host; 5 items (4 open), 5 cards named it\n",
-            "    Archive: no host; 2 items (1 open)\n",
+            "    Site: dev.example.com, example.com; 5 cards (2 open)\n",
+            "    Roadmap: no host; 5 cards (4 open), 5 named it\n",
+            "    Archive: no host; 2 cards (1 open)\n",
             "    shop.example.com -> shop.example.com, a project of its own: [spaces.main.projects] doesn't list it\n",
             "    example.com -> Site\n",
-            "  items on hosts the space no longer has:\n    gone.example.com: 2 items -> Archive\n    old.example.com: 1 item -> no project\n",
+            "  cards on hosts the space no longer has:\n    gone.example.com: 2 cards -> Archive\n    old.example.com: 1 card -> no project\n",
             "    #1 Ada Lovelace <ada@example.com>, Owner: the whole space\n",
             "    #2 Grace Hopper <grace@example.com>: the project Site, so it now also reaches dev.example.com\n",
             "    #4 Jo <jo@example.com>: the project shop.example.com\n",
             "    #5 Broken <broken@example.com>: nothing\n",
             "    and 1 revoked code, granted the same way\n",
             "`p99 deploy --park <id>` gives a code no grant instead",
-            "  old tags (item_labels, which nothing reads): 4 rows on 3 items; 0018 drops the table\n",
-            "\nCount check (0018)\n  before: 17 items (8 open), 6 comments, 30 events, 2 attachments, 5 codes\n  cards by project before: Roadmap 5\n  after:  17 items (8 open), 6 comments, 30 events, 2 attachments, 5 codes\n  items by project after: Archive 2, Site 5, shop.example.com 4, Roadmap 5\n",
+            "  old tags (item_labels, which nothing reads): 4 rows on 3 cards; 0018 drops the table\n",
+            "\nCount check (0018)\n  before: 17 cards (8 open), 6 comments, 30 events, 2 attachments, 5 codes\n  cards by project before: Roadmap 5\n  after:  17 cards (8 open), 6 comments, 30 events, 2 attachments, 5 codes\n  all cards by project after: Archive 2, Site 5, shop.example.com 4, Roadmap 5\n",
         ] {
             assert!(out.contains(want), "{want}\n{out}");
         }
@@ -1152,7 +1156,7 @@ mod tests {
             "    no host yet\n",
             "    no live code\n",
             "  cards by project before: none\n",
-            "  old tags (item_labels, which nothing reads): 0 rows on 0 items",
+            "  old tags (item_labels, which nothing reads): 0 rows on 0 cards",
         ] {
             assert!(empty.contains(want), "{want}\n{empty}");
         }

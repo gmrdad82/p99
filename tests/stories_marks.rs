@@ -110,14 +110,14 @@ fn the_inbox_marks_an_agent_with_a_robot_and_never_an_asterisk_after_a_name() {
 #[test]
 fn show_names_an_agent_reporter_with_the_robot_and_its_label() {
     let out = text(&["--demo", "show", "BUG-25"]);
-    assert!(out.contains("reported by Ada Lovelace 🤖 (pci)"), "{out}");
+    assert!(out.contains("filed by Ada Lovelace 🤖 (pci)"), "{out}");
     assert!(!out.contains('*'), "{out}");
 }
 
 #[test]
 fn show_names_a_person_plainly_with_no_robot_and_no_label() {
     let out = text(&["--demo", "show", "FEAT-23"]);
-    assert!(out.contains("reported by Ada Lovelace on"), "{out}");
+    assert!(out.contains("filed by Ada Lovelace on"), "{out}");
     assert!(!out.contains("🤖"), "{out}");
     assert!(!out.contains("(pci)"), "{out}");
 }

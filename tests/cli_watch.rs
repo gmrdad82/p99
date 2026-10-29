@@ -127,7 +127,7 @@ fn watch_connects_signed_and_prints_one_line_per_event() {
             "board:Web  board.move  shop.example.com  P99: Doing -> Review",
             "board:Web  board  shop.example.com  P99: renamed",
             "-  statuses  shop.example.com  P99: renamed a status",
-            "BUG-9  import  shop.example.com  P99: 3 items, 5 comments",
+            "BUG-9  import  shop.example.com  P99: 3 cards, 5 comments",
             "BUG-8  comment  shop.example.com  Grace[31m Hopper: Last",
         ]
     );

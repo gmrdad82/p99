@@ -43,7 +43,7 @@ const F_SETFD: c_int = 2;
 const FD_CLOEXEC: c_int = 1;
 const CTRL_D: &[u8] = &[4];
 const ESC_TITLE: &str = "The total \u{1b}[31mdoes not\u{1b}[0m update";
-const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.\nType k3x9 to delete it: ";
+const CODE_PROMPT: &str = "   4  revoked  Grace Hopper <grace@example.com>  User  ...k3x9\nDeleting it removes the code and its browsers' sign-ins for good; the person's cards and comments stay.\nType k3x9 to delete it: ";
 const PROMPT: &str = "BUG-12  The total [31mdoes not[0m update\nDeleting it removes its 1 comment, 2 files and history for good; GitHub keeps its own issue.\nType BUG-12 to delete it: ";
 
 static NAMING: Mutex<()> = Mutex::new(());

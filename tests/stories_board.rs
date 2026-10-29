@@ -671,7 +671,7 @@ fn move_refusals_come_through_as_one_line() {
             "move_refused",
             &["card", "move", "nope", "--to", "new"],
         ),
-        "nope is not an item key; try BUG-12 or 12",
+        "nope is not a card key; try BUG-12 or 12",
     );
     for to in ["needs-you", "needs you", "Needs You"] {
         refused(

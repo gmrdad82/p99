@@ -438,14 +438,14 @@ fn us_migrate_002_the_plan_shows_each_hosts_project_each_codes_grant_and_the_cou
     for want in [
         "  pending: 0018_spaces.sql\n",
         "\nSpaces and projects (0018): the space main, shown as Example Co\n",
-        "    Example site: dev.example.com, example.com; 5 items (2 open)\n",
-        "    Licences: no host; 0 items (0 open)\n",
-        "    Roadmap: no host; 3 items (3 open), 3 cards named it\n",
+        "    Example site: dev.example.com, example.com; 5 cards (2 open)\n",
+        "    Licences: no host; 0 cards (0 open)\n",
+        "    Roadmap: no host; 3 cards (3 open), 3 named it\n",
         "    example.com -> Example site\n",
         "    #1 Ada Lovelace <ada@example.com>, Owner: the whole space\n",
         "    #2 Grace Hopper <grace@example.com>: the project Example site, so it now also reaches dev.example.com\n",
-        "\nCount check (0018)\n  before: 13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n",
-        "  after:  13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n",
+        "\nCount check (0018)\n  before: 13 cards (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n",
+        "  after:  13 cards (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n",
     ] {
         assert!(text.contains(want), "{want}\n{text}");
     }
@@ -543,11 +543,11 @@ fn us_migrate_002_an_archived_board_holding_something_unique_comes_up_as_a_decis
             "  carried first: {:<20} 1 open -> in-progress; 1 closed -> done\n",
             "Triage"
         ),
-        "  placed first: 1 item with a place only on an old board, after the lane's last card\n",
-        "  - 2 items on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n",
-        "  - 1 item has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n",
-        "  before: 5 items, 4 comments, 2 attachments, 9 events\n",
-        "  after:  5 items, 4 comments, 2 attachments, 11 events\n",
+        "  placed first: 1 card with a place only on an old board, after the lane's last card\n",
+        "  - 2 cards on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n",
+        "  - 1 card has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n",
+        "  before: 5 cards, 4 comments, 2 attachments, 9 events\n",
+        "  after:  5 cards, 4 comments, 2 attachments, 11 events\n",
         "  the events grow by the 2 migrated label events and by nothing else\n",
     ] {
         assert!(text.contains(want), "{want}\n{text}");
@@ -583,7 +583,7 @@ fn us_migrate_002_a_host_the_config_does_not_map_and_a_card_on_a_gone_host_are_n
     let text = plan_writes_nothing(&h, &["--space", "main"]);
     for want in [
         "    shop.example.com -> shop.example.com, a project of its own: [spaces.main.projects] doesn't list it\n",
-        "  items on hosts the space no longer has:\n    old.example.com: 1 item -> no project\n",
+        "  cards on hosts the space no longer has:\n    old.example.com: 1 card -> no project\n",
         "  - the host shop.example.com isn't in [spaces.main.projects]: 0018 makes it a project of its own, called shop.example.com; list it there under another project to put it in that one\n",
         "  - BUG-9 is on old.example.com, which is no host of the space, and names no project: 0018 leaves it in no project; list old.example.com under a project in [spaces.main.projects] to give it one\n",
     ] {

@@ -68,7 +68,7 @@ pub fn shape(
             };
             decisions.push(format!(
                 "{} on the old label {} {} not on the one board: 0017 moves {}, after the lane's last card in {their} old order, each with a migrated label event; move {them} yourself first to put {them} elsewhere",
-                many(items, "item", "items"),
+                many(items, "card", "cards"),
                 text(row, "label"),
                 if items == 1 { "is" } else { "are" },
                 moves.join(" and "),
@@ -84,7 +84,7 @@ pub fn shape(
     if orders > 0 {
         decisions.push(format!(
             "{} {} a place on an old board but none on the one board: 0017 places {} after {} lane's last card, in {} old order",
-            many(orders, "item", "items"),
+            many(orders, "card", "cards"),
             if orders == 1 { "has" } else { "have" },
             if orders == 1 { "it" } else { "them" },
             if orders == 1 { "its" } else { "their" },
@@ -146,7 +146,7 @@ pub fn render(out: &mut String, plan: &Value) {
     if let Some(after) = prune["after"].as_array() {
         let names: Vec<&str> = after.iter().filter_map(Value::as_str).collect();
         out.push_str(&format!(
-            "  runs after {}: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n",
+            "  runs after {}: once every card is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each card's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n",
             names.join(", ")
         ));
         return;
@@ -205,14 +205,14 @@ pub fn render(out: &mut String, plan: &Value) {
     if orders > 0 {
         out.push_str(&format!(
             "  placed first: {} with a place only on an old board, after the lane's last card\n",
-            many(orders, "item", "items")
+            many(orders, "card", "cards")
         ));
     }
     out.push_str(&format!(
         "  deleted old tags: {} (item_labels rows nothing reads)\n",
         count(prune, "tags")
     ));
-    out.push_str("  the archive table goes; each item's history stays\n");
+    out.push_str("  the archive table goes; each card's history stays\n");
 }
 
 #[cfg(test)]
@@ -310,7 +310,7 @@ mod tests {
             "{out}"
         );
         assert!(
-            out.contains("  the archive table goes; each item's history stays\n"),
+            out.contains("  the archive table goes; each card's history stays\n"),
             "{out}"
         );
         assert!(!out.contains("archived,"), "{out}");
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(
             decisions,
             [
-                "3 items on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 2 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere"
+                "3 cards on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 2 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere"
             ]
         );
         assert_eq!(prune["labels"][0]["closed"], 2);
@@ -349,8 +349,8 @@ mod tests {
         assert_eq!(
             decisions,
             [
-                "1 item on the old label Triage is not on the one board: 0017 moves 1 open to In progress, after the lane's last card in its old order, each with a migrated label event; move it yourself first to put it elsewhere",
-                "1 item has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order",
+                "1 card on the old label Triage is not on the one board: 0017 moves 1 open to In progress, after the lane's last card in its old order, each with a migrated label event; move it yourself first to put it elsewhere",
+                "1 card has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order",
             ]
         );
     }
@@ -361,11 +361,11 @@ mod tests {
         assert_eq!(
             decisions,
             [
-                "2 items have a place on an old board but none on the one board: 0017 places them after their lane's last card, in their old order"
+                "2 cards have a place on an old board but none on the one board: 0017 places them after their lane's last card, in their old order"
             ]
         );
         let out = rendered(prune);
-        assert!(out.contains("  placed first: 2 items with a place only on an old board, after the lane's last card\n"), "{out}");
+        assert!(out.contains("  placed first: 2 cards with a place only on an old board, after the lane's last card\n"), "{out}");
     }
 
     #[test]
@@ -396,7 +396,7 @@ mod tests {
         let out = rendered(json!({"after": ["0016_one_board.sql"]}));
         assert_eq!(
             out,
-            "\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each item's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n"
+            "\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every card is on a lane, the old boards with their columns and places, every label that isn't a lane, and the old tags (item_labels rows nothing reads) are deleted; nothing is archived, and each card's history stays; a Cards board without seven lanes then stops the deploy at 0017, with nothing deleted\n"
         );
         let mut nothing = String::new();
         render(&mut nothing, &json!({"pending": []}));

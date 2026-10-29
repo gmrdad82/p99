@@ -23,7 +23,7 @@ pub enum GithubAction {
         about = "link a host to a GitHub repository: the token goes to the Worker as a secret, and the repository gets a webhook"
     )]
     Set {
-        #[arg(help = "the host whose items the repository fixes")]
+        #[arg(help = "the host whose cards the repository fixes")]
         host: String,
         #[arg(long, value_name = "owner/name", help = "the repository")]
         repo: String,
@@ -36,16 +36,16 @@ pub enum GithubAction {
     },
     #[command(about = "list the hosts linked to GitHub")]
     Show,
-    #[command(about = "unlink a host: its webhook and its secrets go, the links on its items stay")]
+    #[command(about = "unlink a host: its webhook and its secrets go, the links on its cards stay")]
     Off {
         #[arg(help = "the host to unlink")]
         host: String,
     },
-    #[command(about = "open a GitHub issue for an item, or print the one it has")]
+    #[command(about = "open a GitHub issue for a card, or print the one it has")]
     Open {
-        #[arg(help = "the item's key, such as BUG-12, or its number")]
+        #[arg(help = "the card's key, such as BUG-12, or its number")]
         key: String,
-        #[arg(long, help = "the host the item belongs to")]
+        #[arg(long, help = "the host the card is on")]
         host: Option<String>,
     },
 }

@@ -935,7 +935,7 @@ fn edit_turns_an_item_into_a_card_and_back() {
     assert!(back.get("issue").is_none());
     assert_eq!(worker.last().body, json!({"project":null}));
     let text = run(&worker, "edit", &["edit", "BUG-12", "--no-project"]);
-    assert_eq!(text.stdout, "BUG-12 is a plain item again, back in Inbox\n");
+    assert_eq!(text.stdout, "BUG-12 is out of its project, back in Inbox\n");
 }
 
 fn actor_for(worker: &Worker, args: &[&str], env: &[(&str, &str)]) -> Value {
@@ -1155,7 +1155,7 @@ fn edit_no_project_prints_the_items_summary_typed() {
     assert_eq!(back["kind"], "bug");
     assert_eq!(back["comments"], 0);
     let text = run(&worker, "no_project", &["edit", "12", "--no-project"]);
-    assert_eq!(text.stdout, "BUG-12 is a plain item again, back in Inbox\n");
+    assert_eq!(text.stdout, "BUG-12 is out of its project, back in Inbox\n");
     assert_eq!(worker.last().body, json!({"project":null}));
 }
 
@@ -1164,7 +1164,7 @@ fn edit_no_project_on_an_item_that_is_no_card_says_so_and_changes_nothing() {
     let worker = Worker::start(answers);
     let text = run(&worker, "no_card", &["edit", "BUG-13", "--no-project"]);
     assert_eq!(text.code, Some(0), "{}", text.stderr);
-    assert_eq!(text.stdout, "BUG-13 is not a card\n");
+    assert_eq!(text.stdout, "BUG-13 is in no project\n");
     assert!(text.stderr.is_empty(), "{}", text.stderr);
     let seen = worker.seen();
     assert_eq!(seen.len(), 1);

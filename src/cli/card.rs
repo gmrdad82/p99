@@ -549,7 +549,7 @@ fn attached_lines(attached: &[Attachment]) {
 
 pub(crate) fn not_a_card(error: &str) -> bool {
     let bare = refusal(error.to_owned());
-    (error.ends_with("(409)") && bare.contains(" is not a card"))
+    (error.ends_with("(409)") && (bare.contains(" not a card") || bare.contains(" in no project")))
         || (error.ends_with("(403)") && bare == OWNERS_ONLY)
         || bare == crate::card::NOT_YET
 }
@@ -904,7 +904,7 @@ pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result
             None => return Err(crate::card::NOT_YET.to_owned()),
             Some(Value::Null) => {
                 out!(
-                    "{} is not a card",
+                    "{} is in no project",
                     before["issue"]["key"].as_str().unwrap_or(&args.key)
                 );
                 return Ok(());
@@ -921,7 +921,7 @@ pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result
     if global.json {
         return print_json(&issue);
     }
-    out!("{} is a plain item again, back in Inbox", issue.key);
+    out!("{} is out of its project, back in Inbox", issue.key);
     Ok(())
 }
 

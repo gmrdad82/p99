@@ -81,7 +81,7 @@ pub fn shape(boards: &[Value], labels: &[Value], unplaced: i64) -> (Value, Vec<S
         if open > 0 && count(row, "closes") == 1 {
             decisions.push(format!(
                 "{} on the closing column {} {} open: 0016 puts {} in {}, never in Done; close {} first if {} finished",
-                many(open, "item", "items"),
+                many(open, "card", "cards"),
                 text(row, "label"),
                 if open == 1 { "is" } else { "are" },
                 if open == 1 { "it" } else { "them" },
@@ -179,7 +179,7 @@ pub fn render(out: &mut String, plan: &Value) {
     if let Some(after) = fold["after"].as_array() {
         let names: Vec<&str> = after.iter().filter_map(Value::as_str).collect();
         out.push_str(&format!(
-            "  runs after {}: every board folds into the Cards board's seven lanes ({}), each item gets one migrated label event, and 0017 then deletes the old boards and labels\n",
+            "  runs after {}: every board folds into the Cards board's seven lanes ({}), each card gets one migrated label event, and 0017 then deletes the old boards and labels\n",
             names.join(", "),
             lanes_line()
         ));
@@ -197,11 +197,11 @@ pub fn render(out: &mut String, plan: &Value) {
         },
         lanes_line()
     ));
-    out.push_str("  an item whose label is a lane stays; every other item moves to a lane, with one migrated label event naming its old label:\n");
+    out.push_str("  a card whose label is a lane stays; every other card moves to a lane, with one migrated label event naming its old label:\n");
     let labels = fold["labels"].as_array().cloned().unwrap_or_default();
     let moving: Vec<&Value> = labels.iter().filter(|r| count(r, "items") > 0).collect();
     if moving.is_empty() {
-        out.push_str("  no item carries a label outside the lanes\n");
+        out.push_str("  no card carries a label outside the lanes\n");
     }
     for row in moving {
         let (open, closed) = (count(row, "open"), count(row, "closed"));
@@ -258,7 +258,7 @@ pub fn render(out: &mut String, plan: &Value) {
     if unplaced > 0 {
         steps.push(format!(
             "{} with no place, newest first",
-            many(unplaced, "item", "items")
+            many(unplaced, "card", "cards")
         ));
     }
     out.push_str(&format!(
@@ -462,7 +462,7 @@ mod tests {
         assert_eq!(
             decisions,
             [
-                "1 item on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished"
+                "1 card on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished"
             ]
         );
     }
@@ -473,7 +473,7 @@ mod tests {
         assert_eq!(
             decisions,
             [
-                "3 items on the closing column Shipped are open: 0016 puts them in In progress, never in Done; close them first if they are finished"
+                "3 cards on the closing column Shipped are open: 0016 puts them in In progress, never in Done; close them first if they are finished"
             ]
         );
         let (_, none) = shape(&[], &[label("Shipped", Value::Null, 1, 5, 0)], 0);
@@ -546,7 +546,7 @@ mod tests {
             out.contains("  labels deleted once moved (0017): Doing, Inbox, QA ready, Review, Shipped, Triage\n"),
             "{out}"
         );
-        assert!(out.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 items with no place, newest first\n"), "{out}");
+        assert!(out.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 cards with no place, newest first\n"), "{out}");
     }
 
     #[test]
@@ -575,7 +575,7 @@ mod tests {
             "{out}"
         );
         assert!(
-            out.contains("  no item carries a label outside the lanes\n"),
+            out.contains("  no card carries a label outside the lanes\n"),
             "{out}"
         );
         assert!(

@@ -335,7 +335,7 @@ fn an_import_sends_each_type_in_order_keeps_keys_and_text_and_uploads_every_file
             row("read", 1, 0, 0),
             row("manager", 1, 1, 0),
             "  files uploaded: 2".to_owned(),
-            "  items recounted: 2, duplicates linked: 1".to_owned(),
+            "  cards recounted: 2, duplicates linked: 1".to_owned(),
             "these Owners have no Owner code yet; mint one each, or list them in MANAGERS:"
                 .to_owned(),
             "  p99 invite shop.example.com --owner --name \"<name>\" --email emmy@example.com"
@@ -525,7 +525,7 @@ fn a_resumed_import_keeps_what_landed_and_sends_only_the_missing_file() {
         row("comment", 0, 1, 0),
         row("attachment", 1, 0, 0),
         "  files uploaded: 1".to_owned(),
-        "  items recounted: 1, duplicates linked: 0".to_owned(),
+        "  cards recounted: 1, duplicates linked: 0".to_owned(),
     ] {
         assert!(
             lines.contains(&expected.as_str()),
@@ -679,7 +679,7 @@ fn conflicts_are_listed_by_type_and_the_import_exits_1() {
         "{}",
         out.stdout
     );
-    assert!(lines.contains(&"  items recounted: 2, duplicates linked: 0"));
+    assert!(lines.contains(&"  cards recounted: 2, duplicates linked: 0"));
 }
 
 #[test]
@@ -806,7 +806,7 @@ fn more_than_5000_items_finish_in_chunks_with_the_duplicates_once_and_the_answer
     assert_eq!(second["duplicates"], json!([]));
     let lines = out.lines();
     assert!(
-        lines.contains(&"  items recounted: 5001, duplicates linked: 3"),
+        lines.contains(&"  cards recounted: 5001, duplicates linked: 3"),
         "{}",
         out.stdout
     );

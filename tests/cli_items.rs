@@ -170,7 +170,7 @@ fn list_follows_the_cursor_until_the_limit_and_says_more_follow() {
     out.ok();
     assert_eq!(out.lines().len(), 3);
     assert!(out.lines()[0].contains("BUG-3"));
-    assert_eq!(out.stderr, "more items follow; raise --limit\n");
+    assert_eq!(out.stderr, "more cards follow; raise --limit\n");
     let calls = h.stub.calls("GET", "/_p99/v1/issues");
     assert_eq!(calls.len(), 2);
     assert_eq!(calls[0].param("limit"), Some("3"));
@@ -213,7 +213,7 @@ fn an_empty_list_says_no_items() {
     });
     let out = h.p99(&["list"]);
     out.ok();
-    assert_eq!(out.stdout, "no items\n");
+    assert_eq!(out.stdout, "no cards\n");
 }
 
 #[test]
@@ -393,7 +393,7 @@ fn show_prints_the_whole_thread_in_order() {
     let expected = "\
 BUG-12  Bug  Inbox
 The total does not update
-reported by Grace Hopper 🤖 on shop.example.com  2026-10-01 09:30  from production
+filed by Grace Hopper 🤖 on shop.example.com  2026-10-01 09:30  from production
 page: https://shop.example.com/cart
 assigned to @ada.lovelace
 merged into BUG-3
@@ -476,9 +476,9 @@ fn show_refuses_a_bad_key_before_any_call_and_says_a_missing_item_plainly() {
         }
     });
     h.p99(&["show", "BUG-x"])
-        .refused("BUG-x is not an item key; try BUG-12 or 12");
+        .refused("BUG-x is not a card key; try BUG-12 or 12");
     h.p99(&["show", "../etc"])
-        .refused("../etc is not an item key; try BUG-12 or 12");
+        .refused("../etc is not a card key; try BUG-12 or 12");
     assert!(h.stub.seen().is_empty());
     h.p99(&["show", "BUG-99"]).refused("no such item (404)");
     h.p99(&["show"])
@@ -716,7 +716,7 @@ fn comment_json_and_a_plain_public_comment() {
     let plain = h.p99(&["card", "comment", "12", "Thanks"]);
     assert_eq!(plain.stdout, "commented on 12\n");
     h.p99(&["card", "comment", "twelve", "x"])
-        .refused("twelve is not an item key; try BUG-12 or 12");
+        .refused("twelve is not a card key; try BUG-12 or 12");
 }
 
 #[test]
@@ -782,7 +782,7 @@ fn status_on_an_item_without_a_label_says_only_an_owner_moves_it() {
         }
     });
     h.p99(&["card", "status", "BUG-12", "Doing"])
-        .refused("12 shows no label; only an Owner moves items");
+        .refused("12 shows no label; only an Owner moves cards");
     assert!(h.stub.calls("POST", "/_p99/v1/move").is_empty());
 }
 
@@ -968,10 +968,10 @@ fn merge_folds_items_into_one_and_names_those_already_there() {
     assert_eq!(out.json()["unchanged"], json!(["BUG-14"]));
     already
         .p99(&["merge", "14", "x", "--into", "12"])
-        .refused("x is not an item key; try BUG-12 or 12");
+        .refused("x is not a card key; try BUG-12 or 12");
     already
         .p99(&["merge", "14", "--into", "nope"])
-        .refused("nope is not an item key; try BUG-12 or 12");
+        .refused("nope is not a card key; try BUG-12 or 12");
     already
         .p99(&["merge", "--into", "12"])
         .clap("the following required arguments were not provided:");
@@ -993,7 +993,7 @@ fn delete_needs_yes_off_a_terminal_and_reports_what_went() {
         json!({"key": "BUG-12", "comments": 2, "files": 1, "retrying": 0, "unlinked": []})
     );
     h.p99(&["delete", "x", "--yes"])
-        .refused("x is not an item key; try BUG-12 or 12");
+        .refused("x is not a card key; try BUG-12 or 12");
 }
 
 #[test]

@@ -159,7 +159,7 @@ fn us_agent_001_a_parse_error_exits_2_and_a_refusal_exits_1_in_one_line() {
     assert!(refused.stdout.is_empty(), "{}", refused.stdout);
     assert_eq!(refused.stderr.lines().count(), 1, "{}", refused.stderr);
     let bad_key = h.p99(&["--agent", "show", "x"]);
-    bad_key.refused("x is not an item key; try BUG-12 or 12");
+    bad_key.refused("x is not a card key; try BUG-12 or 12");
     assert_eq!(bad_key.stderr.lines().count(), 1, "{}", bad_key.stderr);
 }
 

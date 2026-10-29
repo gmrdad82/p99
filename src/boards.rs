@@ -12,7 +12,7 @@ use crate::wire::{Issue, MoveTo, out};
 
 #[derive(Debug, clap::Args)]
 pub struct MoveArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
+    #[arg(help = "the card's key, such as BUG-12, or its number")]
     pub key: String,
     #[arg(
         long,
@@ -33,7 +33,7 @@ pub struct MoveArgs {
         help = "place it just below this card in its lane"
     )]
     pub after: Option<String>,
-    #[arg(long, help = "the host the item belongs to")]
+    #[arg(long, help = "the host the card is on")]
     pub host: Option<String>,
 }
 
@@ -61,7 +61,7 @@ pub enum BoardsAction {
         #[arg(
             long,
             value_name = "labels",
-            help = "the columns whose label closes an item, comma-separated"
+            help = "the columns whose label closes a card, comma-separated"
         )]
         closes: Option<String>,
     },
@@ -75,7 +75,7 @@ pub struct BoardArgs {
         help = "only this project's cards; repeat it for several"
     )]
     pub project: Vec<String>,
-    #[arg(long, help = "only this host's items")]
+    #[arg(long, help = "only this host's cards")]
     pub host: Option<String>,
 }
 
@@ -170,7 +170,7 @@ pub fn label_move(
         .thread(&key)?
         .issue
         .label
-        .ok_or_else(|| format!("{key} shows no label; only an Owner moves items"))?;
+        .ok_or_else(|| format!("{key} shows no label; only an Owner moves cards"))?;
     let moved = client
         .move_to(&MoveTo {
             key: key.clone(),
@@ -196,7 +196,7 @@ pub fn run_move(config: &Config, global: &Global, args: &MoveArgs) -> Result<(),
         .thread(&key)?
         .issue
         .label
-        .ok_or_else(|| format!("{key} shows no label; only an Owner moves items"))?;
+        .ok_or_else(|| format!("{key} shows no label; only an Owner moves cards"))?;
     let moved = client
         .move_to(&MoveTo {
             key: key.clone(),

@@ -1004,11 +1004,11 @@ fn an_account_at_0015_stops_at_0016_until_its_plan_is_accepted_then_applies_0016
         ),
         "{text}"
     );
-    assert!(text.contains("\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every item is on a lane"), "{text}");
+    assert!(text.contains("\nDelete what the one board carries (0017)\n  runs after 0016_one_board.sql: once every card is on a lane"), "{text}");
     assert!(!text.contains("archived labels"), "{text}");
     assert!(!text.contains("read-only"), "{text}");
-    assert!(text.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 items with no place, newest first\n"), "{text}");
-    assert!(text.contains("  - 1 item on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished\n"), "{text}");
+    assert!(text.contains("  the order in each lane: Web (ada@example.com) 3 cards, then Cards (ada@example.com) 2 cards, then Ops (grace@example.com) 1 card, then 2 cards with no place, newest first\n"), "{text}");
+    assert!(text.contains("  - 1 card on the closing column Shipped is open: 0016 puts it in In progress, never in Done; close it first if it is finished\n"), "{text}");
     assert!(
         h.calls().iter().all(|c| !c.writes()),
         "the plan wrote: {:?}",
@@ -1120,7 +1120,7 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
     assert!(text.contains("  deleted labels: Inbox, Triage\n"), "{text}");
     assert!(
         text.contains(
-            "  placed first: 1 item with a place only on an old board, after the lane's last card\n"
+            "  placed first: 1 card with a place only on an old board, after the lane's last card\n"
         ),
         "{text}"
     );
@@ -1128,8 +1128,8 @@ fn an_account_at_0016_stops_at_0017_until_its_plan_is_accepted_and_the_plan_name
         text.contains("  deleted old tags: 4 (item_labels rows nothing reads)\n"),
         "{text}"
     );
-    assert!(text.contains("  - 2 items on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n"), "{text}");
-    assert!(text.contains("  - 1 item has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n"), "{text}");
+    assert!(text.contains("  - 2 cards on the old label Triage are not on the one board: 0017 moves 1 open to In progress and 1 closed to Done, after the lane's last card in their old order, each with a migrated label event; move them yourself first to put them elsewhere\n"), "{text}");
+    assert!(text.contains("  - 1 card has a place on an old board but none on the one board: 0017 places it after its lane's last card, in its old order\n"), "{text}");
     assert!(!text.contains("archived,"), "{text}");
     assert!(!text.contains("Old tags"), "{text}");
     assert!(
@@ -1198,7 +1198,7 @@ fn an_account_at_0016_counts_before_and_after_and_a_count_that_differs_inside_00
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
     let text = &plan.stdout;
-    assert!(text.contains("\nCount check\n  before: 5 items, 4 comments, 2 attachments, 9 events\n  before, by label: In progress 3, Triage 2\n  after:  5 items, 4 comments, 2 attachments, 11 events\n  after, by lane: In progress 4, Done 1\n  the events grow by the 2 migrated label events and by nothing else\n"), "{text}");
+    assert!(text.contains("\nCount check\n  before: 5 cards, 4 comments, 2 attachments, 9 events\n  before, by label: In progress 3, Triage 2\n  after:  5 cards, 4 comments, 2 attachments, 11 events\n  after, by lane: In progress 4, Done 1\n  the events grow by the 2 migrated label events and by nothing else\n"), "{text}");
     let json = h.run(&["migrate", "--plan", "--json"]).json();
     assert_eq!(json["plan"]["count_check"]["after"]["events"], 11);
     assert_eq!(json["plan"]["count_check"]["after"]["lanes"][2]["items"], 4);
@@ -1253,7 +1253,7 @@ fn an_account_at_0015_refused_by_the_count_check_rolls_0016_back_with_0017_and_i
 
     let plan = h.run(&["migrate", "--plan"]);
     assert_eq!(plan.code, Some(0), "{}", plan.stderr);
-    assert!(plan.stdout.contains("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"), "{}", plan.stdout);
+    assert!(plan.stdout.contains("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  a card, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"), "{}", plan.stdout);
 
     h.forget();
     let out = h.run(&["deploy", "--accept-plan", &plan_hash(&plan.stdout)]);
@@ -1551,7 +1551,7 @@ fn migrate_plan_on_a_1_7_schema_shows_states_boards_and_people_reads_only_and_ha
         "{text}"
     );
     assert!(text.contains("owned by Ada Lovelace <ada@example.com>"));
-    assert!(text.contains("  example.com: 4 items\n"));
+    assert!(text.contains("  example.com: 4 cards\n"));
     assert!(text.contains("People (0012): 2 rows"));
     assert!(
         text.contains("  BUG- 3 (2 open), FEAT- 1 (0 open)\n"),
@@ -1607,17 +1607,17 @@ fn migrate_plan_on_a_1_8_schema_names_every_decision_a_manager_must_answer() {
     assert!(!text.contains("with them,"));
     assert!(text.contains("States become labels (0011)"));
     assert!(
-        text.contains("  mobile \"Mobile\" (example.com, nested in web: flattened), 1 item\n"),
+        text.contains("  mobile \"Mobile\" (example.com, nested in web: flattened), 1 card\n"),
         "{text}"
     );
     assert!(text.contains("  web / Inbox: 2 of 2 cards move\n"));
-    assert!(text.contains("  urgent: 2 items\n"));
+    assert!(text.contains("  urgent: 2 cards\n"));
     assert!(text.contains("  - the column Doing and the tag doing would share one label name: rename one before deploying\n"), "{text}");
     assert!(
-        text.contains("  - 2 items carry 1 tag beyond their label"),
+        text.contains("  - 2 cards carry 1 tag beyond their label"),
         "{text}"
     );
-    assert!(text.contains("  - Build Bot <bot@example.com> acts through agents but has no code and no assigned items"), "{text}");
+    assert!(text.contains("  - Build Bot <bot@example.com> acts through agents but has no code and no assigned cards"), "{text}");
     assert!(text.contains("  Build Bot <bot@example.com>: 3 actions, shown as (no username)\n"));
     assert!(
         text.contains("  example.com: env production, above #cookie-bar, off on 1 path\n"),
@@ -2333,7 +2333,7 @@ fn an_interrupted_1_9_deploy_resumes_from_0012_only_with_the_plan_hash() {
     assert!(!plan.stdout.contains("States become labels"));
     assert!(
         plan.stdout.contains(
-            "  old tags (item_labels, which nothing reads): 3 rows on 2 items; 0018 drops the table\n"
+            "  old tags (item_labels, which nothing reads): 3 rows on 2 cards; 0018 drops the table\n"
         ),
         "{}",
         plan.stdout
@@ -2585,18 +2585,18 @@ fn a_space_at_0017_plans_its_projects_hosts_and_grants_and_its_hash_applies_0018
     for want in [
         "  pending: 0018_spaces.sql\n",
         "\nSpaces and projects (0018): the space main, shown as Example Co\n",
-        "    Example site: dev.example.com, example.com; 5 items (2 open)\n",
-        "    Licences: no host; 0 items (0 open)\n",
-        "    shop.example.com: shop.example.com; 4 items (1 open)\n",
-        "    Roadmap: no host; 3 items (3 open), 3 cards named it\n",
+        "    Example site: dev.example.com, example.com; 5 cards (2 open)\n",
+        "    Licences: no host; 0 cards (0 open)\n",
+        "    shop.example.com: shop.example.com; 4 cards (1 open)\n",
+        "    Roadmap: no host; 3 cards (3 open), 3 named it\n",
         "    example.com -> Example site\n",
         "    shop.example.com -> shop.example.com, a project of its own: [spaces.main.projects] doesn't list it\n",
-        "  items on hosts the space no longer has:\n    old.example.com: 1 item -> no project\n",
+        "  cards on hosts the space no longer has:\n    old.example.com: 1 card -> no project\n",
         "    #1 Ada Lovelace <ada@example.com>, Owner: the whole space\n",
         "    #2 Grace Hopper <grace@example.com>: the project Example site, so it now also reaches dev.example.com\n",
         "    #3 Jo <jo@example.com>: the project shop.example.com\n",
-        "  old tags (item_labels, which nothing reads): 2 rows on 1 item; 0018 drops the table\n",
-        "\nCount check (0018)\n  before: 13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  cards by project before: Roadmap 3\n  after:  13 items (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  items by project after: Example site 5, Licences 0, shop.example.com 4, Roadmap 3\n",
+        "  old tags (item_labels, which nothing reads): 2 rows on 1 card; 0018 drops the table\n",
+        "\nCount check (0018)\n  before: 13 cards (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  cards by project before: Roadmap 3\n  after:  13 cards (6 open), 4 comments, 20 events, 1 attachment, 3 codes\n  all cards by project after: Example site 5, Licences 0, shop.example.com 4, Roadmap 3\n",
         "  - the host shop.example.com isn't in [spaces.main.projects]: 0018 makes it a project of its own, called shop.example.com; list it there under another project to put it in that one\n",
         "  - BUG-9 is on old.example.com, which is no host of the space, and names no project: 0018 leaves it in no project; list old.example.com under a project in [spaces.main.projects] to give it one\n",
     ] {

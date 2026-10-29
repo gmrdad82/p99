@@ -399,7 +399,7 @@ fn hosts_remove_drops_the_host_from_the_worker_then_the_config() {
     out.ok();
     assert_eq!(
         out.stdout,
-        "removed shop.example.com from main; its items stay, and so does its route in Cloudflare\n"
+        "removed shop.example.com from main; its cards stay, and so does its route in Cloudflare\n"
     );
     assert!(
         h.stub
@@ -1501,7 +1501,7 @@ fn people_rename_moves_everything_and_says_what_moved() {
     assert_eq!(
         out.lines(),
         [
-            "moved grace@example.com to grace@example.org: 3 items, 1 assigned, 2 comments, 4 events, 0 attachments, 1 codes",
+            "moved grace@example.com to grace@example.org: 3 cards, 1 assigned, 2 comments, 4 events, 0 attachments, 1 codes",
             "set the same e-mail in your config's [me] so new work lands there too",
         ]
     );
@@ -1630,7 +1630,7 @@ fn announce_tells_the_worker_which_items_this_checkout_fixed() {
     assert_eq!(
         out.stdout,
         format!(
-            "announced {} main v1.0.0 to production: 4 items (2 fixes)\n",
+            "announced {} main v1.0.0 to production: 4 cards (2 fixes)\n",
             &sha[..8]
         )
     );
@@ -1672,7 +1672,7 @@ fn announce_with_flags_a_range_and_a_dirty_tree() {
     );
     out.ok();
     assert!(
-        out.stdout.contains(" (dirty) to dev: 4 items (2 fixes)"),
+        out.stdout.contains(" (dirty) to dev: 4 cards (2 fixes)"),
         "{}",
         out.stdout
     );
@@ -1808,7 +1808,7 @@ fn hosts_set_project_moves_the_host_and_its_mapping() {
         out.lines(),
         [
             "shop.example.com updated and pushed",
-            "shop.example.com is in the project Blog now; its items moved with it",
+            "shop.example.com is in the project Blog now; its cards moved with it",
         ]
     );
     let moved = h.stub.call("PATCH", "/_p99/v1/hosts/shop.example.com");

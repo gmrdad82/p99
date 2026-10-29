@@ -74,14 +74,16 @@ pub enum Command {
     #[command(about = "open your own P99 link in the browser, from the code your config keeps")]
     Link(crate::links::LinkArgs),
     #[command(
-        about = "move a person's items, comments, events and codes to another e-mail",
+        about = "move a person's cards, comments, events and codes to another e-mail",
         subcommand_required = true,
         arg_required_else_help = false
     )]
     People(PeopleArgs),
-    #[command(about = "list items")]
+    #[command(
+        about = "list cards, newest first; filter by project, kind, label, words, page or source"
+    )]
     List(ListArgs),
-    #[command(about = "show an item with its comments, events and landings")]
+    #[command(about = "show a card with its comments, files, events and landings")]
     Show(ShowArgs),
     #[command(hide = true, about = "now p99 card new --host")]
     File(FileArgs),
@@ -109,28 +111,28 @@ pub enum Command {
     Boards(crate::boards::BoardsArgs),
     #[command(about = "print the one board: its seven lanes and their cards")]
     Board(crate::boards::BoardArgs),
-    #[command(about = "assign an item to someone, or to no one")]
+    #[command(about = "assign a card to someone, or to no one")]
     Assign(AssignArgs),
     #[command(
-        about = "change an item's title or details; the history keeps the old and new text, and no one is mailed"
+        about = "change a card's title or details; the history keeps the old and new text, and no one is mailed"
     )]
     Edit(EditArgs),
     #[command(about = "download an attachment")]
     Download(DownloadArgs),
-    #[command(about = "tell P99 which items this checkout's commits fixed or referred to")]
+    #[command(about = "tell P99 which cards this checkout's commits fixed or referred to")]
     Announce(AnnounceArgs),
-    #[command(about = "bring items over from another tracker, keeping their keys and numbers")]
+    #[command(about = "bring cards over from another tracker, keeping their keys and numbers")]
     Import(crate::import::ImportArgs),
     #[command(
-        about = "print each new item, comment, change and attachment as it happens, until stopped"
+        about = "print each new card, comment, change and attachment as it happens, until stopped"
     )]
     Watch(WatchArgs),
     #[command(
-        about = "post a site's new items, comments, status changes and shipped fixes to Slack or Discord"
+        about = "post a site's new cards, comments, status changes and shipped fixes to Slack or Discord"
     )]
     Hooks(crate::hooks::HooksArgs),
     #[command(
-        about = "link a host to a GitHub repository, and open GitHub issues for items",
+        about = "link a host to a GitHub repository, and open GitHub issues for cards",
         subcommand_required = true,
         arg_required_else_help = false
     )]
@@ -138,20 +140,20 @@ pub enum Command {
     #[command(about = "list the lanes, the one board's columns; rename one")]
     Labels(crate::boards::LabelsArgs),
     #[command(
-        about = "fold duplicates into one item; their reporters follow it and get its updates"
+        about = "fold duplicates into one card; the people who filed them follow it and get its updates"
     )]
     Merge(merge::MergeArgs),
-    #[command(about = "list each host's feed of fixed items; turn one on or off")]
+    #[command(about = "list each host's feed of fixed cards; turn one on or off")]
     Feed(merge::FeedArgs),
     #[command(
-        about = "delete an item for good, with its comments, notes, events and files; asks for the key typed back"
+        about = "delete a card for good, with its comments, notes, events and files; asks for the key typed back"
     )]
     Delete(delete::DeleteArgs),
 }
 
 #[derive(Debug, clap::Args)]
 pub struct WatchArgs {
-    #[arg(long, help = "only this host's items")]
+    #[arg(long, help = "only this host's cards")]
     pub host: Option<String>,
 }
 
@@ -167,7 +169,7 @@ pub enum PeopleAction {
         about = "move everything filed, said or held under one e-mail to another, on the whole space"
     )]
     Rename {
-        #[arg(help = "the e-mail the items are under now")]
+        #[arg(help = "the e-mail the cards are under now")]
         from: String,
         #[arg(help = "the e-mail they move to")]
         to: String,
@@ -206,7 +208,7 @@ pub struct HostsArgs {
 pub enum HostsAction {
     #[command(about = "add a host: its route, its record and its environment")]
     Add(AddArgs),
-    #[command(about = "remove a host from the Worker and the config; its items stay")]
+    #[command(about = "remove a host from the Worker and the config; its cards stay")]
     Remove { host: String },
     #[command(about = "change where the button sits, which pages it skips, its theme and words")]
     Set(SetArgs),
@@ -218,7 +220,7 @@ pub struct AddArgs {
     #[arg(
         long,
         value_name = "name",
-        help = "the project the host belongs to; reports filed on the host land in it"
+        help = "the project the host belongs to; cards filed on the host land in it"
     )]
     pub project: String,
     #[arg(long, default_value = "production", help = "the host's environment")]
@@ -237,7 +239,7 @@ pub struct SetArgs {
     #[arg(
         long,
         value_name = "name",
-        help = "move the host to this project; its items move with it"
+        help = "move the host to this project; its cards move with it"
     )]
     pub project: Option<String>,
     #[arg(long, value_parser = CORNERS, help = "the button's corner")]
@@ -283,7 +285,7 @@ pub struct SetArgs {
     #[arg(
         long,
         value_parser = ["on", "off"],
-        help = "off: the panel files the text report with no screenshot and says so; on is the default"
+        help = "off: the panel files the card as text with no screenshot and says so; on is the default"
     )]
     pub capture: Option<String>,
 }
@@ -304,12 +306,12 @@ pub struct InviteArgs {
     pub project: Vec<String>,
     #[arg(long, help = "the person's name, as P99 shows it")]
     pub name: String,
-    #[arg(long, help = "the person's e-mail, which ties their items to them")]
+    #[arg(long, help = "the person's e-mail, which ties their cards to them")]
     pub email: String,
     #[arg(
         long,
         alias = "manager",
-        help = "make the person an Owner, who sees and changes every item"
+        help = "make the person an Owner, who sees and changes every card"
     )]
     pub owner: bool,
     #[arg(
@@ -392,7 +394,7 @@ pub struct ListArgs {
     #[arg(
         long,
         value_name = "name",
-        help = "only this project's items; repeat it for several"
+        help = "only this project's cards; repeat it for several"
     )]
     pub project: Vec<String>,
     #[arg(long, conflicts_with = "host", help = "every host")]
@@ -404,13 +406,13 @@ pub struct ListArgs {
         help = "only this kind: bug, feature, improvement, question or task"
     )]
     pub kind: Option<String>,
-    #[arg(long, help = "only what you reported")]
+    #[arg(long, help = "only the cards you filed")]
     pub mine: bool,
     #[arg(
         short = 'q',
         long = "query",
         value_name = "text",
-        help = "items whose title or text holds these words, accents ignored"
+        help = "cards whose title or text holds these words, accents ignored"
     )]
     pub query: Option<String>,
     #[arg(long, value_name = "name", help = "only cards with this label")]
@@ -432,22 +434,22 @@ pub struct ListArgs {
         long,
         default_value_t = 50,
         value_parser = clap::value_parser!(u64).range(1..),
-        help = "at most this many items in all"
+        help = "at most this many cards in all"
     )]
     pub limit: u64,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ShowArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
+    #[arg(help = "the card's key, such as BUG-12, or its number")]
     pub key: String,
-    #[arg(long, help = "the host the item belongs to")]
+    #[arg(long, help = "the host the card is on")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct FileArgs {
-    #[arg(help = "the host the item is for")]
+    #[arg(help = "the host the card is for")]
     pub host: String,
     #[arg(long, value_parser = KINDS, help = "what it is")]
     pub kind: String,
@@ -463,7 +465,7 @@ pub struct FileArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct AssignArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
+    #[arg(help = "the card's key, such as BUG-12, or its number")]
     pub key: String,
     #[arg(
         help = "a username such as @ada.lovelace, or me",
@@ -472,14 +474,14 @@ pub struct AssignArgs {
     pub who: Option<String>,
     #[arg(long, conflicts_with = "who", help = "leave it unassigned")]
     pub none: bool,
-    #[arg(long, help = "the host the item belongs to")]
+    #[arg(long, help = "the host the card is on")]
     pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 #[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file", "project", "no_project"])))]
 pub struct EditArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
+    #[arg(help = "the card's key, such as BUG-12, or its number")]
     pub key: String,
     #[arg(long, help = "the new title")]
     pub title: Option<String>,
@@ -492,19 +494,19 @@ pub struct EditArgs {
         help = "read the new details from a file, or - for standard input"
     )]
     pub text_file: Option<PathBuf>,
-    #[arg(long, help = "the host the item belongs to")]
+    #[arg(long, help = "the host the card is on")]
     pub host: Option<String>,
     #[arg(
         long,
         value_name = "name",
         conflicts_with_all = ["title", "text", "text_file", "no_project"],
-        help = "make the item a card of this project, in lane new"
+        help = "put the card in this project, in lane new"
     )]
     pub project: Option<String>,
     #[arg(
         long,
         conflicts_with_all = ["title", "text", "text_file"],
-        help = "make a card a plain item again, back in Inbox"
+        help = "take the card out of its project, back to Inbox"
     )]
     pub no_project: bool,
 }
@@ -687,7 +689,7 @@ fn event_line(text: &str) -> Option<String> {
         Some("import") => (
             field("key"),
             format!(
-                "{} items, {} comments",
+                "{} cards, {} comments",
                 event["items"].as_u64().unwrap_or(0),
                 event["comments"].as_u64().unwrap_or(0)
             ),
@@ -753,7 +755,7 @@ pub(crate) fn print_json<T: Serialize>(value: &T) -> Result<(), String> {
 pub(crate) fn key_of(raw: &str) -> Result<String, String> {
     crate::wire::item_number(raw)
         .map(|n| n.to_string())
-        .ok_or_else(|| format!("{raw} is not an item key; try BUG-12 or 12"))
+        .ok_or_else(|| format!("{raw} is not a card key; try BUG-12 or 12"))
 }
 
 pub(crate) fn when(stamp: &str) -> String {
@@ -1134,7 +1136,7 @@ fn hosts_remove(config: &mut Config, global: &Global, host: &str) -> Result<(), 
     if global.json {
         return print_json(&json!({"removed": host, "space": account}));
     }
-    println!("removed {host} from {account}; its items stay, and so does its route in Cloudflare");
+    println!("removed {host} from {account}; its cards stay, and so does its route in Cloudflare");
     Ok(())
 }
 
@@ -1267,7 +1269,7 @@ fn hosts_set(config: &mut Config, global: &Global, args: &SetArgs) -> Result<(),
     }
     println!("{host} updated and pushed");
     if let Some(name) = &project {
-        println!("{host} is in the project {name} now; its items moved with it");
+        println!("{host} is in the project {name} now; its cards moved with it");
     }
     if args.pitomd_link.as_deref() == Some("off") {
         println!("the 'by PITO.MD' link hides once the Worker carries this key: p99 deploy");
@@ -1628,7 +1630,7 @@ fn rename(config: &Config, global: &Global, from: &str, to: &str) -> Result<(), 
     }
     let n = |k: &str| moved[k].as_i64().unwrap_or(0);
     out!(
-        "moved {} to {}: {} items, {} assigned, {} comments, {} events, {} attachments, {} codes",
+        "moved {} to {}: {} cards, {} assigned, {} comments, {} events, {} attachments, {} codes",
         moved["from"].as_str().unwrap_or(from),
         moved["to"].as_str().unwrap_or(to),
         n("items"),
@@ -1813,13 +1815,13 @@ fn listed(
         return print_json(&value);
     }
     if found.is_empty() {
-        println!("no items");
+        println!("no cards");
     }
     for item in &found {
         out!("{}", summary_line(item));
     }
     if more {
-        eprintln!("more items follow; raise --limit");
+        eprintln!("more cards follow; raise --limit");
     }
     Ok(())
 }
@@ -1840,7 +1842,7 @@ fn print_thread(thread: &Thread) {
         .and_then(Value::as_bool)
         .unwrap_or(false);
     out!(
-        "reported by {} on {}  {}{}",
+        "filed by {} on {}  {}{}",
         who_via(
             text("email"),
             text("name"),
@@ -2153,7 +2155,7 @@ fn announce(config: &Config, global: &Global, args: &AnnounceArgs) -> Result<(),
         });
     }
     println!(
-        "announced {} {branch} {version}{} to {env}: {} items ({fixes} fixes)",
+        "announced {} {branch} {version}{} to {env}: {} cards ({fixes} fixes)",
         sha.chars().take(8).collect::<String>(),
         if dirty { " (dirty)" } else { "" },
         build.items.len(),

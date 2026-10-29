@@ -1684,7 +1684,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         3,
         total,
         "The D1 database",
-        "D1 keeps items, comments, events, codes, hosts and environments.",
+        "D1 keeps cards, comments, events, codes, hosts and environments.",
     );
     let db = ensure_database(&cf, &id, &account.database_id, &account.database)?;
     account.database = db.name;
@@ -1746,7 +1746,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         7,
         total,
         "Mail (optional)",
-        "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nOwners about new items and reporters about replies and fixes.",
+        "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nOwners about new cards and the people who filed them about replies and fixes.",
     );
     let mut key = match args.resend_key.as_deref() {
         Some(spec) => {

@@ -22,9 +22,9 @@ pub struct ImportArgs {
         help = "a directory holding bundle.jsonl and the files it names"
     )]
     pub dir: PathBuf,
-    #[arg(long, help = "the host the items belong to")]
+    #[arg(long, help = "the host the cards are on")]
     pub host: String,
-    #[arg(long, help = "report what would change, and write nothing")]
+    #[arg(long, help = "say what would change, and write nothing")]
     pub dry_run: bool,
 }
 
@@ -630,7 +630,7 @@ fn print_summary(
     }
     if let Some(done) = finished {
         println!(
-            "  items recounted: {}, duplicates linked: {}",
+            "  cards recounted: {}, duplicates linked: {}",
             done.recounted, done.duplicates.linked
         );
     }

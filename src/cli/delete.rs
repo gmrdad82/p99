@@ -6,9 +6,9 @@ use crate::wire::out;
 
 #[derive(Debug, clap::Args)]
 pub struct DeleteArgs {
-    #[arg(help = "the item to delete, such as BUG-12")]
+    #[arg(help = "the card to delete, such as BUG-12")]
     pub key: String,
-    #[arg(long, help = "the host the item belongs to")]
+    #[arg(long, help = "the host the card is on")]
     pub host: Option<String>,
     #[arg(
         long,

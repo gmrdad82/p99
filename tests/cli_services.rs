@@ -887,7 +887,7 @@ fn github_open_opens_an_issue_or_names_the_one_an_item_has() {
     let answer = existing.p99(&["github", "open", "12", "--json"]).json();
     assert_eq!(answer["existing"], true);
     h.p99(&["github", "open", "x"])
-        .refused("x is not an item key; try BUG-12 or 12");
+        .refused("x is not a card key; try BUG-12 or 12");
     h.p99(&["github"])
         .clap("'p99 github' requires a subcommand but one was not provided");
 }

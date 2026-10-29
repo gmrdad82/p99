@@ -8,12 +8,12 @@ use crate::wire::{Merged, out};
 pub struct MergeArgs {
     #[arg(
         required = true,
-        help = "the items that repeat it, such as BUG-14 BUG-15"
+        help = "the cards that repeat it, such as BUG-14 BUG-15"
     )]
     pub items: Vec<String>,
-    #[arg(long, value_name = "KEY", help = "the item they fold into")]
+    #[arg(long, value_name = "KEY", help = "the card they fold into")]
     pub into: String,
-    #[arg(long, help = "the host the items belong to")]
+    #[arg(long, help = "the host the cards are on")]
     pub host: Option<String>,
 }
 
@@ -25,7 +25,7 @@ pub struct FeedArgs {
 
 #[derive(Debug, clap::Subcommand)]
 pub enum FeedAction {
-    #[command(about = "serve the host's feed of fixed items at https://<host>/_p99/feed")]
+    #[command(about = "serve the host's feed of fixed cards at https://<host>/_p99/feed")]
     On { host: String },
     #[command(about = "stop serving the host's feed; its address answers 404")]
     Off { host: String },

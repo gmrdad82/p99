@@ -95,7 +95,7 @@ pub fn shape(totals: &Value, labels: Option<&[Value]>, lanes: Option<&[Value]>) 
 
 fn totals_line(side: &Value) -> String {
     let mut said = vec![
-        many(count(side, "items"), "item", "items"),
+        many(count(side, "items"), "card", "cards"),
         many(count(side, "comments"), "comment", "comments"),
         many(count(side, "attachments"), "attachment", "attachments"),
     ];
@@ -142,11 +142,11 @@ pub fn render(out: &mut String, plan: &Value) {
             ));
         }
         None => out.push_str(
-            "  events and lanes can't be counted until the steps before 0016 have run, so the deploy checks the items, comments and attachments\n",
+            "  events and lanes can't be counted until the steps before 0016 have run, so the deploy checks the cards, comments and attachments\n",
         ),
     }
     out.push_str("  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n");
-    out.push_str("  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n");
+    out.push_str("  a card, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n");
 }
 
 fn checks(plan: &Value) -> Vec<(String, i64, String)> {
@@ -208,7 +208,7 @@ pub fn refusal(plan: &Value, message: &str) -> Option<String> {
     let (_, want, _) = checks(plan).into_iter().find(|(n, _, _)| *n == name)?;
     let what = match name.strip_prefix("lane_") {
         Some(at) => format!(
-            "the items in {}",
+            "the cards in {}",
             at.parse::<usize>()
                 .ok()
                 .and_then(|i| Lane::value_variants().get(i))
@@ -312,12 +312,12 @@ mod tests {
         let out = rendered(&webram());
         assert_eq!(
             out,
-            "\nCount check\n  before: 70 items, 140 comments, 35 attachments, 210 events\n  before, by label: Doing 1, Inbox 69\n  after:  70 items, 140 comments, 35 attachments, 280 events\n  after, by lane: New 69, In progress 1\n  the events grow by the 70 migrated label events and by nothing else\n  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  an item, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"
+            "\nCount check\n  before: 70 cards, 140 comments, 35 attachments, 210 events\n  before, by label: Doing 1, Inbox 69\n  after:  70 cards, 140 comments, 35 attachments, 280 events\n  after, by lane: New 69, In progress 1\n  the events grow by the 70 migrated label events and by nothing else\n  the deploy runs its migrations as one step and counts again inside 0017: if any count differs, every one of them rolls back, the database stays as it is, and the Worker is not uploaded\n  a card, comment, attachment or event added after this plan changes its hash, and deploy then asks for the plan again\n"
         );
         let one = json!({"count_check": shape(&json!({"items": 1, "comments": 1, "attachments": 1, "events": 1}), Some(&[]), Some(&[lane(6, 1, 1)]))});
         let out = rendered(&one);
         assert!(
-            out.contains("  before: 1 item, 1 comment, 1 attachment, 1 event\n"),
+            out.contains("  before: 1 card, 1 comment, 1 attachment, 1 event\n"),
             "{out}"
         );
         assert!(out.contains("  before, by label: none\n"), "{out}");
@@ -334,10 +334,10 @@ mod tests {
         let early = json!({"count_check": shape(&json!({"items": 9, "comments": 2, "attachments": 0, "events": 6}), None, None)});
         let out = rendered(&early);
         assert!(
-            out.contains("  after:  9 items, 2 comments, 0 attachments\n"),
+            out.contains("  after:  9 cards, 2 comments, 0 attachments\n"),
             "{out}"
         );
-        assert!(out.contains("  events and lanes can't be counted until the steps before 0016 have run, so the deploy checks the items, comments and attachments\n"), "{out}");
+        assert!(out.contains("  events and lanes can't be counted until the steps before 0016 have run, so the deploy checks the cards, comments and attachments\n"), "{out}");
         assert!(!out.contains("by label"), "{out}");
         let sql = guard(&early).unwrap();
         assert!(sql.contains("items INTEGER CONSTRAINT count_check_items CHECK (items = 9)"));
@@ -387,7 +387,7 @@ mod tests {
             refusal(&plan, "CHECK constraint failed: count_check_lane_0")
                 .unwrap()
                 .starts_with(
-                    "the count check stopped 0017: the items in New no longer count 69 as"
+                    "the count check stopped 0017: the cards in New no longer count 69 as"
                 )
         );
         assert!(

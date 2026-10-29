@@ -58,7 +58,7 @@ export default async function (kit) {
     assert.ok(comment.stdout.includes(`commented on ${first.key}`), comment.stdout);
     const shown = await ok(kit, ["show", first.key]);
     const at = (text) => shown.stdout.indexOf(text);
-    for (const text of [first.key, `Cart total ${t} first`, "reported by Grace Hopper", "Open an order and change its quantity.", `Looking ${t}`]) {
+    for (const text of [first.key, `Cart total ${t} first`, "filed by Grace Hopper", "Open an order and change its quantity.", `Looking ${t}`]) {
       assert.ok(at(text) >= 0, `${text} is missing from:\n${shown.stdout}`);
     }
     assert.ok(at(`Cart total ${t} first`) < at("Open an order") && at("Open an order") < at(`Looking ${t}`), shown.stdout);
