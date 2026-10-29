@@ -11,12 +11,20 @@ mod cloudflare;
 mod deploy;
 #[path = "us/install.rs"]
 mod install;
+#[path = "us/invite.rs"]
+mod invite;
 #[path = "us/licence.rs"]
 mod licence;
+#[path = "us/link.rs"]
+mod link;
 #[path = "us/migrate.rs"]
 mod migrate;
 #[path = "us/projects.rs"]
 mod projects;
+#[path = "us/relink.rs"]
+mod relink;
+#[path = "us/revoke.rs"]
+mod revoke;
 #[path = "us/setup.rs"]
 mod setup;
 #[path = "us/spaces.rs"]
