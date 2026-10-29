@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { GITHUB_REPO, browseOn, deliverGithub, fileAs, mailsFor, places, reporter, thread, until, uniqueTitle } from "../us-support/delivery.mjs";
+import { GITHUB_REPO, deliverGithub, fileAs, mailsFor, places, reporter, thread, uniqueTitle } from "../us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog } = places(kit);
@@ -24,11 +24,11 @@ export default async function (kit) {
     const delivered = await deliverGithub(kit, shop, "pull_request", merged(`Keep the totals in step\n\nFixes: ${mine.key}\nFixes: ${theirs.key}`));
     assert.equal(delivered.status, 200, JSON.stringify(delivered.json));
     assert.deepEqual(delivered.json.changed, [mine.key]);
-    const seen = await browseOn(kit, shop, "GET", `/issues/${mine.key}`, grace.secret);
+    const seen = await kit.browse("GET", `/issues/${mine.key}`, grace.secret, undefined, shop);
     assert.equal(seen.json.issue.stage, "fixed");
     const other = await thread(kit, theirs.key, blog);
     assert.equal(other.issue.closed_at, null, "Blog's item stays open");
-    await until("Grace's mail", async () => (await mailsFor(kit, grace.email, `[${mine.key}] Fixed`)).length === 1);
+    await kit.until("Grace's mail", async () => (await mailsFor(kit, grace.email, `[${mine.key}] Fixed`)).length === 1);
   });
 
   await kit.check("us-github-001 closing p99s issue marks the item fixed once and a duplicate close leaves it open", async () => {

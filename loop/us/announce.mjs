@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { browseOn, environments, fileAs, gitRepo, places, reporter, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
+import { environments, fileAs, gitRepo, places, reporter, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop } = places(kit);
@@ -27,7 +27,7 @@ export default async function (kit) {
       assert.equal(production.code, 0, production.stderr);
       shown = await landed();
       assert.ok(shown.indexOf("landed in dev") >= 0 && shown.indexOf("landed in production") > shown.indexOf("landed in dev"), shown);
-      const mine = await browseOn(kit, shop, "GET", `/issues/${key}`, grace.secret);
+      const mine = await kit.browse("GET", `/issues/${key}`, grace.secret, undefined, shop);
       const names = mine.json.issue.landing.envs.map((e) => e.env);
       assert.ok(names.includes("dev") && names.includes("production") && names.indexOf("dev") < names.indexOf("production"), JSON.stringify(names));
     } finally {

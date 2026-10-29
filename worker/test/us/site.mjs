@@ -1,32 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { request } from "node:http";
 
 const ADA = { email: "ada@example.com", name: "Ada Lovelace" };
-
-function onHost(base, host, method, path, code, body) {
-  const at = new URL(base);
-  const bytes = body === undefined ? null : Buffer.from(JSON.stringify(body));
-  const headers = { host };
-  if (code) headers["x-p99-code"] = code;
-  if (bytes) Object.assign(headers, { "content-type": "application/json", "content-length": bytes.length });
-  return new Promise((resolve, reject) => {
-    const req = request({ host: at.hostname, port: at.port, path, method, headers }, (res) => {
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        const text = Buffer.concat(chunks).toString("utf8");
-        let json = null;
-        try {
-          json = JSON.parse(text);
-        } catch {}
-        resolve({ status: res.statusCode, json, text });
-      });
-    });
-    req.on("error", reject);
-    req.end(bytes);
-  });
-}
 
 export default async function (kit) {
   await kit.check("us-site-001 a host taken off p99 stops its widget and keeps its items", async () => {
@@ -39,8 +14,8 @@ export default async function (kit) {
     assert.equal(put.status, 200, JSON.stringify(put.json));
     const minted = await kit.mint("Grace Hopper", "grace@example.com", [host]);
     const code = minted.secret;
-    assert.equal((await onHost(kit.base, host, "GET", "/_p99/p99.js")).status, 200, "the loader answers while the host is on P99");
-    const filed = await onHost(kit.base, host, "POST", "/_p99/api/issues", code, {
+    assert.equal((await fetch(`${kit.origin(host)}/_p99/p99.js`)).status, 200, "the loader answers while the host is on P99");
+    const filed = await kit.browse("POST", "/issues", code, {
       client_uid: randomUUID(),
       kind: "bug",
       title: "The receipt never arrives",
@@ -48,17 +23,17 @@ export default async function (kit) {
       page: { url: `https://${host}/orders`, path: "/orders", title: "Orders" },
       context: {},
       marks: [],
-    });
+    }, host);
     assert.equal(filed.status, 201, filed.text);
     const key = filed.json.key;
 
     const removed = await signed("DELETE", `/hosts/${host}`);
     assert.equal(removed.status, 204);
 
-    assert.equal((await onHost(kit.base, host, "GET", "/_p99/p99.js")).status, 404, "the loader answers 404 at once");
-    assert.equal((await onHost(kit.base, host, "GET", "/_p99/panel.js?v=dev")).status, 404, "the panel answers 404");
-    assert.equal((await onHost(kit.base, host, "GET", "/_p99/api/me", code)).status, 404, "signing in answers 404");
-    const again = await onHost(kit.base, host, "POST", "/_p99/api/issues", code, {
+    assert.equal((await fetch(`${kit.origin(host)}/_p99/p99.js`)).status, 404, "the loader answers 404 at once");
+    assert.equal((await fetch(`${kit.origin(host)}/_p99/panel.js?v=dev`)).status, 404, "the panel answers 404");
+    assert.equal((await kit.browse("GET", "/me", code, undefined, host)).status, 404, "signing in answers 404");
+    const again = await kit.browse("POST", "/issues", code, {
       client_uid: randomUUID(),
       kind: "bug",
       title: "One more after the host left",
@@ -66,7 +41,7 @@ export default async function (kit) {
       page: { url: `https://${host}/orders`, path: "/orders", title: "Orders" },
       context: {},
       marks: [],
-    });
+    }, host);
     assert.equal(again.status, 404, "filing answers 404");
 
     const kept = await signed("GET", `/issues/${key}`);

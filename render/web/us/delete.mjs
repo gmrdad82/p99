@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ADA, cast, closePage, openShadow, people, report, tag, until } from "../../../loop/triage-lib.mjs";
+import { ADA, cast, closePage, people, report, tag } from "../../../loop/triage-lib.mjs";
 
 export default async function (kit) {
   const { check } = kit;
@@ -8,7 +8,6 @@ export default async function (kit) {
   const inPanel = (selector) => `p99-root >> .p99-panel.is-open ${selector}`;
 
   const open = async (page, code, key) => {
-    await page.addInitScript(openShadow);
     await page.goto(`${base}#p99=${code}`);
     await page.waitForFunction(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".w .f"), null, { timeout: 20000 });
     await page.goto(`${base}#p99=${key}`);
@@ -33,7 +32,7 @@ export default async function (kit) {
       assert.equal((await kit.call("GET", `/_p99/v1/issues/${doomed.key}?host=${where.shop}`, { actor: ADA })).status, 200);
       await button.focus();
       await owner.keyboard.press("Enter");
-      await until("the item to go", async () => (await kit.call("GET", `/_p99/v1/issues/${doomed.key}?host=${where.shop}`, { actor: ADA })).status === 404);
+      await kit.until("the item to go", async () => (await kit.call("GET", `/_p99/v1/issues/${doomed.key}?host=${where.shop}`, { actor: ADA })).status === 404);
     } finally {
       await closePage(owner);
     }

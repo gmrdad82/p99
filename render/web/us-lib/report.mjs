@@ -13,13 +13,6 @@ export const RETRY = S(".p99-new .p99-status-line .p99-retry");
 export const FAILED = "Couldn't send; try again.";
 export const NO_SHOT = "This site doesn't send screenshots, so your report goes without one.";
 
-export function openShadow() {
-  const attach = Element.prototype.attachShadow;
-  Element.prototype.attachShadow = function (init) {
-    return attach.call(this, { ...init, mode: "open" });
-  };
-}
-
 export function projectOf(kit, name) {
   const found = kit.space.projects.find((p) => p.name === name);
   assert.ok(found, `the seeded space has no project ${name}: ${JSON.stringify(kit.space)}`);
@@ -60,7 +53,6 @@ export async function fileBytes(kit, id) {
 
 export async function visit(kit, host, { code, path = "/checkout", init = [], scheme = "light" } = {}) {
   const p = await kit.page();
-  await p.addInitScript(openShadow);
   for (const script of init) await p.addInitScript(script);
   await p.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
   const errors = [];
@@ -99,16 +91,6 @@ export async function waitStatus(p, re, ms = 20000) {
     .catch(async () => {
       throw new Error(`the status line never matched ${re}: "${await statusLine(p)}"`);
     });
-}
-
-export async function until(what, fn, ms = 20000) {
-  const deadline = Date.now() + ms;
-  for (;;) {
-    const value = await fn();
-    if (value) return value;
-    if (Date.now() > deadline) throw new Error(`gave up waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 50));
-  }
 }
 
 export function gate() {

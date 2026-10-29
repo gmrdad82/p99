@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, inPage, issueBody, listButton, signed, tag, until, visit } from "../../render/web/us-lib/report.mjs";
+import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, inPage, issueBody, listButton, signed, tag, visit } from "../../render/web/us-lib/report.mjs";
 
 const scratch = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "tmp", "us-follow");
 
@@ -48,7 +48,7 @@ export default async function (kit) {
 
     const { p } = await visit(kit, shop, { code });
     await closing(p, async () => {
-      const badge = await until("the unread count", () =>
+      const badge = await kit.until("the unread count", () =>
         p.evaluate(() => {
           const n = document.querySelector("p99-root").shadowRoot.querySelector(".w .b:not(.f) .n");
           return n && n.textContent && n.classList.contains("u") ? n.textContent : "";
@@ -57,7 +57,7 @@ export default async function (kit) {
       assert.ok(Number(badge) >= 1, `the list button shows her unread count in the accent (${badge})`);
       await listButton(p).click();
       await p.locator(S(".p99-tabs a[data-scope=mine]")).click();
-      const rows = await until("Your items", () => listed(p));
+      const rows = await kit.until("Your items", () => listed(p));
       const mine = rows.find((r) => r.key === key);
       assert.ok(mine, `Your items lists her item (${JSON.stringify(rows)})`);
       assert.ok(mine.unread, "it is marked new");

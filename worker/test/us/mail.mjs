@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { browseOn, fileAs, mailsFor, move, originOf, places, releaseEnv, reply, reporter, ship, tag, until, uniqueTitle } from "../us-support/delivery.mjs";
+import { fileAs, mailsFor, move, places, releaseEnv, reply, reporter, ship, tag, uniqueTitle } from "../us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog } = places(kit);
@@ -9,18 +9,18 @@ export default async function (kit) {
     const first = await fileAs(kit, grace, uniqueTitle("The total is off"));
     const second = await fileAs(kit, grace, uniqueTitle("The cart is empty"));
     await reply(kit, first.key, shop, "Looking into it.");
-    const [heard] = await until("the first reply's mail", async () => {
+    const [heard] = await kit.until("the first reply's mail", async () => {
       const got = await mailsFor(kit, grace.email, `[${first.key}]`);
       return got.length === 1 && got;
     });
     const link = /https?:\/\/\S*\/_p99\/mail\?t=(\S+)/.exec(heard.text);
     assert.ok(link, heard.text);
-    const off = await fetch(`${originOf(kit, shop)}/_p99/mail?t=${link[1]}`);
+    const off = await fetch(`${kit.origin(shop)}/_p99/mail?t=${link[1]}`);
     assert.equal(off.status, 200);
     assert.match(await off.text(), /No more mail about/);
     await reply(kit, first.key, shop, "Still looking.");
     await reply(kit, second.key, shop, "Fixed on our side.");
-    await until("the other item's mail", async () => (await mailsFor(kit, grace.email, `[${second.key}]`)).length === 1);
+    await kit.until("the other item's mail", async () => (await mailsFor(kit, grace.email, `[${second.key}]`)).length === 1);
     assert.equal((await mailsFor(kit, grace.email, `[${first.key}]`)).length, 1);
   });
 
@@ -34,13 +34,13 @@ export default async function (kit) {
     assert.equal((await move(kit, shop, { key, from: "In progress", to: "landed" })).status, 200);
     const closed = await move(kit, shop, { key, from: "Landed", to: "Done" });
     assert.equal(closed.status, 200, JSON.stringify(closed.json));
-    await until("the closing mail", async () => (await mailsFor(kit, grace.email, `[${key}] Fixed:`)).length === 1);
+    await kit.until("the closing mail", async () => (await mailsFor(kit, grace.email, `[${key}] Fixed:`)).length === 1);
     assert.equal((await mailsFor(kit, grace.email, `[${key}]`)).length, 1, "the quiet moves mailed no one");
     const reopened = await move(kit, shop, { key, from: "Done", to: "planned" });
     assert.equal(reopened.status, 200, JSON.stringify(reopened.json));
-    await until("the reopening mail", async () => (await mailsFor(kit, grace.email, `[${key}] Received:`)).length === 1);
+    await kit.until("the reopening mail", async () => (await mailsFor(kit, grace.email, `[${key}] Received:`)).length === 1);
     await ship(kit, key, { version: `v${tag()}` });
-    const [landed] = await until("the shipped mail", async () => {
+    const [landed] = await kit.until("the shipped mail", async () => {
       const got = await mailsFor(kit, grace.email, `[${key}] Fixed and shipped to production`);
       return got.length === 1 && got;
     });
@@ -63,11 +63,11 @@ export default async function (kit) {
     const onBlog = await fileAs(kit, { ...grace, host: blog, secret: (await kit.mint("Grace Hopper", grace.email, [blog])).secret }, uniqueTitle("Feed is empty"));
     assert.equal(onShop.host, shop);
     assert.equal(onBlog.host, blog);
-    await until("Ada's two mails", async () => (await mailsFor(kit, adaEmail, "[")).length >= 2);
-    await until("Mary's mail", async () => (await mailsFor(kit, maryEmail, `[${onShop.key}]`)).length === 1);
+    await kit.until("Ada's two mails", async () => (await mailsFor(kit, adaEmail, "[")).length >= 2);
+    await kit.until("Mary's mail", async () => (await mailsFor(kit, maryEmail, `[${onShop.key}]`)).length === 1);
     assert.equal((await mailsFor(kit, adaEmail, `[${onBlog.key}]`)).length, 1);
     assert.equal((await mailsFor(kit, maryEmail, `[${onBlog.key}]`)).length, 0);
-    const seen = await browseOn(kit, shop, "GET", `/issues/${onBlog.key}`, mary.secret);
+    const seen = await kit.browse("GET", `/issues/${onBlog.key}`, mary.secret, undefined, shop);
     assert.ok([403, 404].includes(seen.status), "Mary cannot read the Blog report either");
   });
 }

@@ -6,7 +6,7 @@ const grace = { email: "grace@example.com", name: "Grace Hopper", agent: true, v
 
 export default async function (kit) {
   const { check, call } = kit;
-  const host = kit.here ?? kit.space.projects[0].hosts[0];
+  const host = kit.space.projects[0].hosts[0];
   const tag = randomUUID().slice(0, 6);
   const project = `Waiting ${tag}`;
 

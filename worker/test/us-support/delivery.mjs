@@ -9,7 +9,6 @@ export const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: fals
 export const adaBot = { email: "ada@example.com", name: "Ada Lovelace", agent: true, via: "writer" };
 export const SLACK = "https://hooks.slack.com/services/T0001/B0002/aaaabbbbccccWXYZ";
 export const GITHUB_REPO = "acme/shop";
-export const GITHUB_HOOK_SECRET = "github-hook-secret";
 
 export const tag = () => randomUUID().slice(0, 8);
 
@@ -21,47 +20,6 @@ export function places(kit) {
   return { shop: shop.hosts[0], blog: blog.hosts[0], shopProject: "Shop", blogProject: "Blog", opsProject: "Ops" };
 }
 
-export function originOf(kit, host) {
-  const url = new URL(kit.base);
-  url.hostname = host;
-  return url.origin;
-}
-
-export async function until(what, fn, tries = 150) {
-  for (let i = 0; i < tries; i++) {
-    const value = await fn();
-    if (value) return value;
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  throw new Error(`gave up waiting for ${what}`);
-}
-
-export function issueBody(overrides = {}) {
-  return {
-    client_uid: randomUUID(),
-    kind: "bug",
-    title: "The total does not update",
-    body: "Open an order and change its quantity.",
-    page: { url: "https://example.com/orders", path: "/orders", title: "Orders" },
-    context: { viewport: { w: 1280, h: 800 } },
-    marks: [],
-    ...overrides,
-  };
-}
-
-export async function browseOn(kit, host, method, path, code, body) {
-  const headers = {};
-  if (code !== undefined) headers["x-p99-code"] = code;
-  if (body !== undefined) headers["content-type"] = "application/json";
-  const response = await fetch(`${originOf(kit, host)}/_p99/api${path}`, {
-    method,
-    headers,
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = response.headers.get("content-type")?.startsWith("application/json") ? await response.json() : null;
-  return { status: response.status, json, response };
-}
-
 export async function reporter(kit, host, name, mark = tag()) {
   const first = name.split(" ")[0].toLowerCase();
   const email = `${first}.${mark}@example.com`;
@@ -71,7 +29,7 @@ export async function reporter(kit, host, name, mark = tag()) {
 }
 
 export async function fileAs(kit, who, title, extra = {}) {
-  const filed = await browseOn(kit, who.host, "POST", "/issues", who.secret, issueBody({ title, ...extra }));
+  const filed = await kit.browse("POST", "/issues", who.secret, kit.issueBody({ title, ...extra }), who.host);
   assert.equal(filed.status, 201, JSON.stringify(filed.json));
   return filed.json;
 }
@@ -128,13 +86,13 @@ export async function posts(kit, key) {
 
 export async function deliverGithub(kit, host, event, payload) {
   const bytes = Buffer.from(JSON.stringify(payload));
-  const response = await fetch(`${originOf(kit, host)}/_p99/v1/github`, {
+  const response = await fetch(`${kit.origin(host)}/_p99/v1/github`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-github-event": event,
       "x-github-delivery": randomUUID(),
-      "x-hub-signature-256": `sha256=${createHmac("sha256", GITHUB_HOOK_SECRET).update(bytes).digest("hex")}`,
+      "x-hub-signature-256": `sha256=${createHmac("sha256", kit.github.hookSecret).update(bytes).digest("hex")}`,
     },
     body: bytes,
   });
@@ -143,9 +101,9 @@ export async function deliverGithub(kit, host, event, payload) {
 }
 
 export async function ticketHeard(kit, host, code, heard) {
-  const ticket = await browseOn(kit, host, "POST", "/stream-ticket", code);
+  const ticket = await kit.browse("POST", "/stream-ticket", code, undefined, host);
   assert.equal(ticket.status, 201, JSON.stringify(ticket.json));
-  const url = `${originOf(kit, host).replace(/^http/, "ws")}/_p99/api/stream?t=${ticket.json.ticket}`;
+  const url = `${kit.origin(host).replace(/^http/, "ws")}/_p99/api/stream?t=${ticket.json.ticket}`;
   const socket = new WebSocket(url);
   socket.addEventListener("message", (message) => heard.push(JSON.parse(message.data)));
   await new Promise((resolve, reject) => {
@@ -169,7 +127,7 @@ export async function setFeed(kit, host, on) {
   assert.equal(put.status, 200, JSON.stringify(put.json));
 }
 
-export const feedOf = (kit, host, query = "") => fetch(`${originOf(kit, host)}/_p99/feed${query}`);
+export const feedOf = (kit, host, query = "") => fetch(`${kit.origin(host)}/_p99/feed${query}`);
 
 export function gitRepo(messages) {
   const base = fileURLToPath(new URL("../../.wrangler/us-repos/", import.meta.url));
@@ -198,13 +156,6 @@ export async function environments(kit) {
   await releaseEnv(kit, "production", true);
 }
 
-export const openShadow = () => {
-  const attach = Element.prototype.attachShadow;
-  Element.prototype.attachShadow = function (init) {
-    return attach.call(this, { ...init, mode: "open" });
-  };
-};
-
 export function jsonOut(run) {
   assert.equal(run.code, 0, `exit ${run.code}: ${run.stderr}`);
   return JSON.parse(run.stdout);
@@ -212,9 +163,9 @@ export function jsonOut(run) {
 
 export async function hear(watcher, wanted, ms = 20000) {
   const seen = [];
-  const until = Date.now() + ms;
-  while (Date.now() < until) {
-    const event = await watcher.next(Math.max(1000, until - Date.now()));
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    const event = await watcher.next(Math.max(1000, deadline - Date.now()));
     if (!event) break;
     seen.push(event);
     if (wanted(event)) return { event, seen };

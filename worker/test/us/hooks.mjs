@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { SLACK, fileAs, hook, places, posts, reply, reporter, until, uniqueTitle } from "../us-support/delivery.mjs";
+import { SLACK, fileAs, hook, places, posts, reply, reporter, uniqueTitle } from "../us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog } = places(kit);
@@ -10,11 +10,11 @@ export default async function (kit) {
     try {
       const grace = await reporter(kit, shop, "Grace Hopper");
       const filed = await fileAs(kit, grace, uniqueTitle("The cart forgets a gift note"));
-      await until("the new-item post", async () => (await posts(kit, filed.key)).length === 1);
+      await kit.until("the new-item post", async () => (await posts(kit, filed.key)).length === 1);
       const note = await reply(kit, filed.key, shop, "Internal: check the cart service.", undefined, { internal: true });
       assert.ok(note.id, "the note is saved");
       await reply(kit, filed.key, shop, "We are on it.");
-      await until("the comment post", async () => JSON.stringify(await posts(kit, filed.key)).includes("Comment by Ada Lovelace"));
+      await kit.until("the comment post", async () => JSON.stringify(await posts(kit, filed.key)).includes("Comment by Ada Lovelace"));
       const sent = await posts(kit, filed.key);
       assert.equal(sent.length, 2, JSON.stringify(sent));
       assert.equal(JSON.stringify(sent).includes("check the cart service"), false);
@@ -24,18 +24,20 @@ export default async function (kit) {
   });
 
   await kit.check("us-hooks-001 a failing hook never fails a write", async () => {
+    kit.hooks.answer(500);
     await hook(kit, shop);
     try {
       const grace = await reporter(kit, shop, "Grace Hopper");
       const filed = await fileAs(kit, grace, uniqueTitle("The hook is down"));
-      await until("the post that failed", async () => (await posts(kit, filed.key)).length === 1);
-      const last = await until("the hook's last answer", async () => {
+      await kit.until("the post that failed", async () => (await posts(kit, filed.key)).length === 1);
+      const last = await kit.until("the hook's last answer", async () => {
         const listed = await kit.call("GET", `/_p99/v1/hooks?host=${shop}`);
         return listed.json.hooks[0]?.last_status ? listed.json.hooks[0] : null;
       });
-      assert.notEqual(last.last_status, "ok", "the kit's hook stub must answer with an error");
+      assert.notEqual(last.last_status, "ok", "the hook's failure is recorded");
       assert.equal((await kit.call("GET", `/_p99/v1/issues/${filed.key}?host=${shop}`)).status, 200);
     } finally {
+      kit.hooks.answer(200);
       await drop(shop);
     }
   });
@@ -49,11 +51,11 @@ export default async function (kit) {
       const mary = await reporter(kit, blog, "Mary Jackson");
       const onShop = await fileAs(kit, grace, uniqueTitle("Shop total is off"));
       const onBlog = await fileAs(kit, mary, uniqueTitle("Blog feed is empty"));
-      const shopPosts = await until("Shop's post", async () => {
+      const shopPosts = await kit.until("Shop's post", async () => {
         const got = await posts(kit, onShop.key);
         return got.length === 1 && got;
       });
-      const blogPosts = await until("Blog's post", async () => {
+      const blogPosts = await kit.until("Blog's post", async () => {
         const got = await posts(kit, onBlog.key);
         return got.length === 1 && got;
       });

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { SLACK, environments, fileAs, jsonOut, places, posts, reply, reporter, move, ship, tag, until, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
+import { SLACK, environments, fileAs, jsonOut, places, posts, reply, reporter, move, ship, tag, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog } = places(kit);
@@ -13,14 +13,14 @@ export default async function (kit) {
       const grace = await reporter(kit, shop, "Grace Hopper");
       const filed = await fileAs(kit, grace, uniqueTitle("The total does not update"));
       const key = filed.key;
-      await until("the new-item post", async () => (await posts(kit, key)).length === 1);
+      await kit.until("the new-item post", async () => (await posts(kit, key)).length === 1);
       await reply(kit, key, shop, "We are on it.");
-      await until("the comment post", async () => (await posts(kit, key)).length === 2);
+      await kit.until("the comment post", async () => (await posts(kit, key)).length === 2);
       assert.equal((await move(kit, shop, { key, from: "New", to: "planned" })).status, 200);
       assert.equal((await move(kit, shop, { key, from: "Planned", to: "Done" })).status, 200);
-      await until("the move post", async () => (await posts(kit, key)).length === 3);
+      await kit.until("the move post", async () => (await posts(kit, key)).length === 3);
       await ship(kit, key, { version: `v${tag()}` });
-      await until("the shipped post", async () => (await posts(kit, key)).length === 4);
+      await kit.until("the shipped post", async () => (await posts(kit, key)).length === 4);
       const said = (await posts(kit, key)).map((p) => JSON.stringify(p));
       assert.ok(said[0].includes("New, by Grace Hopper"), said[0]);
       assert.equal(said[0].includes("🤖"), false);
@@ -31,7 +31,7 @@ export default async function (kit) {
 
       const robot = await kit.p99(["--agent=writer", "file", shop, "--kind", "bug", "--title", uniqueTitle("Filed by an agent"), "--json"]);
       const agentKey = jsonOut(robot).issue.key;
-      await until("the agent's post", async () => (await posts(kit, agentKey)).length === 1);
+      await kit.until("the agent's post", async () => (await posts(kit, agentKey)).length === 1);
       assert.ok(JSON.stringify(await posts(kit, agentKey)).includes("🤖"));
     } finally {
       await kit.p99(["hooks", "remove", shop]);

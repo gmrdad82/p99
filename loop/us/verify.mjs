@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { FORM, GONE, PLUS, VERIFY, compact, inviteJson, invitesJson, shows, totpAtSeconds, visit } from "../../worker/test/us-codes-kit.mjs";
+import { FORM, GONE, PLUS, VERIFY, compact, inviteJson, invitesJson, shows, visit } from "../../worker/test/us-codes-kit.mjs";
 
 const NOW = "2026-10-29T10:00:00.000Z";
 
@@ -8,7 +8,6 @@ export default async function (kit) {
   const { check } = kit;
   const shop = kit.space.projects.find((p) => p.name === "Shop");
   const host = shop.hosts[0];
-  const seconds = () => kit.clock.now() / 1000;
 
   await check("us-verify-001 the printed key gives codes the worker accepts", async () => {
     for (const [at, six] of [
@@ -18,7 +17,7 @@ export default async function (kit) {
       [1234567890, "005924"],
       [2000000000, "279037"],
     ]) {
-      assert.equal(totpAtSeconds("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", at), six, `RFC 6238 at ${at}`);
+      assert.equal(kit.totp("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", at * 1000), six, `RFC 6238 at ${at}`);
     }
     await kit.clock.set(NOW);
     const email = `grace.${randomUUID().slice(0, 8)}@example.com`;
@@ -39,11 +38,11 @@ export default async function (kit) {
 
     const asked = await kit.browse("GET", "/me?path=%2F", secret, undefined, host);
     assert.equal(asked.status, 428, "nothing opens before the code");
-    const accepted = await kit.browse("POST", "/verify", secret, { totp: totpAtSeconds(key, seconds()) }, host);
+    const accepted = await kit.browse("POST", "/verify", secret, { totp: kit.totp(key) }, host);
     assert.equal(accepted.status, 201, JSON.stringify(accepted.json));
     const opened = await kit.browse("GET", "/me?path=%2F", `${secret}.${accepted.json.device}`, undefined, host);
     assert.equal(opened.status, 200, JSON.stringify(opened.json));
-    const next = await kit.browse("POST", "/verify", secret, { totp: totpAtSeconds(key, seconds() + 30) }, host);
+    const next = await kit.browse("POST", "/verify", secret, { totp: kit.totp(key, kit.clock.now() + 30000) }, host);
     assert.equal(next.status, 201, "the next step's code is accepted too");
   });
 

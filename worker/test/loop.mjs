@@ -37,6 +37,15 @@ const TYPES = { ".html": "text/html; charset=utf-8", ".css": "text/css", ".js": 
 
 const tagOf = (host, sha256) => sha256(Buffer.from(host)).slice(0, 16).toUpperCase();
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (what, fn, ms = 20000) => {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    const value = await fn();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`gave up waiting for ${what}`);
+    await wait(100);
+  }
+};
 const addressOf = (to) => (/<([^>]+)>/.exec(String(to))?.[1] ?? String(to)).trim().toLowerCase();
 
 function parsed(text) {
@@ -375,8 +384,8 @@ export async function loopStories(h) {
     if (out.code !== 0) throw new Error(`p99 ${args.join(" ")} exited ${out.code}: ${out.stderr}`);
     return out.stdout;
   };
-  const watch = async ({ args = [], env } = {}) => {
-    const child = launch(["watch", "--json", ...args], env);
+  const watch = async ({ host, args = [], env } = {}) => {
+    const child = launch(["watch", "--json", ...(host ? ["--host", host] : []), ...args], env);
     const queue = [];
     const waiters = [];
     const out = { stdout: "", stderr: "", rest: "", code: null };
@@ -482,8 +491,9 @@ export async function loopStories(h) {
       call: h.call,
       listen: h.listen,
       issueBody: h.issueBody,
-      until: h.until,
+      until,
       base: workerBase,
+      origin: (host = SHOP) => `http://127.0.0.1:${sitePort}/@${host}`,
       people: PEOPLE,
       licenceKey,
       browse: browseOn,
@@ -508,6 +518,7 @@ export async function loopStories(h) {
         return context.newPage();
       },
       siteUrl: (host = SHOP, path = "/") => `http://${host}${path.startsWith("/") ? path : `/${path}`}`,
+      appUrl: (path = "/") => `http://${APP}${path.startsWith("/") ? path : `/${path}`}`,
       mail: {
         inbox: (email) =>
           fakes.seen.mail
@@ -527,6 +538,7 @@ export async function loopStories(h) {
       github: {
         issues: () => fakes.seen.github.slice(marks.github),
         answer: (route, reply) => fakes.answers.github.set(route, reply),
+        hookSecret: GITHUB_HOOK,
       },
       clock: { set: clock.set, advance: clock.advance, reset: clock.reset, now: clock.now },
       space: { ...SPACE, app: APP, projects: PROJECTS.map((p) => ({ name: p.name, hosts: [...p.hosts] })) },

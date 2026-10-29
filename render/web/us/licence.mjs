@@ -1,23 +1,9 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { totpOf } from "../../../worker/test/app.mjs";
-import { licenceKey } from "../../../worker/test/spaces.mjs";
 
 const ADA = { email: "ada@example.com", name: "Ada Lovelace" };
 const SAVED = "Saved. The badge shows the licence now.";
 const WAIT = { timeout: 20000 };
-
-function openShadow() {
-  const attach = Element.prototype.attachShadow;
-  Element.prototype.attachShadow = function (init) {
-    return attach.call(this, { ...init, mode: "open" });
-  };
-}
-
-function appUrl(kit, path) {
-  if (typeof kit.appUrl !== "function") throw new Error("kit.appUrl(path) is missing: the P99 page's address on this run's Worker");
-  return kit.appUrl(path);
-}
 
 async function code(kit, body) {
   const made = await kit.call("POST", "/_p99/v1/codes", { actor: ADA, body: { grant: { space: true }, mail: false, ...body } });
@@ -25,11 +11,11 @@ async function code(kit, body) {
   return made.json;
 }
 
-async function signIn(page, url, email, key) {
-  await page.goto(url);
+async function signIn(kit, page, email, key) {
+  await page.goto(kit.appUrl("/"));
   await page.locator("#signin input[name=email]").waitFor(WAIT);
   await page.fill("#signin input[name=email]", email);
-  await page.fill("#signin input[name=totp]", totpOf(key));
+  await page.fill("#signin input[name=totp]", kit.totp(key));
   await page.click("#signin button[type=submit]");
   await page.waitForFunction(
     () => {
@@ -54,10 +40,10 @@ export default async function (kit) {
     try {
       const page = await kit.page();
       pages.push(page);
-      await signIn(page, appUrl(kit, "/"), email, owner.totp_key);
+      await signIn(kit, page, email, owner.totp_key);
       await page.evaluate(() => (location.hash = "#profile"));
       await page.waitForFunction(() => document.getElementById("app").dataset.screen === "profile" && !document.querySelector("#app .app-wait"), null, WAIT);
-      await page.fill(".app-licence textarea[name=licence]", licenceKey({ tier: "studio", paid_through: "2099-12-31" }));
+      await page.fill(".app-licence textarea[name=licence]", kit.licenceKey({ tier: "studio", paid_through: "2099-12-31" }));
       await page.click(".app-licence button[type=submit]");
       await page.waitForFunction((w) => document.querySelector(".app-licence .app-status")?.textContent === w, SAVED, WAIT);
       assert.match(await page.getAttribute(".app-bar .app-badge", "src"), /\/_p99\/badges\/studio\.svg/);
@@ -69,7 +55,6 @@ export default async function (kit) {
 
       const site = await kit.page();
       pages.push(site);
-      await site.addInitScript(openShadow);
       await site.goto(`${kit.siteUrl(host, "/")}#p99=${visitor.secret}`);
       await site.locator("p99-root >> .w .f").waitFor(WAIT);
       await site.locator("p99-root >> .w .f").click();

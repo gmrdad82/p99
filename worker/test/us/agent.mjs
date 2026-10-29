@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { ada, adaBot, fileAs, places, reporter, thread, ticketHeard, until, uniqueTitle, tag } from "../us-support/delivery.mjs";
+import { ada, adaBot, fileAs, places, reporter, thread, ticketHeard, uniqueTitle, tag } from "../us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog, shopProject } = places(kit);
@@ -32,7 +32,7 @@ export default async function (kit) {
     try {
       const onBlog = await fileAs(kit, lin, uniqueTitle("The feed hangs"));
       const onShop = await fileAs(kit, grace, uniqueTitle("Checkout freezes"));
-      await until("Shop's event", async () => heard.some((e) => e.key === onShop.key));
+      await kit.until("Shop's event", async () => heard.some((e) => e.key === onShop.key));
       assert.ok(heard.some((e) => e.key === onShop.key && e.type === "item"));
       assert.equal(heard.some((e) => e.key === onBlog.key), false, JSON.stringify(heard));
       assert.equal(heard.some((e) => e.host === blog), false);

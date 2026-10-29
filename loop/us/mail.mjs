@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { browseOn, fileAs, openShadow, places, reporter, until, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
+import { fileAs, places, reporter, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop } = places(kit);
@@ -14,7 +14,7 @@ export default async function (kit) {
 
     const person = await kit.p99(["comment", key, "We are on it.", "--host", shop]);
     assert.equal(person.code, 0, person.stderr);
-    const [mail] = await until("Ada's reply by mail", async () => {
+    const [mail] = await kit.until("Ada's reply by mail", async () => {
       const got = (await kit.mail.inbox(grace.email)).filter((m) => m.subject.startsWith(`[${key}] New reply`));
       return got.length === 1 && got;
     });
@@ -27,17 +27,16 @@ export default async function (kit) {
     const parsed = new URL(link);
     assert.ok(parsed.hash.length > 1, "the link carries Grace's code");
     const page = await kit.page();
-    await page.addInitScript(openShadow);
-    await page.goto(`${await kit.siteUrl(shop, parsed.pathname + parsed.search)}${parsed.hash}`);
+    await page.goto(`${kit.siteUrl(shop, parsed.pathname + parsed.search)}${parsed.hash}`);
     const opened = page.locator("p99-root >> .p99-panel.is-open [data-view=item]");
     await opened.waitFor({ timeout: 20000 });
     assert.ok((await opened.innerText()).includes(title), "the link opens Grace's own thread");
-    const mine = await browseOn(kit, shop, "GET", `/issues/${key}`, grace.secret);
+    const mine = await kit.browse("GET", `/issues/${key}`, grace.secret, undefined, shop);
     assert.equal(mine.status, 200);
 
     const robot = await kit.p99(["--agent=writer", "comment", key, "Checking the cart service.", "--host", shop]);
     assert.equal(robot.code, 0, robot.stderr);
-    const [agentMail] = await until("the agent's reply by mail", async () => {
+    const [agentMail] = await kit.until("the agent's reply by mail", async () => {
       const got = (await kit.mail.inbox(grace.email)).filter((m) => m.subject.startsWith(`[${key}] New reply`) && m.text.includes("Checking the cart service."));
       return got.length === 1 && got;
     });

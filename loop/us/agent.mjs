@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { fileAs, hear, jsonOut, openShadow, places, reporter, tag, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
+import { fileAs, hear, jsonOut, places, reporter, tag, uniqueTitle } from "../../worker/test/us-support/delivery.mjs";
 
 export default async function (kit) {
   const { shop, blog, shopProject } = places(kit);
@@ -47,8 +47,7 @@ export default async function (kit) {
       const grace = await reporter(kit, shop, "Grace Hopper");
       const title = uniqueTitle("Pay stays grey");
       const page = await kit.page();
-      await page.addInitScript(openShadow);
-      await page.goto(`${await kit.siteUrl(shop, "/")}#p99=${grace.secret}`);
+      await page.goto(`${kit.siteUrl(shop, "/")}#p99=${grace.secret}`);
       await page.locator("p99-root >> .w .f").click();
       const panel = "p99-root >> .p99-panel.is-open";
       await page.locator(`${panel} .p99-new input[name=title]`).fill(title);
@@ -81,8 +80,7 @@ export default async function (kit) {
     }
   });
 
-  const redOrCheck = kit.red ? (name, fn) => kit.red(name, "watch events carry no project or space name yet", fn) : kit.check;
-  await redOrCheck("us-agent-002 each watch event names its project and space", async () => {
+  await kit.red("us-agent-002 each watch event names its project and space", "watch events carry no project or space name yet", async () => {
     const watching = await kit.watch();
     try {
       const grace = await reporter(kit, shop, "Grace Hopper");

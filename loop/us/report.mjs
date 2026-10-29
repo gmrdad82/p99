@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import {
   GRACE,
   NO_SHOT,
-  S,
   SEND,
   asData,
   closing,

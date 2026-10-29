@@ -24,7 +24,6 @@ import {
   thread,
   threadShown,
   titled,
-  until,
   viewportWidth,
   visit,
   waitStatus,
@@ -132,7 +131,7 @@ export default async function (kit) {
         const title = tag("Slow network, one item");
         await write(p, title);
         await p.locator(SEND).click();
-        await until("the held send", () => posts.length === 1);
+        await kit.until("the held send", () => posts.length === 1);
         await waitStatus(p, /Sending/);
         assert.ok(await p.locator(SEND).isDisabled(), "Send is disabled while the send is held");
         await p.locator(TITLE).press("Enter");
@@ -143,7 +142,7 @@ export default async function (kit) {
         await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
         assert.equal(posts.length, 1, "Enter and two more submits send nothing more");
         posting.open();
-        await until("the held upload", () => puts.length >= 1);
+        await kit.until("the held upload", () => puts.length >= 1);
         uploading.open();
         loading.open();
         await threadShown(p);

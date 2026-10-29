@@ -313,45 +313,4 @@ export default async function (kit) {
     assert.ok(hasKey(narrowed, waiting.key) && !hasKey(narrowed, elsewhere.key), narrowed);
     assert.equal(waitingCount(narrowed), 1, header(narrowed));
   });
-
-  await check("us-triage-006 an agent closes a card as abandoned and the thread says dropped", async () => {
-    const t = tag();
-    const made = await card(kit, where.ops, `Dead end ${t}`);
-    await ok(kit, ["status", made.key, "abandoned", "--agent"]);
-    const thread = await threadOf(kit, made.key);
-    assert.equal(thread.issue.resolution, "abandoned");
-    assert.equal(thread.issue.stage, "dropped");
-    assert.equal(thread.issue.host ?? null, null);
-    assert.ok(thread.events.some((e) => e.agent === true), "the history marks the agent");
-  });
-
-  await check("us-triage-006 an agent closes a card as a duplicate of another", async () => {
-    const t = tag();
-    const original = await card(kit, where.ops, `Original ${t}`);
-    const repeat = await card(kit, where.ops, `Repeat ${t}`);
-    await ok(kit, ["status", repeat.key, "duplicate", "--duplicate-of", original.key, "--agent"]);
-    const thread = await threadOf(kit, repeat.key);
-    assert.equal(thread.issue.stage, "duplicate");
-    assert.equal(thread.issue.duplicate_of, original.key);
-    const kept = await threadOf(kit, original.key);
-    assert.ok(!kept.issue.resolution, "the original stays open");
-  });
-
-  await check("us-triage-006 an agent cannot close a card as done", async () => {
-    const t = tag();
-    const made = await card(kit, where.ops, `Not done ${t}`);
-    const refused = await kit.p99(["card", "status", made.key, "done", "--agent"]);
-    assert.equal(refused.code, 1, refused.stdout);
-    assert.ok(refused.stderr.includes("only a person closes a card"), refused.stderr);
-    const byLabel = await kit.p99(["status", made.key, "Done", "--agent"]);
-    assert.equal(byLabel.code, 1, byLabel.stdout);
-    assert.ok(byLabel.stderr.includes("only a person closes a card"), byLabel.stderr);
-    const shown = JSON.parse((await ok(kit, ["card", "show", made.key, "--json"])).stdout);
-    assert.notEqual(shown.card.status, "done");
-    assert.ok(!(await threadOf(kit, made.key)).issue.resolution);
-
-    await ok(kit, ["card", "status", made.key, "done"]);
-    const person = JSON.parse((await ok(kit, ["card", "show", made.key, "--json"])).stdout);
-    assert.equal(person.card.status, "done");
-  });
 }

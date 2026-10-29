@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, issueBody, listButton, openShadow, signed, tag, until } from "../us-lib/report.mjs";
+import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, issueBody, listButton, signed, tag } from "../us-lib/report.mjs";
 
 const WORD = `crème${RUN}`;
 const searchOf = (q) => (url) => url.pathname === "/_p99/api/issues" && url.searchParams.get("q") === q;
@@ -28,7 +28,7 @@ const state = (p) =>
     };
   });
 
-const settled = (p, ready = () => true) => until("the list to settle", async () => {
+const settled = (kit, p, ready = () => true) => kit.until("the list to settle", async () => {
   const s = await state(p);
   return s && !s.waiting && ready(s) ? s : null;
 });
@@ -42,7 +42,6 @@ async function search(p, q, enter = true) {
 
 async function openList(kit, host, code, { clock = false, scope = "all" } = {}) {
   const p = await kit.page();
-  await p.addInitScript(openShadow);
   if (clock) await p.clock.install();
   await p.goto(`${kit.siteUrl(host, "/checkout")}#p99=${code}`);
   await p.waitForFunction(() => {
@@ -52,7 +51,7 @@ async function openList(kit, host, code, { clock = false, scope = "all" } = {}) 
   await listButton(p).click();
   await p.locator(S("[data-view=list] .p99-results")).waitFor({ timeout: 20000 });
   if (scope) await p.locator(S(`.p99-tabs a[data-scope=${scope}]`)).click();
-  await settled(p);
+  await settled(kit, p);
   return p;
 }
 
@@ -74,7 +73,7 @@ export default async function (kit) {
     const p = await openList(kit, shop, await seed());
     await closing(p, async () => {
       await search(p, `CREME${RUN.toUpperCase()}`, false);
-      const s = await settled(p, (x) => x.rows.length === 2);
+      const s = await settled(kit, p, (x) => x.rows.length === 2);
       assert.equal(s.rows.length, 2, JSON.stringify(s));
       assert.ok(s.rows.every((t) => t.includes(WORD)), `accents and case don't matter (${s.rows.join(" | ")})`);
       assert.ok(!s.busy, "the panel is not left on its loading screen");
@@ -88,7 +87,7 @@ export default async function (kit) {
     await closing(p, async () => {
       const q = `zebra${RUN}`;
       await search(p, q);
-      const s = await settled(p, (x) => x.empty !== null);
+      const s = await settled(kit, p, (x) => x.empty !== null);
       assert.equal(s.rows.length, 0);
       assert.equal(s.empty, `No issues match “${q}”.`);
       assert.ok(s.field && s.value === q, "the field stays, with the words");
@@ -101,10 +100,10 @@ export default async function (kit) {
       const q = `stall${RUN}`;
       await p.route(searchOf(q), () => {});
       await search(p, q);
-      const waiting = await until("the search to start", async () => (await state(p))?.waiting);
+      const waiting = await kit.until("the search to start", async () => (await state(p))?.waiting);
       assert.ok(waiting, "the search is waiting");
       await p.clock.fastForward(20000);
-      const s = await settled(p, (x) => x.error !== null);
+      const s = await settled(kit, p, (x) => x.error !== null);
       assert.equal(s.error, "Couldn't load; try again.");
       assert.ok(s.retry, "Retry shows");
       assert.ok(!s.busy, "the loading screen is gone");
@@ -124,9 +123,9 @@ export default async function (kit) {
       assert.ok(s.pick, "an Owner sees the project pick");
       assert.equal(s.view, "project", "the panel opens on This project");
       await p.locator(S(".p99-tabs a[data-scope=all]")).click();
-      await settled(p);
+      await settled(kit, p);
       await search(p, RUN);
-      s = await settled(p, (x) => x.keys.includes(here));
+      s = await settled(kit, p, (x) => x.keys.includes(here));
       assert.ok(s.keys.includes(here), `Everyone lists this host's item (${s.keys})`);
       assert.ok(s.keys.includes(card), `and the project's card without a host (${s.keys})`);
       assert.ok(!s.keys.includes(away), `never another project's item (${s.keys})`);

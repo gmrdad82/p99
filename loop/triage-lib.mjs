@@ -21,19 +21,6 @@ export function scratch(name) {
   return dir;
 }
 
-export function bodyOf(overrides = {}) {
-  return {
-    client_uid: randomUUID(),
-    kind: "bug",
-    title: "The total does not update",
-    body: "Open an order and change its quantity.",
-    page: { url: "https://example.com/orders", path: "/orders", title: "Orders" },
-    context: { viewport: { w: 1280, h: 800 } },
-    marks: [],
-    ...overrides,
-  };
-}
-
 export function cast(kit) {
   const named = (name) => kit.space.projects.find((p) => p.name === name);
   const shop = named("Shop");
@@ -57,7 +44,7 @@ export async function people(kit) {
 }
 
 export async function report(kit, host, title, extra = {}) {
-  const made = await kit.call("POST", `/_p99/v1/issues?host=${host}`, { actor: GRACE, body: bodyOf({ title, ...extra }) });
+  const made = await kit.call("POST", `/_p99/v1/issues?host=${host}`, { actor: GRACE, body: kit.issueBody({ title, ...extra }) });
   assert.equal(made.status, 201, JSON.stringify(made.json));
   return made.json;
 }
@@ -80,18 +67,8 @@ export async function card(kit, project, title, extra = []) {
   return made.card ?? made;
 }
 
-export async function until(what, fn, ms = 10000) {
-  const began = Date.now();
-  for (;;) {
-    const value = await fn();
-    if (value) return value;
-    if (Date.now() - began > ms) throw new Error(`gave up waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-}
-
 export async function mailTo(kit, email, includes) {
-  return until(`a mail to ${email} holding ${includes}`, async () => {
+  return kit.until(`a mail to ${email} holding ${includes}`, async () => {
     const mails = await kit.mail.inbox(email);
     return mails.find((m) => `${m.subject ?? ""}\n${m.text ?? ""}\n${m.html ?? ""}`.includes(includes));
   });
@@ -148,15 +125,7 @@ export function laneRule(screen) {
   return at < 0 ? [] : lines[at].trim().split(/\s+/);
 }
 
-export function openShadow() {
-  const attach = Element.prototype.attachShadow;
-  Element.prototype.attachShadow = function (init) {
-    return attach.call(this, { ...init, mode: "open" });
-  };
-}
-
 export async function openPanel(page, url) {
-  await page.addInitScript(openShadow);
   await page.goto(url);
   await page.waitForFunction(
     () => {

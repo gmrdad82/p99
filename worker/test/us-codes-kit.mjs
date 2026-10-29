@@ -1,29 +1,4 @@
-import { createHmac } from "node:crypto";
 import { request } from "node:http";
-
-export function base32Bytes(key) {
-  const abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let value = 0;
-  const bytes = [];
-  for (const ch of key.replace(/=+$/, "").toUpperCase()) {
-    value = (value << 5) | abc.indexOf(ch);
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-    }
-  }
-  return Buffer.from(bytes);
-}
-
-export function totpAtSeconds(key, seconds, digits = 6) {
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(seconds / 30)));
-  const mac = createHmac("sha1", base32Bytes(key)).update(counter).digest();
-  const number = mac.readUInt32BE(mac[19] & 15) & 0x7fffffff;
-  return String(number % 10 ** digits).padStart(digits, "0");
-}
 
 export function buttonsOf(html) {
   return [...html.matchAll(/<a href="([^"]+)"[^>]*>Open P99 on ([^<]+)<\/a>/g)].map((m) => [m[2], m[1].replace(/&amp;/g, "&")]);

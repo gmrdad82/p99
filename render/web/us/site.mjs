@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { GRACE, closing, codeFor, hostOf, openForm, openShadow, plus } from "../us-lib/report.mjs";
+import { GRACE, closing, codeFor, hostOf, openForm, plus } from "../us-lib/report.mjs";
 
 function watchPolicy() {
   window.__p99Violations = [];
@@ -16,7 +16,6 @@ export default async function (kit) {
     const code = await codeFor(kit, shop, GRACE);
     const p = await kit.page();
     await closing(p, async () => {
-      await p.addInitScript(openShadow);
       await p.addInitScript(watchPolicy);
       const errors = [];
       p.on("pageerror", (e) => errors.push(String(e && e.message)));
@@ -57,7 +56,6 @@ export default async function (kit) {
   await kit.check("us-site-001 a visitor without a code gets no plus and the loader reads nothing", async () => {
     const p = await kit.page();
     await closing(p, async () => {
-      await p.addInitScript(openShadow);
       const asked = [];
       p.on("request", (r) => {
         const path = new URL(r.url()).pathname;
