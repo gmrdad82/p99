@@ -2,7 +2,7 @@ import appScript from "./web/app.js";
 import appStyle from "./web/app.css";
 import firstStyle from "./web/app-first.css";
 import { ipKey } from "./tries.js";
-import { grantOf, parked, reachOf, reachesHost, reachesProject } from "./grants.js";
+import { combinedCode, grantOf, parked, reachOf, reachesHost, reachesProject } from "./grants.js";
 import { spaceOf } from "./spaces.js";
 import { roleOf } from "./roles.js";
 
@@ -224,9 +224,10 @@ async function api(request, env, ctx, url, path) {
   const host = (url.searchParams.get("host") || "").toLowerCase();
   const admitted = codes.map((c) => ({ ...c, grant: grantOf(c, dir) })).filter((c) => !parked(c.grant));
   for (const c of admitted) c.reach = reachOf(c.grant, dir);
-  const found = host ? dir.hosts.get(host) : [...dir.hosts.values()].find((h) => admitted.some((c) => reachesProject(c.reach, h.project_id)));
+  const all = host ? null : combinedCode(admitted, dir);
+  const found = host ? dir.hosts.get(host) : all && [...dir.hosts.values()].find((h) => reachesProject(all.reach, h.project_id));
   const hostRow = found ?? (host ? null : { host: null, env: "", config: {}, created_at: null, project_id: null });
-  const code = !hostRow ? null : found ? admitted.find((c) => reachesProject(c.reach, hostRow.project_id)) : admitted[0];
+  const code = !hostRow ? null : host ? admitted.find((c) => reachesProject(c.reach, hostRow.project_id)) : all;
   if (!code) K.fail(404, "no such space");
   if (env.RATE) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });

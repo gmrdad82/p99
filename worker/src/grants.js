@@ -29,6 +29,17 @@ export function reachOf(grant, dir) {
   return { all: false, projects, hosts: [...dir.hosts.values()].filter((h) => projects.includes(h.project_id)).map((h) => h.host).sort() };
 }
 
+export function combinedCode(admitted, dir) {
+  if (admitted.length === 0) return null;
+  const top = admitted.some((c) => Boolean(c.manager));
+  const peers = admitted.filter((c) => Boolean(c.manager) === top);
+  const whole = peers.find((c) => c.grant.space);
+  if (whole) return whole;
+  if (peers.length === 1) return peers[0];
+  const grant = { projects: ids(peers.flatMap((c) => c.grant.projects)) };
+  return { ...peers[0], grant, reach: reachOf(grant, dir), codes: peers.map((c) => c.id) };
+}
+
 export function parked(grant) {
   return !grant.space && grant.projects.length === 0;
 }

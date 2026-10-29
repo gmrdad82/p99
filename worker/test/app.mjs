@@ -252,6 +252,25 @@ export async function appChecks({ base, call, browse, mint, check, issueBody, he
     assert.equal((await app("GET", `/_p99/api/me?host=${here}`, { token })).status, 404);
   });
 
+  await check("with no host the page reaches every project its codes reach, a project with no site included", async () => {
+    const sited = await person("Mae Jemison", "mae.page@example.com", [here]);
+    const minted = await call("POST", "/_p99/v1/codes", {
+      body: { name: "Mae Jemison", email: "mae.page@example.com", grant: { projects: ["Page Hostless"] }, role: "user", totp: true, mail: false },
+    });
+    assert.equal(minted.status, 201, JSON.stringify(minted.json));
+    const token = tokenOf(await signIn("mae.page@example.com", totpOf(sited.totp_key)));
+    const space = await app("GET", "/_p99/api/space", { token });
+    assert.equal(space.status, 200, space.text);
+    const names = space.json.projects.map((p) => p.name);
+    assert.ok(names.includes("Page Hostless"), JSON.stringify(names));
+    assert.equal(names.length, 2, JSON.stringify(names));
+    const me = await app("GET", "/_p99/api/me", { token });
+    assert.equal(me.json.host, here);
+    assert.ok(me.json.projects.includes("Page Hostless"));
+    const sitedOnly = await app("GET", `/_p99/api/space?host=${here}`, { token });
+    assert.equal(sitedOnly.json.projects.some((p) => p.name === "Page Hostless"), false);
+  });
+
   await check("a session dies the moment its code is revoked, relinked or its authenticator is set up again", async () => {
     const ella = await person("Ella Baker", "ella.page@example.com", [here]);
     const opal = await person("Opal Tometi", "opal.page@example.com", [here]);

@@ -1,5 +1,5 @@
 import { LANES } from "./cards.js";
-import { EVERYWHERE, reachesHost, reachesItem } from "./grants.js";
+import { EVERYWHERE, grantOf, parked, reachOf, reachesHost, reachesItem } from "./grants.js";
 import { moveByLane } from "./one-board.js";
 import { noteHook } from "./hooks.js";
 import { LONG_KEY, generateKeyBetween, generateNKeysBetween } from "./order.js";
@@ -260,7 +260,8 @@ export async function postStreamTicket(c) {
   const hosts = v.all ? null : [...c.dir.hosts.keys()].filter((h) => reachesHost(c.reach, c.dir, h));
   const ticket = K.hex(crypto.getRandomValues(new Uint8Array(24)));
   const ttl = Math.min(TICKET_TTL_MS, Number(c.env.TICKET_TTL_MS) || TICKET_TTL_MS);
-  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, projects: v.all ? null : v.projects, code: c.code ? c.code.id : null, until: Date.now() + ttl });
+  const codes = c.code && Array.isArray(c.code.codes) ? c.code.codes : null;
+  await K.hubOf(c.env).ticket(await K.sha256Hex(K.encoder.encode(ticket)), { hosts, projects: v.all ? null : v.projects, code: c.code ? c.code.id : null, codes, until: Date.now() + ttl });
   return K.json(201, { ticket, expires_in: Math.ceil(ttl / 1000) });
 }
 
@@ -295,12 +296,18 @@ export async function liveCodes(DB, ids) {
   }
 }
 
+function codesOf(seen) {
+  if (Array.isArray(seen.codes) && seen.codes.length > 0) return seen.codes;
+  return seen.code === undefined || seen.code === null ? [] : [seen.code];
+}
+
 export async function liveSockets(DB, sockets) {
-  const live = await liveCodes(DB, sockets.map(([, seen]) => seen.code));
+  const live = await liveCodes(DB, sockets.flatMap(([, seen]) => codesOf(seen)));
   return sockets.filter(([socket, seen]) => {
-    if (seen.code === undefined || seen.code === null) return true;
+    const ids = codesOf(seen);
+    if (ids.length === 0) return true;
     if (live === null) return false;
-    if (live.has(seen.code)) return true;
+    if (ids.every((id) => live.has(id))) return true;
     try {
       socket.close(4001, "this code was revoked");
     } catch {}
@@ -310,7 +317,7 @@ export async function liveSockets(DB, sockets) {
 
 export function closeRescoped(sockets, code = null) {
   return sockets.filter(([socket, seen]) => {
-    const hit = code === null ? Array.isArray(seen.projects) : seen.code === code;
+    const hit = code === null ? Array.isArray(seen.projects) : codesOf(seen).includes(code);
     if (!hit) return true;
     try {
       socket.close(4003, RESCOPED);
@@ -351,10 +358,32 @@ export async function redeemTicket(storage, url, DB) {
   if (entry) await storage.delete(key);
   if (!entry || entry.until < Date.now()) return null;
   const origin = url.searchParams.get("origin");
-  if (entry.hosts !== null && !entry.hosts.includes(origin)) return null;
   const code = entry.code ?? null;
-  if (code !== null && !(await liveCodes(DB, [code]))?.has(code)) return null;
-  return { hosts: entry.hosts, projects: entry.projects ?? null, code };
+  const ids = codesOf(entry);
+  const scope = ids.length === 0 ? { hosts: entry.hosts, projects: entry.projects ?? null } : await codeScope(DB, ids);
+  if (!scope || (scope.hosts !== null && !scope.hosts.includes(origin))) return null;
+  return ids.length > 1 ? { ...scope, code, codes: ids } : { ...scope, code };
+}
+
+export async function codeScope(DB, ids) {
+  try {
+    const { results } = await DB.prepare(
+      `SELECT k.id, k.grant_json, k.hosts_json, (SELECT json_group_array(json_object('host', h.host, 'project_id', h.project_id)) FROM hosts h) AS hosts
+         FROM codes k WHERE k.id IN (SELECT value FROM json_each(?1)) AND k.revoked_at IS NULL`,
+    )
+      .bind(JSON.stringify(ids))
+      .all();
+    if (results.length !== new Set(ids).size) return null;
+    const dir = { hosts: new Map(JSON.parse(results[0].hosts || "[]").map((h) => [h.host, { host: h.host, project_id: h.project_id ?? null }])) };
+    const grants = results.map((row) => grantOf(row, dir)).filter((g) => !parked(g));
+    if (grants.length === 0) return null;
+    if (grants.some((g) => g.space)) return { hosts: null, projects: null };
+    const reach = reachOf({ projects: [...new Set(grants.flatMap((g) => g.projects))].sort((a, b) => a - b) }, dir);
+    return { hosts: reach.hosts, projects: reach.projects };
+  } catch (error) {
+    console.error(error && error.stack ? error.stack : String(error));
+    return null;
+  }
 }
 
 export async function storeTicket(storage, hash, entry) {

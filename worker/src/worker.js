@@ -1077,17 +1077,19 @@ export class P99Hub extends DurableObject {
     let hosts = url.searchParams.has("host") ? [url.searchParams.get("host")] : null;
     let code = null;
     let projects = null;
+    let codes = null;
     if (url.searchParams.has("ticket")) {
       const redeemed = await redeemTicket(this.ctx.storage, url, this.env.DB);
       if (!redeemed) return errorResponse(401, "the stream ticket is unknown, used or expired");
       hosts = redeemed.hosts;
       projects = redeemed.projects;
       code = redeemed.code;
+      codes = redeemed.codes ?? null;
     }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ hosts, projects, code });
+    server.serializeAttachment(codes ? { hosts, projects, code, codes } : { hosts, projects, code });
     return new Response(null, { status: 101, webSocket: client });
   }
 

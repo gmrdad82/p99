@@ -4,7 +4,7 @@ import { MAX_MASKS, MAX_MASK_CHARS, isSelectorList, maskRefusal } from "../src/s
 import { PERSON_LICENSES, REFUSALS, civilDay, normalize } from "../src/license.js";
 import { PERSON_GRANTS, WHOLE_SPACE } from "../src/spaces.js";
 import { DatabaseSync } from "node:sqlite";
-import { PARKED, SPACE_GRANT, reachOf, reachesItem, viewSql } from "../src/grants.js";
+import { PARKED, SPACE_GRANT, combinedCode, reachOf, reachesItem, viewSql } from "../src/grants.js";
 import { MANAGER_GONE } from "../src/roles.js";
 import { AVATAR_SIZE_RULE, AVATAR_TYPE_RULE, MAX_AVATAR_BYTES } from "../src/avatars.js";
 
@@ -39,6 +39,29 @@ export async function spaceUnitChecks(check) {
     assert.match(maskRefusal(["div >"]), /not a CSS selector/);
     assert.match(maskRefusal(".x"), /list of CSS selectors/);
     assert.match(maskRefusal([3]), /CSS selector/);
+  });
+
+  await check("[spaces] with no host the app prefers a whole-space code, else combines the reach of every code of the top role, never lending an Owner role to another code's projects", () => {
+    const dir = {
+      projects: new Map([[1, { id: 1, name: "Atlas" }], [2, { id: 2, name: "Hermes" }], [3, { id: 3, name: "Iris" }]]),
+      hosts: new Map([["a.example.com", { host: "a.example.com", project_id: 1 }]]),
+    };
+    const code = (id, grant, manager) => ({ id, manager, grant, reach: reachOf(grant, dir) });
+    const atlas = code(4, { projects: [1] }, 0);
+    const hermes = code(5, { projects: [2, 3] }, 0);
+    const whole = code(6, SPACE_GRANT, 0);
+    assert.equal(combinedCode([atlas, whole, hermes], dir), whole);
+    const both = combinedCode([atlas, hermes], dir);
+    assert.equal(both.id, 4);
+    assert.deepEqual(both.codes, [4, 5]);
+    assert.deepEqual(both.reach.projects, [1, 2, 3], "a project with no host stayed out of reach");
+    assert.deepEqual(both.reach.hosts, ["a.example.com"]);
+    const owner = code(7, { projects: [3] }, 1);
+    assert.equal(combinedCode([owner, atlas, hermes], dir), owner);
+    const owners = combinedCode([owner, code(8, { projects: [1] }, 1), whole], dir);
+    assert.deepEqual([owners.manager, owners.codes, owners.reach.projects], [1, [7, 8], [1, 3]]);
+    assert.equal(combinedCode([atlas], dir), atlas);
+    assert.equal(combinedCode([], dir), null);
   });
 
   await check("[spaces] a project grant reaches its projects' items only, by host only for an item in no project, and only grant.space reaches the whole space", () => {

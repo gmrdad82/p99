@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { RESCOPED, closeRescoped, fanOut, liveCodes, liveSockets, publisher, redeemTicket, storeTicket } from "../src/boards.js";
+import { RESCOPED, closeRescoped, codeScope, fanOut, liveCodes, liveSockets, publisher, redeemTicket, storeTicket } from "../src/boards.js";
 
-function fakeDB({ live = [], broken = false } = {}) {
+const SPACE = JSON.stringify({ space: true });
+
+function fakeDB({ live = [], broken = false, grants = {}, hosts = [] } = {}) {
   const queries = [];
   return {
     queries,
@@ -12,6 +14,10 @@ function fakeDB({ live = [], broken = false } = {}) {
             async all() {
               queries.push({ sql, args });
               if (broken) throw new Error("D1_ERROR: the database is unavailable");
+              if (/FROM codes k WHERE k\.id IN/.test(sql)) {
+                const wanted = JSON.parse(args[0]).filter((id) => live.includes(id));
+                return { results: wanted.map((id) => ({ id, grant_json: grants[id] ?? SPACE, hosts_json: "[]", hosts: JSON.stringify(hosts) })) };
+              }
               const wanted = JSON.parse(args[0]);
               return { results: wanted.filter((id) => live.includes(id)).map((id) => ({ id })) };
             },
@@ -91,12 +97,62 @@ export async function ticketChecks({ check }) {
     assert.equal(await liveCodes(fakeDB({ broken: true }), [3]), null);
   }));
 
-  await check("[tickets] a live code's ticket opens once, with its hosts and code", async () => {
+  await check("[tickets] a live code's ticket opens once, with its code's current reach", async () => {
     const storage = fakeStorage();
     await storeTicket(storage, "a1", { hosts: ["example.com"], code: 7, until: Date.now() + 60000 });
     const DB = fakeDB({ live: [7] });
-    assert.deepEqual(await redeemTicket(storage, ticketUrl("a1"), DB), { hosts: ["example.com"], projects: null, code: 7 });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("a1"), DB), { hosts: null, projects: null, code: 7 });
     assert.equal(await redeemTicket(storage, ticketUrl("a1"), DB), null, "a ticket opened twice");
+  });
+
+  await check("[tickets] a ticket opens with the code's grant at redeem time, never the scope stored at issue", async () => {
+    const storage = fakeStorage();
+    const hosts = [
+      { host: "example.com", project_id: 2 },
+      { host: "shop.example.com", project_id: 3 },
+    ];
+    const until = Date.now() + 60000;
+    await storeTicket(storage, "h1", { hosts: null, projects: null, code: 7, until });
+    const narrowed = fakeDB({ live: [7], grants: { 7: JSON.stringify({ projects: [3] }) }, hosts });
+    assert.equal(await redeemTicket(storage, ticketUrl("h1"), narrowed), null, "a ticket issued before a narrower grant opened its old host");
+    await storeTicket(storage, "h2", { hosts: ["example.com"], projects: [2], code: 7, until });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("h2", "shop.example.com"), narrowed), { hosts: ["shop.example.com"], projects: [3], code: 7 });
+    await storeTicket(storage, "h3", { hosts: ["example.com"], projects: [2], code: 7, until });
+    const moved = fakeDB({ live: [7], grants: { 7: JSON.stringify({ projects: [2] }) }, hosts: [{ host: "example.com", project_id: 3 }, { host: "shop.example.com", project_id: 2 }] });
+    assert.equal(await redeemTicket(storage, ticketUrl("h3"), moved), null, "a ticket kept a host that moved out of its projects");
+    await storeTicket(storage, "h4", { hosts: ["example.com"], projects: [2], code: 7, until });
+    const parkedCode = fakeDB({ live: [7], grants: { 7: JSON.stringify({ projects: [] }) }, hosts });
+    assert.equal(await redeemTicket(storage, ticketUrl("h4"), parkedCode), null, "a parked code's ticket opened");
+    await storeTicket(storage, "h5", { hosts: ["example.com"], projects: [2], code: 7, until });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("h5", "shop.example.com"), fakeDB({ live: [7], hosts })), { hosts: null, projects: null, code: 7 });
+    assert.deepEqual(await codeScope(fakeDB({ live: [7], grants: { 7: JSON.stringify({ projects: [2, 3] }) }, hosts }), [7]), { hosts: ["example.com", "shop.example.com"], projects: [2, 3] });
+  });
+
+  await check("[tickets] a ticket from several combined codes opens with all their current reach, and nothing once one is revoked", async () => {
+    const storage = fakeStorage();
+    const hosts = [
+      { host: "example.com", project_id: 2 },
+      { host: "shop.example.com", project_id: 3 },
+    ];
+    const grants = { 7: JSON.stringify({ projects: [2] }), 8: JSON.stringify({ projects: [3, 4] }) };
+    const until = Date.now() + 60000;
+    await storeTicket(storage, "k1", { hosts: ["example.com"], projects: [2], code: 7, codes: [7, 8], until });
+    assert.deepEqual(await redeemTicket(storage, ticketUrl("k1", "shop.example.com"), fakeDB({ live: [7, 8], grants, hosts })), {
+      hosts: ["example.com", "shop.example.com"],
+      projects: [2, 3, 4],
+      code: 7,
+      codes: [7, 8],
+    });
+    await storeTicket(storage, "k2", { hosts: null, projects: null, code: 7, codes: [7, 8], until });
+    assert.equal(await redeemTicket(storage, ticketUrl("k2"), fakeDB({ live: [7], grants, hosts })), null);
+    const combined = fakeSocket({ hosts: ["example.com"], projects: [2, 3], code: 7, codes: [7, 8] });
+    const single = fakeSocket({ hosts: ["example.com"], projects: [2], code: 7 });
+    const kept = await liveSockets(fakeDB({ live: [7] }), pairs(combined, single));
+    assert.deepEqual(kept.map(([socket]) => socket), [single]);
+    assert.equal(combined.closed?.code, 4001);
+    const again = fakeSocket({ hosts: ["example.com"], projects: [2, 3], code: 7, codes: [7, 8] });
+    assert.deepEqual(closeRescoped(pairs(again), 8), []);
+    assert.equal(again.closed?.code, 4003);
   });
 
   await check("[tickets] a revoked code's ticket opens nothing and is spent", async () => {
@@ -125,7 +181,7 @@ export async function ticketChecks({ check }) {
 
   await check("[tickets] an expired, unknown or other-host ticket opens nothing", async () => {
     const storage = fakeStorage();
-    const DB = fakeDB({ live: [1] });
+    const DB = fakeDB({ live: [1], grants: { 1: JSON.stringify({ projects: [2] }) }, hosts: [{ host: "example.com", project_id: 2 }, { host: "shop.example.com", project_id: 3 }] });
     await storeTicket(storage, "f6", { hosts: null, code: 1, until: Date.now() - 1 });
     await storeTicket(storage, "g7", { hosts: ["example.com"], code: 1, until: Date.now() + 60000 });
     assert.equal(await redeemTicket(storage, ticketUrl("f6"), DB), null);
