@@ -12,7 +12,7 @@ export default async function (kit) {
     const asked = await kit.call("GET", "/_p99/v1/hosts");
     const accent = (asked.json.hosts.find((h) => h.host === shop)?.config?.theme?.accent ?? "#3b7dd8").toLowerCase();
 
-    const person = await kit.p99(["comment", key, "We are on it.", "--host", shop]);
+    const person = await kit.p99(["card", "comment", key, "We are on it.", "--host", shop]);
     assert.equal(person.code, 0, person.stderr);
     const [mail] = await kit.until("Ada's reply by mail", async () => {
       const got = (await kit.mail.inbox(grace.email)).filter((m) => m.subject.startsWith(`[${key}] New reply`));
@@ -34,7 +34,7 @@ export default async function (kit) {
     const mine = await kit.browse("GET", `/issues/${key}`, grace.secret, undefined, shop);
     assert.equal(mine.status, 200);
 
-    const robot = await kit.p99(["--agent=writer", "comment", key, "Checking the cart service.", "--host", shop]);
+    const robot = await kit.p99(["--agent=writer", "card", "comment", key, "Checking the cart service.", "--host", shop]);
     assert.equal(robot.code, 0, robot.stderr);
     const [agentMail] = await kit.until("the agent's reply by mail", async () => {
       const got = (await kit.mail.inbox(grace.email)).filter((m) => m.subject.startsWith(`[${key}] New reply`) && m.text.includes("Checking the cart service."));

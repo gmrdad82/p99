@@ -29,7 +29,7 @@ export default async function (kit) {
       assert.ok(said[2].includes("Moved to Done"), said[2]);
       assert.ok(said[3].includes("Shipped to production"), said[3]);
 
-      const robot = await kit.p99(["--agent=writer", "file", shop, "--kind", "bug", "--title", uniqueTitle("Filed by an agent"), "--json"]);
+      const robot = await kit.p99(["--agent=writer", "card", "new", "--host", shop, "--kind", "bug", "--title", uniqueTitle("Filed by an agent"), "--json"]);
       const agentKey = jsonOut(robot).issue.key;
       await kit.until("the agent's post", async () => (await posts(kit, agentKey)).length === 1);
       assert.ok(JSON.stringify(await posts(kit, agentKey)).includes("🤖"));

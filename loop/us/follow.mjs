@@ -47,7 +47,7 @@ export default async function (kit) {
     const key = await fileAs(kit, shop, code, tag("The receipt never arrives"));
     const theirs = await fileAs(kit, shop, hedy, tag("Hedy's own report"));
     const reply = `Fixed on our side; please try again. [${RUN}]`;
-    await p99(kit, ["comment", key, reply, "--host", shop]);
+    await p99(kit, ["card", "comment", key, reply, "--host", shop]);
 
     const { p } = await visit(kit, shop, { code });
     await closing(p, async () => {
@@ -107,8 +107,8 @@ export default async function (kit) {
     writeFileSync(notes, "refund ledger: order 1042\n");
     const note = `Internal: check the refund ledger before replying. [${RUN}]`;
     const reply = `We are looking into it. [${RUN}]`;
-    await p99(kit, ["comment", key, note, "--internal", "--attach", notes, "--host", shop]);
-    await p99(kit, ["comment", key, reply, "--host", shop]);
+    await p99(kit, ["card", "comment", key, note, "--internal", "--attach", notes, "--host", shop]);
+    await p99(kit, ["card", "comment", key, reply, "--host", shop]);
     const owners = (await signed(kit, "GET", `/issues/${key}`)).json;
     assert.ok(owners.comments.some((c) => c.body === note && c.internal), "the Owners see the note");
 

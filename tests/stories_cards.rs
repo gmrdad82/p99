@@ -255,7 +255,13 @@ fn answers(method: &str, path: &str, body: &Value) -> (u16, String) {
             json!({"card":made})
         }
         ("GET", "/v1/issues/12") => {
-            json!({"issue":{"id":12,"key":"BUG-12","kind":"bug","title":"Broken","project":"Splicer"},"comments":[],"events":[]})
+            json!({"issue":{"id":12,"key":"BUG-12","kind":"bug","title":"Broken","project":"Splicer","label":"New"},"comments":[],"events":[]})
+        }
+        ("POST", "/v1/issues/12/comments") => json!({"id":31,"client_uid":body["client_uid"],
+            "author":{"email":"ada@example.com","name":"Ada Lovelace","agent":false},"body":body["body"],
+            "internal":false,"created_at":"2026-10-22T09:30:00.000Z","attachments":[]}),
+        ("POST", "/v1/move") if body["key"] == "12" => {
+            json!({"card":{"key":"BUG-12","title":"Broken","label":body["to"]}})
         }
         ("GET", "/v1/issues/13") => {
             json!({"issue":{"id":13,"key":"BUG-13","kind":"bug","title":"Plain","project":null},"comments":[],"events":[]})
@@ -334,9 +340,18 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
         Some("Usage: p99 card "),
     );
     unparsed(
-        &["card", "status", "FEAT-41", "blocked"],
-        "error: invalid value 'blocked' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
-        None,
+        &[
+            "card",
+            "new",
+            "--project",
+            "Splicer",
+            "--title",
+            "x",
+            "--page",
+            "/export",
+        ],
+        "error: the following required arguments were not provided:\n  --host <HOST>\n",
+        Some("Usage: p99 card new "),
     );
     unparsed(
         &["--agent", "pci", "cards"],
@@ -365,7 +380,7 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
     );
     unparsed(
         &["card", "new", "--title", "x"],
-        "error: the following required arguments were not provided:\n  --project <name>\n",
+        "error: the following required arguments were not provided:\n  <--project <name>|--host <HOST>>\n",
         Some("Usage: p99 card new "),
     );
     unparsed(
@@ -577,10 +592,11 @@ fn the_contracts_refusals_come_through_as_one_line() {
         &run(&worker, "refusals", &["card", "show", "BUG-12", "--json"]),
         "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>",
     );
-    refused(
-        &run(&worker, "refusals", &["card", "status", "BUG-12", "stuck"]),
-        "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>",
-    );
+    let plain = run(&worker, "refusals", &["card", "status", "BUG-12", "stuck"]);
+    assert_eq!(plain.code, Some(0), "{}", plain.stderr);
+    assert_eq!(plain.stdout, "BUG-12 is in stuck\n");
+    assert_eq!(worker.last().path, "/v1/move");
+    assert_eq!(worker.last().body["from"], "New");
     refused(
         &run(
             &worker,
@@ -1108,16 +1124,23 @@ fn card_new_in_a_space_with_no_host_still_files_the_card() {
 }
 
 #[test]
-fn a_comment_on_an_item_that_is_not_a_card_is_refused() {
+fn a_comment_on_a_card_in_no_project_goes_through_the_item_route_with_the_same_client_uid() {
     let worker = Worker::start(answers);
-    refused(
-        &run(
-            &worker,
-            "not_a_card",
-            &["card", "comment", "BUG-12", "hi", "--json"],
-        ),
-        "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name>",
-    );
+    let printed = json_of(&run(
+        &worker,
+        "not_a_card",
+        &["card", "comment", "BUG-12", "hi", "--json"],
+    ));
+    let calls = worker.seen();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls[0].path, "/v1/cards/BUG-12/comments");
+    assert_eq!(calls[1].path, "/v1/issues/12/comments");
+    assert_eq!(calls[1].body["body"], "hi");
+    assert_eq!(calls[0].body["client_uid"], calls[1].body["client_uid"]);
+    assert_eq!(printed["comment"]["id"], 31);
+    assert_eq!(printed["attachments"], json!([]));
+    let text = run(&worker, "not_a_card", &["card", "comment", "12", "hi"]);
+    assert_eq!(text.stdout, "commented on 12\n");
 }
 
 #[test]
@@ -1257,16 +1280,12 @@ fn needs_you_is_set_with_a_note_and_its_alias_with_the_space_is_the_same_word() 
 fn an_unknown_lane_word_lists_the_seven_and_waiting_conflicts_with_every_filter() {
     for (args, first) in [
         (
-            vec!["card", "status", "FEAT-41", "needs_you"],
-            "error: invalid value 'needs_you' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
-        ),
-        (
             vec!["cards", "--status", "waiting"],
             "error: invalid value 'waiting' for '--status <word>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
         ),
         (
-            vec!["card", "status", "FEAT-41", "Needs You"],
-            "error: invalid value 'Needs You' for '<STATUS>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
+            vec!["cards", "--status", "Needs_You"],
+            "error: invalid value 'Needs_You' for '--status <word>'\n  [possible values: new, planned, in-progress, needs-you, stuck, landed, done]\n",
         ),
     ] {
         unparsed(&args, first, None);
@@ -1363,4 +1382,99 @@ fn cards_waiting_on_an_older_worker_says_deploy() {
             );
         }
     }
+}
+
+fn filing(method: &str, path: &str, body: &Value) -> (u16, String) {
+    let route = path.split('?').next().unwrap_or(path);
+    match (method, route) {
+        ("POST", "/v1/issues") => (
+            201,
+            json!({"id":21,"key":"BUG-21","kind":body["kind"],"title":body["title"],"status":"open","stage":"received"})
+                .to_string(),
+        ),
+        ("PATCH", "/v1/issues/21") => {
+            let mut made = card();
+            made["key"] = json!("BUG-21");
+            made["project"] = body["project"].clone();
+            made["status"] = json!("new");
+            made["label"] = json!("New");
+            made["lane"] = json!(1);
+            (200, json!({"card": made}).to_string())
+        }
+        ("PUT", put) if put.starts_with("/v1/issues/") && put.contains("/attachments/") => (
+            201,
+            json!({"id":51,"client_uid":"u","role":"file","name":"notes.txt","type":"text/plain","bytes":9})
+                .to_string(),
+        ),
+        _ => answers(method, path, body),
+    }
+}
+
+#[test]
+fn card_new_with_a_project_attaches_its_files_and_a_page_files_on_the_host_then_takes_the_project()
+{
+    let worker = Worker::start(filing);
+    let file = config("new_files", &worker.url);
+    let dir = file.parent().unwrap().to_path_buf();
+    std::fs::write(dir.join("notes.txt"), "line one\n").unwrap();
+    let notes = dir.join("notes.txt");
+    let notes = notes.to_str().unwrap();
+    let printed = json_of(&p99(
+        &file,
+        &[
+            "card",
+            "new",
+            "--project",
+            "Splicer",
+            "--title",
+            "Export keeps every audio track",
+            "--attach",
+            notes,
+            "--json",
+        ],
+        &[],
+        None,
+    ));
+    let calls = worker.seen();
+    assert_eq!(calls.len(), 2, "{calls:?}");
+    assert_eq!(calls[0].path, "/v1/cards");
+    assert!(calls[1].path.starts_with("/v1/issues/41/attachments/"));
+    assert!(calls[1].path.contains("name=notes.txt"));
+    assert_eq!(printed["card"]["key"], "FEAT-41");
+    assert_eq!(printed["attachments"][0]["id"], 51);
+    assert_eq!(printed["space"]["slug"], "main");
+
+    let text = p99(
+        &file,
+        &[
+            "card",
+            "new",
+            "--project",
+            "Splicer",
+            "--host",
+            "shop.example.com",
+            "--page",
+            "/export?take=2",
+            "--title",
+            "Export keeps every audio track",
+        ],
+        &[],
+        None,
+    );
+    assert_eq!(text.code, Some(0), "{}", text.stderr);
+    assert_eq!(
+        text.stdout,
+        "BUG-21 filed in Splicer on shop.example.com: Export keeps every audio track\n"
+    );
+    let calls = worker.seen();
+    assert_eq!(calls.len(), 4, "{calls:?}");
+    assert!(
+        calls[2].path.starts_with("/v1/issues?"),
+        "{}",
+        calls[2].path
+    );
+    assert_eq!(calls[2].body["page"]["path"], "/export");
+    assert_eq!(calls[2].body["host"], "shop.example.com");
+    assert_eq!(calls[3].method, "PATCH");
+    assert_eq!(calls[3].body, json!({"project": "Splicer"}));
 }

@@ -10,9 +10,9 @@ export default async function (kit) {
     const dropped = await newCard("Dropped by an agent");
     const folded = await newCard("Folded into another card");
     const story = await newCard("The story card");
-    const abandon = await robot("status", dropped, "abandoned");
+    const abandon = await robot("card", "status", dropped, "abandoned");
     assert.equal(abandon.code, 0, abandon.stderr);
-    const duplicate = await robot("status", folded, "duplicate", "--duplicate-of", story);
+    const duplicate = await robot("card", "status", folded, "duplicate", "--duplicate-of", story);
     assert.equal(duplicate.code, 0, duplicate.stderr);
     for (const key of [dropped, folded]) {
       const shown = await kit.p99(["show", key]);
@@ -61,7 +61,7 @@ export default async function (kit) {
       const heardOnShop = await hear(onShop, (e) => e.key === event.key);
       assert.equal(heardOnShop.event.host, shop);
 
-      const comment = await robot("comment", event.key, "On it.", "--host", shop);
+      const comment = await robot("card", "comment", event.key, "On it.", "--host", shop);
       assert.equal(comment.code, 0, comment.stderr);
       const said = await hear(all, (e) => e.type === "comment" && e.key === event.key);
       assert.equal(said.event.by.agent, true);

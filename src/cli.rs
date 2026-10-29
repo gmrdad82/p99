@@ -16,9 +16,8 @@ use crate::config::{CORNERS, Config, Host, Offset, WHOLE};
 use crate::stream::Heard;
 use crate::trailers;
 use crate::wire::{
-    ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, Comment, EnvEntry, Grant,
-    HostEntry, Issue, KINDS, ListQuery, NewCode, NewIssue, PageRef, Summary, Thread, content_type,
-    out,
+    ATTACHMENT_LIMIT, Announced, Build, BuildItem, Change, Code, EnvEntry, Grant, HostEntry, Issue,
+    KINDS, ListQuery, NewCode, Summary, Thread, content_type, out,
 };
 
 #[derive(Debug, Default, clap::Args)]
@@ -84,18 +83,18 @@ pub enum Command {
     List(ListArgs),
     #[command(about = "show an item with its comments, events and landings")]
     Show(ShowArgs),
-    #[command(about = "file an item on a host")]
+    #[command(hide = true, about = "now p99 card new --host")]
     File(FileArgs),
-    #[command(about = "comment on an item")]
-    Comment(CommentArgs),
-    #[command(about = "set an item's label, or close it as abandoned or duplicate")]
-    Status(StatusArgs),
-    #[command(about = "move an item to a lane of the one board, or beside another card in it")]
+    #[command(hide = true, about = "now p99 card comment")]
+    Comment(card::CardCommentArgs),
+    #[command(hide = true, about = "now p99 card status")]
+    Status(card::CardStatusArgs),
+    #[command(hide = true, about = "now p99 card move")]
     Move(crate::boards::MoveArgs),
     #[command(about = "list cards in lane order, or the ones waiting on you")]
     Cards(card::CardsArgs),
     #[command(
-        about = "show, file, comment on, move or link one card",
+        about = "file, show, comment on, move, close or link one card",
         subcommand_required = true,
         arg_required_else_help = false
     )]
@@ -414,8 +413,21 @@ pub struct ListArgs {
         help = "items whose title or text holds these words, accents ignored"
     )]
     pub query: Option<String>,
-    #[arg(long, value_name = "name", help = "only items with this label")]
+    #[arg(long, value_name = "name", help = "only cards with this label")]
     pub label: Option<String>,
+    #[arg(
+        long,
+        value_name = "path",
+        conflicts_with = "mine",
+        help = "only the cards filed on this page, such as /checkout"
+    )]
+    pub page: Option<String>,
+    #[arg(
+        long,
+        value_enum,
+        help = "only the cards whose last change was a person's or an agent's"
+    )]
+    pub source: Option<crate::card::Source>,
     #[arg(
         long,
         default_value_t = 50,
@@ -447,36 +459,6 @@ pub struct FileArgs {
     pub page: Option<String>,
     #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
     pub attach: Vec<PathBuf>,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct CommentArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
-    pub key: String,
-    #[arg(help = "the text, or - to read it from standard input")]
-    pub text: String,
-    #[arg(long, help = "for Owners only")]
-    pub internal: bool,
-    #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
-    pub attach: Vec<PathBuf>,
-    #[arg(long, help = "the host the item belongs to")]
-    pub host: Option<String>,
-}
-
-#[derive(Debug, clap::Args)]
-pub struct StatusArgs {
-    #[arg(help = "the item's key, such as BUG-12, or its number")]
-    pub key: String,
-    #[arg(help = "a label on your boards, such as Doing or Done, or abandoned or duplicate")]
-    pub status: String,
-    #[arg(
-        long,
-        value_name = "KEY",
-        help = "with duplicate: the item this one repeats"
-    )]
-    pub duplicate_of: Option<String>,
-    #[arg(long, help = "the host the item belongs to")]
-    pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -571,6 +553,24 @@ pub fn notices() {
     }
 }
 
+fn renamed(old: &str, new: &str) {
+    eprintln!("{}: p99 {old} is now p99 card {new}", crate::NAME);
+}
+
+impl From<FileArgs> for card::CardNewArgs {
+    fn from(a: FileArgs) -> card::CardNewArgs {
+        card::CardNewArgs {
+            project: None,
+            host: Some(a.host),
+            title: a.title,
+            body: a.body,
+            kind: a.kind,
+            page: a.page,
+            attach: a.attach,
+        }
+    }
+}
+
 pub fn run(command: Command, global: &Global) -> Result<(), String> {
     let mut config = Config::load()?;
     match command {
@@ -591,10 +591,22 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
         }) => rename(&config, global, &from, &to),
         Command::List(a) => list(&config, global, &a),
         Command::Show(a) => show(&config, global, &a),
-        Command::File(a) => file(&config, global, &a),
-        Command::Comment(a) => comment(&config, global, &a),
-        Command::Status(a) => status(&config, global, &a),
-        Command::Move(a) => crate::boards::run_move(&config, global, &a),
+        Command::File(a) => {
+            renamed("file", "new");
+            card::new(&config, global, &a.into())
+        }
+        Command::Comment(a) => {
+            renamed("comment", "comment");
+            card::comment(&config, global, &a)
+        }
+        Command::Status(a) => {
+            renamed("status", "status");
+            card::status(&config, global, &a)
+        }
+        Command::Move(a) => {
+            renamed("move", "move");
+            crate::boards::run_move(&config, global, &a)
+        }
         Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
         Command::Cards(a) => card::cards(&config, global, &a),
@@ -1723,7 +1735,20 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
     } else {
         args.host.clone()
     };
-    let scope = if args.mine { "mine" } else { "all" };
+    let path = match args.page.as_deref() {
+        Some(raw) => match crate::wire::page_path(raw) {
+            path if path.is_empty() => {
+                return Err(format!("{raw} is not a page path; try /checkout"));
+            }
+            path => Some(path),
+        },
+        None => None,
+    };
+    let scope = match (&path, args.mine) {
+        (Some(_), _) => "page",
+        (None, true) => "mine",
+        (None, false) => "all",
+    };
     let agent = &global.agent;
     let limit = args.limit as usize;
     let mut found: Vec<Summary> = Vec::new();
@@ -1735,7 +1760,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
         while taken < limit {
             let query = ListQuery {
                 scope: scope.to_owned(),
-                path: None,
+                path: path.clone(),
                 status: Some(args.status.clone()),
                 kind: args.kind.clone(),
                 q: args.query.clone(),
@@ -1743,6 +1768,7 @@ fn list(config: &Config, global: &Global, args: &ListArgs) -> Result<(), String>
                 host: host.clone(),
                 project: projects.clone(),
                 label: args.label.iter().cloned().collect(),
+                source: args.source.map(|s| s.word().to_owned()),
                 limit: (limit - taken).min(100) as i64,
             };
             let page = client.list(&query)?;
@@ -1955,118 +1981,6 @@ fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String>
         return print_json(&thread);
     }
     print_thread(&thread);
-    Ok(())
-}
-
-fn file(config: &Config, global: &Global, args: &FileArgs) -> Result<(), String> {
-    let files = args
-        .attach
-        .iter()
-        .map(|p| read_attachment(p))
-        .collect::<Result<Vec<_>, _>>()?;
-    let host = args.host.trim().to_ascii_lowercase();
-    let (client, _) = client_for(config, global, Some(&host))?;
-    let body = match &args.body {
-        Some(text) => text_arg(text)?,
-        None => String::new(),
-    };
-    let path = args
-        .page
-        .as_deref()
-        .map(crate::wire::page_path)
-        .unwrap_or_default();
-    let issue = NewIssue {
-        client_uid: crate::client::uid(),
-        host: Some(host.clone()),
-        kind: args.kind.clone(),
-        title: args.title.clone(),
-        body,
-        page: PageRef {
-            url: format!(
-                "https://{host}{}",
-                if path.is_empty() { "/" } else { &path }
-            ),
-            path,
-            title: String::new(),
-        },
-        context: json!({"source": "cli"}),
-        marks: Vec::new(),
-    };
-    let filed = client.file(&issue)?;
-    let key = filed.id.to_string();
-    let mut attached = Vec::new();
-    for (name, kind, bytes) in &files {
-        attached.push(client.attach(&key, name, kind, bytes, None)?);
-    }
-    if global.json {
-        return print_json(&json!({"issue": filed, "attachments": attached}));
-    }
-    out!("{} filed on {host}: {}", filed.key, filed.title);
-    for a in &attached {
-        out!("attached {} as {}", a.name, a.id);
-    }
-    Ok(())
-}
-
-fn comment(config: &Config, global: &Global, args: &CommentArgs) -> Result<(), String> {
-    let files = args
-        .attach
-        .iter()
-        .map(|p| read_attachment(p))
-        .collect::<Result<Vec<_>, _>>()?;
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let client = client.with_host(args.host.as_deref());
-    let key = key_of(&args.key)?;
-    let text = text_arg(&args.text)?;
-    let made: Comment = client.comment(&key, &text, args.internal)?;
-    let mut attached = Vec::new();
-    for (name, kind, bytes) in &files {
-        attached.push(client.attach(&key, name, kind, bytes, Some(made.id))?);
-    }
-    if global.json {
-        return print_json(&json!({"comment": made, "attachments": attached}));
-    }
-    println!(
-        "commented on {}{}",
-        args.key,
-        if args.internal { " (internal)" } else { "" }
-    );
-    Ok(())
-}
-
-fn status(config: &Config, global: &Global, args: &StatusArgs) -> Result<(), String> {
-    if args.status == "duplicate" && args.duplicate_of.is_none() {
-        return Err("a duplicate needs --duplicate-of KEY".into());
-    }
-    if args.status != "duplicate" && args.duplicate_of.is_some() {
-        return Err("--duplicate-of goes with duplicate".into());
-    }
-    if args.status != "duplicate" && args.status != "abandoned" {
-        return crate::boards::label_move(
-            config,
-            global,
-            &args.key,
-            &args.status,
-            args.host.as_deref(),
-        );
-    }
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let change = Change {
-        resolution: Some(args.status.clone()),
-        duplicate_of: args.duplicate_of.clone(),
-        ..Change::default()
-    };
-    let issue = client
-        .with_host(args.host.as_deref())
-        .change(&key_of(&args.key)?, &change)?;
-    if global.json {
-        return print_json(&issue);
-    }
-    out!(
-        "{} is now {}",
-        issue.key,
-        crate::wire::stage_word(&issue.stage).to_lowercase()
-    );
     Ok(())
 }
 

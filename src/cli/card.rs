@@ -1,18 +1,20 @@
+use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use crate::card::{
-    Card, CardEvent, CardList, CardQuery, CardReply, CardThread, CommentReply, Lane, LinkReply,
-    NewCard, NewComment, NewLink, Person, ProjectChange, Source, StatusChange, ago, refusal, who,
+    Card, CardEvent, CardList, CardQuery, CardReply, CardThread, Lane, LinkReply, NewCard,
+    NewComment, NewLink, Person, ProjectChange, Source, StatusChange, ago, refusal, who,
 };
 use crate::cli::{
-    EditArgs, Global, ProjectsAction, ProjectsArgs, client_for, key_of, print_json, text_arg,
+    EditArgs, Global, ProjectsAction, ProjectsArgs, client_for, key_of, print_json,
+    read_attachment, text_arg,
 };
 use crate::client::{Client, segment, uid};
 use crate::config::Config;
-use crate::wire::{KINDS, SpaceView, out};
+use crate::wire::{Attachment, Change, KINDS, NewIssue, PageRef, SpaceView, out};
 
 #[derive(Debug, clap::Args)]
 pub struct CardsArgs {
@@ -71,12 +73,18 @@ pub struct CardArgs {
 pub enum CardAction {
     #[command(about = "show a card with its comments, links and events")]
     Show(CardShowArgs),
-    #[command(about = "file a card in a project, in lane new")]
+    #[command(
+        about = "file a card in a project or on a host, with a page and files; --project files it in lane new"
+    )]
     New(CardNewArgs),
-    #[command(about = "comment on a card")]
+    #[command(about = "comment on a card, with files; --internal for Owners only")]
     Comment(CardCommentArgs),
-    #[command(about = "move a card to a lane, at its top; only a person moves it to done")]
+    #[command(
+        about = "move a card to a lane, at its top, or close it as abandoned or duplicate; only a person moves it to done"
+    )]
     Status(CardStatusArgs),
+    #[command(about = "move a card to a lane, or beside another card in it")]
+    Move(crate::boards::MoveArgs),
     #[command(about = "link a card to a request, a commit, a tag or a URL")]
     Link(CardLinkArgs),
 }
@@ -88,9 +96,19 @@ pub struct CardShowArgs {
 }
 
 #[derive(Debug, clap::Args)]
+#[command(group(clap::ArgGroup::new("place").required(true).multiple(true).args(["project", "host"])))]
 pub struct CardNewArgs {
-    #[arg(long, value_name = "name", help = "the project the card belongs to")]
-    pub project: String,
+    #[arg(
+        long,
+        value_name = "name",
+        help = "the project the card belongs to; it starts in lane new"
+    )]
+    pub project: Option<String>,
+    #[arg(
+        long,
+        help = "the host it is about; alone, the card lands in the host's project as the panel files it"
+    )]
+    pub host: Option<String>,
     #[arg(
         long,
         value_name = "text",
@@ -105,8 +123,15 @@ pub struct CardNewArgs {
     pub body: Option<String>,
     #[arg(long, value_parser = KINDS, default_value = "feature", help = "what it is")]
     pub kind: String,
-    #[arg(long, help = "the host it sits on for the panel; a card needs none")]
-    pub host: Option<String>,
+    #[arg(
+        long,
+        value_name = "path",
+        requires = "host",
+        help = "the page on the host it is about; none by default"
+    )]
+    pub page: Option<String>,
+    #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
+    pub attach: Vec<PathBuf>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -120,20 +145,35 @@ pub struct CardCommentArgs {
     pub text: String,
     #[arg(long, help = "for Owners only")]
     pub internal: bool,
+    #[arg(long, value_name = "file", help = "a file to attach; repeat it")]
+    pub attach: Vec<PathBuf>,
+    #[arg(long, help = "the host the card is on")]
+    pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct CardStatusArgs {
     #[arg(help = "the card's key, such as FEAT-41, or its number")]
     pub key: String,
-    #[arg(value_enum, help = "the lane it moves to")]
-    pub status: Lane,
+    #[arg(
+        value_name = "STATUS",
+        help = "a lane's word (new, planned, in-progress, needs-you, stuck, landed, done) or its name, or abandoned or duplicate to close it"
+    )]
+    pub status: String,
     #[arg(
         long,
         value_name = "text|-",
         help = "a comment in the same write, such as why it is stuck, or - for standard input"
     )]
     pub note: Option<String>,
+    #[arg(
+        long,
+        value_name = "KEY",
+        help = "with duplicate: the card this one repeats"
+    )]
+    pub duplicate_of: Option<String>,
+    #[arg(long, help = "the host the card is on")]
+    pub host: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
@@ -243,6 +283,7 @@ pub fn card(config: &Config, global: &Global, args: &CardArgs) -> Result<(), Str
         CardAction::New(a) => new(config, global, a),
         CardAction::Comment(a) => comment(config, global, a),
         CardAction::Status(a) => status(config, global, a),
+        CardAction::Move(a) => crate::boards::run_move(config, global, a),
         CardAction::Link(a) => link(config, global, a),
     }
 }
@@ -369,25 +410,98 @@ fn event_line(event: &CardEvent) -> String {
     format!("{}  {what}  {by}", crate::cli::when(&event.at))
 }
 
-fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), String> {
-    let project = crate::card::project(&args.project)?;
+pub fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), String> {
+    let project = args
+        .project
+        .as_deref()
+        .map(crate::card::project)
+        .transpose()?;
     let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let files = attachments(&args.attach)?;
     let body = optional_text(&args.body)?.unwrap_or_default();
     let (client, account) = client_for(config, global, host.as_deref())?;
-    let request = NewCard {
+    let space = super::space_ref(config, &account);
+    match (project, &host) {
+        (Some(project), _) if args.page.is_none() => {
+            let reply = client
+                .new_card(&NewCard {
+                    client_uid: uid(),
+                    project,
+                    title: args.title.clone(),
+                    body,
+                    kind: args.kind.clone(),
+                    host,
+                })
+                .map_err(refusal)?;
+            carded(global, &client, space, reply, &files)
+        }
+        (project, Some(host)) => {
+            let filed = client.file(&filing(args, host, body))?;
+            let number = filed.id.to_string();
+            if let Some(project) = project {
+                let answer: Value = ask(
+                    &client,
+                    "PATCH",
+                    &client.item(&number, "")?,
+                    Some(body_of(&ProjectChange {
+                        project: Some(project),
+                    })?),
+                )?;
+                let reply: CardReply =
+                    serde_json::from_value(answer).map_err(|_| crate::card::NOT_YET.to_owned())?;
+                return carded(global, &client, space, reply, &files);
+            }
+            let attached = upload(&client, &number, &files, None)?;
+            if global.json {
+                return print_json(&json!({"issue": filed, "attachments": attached}));
+            }
+            out!("{} filed on {host}: {}", filed.key, filed.title);
+            attached_lines(&attached);
+            Ok(())
+        }
+        (_, None) => Err("a page is on a host; give --host <host>".into()),
+    }
+}
+
+fn filing(args: &CardNewArgs, host: &str, body: String) -> NewIssue {
+    let path = args
+        .page
+        .as_deref()
+        .map(crate::wire::page_path)
+        .unwrap_or_default();
+    NewIssue {
         client_uid: uid(),
-        project,
+        host: Some(host.to_owned()),
+        kind: args.kind.clone(),
         title: args.title.clone(),
         body,
-        kind: args.kind.clone(),
-        host,
-    };
-    let reply: CardReply = ask(&client, "POST", "/v1/cards", Some(body_of(&request)?))?;
+        page: PageRef {
+            url: format!(
+                "https://{host}{}",
+                if path.is_empty() { "/" } else { &path }
+            ),
+            path,
+            title: String::new(),
+        },
+        context: json!({"source": "cli"}),
+        marks: Vec::new(),
+    }
+}
+
+fn carded(
+    global: &Global,
+    client: &Client,
+    space: Value,
+    reply: CardReply,
+    files: &[Upload],
+) -> Result<(), String> {
+    let attached = upload(client, &key_of(&reply.card.key)?, files, None)?;
     if global.json {
-        return print_json(&json!({
-            "card": reply.card,
-            "space": super::space_ref(config, &account),
-        }));
+        let mut value = json!({"card": reply.card, "space": space});
+        if !files.is_empty() {
+            value["attachments"] = json!(attached);
+        }
+        return print_json(&value);
     }
     if reply.card.host.is_empty() {
         out!(
@@ -405,54 +519,138 @@ fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), Strin
             reply.card.title
         );
     }
+    attached_lines(&attached);
     Ok(())
 }
 
-fn comment(config: &Config, global: &Global, args: &CardCommentArgs) -> Result<(), String> {
-    let key = key(&args.key)?;
+type Upload = (String, &'static str, Vec<u8>);
+
+fn attachments(paths: &[PathBuf]) -> Result<Vec<Upload>, String> {
+    paths.iter().map(|p| read_attachment(p)).collect()
+}
+
+fn upload(
+    client: &Client,
+    number: &str,
+    files: &[Upload],
+    comment: Option<i64>,
+) -> Result<Vec<Attachment>, String> {
+    files
+        .iter()
+        .map(|(name, kind, bytes)| client.attach(number, name, kind, bytes, comment))
+        .collect()
+}
+
+fn attached_lines(attached: &[Attachment]) {
+    for a in attached {
+        out!("attached {} as {}", a.name, a.id);
+    }
+}
+
+pub(crate) fn not_a_card(error: &str) -> bool {
+    let bare = refusal(error.to_owned());
+    (error.ends_with("(409)") && bare.contains(" is not a card"))
+        || (error.ends_with("(403)") && bare == OWNERS_ONLY)
+        || bare == crate::card::NOT_YET
+}
+
+const OWNERS_ONLY: &str = "only an Owner may do this";
+
+pub fn comment(config: &Config, global: &Global, args: &CardCommentArgs) -> Result<(), String> {
+    let files = attachments(&args.attach)?;
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    let shown = key(&args.key)?;
+    let number = key_of(&args.key)?;
     let text = text_arg(&args.text)?;
-    let (client, _) = client_for(config, global, None)?;
+    let (client, _) = client_for(config, global, host.as_deref())?;
+    let client = client.with_host(host.as_deref());
     let request = NewComment {
         client_uid: uid(),
         body: text,
         internal: args.internal,
     };
-    let reply: CommentReply = ask(
-        &client,
-        "POST",
-        &format!("/v1/cards/{key}/comments"),
-        Some(body_of(&request)?),
-    )?;
-    if global.json {
-        return print_json(&reply);
-    }
-    out!(
-        "commented on {}{}",
-        reply.key,
-        if reply.comment.internal {
-            " (internal)"
-        } else {
-            ""
+    match client.card_comment(&shown, &request) {
+        Ok(reply) => {
+            let attached = upload(&client, &number, &files, Some(reply.comment.id))?;
+            if global.json {
+                let mut value = body_of(&reply)?;
+                if !files.is_empty() {
+                    value["attachments"] = json!(attached);
+                }
+                return print_json(&value);
+            }
+            commented(&reply.key, reply.comment.internal);
+            Ok(())
         }
-    );
-    Ok(())
+        Err(why) if not_a_card(&why) => {
+            let made = client
+                .comment_as(&number, &request.client_uid, &request.body, args.internal)
+                .map_err(refusal)?;
+            let attached = upload(&client, &number, &files, Some(made.id))?;
+            if global.json {
+                return print_json(&json!({"comment": made, "attachments": attached}));
+            }
+            commented(&args.key, args.internal);
+            Ok(())
+        }
+        Err(why) => Err(refusal(why)),
+    }
 }
 
-fn status(config: &Config, global: &Global, args: &CardStatusArgs) -> Result<(), String> {
+fn commented(key: &str, internal: bool) {
+    out!(
+        "commented on {key}{}",
+        if internal { " (internal)" } else { "" }
+    );
+}
+
+pub fn status(config: &Config, global: &Global, args: &CardStatusArgs) -> Result<(), String> {
+    let word = args.status.trim();
+    let closing = matches!(word, "abandoned" | "duplicate");
+    if word == "duplicate" && args.duplicate_of.is_none() {
+        return Err("a duplicate needs --duplicate-of KEY".into());
+    }
+    if word != "duplicate" && args.duplicate_of.is_some() {
+        return Err("--duplicate-of goes with duplicate".into());
+    }
+    let host = args.host.as_deref().map(|h| h.trim().to_ascii_lowercase());
+    if closing {
+        if args.note.is_some() {
+            return Err("--note goes with a lane; close it, then p99 card comment says why".into());
+        }
+        return close(config, global, args, host.as_deref());
+    }
+    let lane = <Lane as clap::ValueEnum>::from_str(word, true).ok();
+    let Some(lane) = lane else {
+        if args.note.is_some() {
+            return Err(format!(
+                "--note goes with a lane's word: {}",
+                LANE_WORDS.join(", ")
+            ));
+        }
+        return crate::boards::label_move(config, global, &args.key, word, host.as_deref());
+    };
     let key = key(&args.key)?;
     let note = optional_text(&args.note)?;
-    let (client, _) = client_for(config, global, None)?;
+    let (client, _) = client_for(config, global, host.as_deref())?;
     let request = StatusChange {
-        status: args.status,
+        status: lane,
         note,
         client_uid: uid(),
     };
-    let reply: CardReply = ask(
-        &client,
+    let reply: Result<CardReply, String> = client.json(
         "POST",
         &format!("/v1/cards/{key}/status"),
         Some(body_of(&request)?),
-    )?;
+    );
+    let reply = match reply {
+        Ok(reply) => reply,
+        Err(why) if request.note.is_none() && not_a_card(&why) => {
+            return crate::boards::label_move(config, global, &args.key, word, host.as_deref())
+                .map_err(refusal);
+        }
+        Err(why) => return Err(refusal(why)),
+    };
     if global.json {
         return print_json(&reply);
     }
@@ -465,6 +663,42 @@ fn status(config: &Config, global: &Global, args: &CardStatusArgs) -> Result<(),
         } else {
             ""
         }
+    );
+    Ok(())
+}
+
+const LANE_WORDS: [&str; 7] = [
+    "new",
+    "planned",
+    "in-progress",
+    "needs-you",
+    "stuck",
+    "landed",
+    "done",
+];
+
+fn close(
+    config: &Config,
+    global: &Global,
+    args: &CardStatusArgs,
+    host: Option<&str>,
+) -> Result<(), String> {
+    let (client, _) = client_for(config, global, host)?;
+    let change = Change {
+        resolution: Some(args.status.trim().to_owned()),
+        duplicate_of: args.duplicate_of.clone(),
+        ..Change::default()
+    };
+    let issue = client
+        .with_host(host)
+        .change(&key_of(&args.key)?, &change)?;
+    if global.json {
+        return print_json(&issue);
+    }
+    out!(
+        "{} is now {}",
+        issue.key,
+        crate::wire::stage_word(&issue.stage).to_lowercase()
     );
     Ok(())
 }

@@ -151,8 +151,8 @@ fn p99_key_signs_every_call_over_a_reference_and_op_never_runs() {
     for args in [
         &["list", "--json"][..],
         &["show", "12", "--json"],
-        &["comment", "12", "Seen on Firefox too"],
-        &["status", "12", "doing"],
+        &["card", "comment", "12", "Seen on Firefox too"],
+        &["card", "status", "12", "doing"],
     ] {
         let out = h.p99_env(args, &[("PATH", &path), ("P99_KEY", KEY)]);
         out.ok();
@@ -264,15 +264,15 @@ fn the_key_never_shows_on_a_refused_request_or_a_401() {
         (WRONG, &["list"][..]),
         (WRONG, &["list", "--json"]),
         (WRONG, &["show", "12", "--json"]),
-        (WRONG, &["comment", "12", "hello"]),
-        (KEY, &["comment", "12", "hello"]),
-        (KEY, &["status", "12", "doing", "--json"]),
+        (WRONG, &["card", "comment", "12", "hello"]),
+        (KEY, &["card", "comment", "12", "hello"]),
+        (KEY, &["card", "status", "12", "doing", "--json"]),
     ] {
         let out = h.p99_env(args, &[("P99_KEY", key)]);
         never_shows(&out, key);
         assert!(!out.stderr.contains("P99_KEY="), "{}", out.stderr);
     }
-    let out = h.p99_env(&["comment", "12", "hello"], &[("P99_KEY", KEY)]);
+    let out = h.p99_env(&["card", "comment", "12", "hello"], &[("P99_KEY", KEY)]);
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(
         out.stderr.contains("the text is too long"),

@@ -25,7 +25,7 @@ export default async function (kit) {
     assert.ok(opened.includes(made.key) && opened.includes(`Look at the clip ${t}`), opened);
     assert.ok(!opened.includes("Needs you ·"), opened);
 
-    await ok(kit, ["move", made.key, "--to", "in-progress"]);
+    await ok(kit, ["card", "move", made.key, "--to", "in-progress"]);
     assert.equal(waitingCount(await kit.tui("")), before, "the count goes down as the card moves out");
 
     const options = pickerOptions(await kit.tui("p"), "Projects");

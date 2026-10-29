@@ -1333,7 +1333,15 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
     let stub = Stub::start(World::new(vec![Item::new(12, "Checkout total is wrong")]));
     let home = Home::of("move", &stub);
 
-    let moved = home.ok(&["move", "BUG-12", "--to", "in-progress", "--host", HOST]);
+    let moved = home.ok(&[
+        "card",
+        "move",
+        "BUG-12",
+        "--to",
+        "in-progress",
+        "--host",
+        HOST,
+    ]);
     assert_eq!(moved, "BUG-12 is in In progress\n");
     assert_eq!(
         moves(&stub),
@@ -1343,7 +1351,7 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
     assert!(shown.starts_with("BUG-12  Bug  In progress\n"), "{shown}");
 
     let before = stub.seen().len();
-    let bad = home.run(&["move", "BUG-", "--to", "in-progress"]);
+    let bad = home.run(&["card", "move", "BUG-", "--to", "in-progress"]);
     lone_error(&bad, "BUG- is not an item key; try BUG-12 or 12");
     assert_eq!(
         stub.seen().len(),
@@ -1351,7 +1359,7 @@ fn a_move_sends_the_label_it_read_and_a_bad_key_or_label_is_refused_before_harm(
         "a bad key still reached the Worker"
     );
 
-    let stray = home.run(&["move", "12", "--to", "Shipped", "--host", HOST]);
+    let stray = home.run(&["card", "move", "12", "--to", "Shipped", "--host", HOST]);
     lone_error(
         &stray,
         "Shipped is not a lane; give new, planned, in-progress, needs-you, stuck, landed, done or a lane's name",
@@ -1419,8 +1427,8 @@ fn two_sessions_moving_one_card_at_once_make_one_move_and_both_end_on_the_same_l
     );
     let ada = Home::of("race-ada", &stub);
     let grace = Home::of("race-grace", &stub);
-    let one = ada.command(&["move", "12", "--to", "in-progress", "--host", HOST]);
-    let two = grace.command(&["move", "12", "--to", "landed", "--host", HOST]);
+    let one = ada.command(&["card", "move", "12", "--to", "in-progress", "--host", HOST]);
+    let two = grace.command(&["card", "move", "12", "--to", "landed", "--host", HOST]);
     let one = thread::spawn(move || run(one));
     let two = thread::spawn(move || run(two));
     let (one, two) = (one.join().unwrap(), two.join().unwrap());
@@ -1477,7 +1485,7 @@ fn raced_to(label: &'static str, reread: bool) -> Stub {
 fn a_move_that_loses_the_race_names_the_label_the_card_moved_to() {
     let stub = raced_to("Landed", true);
     let home = Home::of("raced-review", &stub);
-    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    let lost = home.run(&["card", "move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(
         &lost,
         "BUG-12 moved to Landed meanwhile; run it again to move it from there",
@@ -1494,7 +1502,7 @@ fn a_move_that_loses_the_race_names_the_label_the_card_moved_to() {
 fn a_move_that_loses_the_race_to_the_same_label_says_nothing_is_left_to_move() {
     let stub = raced_to("In progress", true);
     let home = Home::of("raced-same", &stub);
-    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    let lost = home.run(&["card", "move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(
         &lost,
         "BUG-12 moved to In progress meanwhile; nothing left to move",
@@ -1505,7 +1513,7 @@ fn a_move_that_loses_the_race_to_the_same_label_says_nothing_is_left_to_move() {
 fn a_move_that_loses_the_race_and_cannot_read_the_card_again_keeps_the_worker_words() {
     let stub = raced_to("Landed", false);
     let home = Home::of("raced-dark", &stub);
-    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    let lost = home.run(&["card", "move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(&lost, "this card moved; refreshed");
     assert!(!lost.err.contains("(409)"), "{}", lost.err);
 }
@@ -1525,7 +1533,7 @@ fn a_move_refused_for_another_reason_is_never_called_a_race() {
         },
     );
     let home = Home::of("raced-not", &stub);
-    let lost = home.run(&["move", "12", "--to", "in-progress", "--host", HOST]);
+    let lost = home.run(&["card", "move", "12", "--to", "in-progress", "--host", HOST]);
     lone_error(&lost, "a resolution goes with a label that closes");
     assert!(!lost.err.contains("meanwhile"), "{}", lost.err);
     assert_eq!(
@@ -1672,7 +1680,7 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
     let home = Home::of("close", &stub);
 
     assert_eq!(
-        home.ok(&["status", "12", "abandoned", "--host", HOST]),
+        home.ok(&["card", "status", "12", "abandoned", "--host", HOST]),
         "BUG-12 is now dropped\n"
     );
     assert!(has_key(&home.ok(&["list", "--status", "closed"]), "BUG-12"));
@@ -1680,11 +1688,18 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
 
     let before = stub.seen().len();
     lone_error(
-        &home.run(&["status", "12", "duplicate", "--host", HOST]),
+        &home.run(&["card", "status", "12", "duplicate", "--host", HOST]),
         "a duplicate needs --duplicate-of KEY",
     );
     lone_error(
-        &home.run(&["status", "12", "In progress", "--duplicate-of", "BUG-3"]),
+        &home.run(&[
+            "card",
+            "status",
+            "12",
+            "In progress",
+            "--duplicate-of",
+            "BUG-3",
+        ]),
         "--duplicate-of goes with duplicate",
     );
     assert_eq!(
@@ -1714,7 +1729,7 @@ fn an_owner_closes_as_dropped_or_duplicate_and_reopens_through_a_label() {
     );
 
     assert_eq!(
-        home.ok(&["status", "12", "New", "--host", HOST]),
+        home.ok(&["card", "status", "12", "New", "--host", HOST]),
         "BUG-12 is in New\n"
     );
     assert_eq!(

@@ -18,10 +18,10 @@ export default async function (kit) {
     writeFileSync(notes, "line one\n");
     writeFileSync(cart, PNG);
 
-    const filed = await ok(kit, ["file", where.shop, "--kind", "bug", "--title", `Delete me ${t}`, "--body", "Filed by mistake.", "--attach", notes, "--attach", cart]);
+    const filed = await ok(kit, ["card", "new", "--host", where.shop, "--kind", "bug", "--title", `Delete me ${t}`, "--body", "Filed by mistake.", "--attach", notes, "--attach", cart]);
     const key = /^(BUG-\d+) filed on/m.exec(filed.stdout)?.[1];
     assert.ok(key, filed.stdout);
-    await ok(kit, ["comment", key, `Seen ${t}`]);
+    await ok(kit, ["card", "comment", key, `Seen ${t}`]);
 
     const before = await kit.call("GET", `/_p99/v1/issues/${key}?host=${where.shop}`, { actor: ADA });
     assert.equal(before.status, 200, JSON.stringify(before.json));

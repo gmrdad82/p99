@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+use crate::card::{CardReply, CommentReply, NewCard, NewComment};
 use crate::config::Config;
 use crate::sign::{Actor, encode_actor, sign};
 use crate::stream::{Opening, Stream, Trouble, websocket_base};
@@ -168,6 +169,7 @@ impl Client {
             ("kind", q.kind.clone()),
             ("q", q.q.clone()),
             ("cursor", q.cursor.clone()),
+            ("source", q.source.clone()),
             ("limit", Some(q.limit.clamp(1, 100).to_string())),
         ];
         pairs.extend(q.label.iter().map(|l| ("label", Some(l.clone()))));
@@ -219,13 +221,34 @@ impl Client {
         self.json("POST", &pq, Some(body))
     }
 
+    pub fn new_card(&self, card: &NewCard) -> Result<CardReply, String> {
+        let body = serde_json::to_value(card).map_err(|e| e.to_string())?;
+        self.json("POST", "/v1/cards", Some(body))
+    }
+
+    pub fn card_comment(&self, key: &str, comment: &NewComment) -> Result<CommentReply, String> {
+        let body = serde_json::to_value(comment).map_err(|e| e.to_string())?;
+        let pq = format!("/v1/cards/{}/comments", segment(key)?);
+        self.json("POST", &pq, Some(body))
+    }
+
     pub fn change(&self, key: &str, change: &Change) -> Result<Issue, String> {
         let body = serde_json::to_value(change).map_err(|e| e.to_string())?;
         self.json("PATCH", &self.item(key, "")?, Some(body))
     }
 
     pub fn comment(&self, key: &str, body: &str, internal: bool) -> Result<Comment, String> {
-        let body = json!({"client_uid": uid(), "body": body, "internal": internal});
+        self.comment_as(key, &uid(), body, internal)
+    }
+
+    pub fn comment_as(
+        &self,
+        key: &str,
+        client_uid: &str,
+        body: &str,
+        internal: bool,
+    ) -> Result<Comment, String> {
+        let body = json!({"client_uid": client_uid, "body": body, "internal": internal});
         self.json("POST", &self.item(key, "/comments")?, Some(body))
     }
 

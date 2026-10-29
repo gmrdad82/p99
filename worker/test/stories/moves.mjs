@@ -117,7 +117,7 @@ export async function moveStories({ base, call, check, issueBody, here, keys, ro
       const key = filed.json.key;
       const [inbox, doing] = [lanes[0].label, lanes[2].label];
 
-      const both = await Promise.all([run(["move", key, "--to", "in-progress", "--host", here]), run(["move", key, "--to", "in-progress", "--host", here])]);
+      const both = await Promise.all([run(["card", "move", key, "--to", "in-progress", "--host", here]), run(["card", "move", key, "--to", "in-progress", "--host", here])]);
       const landed = both.filter((r) => r.status === 0);
       const refused = both.filter((r) => r.status !== 0);
       assert.equal(landed.length, 1, JSON.stringify(both));

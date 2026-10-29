@@ -370,16 +370,16 @@ fn every_board_form_that_does_not_parse_is_claps_with_exit_2() {
         Some("Usage: p99 boards set "),
     );
     unparsed(
-        &["move", "FEAT-41"],
+        &["card", "move", "FEAT-41"],
         "error: the following required arguments were not provided:\n  --to <lane>\n",
-        Some("Usage: p99 move "),
+        Some("Usage: p99 card move "),
     );
     unparsed(
         &[
-            "move", "FEAT-41", "--to", "new", "--before", "BUG-12", "--after", "BUG-13",
+            "card", "move", "FEAT-41", "--to", "new", "--before", "BUG-12", "--after", "BUG-13",
         ],
         "error: the argument '--before <KEY>' cannot be used with '--after <KEY>'\n",
-        Some("Usage: p99 move "),
+        Some("Usage: p99 card move "),
     );
     unparsed(
         &["labels", "rename", "Stuck"],
@@ -595,7 +595,11 @@ fn boards_host_scopes_the_one_board_to_that_host() {
 #[test]
 fn move_takes_a_lane_word_or_name_and_never_names_a_board() {
     let worker = Worker::start(answers);
-    let out = run(&worker, "move", &["move", "FEAT-41", "--to", "needs-you"]);
+    let out = run(
+        &worker,
+        "move",
+        &["card", "move", "FEAT-41", "--to", "needs-you"],
+    );
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     assert_eq!(out.stdout, "FEAT-41 is in Needs you\n");
     let seen = worker.last();
@@ -634,7 +638,7 @@ fn move_takes_a_lane_word_or_name_and_never_names_a_board() {
     let after = run(
         &worker,
         "move",
-        &["move", "41", "--to", "Landed", "--after", "FEAT-7"],
+        &["card", "move", "41", "--to", "Landed", "--after", "FEAT-7"],
     );
     assert_eq!(after.stdout, "FEAT-41 is in Landed\n", "{}", after.stderr);
     assert_eq!(worker.last().body["after"], "7");
@@ -647,7 +651,7 @@ fn move_refusals_come_through_as_one_line() {
         &run(
             &worker,
             "move_refused",
-            &["move", "FEAT-41", "--to", "Shipped"],
+            &["card", "move", "FEAT-41", "--to", "Shipped"],
         ),
         "no lane is called Shipped",
     );
@@ -655,17 +659,27 @@ fn move_refusals_come_through_as_one_line() {
         &run(
             &worker,
             "move_refused",
-            &["move", "FEAT-42", "--to", "new", "--after", "BUG-12"],
+            &[
+                "card", "move", "FEAT-42", "--to", "new", "--after", "BUG-12",
+            ],
         ),
         "FEAT-42 moved to Landed meanwhile; run it again to move it from there",
     );
     refused(
-        &run(&worker, "move_refused", &["move", "nope", "--to", "new"]),
+        &run(
+            &worker,
+            "move_refused",
+            &["card", "move", "nope", "--to", "new"],
+        ),
         "nope is not an item key; try BUG-12 or 12",
     );
     for to in ["needs-you", "needs you", "Needs You"] {
         refused(
-            &run(&worker, "move_refused", &["move", "FEAT-43", "--to", to]),
+            &run(
+                &worker,
+                "move_refused",
+                &["card", "move", "FEAT-43", "--to", to],
+            ),
             "FEAT-43 moved to Needs you meanwhile; nothing left to move",
         );
     }
@@ -673,7 +687,7 @@ fn move_refusals_come_through_as_one_line() {
         &run(
             &worker,
             "move_refused",
-            &["move", "FEAT-43", "--to", "stuck", "--json"],
+            &["card", "move", "FEAT-43", "--to", "stuck", "--json"],
         ),
         "FEAT-43 moved to Needs you meanwhile; run it again to move it from there",
     );
@@ -683,8 +697,8 @@ fn move_refusals_come_through_as_one_line() {
 fn move_on_an_old_worker_is_its_refusal_in_one_line() {
     let old = Worker::start(old_worker);
     for args in [
-        vec!["move", "FEAT-41", "--to", "new"],
-        vec!["move", "FEAT-41", "--to", "new", "--json"],
+        vec!["card", "move", "FEAT-41", "--to", "new"],
+        vec!["card", "move", "FEAT-41", "--to", "new", "--json"],
     ] {
         refused(&run(&old, "move_old", &args), "name a board to move on");
         let seen = old.last();
@@ -702,7 +716,7 @@ fn an_anchored_move_on_an_old_worker_says_deploy_and_an_unanchored_one_on_1_11_m
     let old = Worker::start(old_worker);
     for anchor in ["--before", "--after"] {
         for json in [false, true] {
-            let mut args = vec!["move", "FEAT-41", "--to", "new", anchor, "BUG-3"];
+            let mut args = vec!["card", "move", "FEAT-41", "--to", "new", anchor, "BUG-3"];
             if json {
                 args.push("--json");
             }
@@ -714,7 +728,11 @@ fn an_anchored_move_on_an_old_worker_says_deploy_and_an_unanchored_one_on_1_11_m
         }
     }
     let worker = Worker::start(answers);
-    let out = run(&worker, "move_plain", &["move", "FEAT-41", "--to", "new"]);
+    let out = run(
+        &worker,
+        "move_plain",
+        &["card", "move", "FEAT-41", "--to", "new"],
+    );
     assert_eq!(out.code, Some(0), "{}", out.stderr);
     assert_eq!(out.stdout, "FEAT-41 is in New\n");
 }

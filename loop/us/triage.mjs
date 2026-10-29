@@ -54,7 +54,7 @@ export default async function (kit) {
     assert.ok(rows[0].includes(second.key) && rows[0].includes(where.blog), `the newest comes first:\n${listed.stdout}`);
     assert.ok(rows[1].includes(first.key) && rows[1].includes(where.shop), listed.stdout);
 
-    const comment = await ok(kit, ["comment", first.key, `Looking ${t}`]);
+    const comment = await ok(kit, ["card", "comment", first.key, `Looking ${t}`]);
     assert.ok(comment.stdout.includes(`commented on ${first.key}`), comment.stdout);
     const shown = await ok(kit, ["show", first.key]);
     const at = (text) => shown.stdout.indexOf(text);
@@ -104,7 +104,7 @@ export default async function (kit) {
     assert.equal(panel.status, 200, JSON.stringify(panel.json));
     assert.ok(!panel.json.comments.some((c) => c.body === note), "Grace's panel never carries the note");
 
-    await ok(kit, ["comment", filed.key, answer]);
+    await ok(kit, ["card", "comment", filed.key, answer]);
     await mailTo(kit, "grace@example.com", answer);
     assert.equal(await mailed(kit, "grace@example.com", note), false, "the note was mailed to Grace");
   });
@@ -115,7 +115,7 @@ export default async function (kit) {
     const log = join(scratch("comment"), `trace-${t}.log`);
     writeFileSync(log, "boom");
 
-    const out = await ok(kit, ["comment", filed.key, "-", "--internal", "--attach", log, "--host", where.shop], { input: `Seen it twice ${t}.\n` });
+    const out = await ok(kit, ["card", "comment", filed.key, "-", "--internal", "--attach", log, "--host", where.shop], { input: `Seen it twice ${t}.\n` });
     assert.ok(out.stdout.includes(`commented on ${filed.key}`), out.stdout);
 
     const thread = await threadOf(kit, filed.key, where.shop);
@@ -181,24 +181,24 @@ export default async function (kit) {
     const repeated = await report(kit, where.shop, `Repeat me ${t}`);
     const stage = async (key) => (await threadOf(kit, key)).issue;
 
-    await ok(kit, ["status", dropped.key, "abandoned"]);
+    await ok(kit, ["card", "status", dropped.key, "abandoned"]);
     let issue = await stage(dropped.key);
     assert.equal(issue.resolution, "abandoned");
     assert.equal(issue.stage, "dropped");
     const closed = await ok(kit, ["list", "--status", "closed", "-q", t]);
     assert.ok(closed.stdout.includes(dropped.key), closed.stdout);
-    await ok(kit, ["status", dropped.key, "New"]);
+    await ok(kit, ["card", "status", dropped.key, "New"]);
     issue = await stage(dropped.key);
     assert.ok(!issue.resolution, JSON.stringify(issue));
     assert.equal(issue.stage, "received");
     const open = await ok(kit, ["list", "-q", t]);
     assert.ok(open.stdout.includes(dropped.key), open.stdout);
 
-    await ok(kit, ["status", repeated.key, "duplicate", "--duplicate-of", dropped.key]);
+    await ok(kit, ["card", "status", repeated.key, "duplicate", "--duplicate-of", dropped.key]);
     issue = await stage(repeated.key);
     assert.equal(issue.stage, "duplicate");
     assert.equal(issue.duplicate_of, dropped.key);
-    await ok(kit, ["status", repeated.key, "New"]);
+    await ok(kit, ["card", "status", repeated.key, "New"]);
     issue = await stage(repeated.key);
     assert.ok(!issue.resolution, JSON.stringify(issue));
   });
@@ -262,7 +262,7 @@ export default async function (kit) {
     assert.ok(hasKey(accents, c.key), accents);
     assert.ok(!hasKey(accents, a.key) && !hasKey(accents, other.key), accents);
 
-    await ok(kit, ["status", b.key, "abandoned"]);
+    await ok(kit, ["card", "status", b.key, "abandoned"]);
     const open = await kit.tui(`/ ${t}`);
     assert.ok(hasKey(open, a.key) && !hasKey(open, b.key), open);
     const closed = await kit.tui(`s / ${t}`);

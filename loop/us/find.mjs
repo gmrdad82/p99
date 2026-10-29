@@ -39,8 +39,8 @@ export default async function (kit) {
     const checkoutBefore = await counts("/checkout");
 
     const card = keyOf(await p99(kit, ["card", "new", "--project", "Shop", "--host", shop, "--title", tag("Move the receipts to their own page"), "--json"]));
-    const bare = keyOf(await p99(kit, ["file", shop, "--kind", "bug", "--title", tag("The receipts export is slow"), "--json"]));
-    const placed = keyOf(await p99(kit, ["file", shop, "--kind", "bug", "--title", tag("Pay stays grey on checkout"), "--page", "/checkout", "--json"]));
+    const bare = keyOf(await p99(kit, ["card", "new", "--host", shop, "--kind", "bug", "--title", tag("The receipts export is slow"), "--json"]));
+    const placed = keyOf(await p99(kit, ["card", "new", "--host", shop, "--kind", "bug", "--title", tag("Pay stays grey on checkout"), "--page", "/checkout", "--json"]));
 
     const filed = (await thread(kit, bare)).issue;
     assert.equal(filed.page.path, "", "p99 file without --page stores no page");

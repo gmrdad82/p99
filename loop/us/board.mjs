@@ -33,18 +33,18 @@ export default async function (kit) {
     assert.equal(lanes.New.count, 3);
     assert.deepEqual(lanes.New.keys, [c.key, b.key, a.key], "the newest card tops its lane");
 
-    await ok(kit, ["move", a.key, "--to", "planned"]);
+    await ok(kit, ["card", "move", a.key, "--to", "planned"]);
     lanes = await board();
     assert.deepEqual(lanes.Planned.keys, [a.key]);
     assert.deepEqual(lanes.New.keys, [c.key, b.key]);
 
-    await ok(kit, ["move", a.key, "--to", "new", "--before", c.key]);
+    await ok(kit, ["card", "move", a.key, "--to", "new", "--before", c.key]);
     assert.deepEqual((await board()).New.keys, [a.key, c.key, b.key]);
 
-    await ok(kit, ["move", b.key, "--to", "new", "--after", a.key]);
+    await ok(kit, ["card", "move", b.key, "--to", "new", "--after", a.key]);
     assert.deepEqual((await board()).New.keys, [a.key, b.key, c.key]);
 
-    await ok(kit, ["move", c.key, "--to", "In progress"]);
+    await ok(kit, ["card", "move", c.key, "--to", "In progress"]);
     lanes = await board();
     assert.deepEqual(lanes["In progress"].keys, [c.key]);
     assert.deepEqual(lanes.New.keys, [a.key, b.key]);

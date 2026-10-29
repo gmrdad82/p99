@@ -244,3 +244,160 @@ fn us_triage_005_with_one_space_s_changes_nothing() {
     let pressed = desk.screen("120x20", "S");
     assert_eq!(pressed, plain);
 }
+
+#[test]
+fn us_triage_002_p99_card_comment_ties_its_files_to_the_comment() {
+    let h = Home::new("us-triage-002-card-comment", crate::fake::any);
+    std::fs::write(h.dir.join("trace.log"), "boom").unwrap();
+    std::fs::write(h.dir.join("cart.png"), [0x89, b'P', b'N', b'G']).unwrap();
+    let out = h.p99_in(
+        &[
+            "card",
+            "comment",
+            "BUG-12",
+            "-",
+            "--internal",
+            "--attach",
+            "trace.log",
+            "--attach",
+            "cart.png",
+            "--host",
+            "shop.example.com",
+        ],
+        "Seen it twice.\n",
+    );
+    out.ok();
+    assert!(out.stderr.is_empty(), "{}", out.stderr);
+    assert_eq!(out.stdout, "commented on BUG-12 (internal)\n");
+    let made = h.stub.call("POST", "/_p99/v1/issues/12/comments");
+    assert_eq!(made.json()["body"], "Seen it twice.");
+    assert_eq!(made.json()["internal"], true);
+    let tried = h.stub.call("POST", "/_p99/v1/cards/BUG-12/comments");
+    assert_eq!(tried.json()["client_uid"], made.json()["client_uid"]);
+    let files = h.stub.under("PUT", "/_p99/v1/issues/12/attachments/");
+    assert_eq!(files.len(), 2, "each file follows the comment once");
+    assert!(files.iter().all(|f| f.param("comment") == Some("31")));
+    assert_eq!(files[0].param("name"), Some("trace.log"));
+    assert_eq!(files[1].header("content-type"), Some("image/png"));
+    assert!(h.stub.seen().iter().all(|r| r.signed));
+
+    h.p99(&["card", "comment", "BUG-12", "x", "--attach", "missing.txt"])
+        .refused("missing.txt: No such file or directory (os error 2)");
+    assert_eq!(h.stub.calls("POST", "/_p99/v1/issues/12/comments").len(), 1);
+}
+
+#[test]
+fn us_triage_002_p99_comment_still_comments_once_and_says_it_is_now_p99_card_comment() {
+    let h = Home::new("us-triage-002-comment-renamed", crate::fake::any);
+    let out = h.p99(&["comment", "12", "Fixed on staging", "--json"]);
+    out.ok();
+    assert_eq!(out.stderr, "p99: p99 comment is now p99 card comment\n");
+    assert_eq!(out.json()["comment"]["body"], "Fixed on staging");
+    assert_eq!(h.stub.calls("POST", "/_p99/v1/issues/12/comments").len(), 1);
+}
+
+#[test]
+fn us_triage_003_p99_card_status_closes_as_abandoned_or_duplicate() {
+    let desk = Desk::new(
+        "us-triage-003-card-close",
+        vec![
+            Item::new(12, "Checkout total is wrong"),
+            Item::new(3, "Total wrong"),
+        ],
+    );
+    let h = &desk.home;
+    h.p99(&["card", "status", "BUG-12", "duplicate"])
+        .refused("a duplicate needs --duplicate-of KEY");
+    h.p99(&[
+        "card",
+        "status",
+        "BUG-12",
+        "stuck",
+        "--duplicate-of",
+        "BUG-3",
+    ])
+    .refused("--duplicate-of goes with duplicate");
+    h.p99(&["card", "status", "BUG-12", "abandoned", "--note", "why"])
+        .refused("--note goes with a lane; close it, then p99 card comment says why");
+    assert!(h.stub.writes().is_empty(), "a refused close wrote");
+    let dropped = h.p99(&["card", "status", "BUG-12", "abandoned"]);
+    dropped.ok();
+    assert_eq!(dropped.stdout, "BUG-12 is now dropped\n");
+    assert_eq!(
+        desk.world(|w| w.get(12).resolution),
+        Some("abandoned".to_owned())
+    );
+    let twin = h.p99(&[
+        "card",
+        "status",
+        "12",
+        "duplicate",
+        "--duplicate-of",
+        "BUG-3",
+        "--host",
+        "shop.example.com",
+    ]);
+    twin.ok();
+    assert_eq!(twin.stdout, "BUG-12 is now duplicate\n");
+    assert_eq!(
+        desk.world(|w| w.get(12).duplicate_of),
+        Some("BUG-3".to_owned())
+    );
+    let back = h.p99(&["card", "status", "BUG-12", "in-progress"]);
+    back.ok();
+    assert_eq!(back.stdout, "BUG-12 is in In progress\n");
+    assert_eq!(desk.world(|w| w.get(12).resolution), None);
+    desk.all_signed();
+}
+
+#[test]
+fn us_triage_003_p99_status_still_moves_once_and_says_it_is_now_p99_card_status() {
+    let desk = Desk::new(
+        "us-triage-003-status-renamed",
+        vec![Item::new(12, "Checkout total is wrong")],
+    );
+    let out = desk.home.p99(&["status", "BUG-12", "In progress"]);
+    out.ok();
+    assert_eq!(out.stderr, "p99: p99 status is now p99 card status\n");
+    assert_eq!(out.stdout, "BUG-12 is in In progress\n");
+    assert_eq!(
+        desk.moves(),
+        [json!({"key": "12", "from": "New", "to": "In progress"})]
+    );
+}
+
+#[test]
+fn us_triage_001_p99_list_page_lists_the_cards_filed_on_that_page() {
+    let h = Home::new("us-triage-001-list-page", crate::fake::any);
+    let out = h.p99(&["list", "shop.example.com", "--page", "/checkout?step=2"]);
+    out.ok();
+    let asked = h.stub.call("GET", "/_p99/v1/issues");
+    assert_eq!(asked.param("scope"), Some("page"));
+    assert_eq!(asked.param("path"), Some("/checkout"));
+    assert_eq!(asked.param("host"), Some("shop.example.com"));
+    assert!(out.stdout.contains("BUG-12"), "{}", out.stdout);
+    h.p99(&["list", "--page", "checkout"])
+        .refused("checkout is not a page path; try /checkout");
+    h.p99(&["list", "--page", "/checkout", "--mine"])
+        .clap("the argument '--page <path>' cannot be used with '--mine'");
+    assert_eq!(h.stub.calls("GET", "/_p99/v1/issues").len(), 1);
+}
+
+#[test]
+fn us_triage_001_p99_list_source_keeps_the_cards_a_person_or_an_agent_changed_last() {
+    let h = Home::new("us-triage-001-list-source", crate::fake::any);
+    h.p99(&["list", "--source", "agent", "--kind", "bug", "-q", "total"])
+        .ok();
+    let asked = h.stub.call("GET", "/_p99/v1/issues");
+    assert_eq!(asked.param("source"), Some("agent"));
+    assert_eq!(asked.param("kind"), Some("bug"));
+    assert_eq!(asked.param("q"), Some("total"));
+    assert_eq!(asked.param("scope"), Some("all"));
+    h.p99(&["list", "--source", "human"]).ok();
+    assert_eq!(
+        h.stub.calls("GET", "/_p99/v1/issues")[1].param("source"),
+        Some("human")
+    );
+    h.p99(&["list", "--source", "robot"])
+        .clap("invalid value 'robot' for '--source <SOURCE>'");
+}

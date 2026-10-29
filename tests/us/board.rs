@@ -63,3 +63,48 @@ fn us_board_001_a_card_dragged_on_the_tui_board_moves_and_a_stale_drag_settles_w
     }
     stale.all_signed();
 }
+
+#[test]
+fn us_board_001_p99_card_move_places_a_card_by_lane_and_beside_another() {
+    let desk = Desk::new(
+        "us-board-001-card-move",
+        vec![
+            Item::new(1, "First card"),
+            Item::new(2, "Second card").in_lane("Stuck"),
+        ],
+    );
+    let h = &desk.home;
+    let by_word = h.p99(&["card", "move", "BUG-1", "--to", "stuck", "--after", "BUG-2"]);
+    by_word.ok();
+    assert!(by_word.stderr.is_empty(), "{}", by_word.stderr);
+    assert_eq!(by_word.stdout, "BUG-1 is in Stuck\n");
+    let by_name = h.p99(&["card", "move", "1", "--to", "Landed", "--json"]);
+    by_name.ok();
+    assert_eq!(by_name.json()["card"]["label"], "Landed");
+    assert_eq!(
+        desk.moves(),
+        [
+            json!({"key": "1", "from": "New", "to": "stuck", "after": "2"}),
+            json!({"key": "1", "from": "Stuck", "to": "Landed"}),
+        ]
+    );
+    h.p99(&[
+        "card", "move", "BUG-1", "--to", "new", "--before", "BUG-2", "--after", "BUG-2",
+    ])
+    .clap("the argument '--before <KEY>' cannot be used with '--after <KEY>'");
+    assert_eq!(desk.moves().len(), 2);
+    desk.all_signed();
+}
+
+#[test]
+fn us_board_001_p99_move_still_moves_once_and_says_it_is_now_p99_card_move() {
+    let desk = Desk::new(
+        "us-board-001-move-renamed",
+        vec![Item::new(1, "First card")],
+    );
+    let out = desk.home.p99(&["move", "BUG-1", "--to", "needs-you"]);
+    out.ok();
+    assert_eq!(out.stderr, "p99: p99 move is now p99 card move\n");
+    assert_eq!(out.stdout, "BUG-1 is in Needs you\n");
+    assert_eq!(desk.moves().len(), 1);
+}

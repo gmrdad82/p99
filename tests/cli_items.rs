@@ -492,7 +492,9 @@ fn file_sends_the_item_with_the_page_and_then_each_attachment() {
     std::fs::write(h.dir.join("cart.PNG"), [0x89, b'P', b'N', b'G']).unwrap();
     let out = h.p99_in(
         &[
-            "file",
+            "card",
+            "new",
+            "--host",
             " Shop.Example.com ",
             "--kind",
             "bug",
@@ -545,7 +547,9 @@ fn file_sends_the_item_with_the_page_and_then_each_attachment() {
 fn file_without_a_page_files_on_no_page() {
     let h = home("file-no-page");
     h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "bug",
@@ -563,7 +567,9 @@ fn file_without_a_page_files_on_no_page() {
 fn file_json_and_an_unsafe_page_files_on_no_page() {
     let h = home("file-json");
     let out = h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "question",
@@ -589,7 +595,9 @@ fn file_refuses_a_file_p99_does_not_take_before_filing_anything() {
     let h = home("file-refused");
     std::fs::write(h.dir.join("page.html"), "<p>").unwrap();
     let out = h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "bug",
@@ -600,7 +608,9 @@ fn file_refuses_a_file_p99_does_not_take_before_filing_anything() {
     ]);
     out.refused("page.html: P99 takes images, PDFs, text, CSV, JSON, zip and office files");
     let out = h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "bug",
@@ -617,7 +627,9 @@ fn file_refuses_a_file_p99_does_not_take_before_filing_anything() {
     );
     assert!(h.stub.seen().is_empty());
     h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "chore",
@@ -625,7 +637,7 @@ fn file_refuses_a_file_p99_does_not_take_before_filing_anything() {
         "x",
     ])
     .clap("invalid value 'chore' for '--kind <KIND>'");
-    h.p99(&["file", "shop.example.com", "--kind", "bug"])
+    h.p99(&["card", "new", "--host", "shop.example.com", "--kind", "bug"])
         .clap("the following required arguments were not provided:");
 }
 
@@ -641,7 +653,9 @@ fn a_file_the_worker_refuses_files_nothing_after_it() {
     std::fs::write(h.dir.join("a.txt"), "a").unwrap();
     std::fs::write(h.dir.join("b.txt"), "b").unwrap();
     let out = h.p99(&[
-        "file",
+        "card",
+        "new",
+        "--host",
         "shop.example.com",
         "--kind",
         "bug",
@@ -662,6 +676,7 @@ fn comment_reads_standard_input_and_ties_its_files_to_the_comment() {
     std::fs::write(h.dir.join("trace.log"), "boom").unwrap();
     let out = h.p99_in(
         &[
+            "card",
             "comment",
             "BUG-12",
             "-",
@@ -689,7 +704,7 @@ fn comment_reads_standard_input_and_ties_its_files_to_the_comment() {
 #[test]
 fn comment_json_and_a_plain_public_comment() {
     let h = home("comment-json");
-    let out = h.p99(&["comment", "12", "Fixed on staging", "--json"]);
+    let out = h.p99(&["card", "comment", "12", "Fixed on staging", "--json"]);
     out.ok();
     let answer = out.json();
     assert_eq!(answer["comment"]["id"], 31);
@@ -698,21 +713,28 @@ fn comment_json_and_a_plain_public_comment() {
     let made = h.stub.call("POST", "/_p99/v1/issues/12/comments");
     assert_eq!(made.json()["internal"], false);
     assert_eq!(made.param("host"), None);
-    let plain = h.p99(&["comment", "12", "Thanks"]);
+    let plain = h.p99(&["card", "comment", "12", "Thanks"]);
     assert_eq!(plain.stdout, "commented on 12\n");
-    h.p99(&["comment", "twelve", "x"])
+    h.p99(&["card", "comment", "twelve", "x"])
         .refused("twelve is not an item key; try BUG-12 or 12");
 }
 
 #[test]
 fn status_closes_as_dropped_or_duplicate_and_checks_its_flags_first() {
     let h = home("status-close");
-    h.p99(&["status", "BUG-12", "duplicate"])
+    h.p99(&["card", "status", "BUG-12", "duplicate"])
         .refused("a duplicate needs --duplicate-of KEY");
-    h.p99(&["status", "BUG-12", "Doing", "--duplicate-of", "BUG-3"])
-        .refused("--duplicate-of goes with duplicate");
+    h.p99(&[
+        "card",
+        "status",
+        "BUG-12",
+        "Doing",
+        "--duplicate-of",
+        "BUG-3",
+    ])
+    .refused("--duplicate-of goes with duplicate");
     assert!(h.stub.seen().is_empty());
-    let out = h.p99(&["status", "BUG-12", "abandoned"]);
+    let out = h.p99(&["card", "status", "BUG-12", "abandoned"]);
     out.ok();
     assert_eq!(out.stdout, "BUG-12 is now dropped\n");
     let change = h.stub.call("PATCH", "/_p99/v1/issues/12").json();
@@ -738,12 +760,12 @@ fn status_closes_as_dropped_or_duplicate_and_checks_its_flags_first() {
 #[test]
 fn status_to_a_label_moves_the_item_from_the_label_it_shows() {
     let h = home("status-label");
-    let out = h.p99(&["status", "BUG-12", "Doing"]);
+    let out = h.p99(&["card", "status", "BUG-12", "Doing"]);
     out.ok();
     assert_eq!(out.stdout, "BUG-12 is in Doing\n");
     let moved = h.stub.call("POST", "/_p99/v1/move").json();
     assert_eq!(moved, json!({"key": "12", "from": "Inbox", "to": "Doing"}));
-    let out = h.p99(&["status", "12", "Done", "--json"]);
+    let out = h.p99(&["card", "status", "12", "Done", "--json"]);
     out.ok();
     assert_eq!(out.json()["card"]["label"], "Done");
 }
@@ -759,7 +781,7 @@ fn status_on_an_item_without_a_label_says_only_an_owner_moves_it() {
             fake::any(req)
         }
     });
-    h.p99(&["status", "BUG-12", "Doing"])
+    h.p99(&["card", "status", "BUG-12", "Doing"])
         .refused("12 shows no label; only an Owner moves items");
     assert!(h.stub.calls("POST", "/_p99/v1/move").is_empty());
 }
