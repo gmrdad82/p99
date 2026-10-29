@@ -314,6 +314,19 @@ fn midpoint(a: &[u8], b: Option<&[u8]>, out: &mut Vec<u8>) {
 }
 
 impl Demo {
+    pub(super) fn shelf_top(&mut self, key: &str) {
+        let new = status_label("inbox");
+        let lowest = self
+            .threads
+            .iter()
+            .filter(|t| t.issue.label.as_deref() == Some(new))
+            .filter_map(|t| self.shelf.orders.get(&t.issue.key))
+            .min()
+            .cloned();
+        let order = between("", lowest.as_deref());
+        self.shelf.orders.insert(key.to_owned(), order);
+    }
+
     fn board_card(&self, issue: &Issue) -> BoardCard {
         let label = issue.label.clone().unwrap_or_default();
         BoardCard {

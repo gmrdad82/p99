@@ -17,7 +17,9 @@ use crate::wire::{self, Change, Issue, Summary, Thread, kind_word, stage_word};
 
 use super::Msg;
 use super::badge::Badge;
+use super::compose::{flat, unflat};
 use super::deck::Move;
+use super::files::{paths, save, size};
 use super::source::{Entry, Source, counted, hits, merged_hosts, person, unix, words};
 
 const KEY_CELLS: u16 = 8;
@@ -30,7 +32,7 @@ const COLUMNS_ALL: [Column; 8] = [
     Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Host", 10, 17).priority(1),
-    Column::new("Reporter", 10, 22).priority(2),
+    Column::new("Filed by", 10, 22).priority(2),
     Column::new("Updated", 4, 7).right().pinned(),
 ];
 
@@ -40,7 +42,7 @@ const COLUMNS_ONE: [Column; 7] = [
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
-    Column::new("Reporter", 10, 22).priority(1),
+    Column::new("Filed by", 10, 22).priority(1),
     Column::new("Updated", 4, 7).right().pinned(),
 ];
 
@@ -95,24 +97,45 @@ impl Shown {
 }
 
 const DROP: &str = "Drop (close without fixing)";
-const DUPLICATE: &str = "Duplicate of…";
+const DUPLICATE: &str = "Duplicate: merge into…";
 
 enum Picking {
     Host(Vec<String>),
     Assign(Vec<Option<String>>),
     Move(Vec<String>),
+    File(Vec<i64>),
 }
 
 enum Typing {
     Reply(Input),
+    Files(String, Input, Option<String>),
     Duplicate(Input),
     Delete(Input, String),
+    Title(Input),
+    Details(String, Input),
+    Link(Input),
 }
 
-#[derive(Clone, Copy)]
+impl Typing {
+    fn input(&mut self) -> &mut Input {
+        match self {
+            Typing::Reply(input)
+            | Typing::Files(_, input, _)
+            | Typing::Duplicate(input)
+            | Typing::Delete(input, _)
+            | Typing::Title(input)
+            | Typing::Details(_, input)
+            | Typing::Link(input) => input,
+        }
+    }
+}
+
+#[derive(Clone)]
 enum Asked {
     Status,
     Label,
+    Edited(Vec<&'static str>),
+    Linked(String),
 }
 
 struct Open {
@@ -152,6 +175,7 @@ pub struct Inbox {
     told: bool,
     badge: Badge,
     opener: fn(&str) -> Result<(), String>,
+    here: Option<std::path::PathBuf>,
     projects: Vec<String>,
     key_cells: u16,
 }
@@ -184,7 +208,7 @@ impl Inbox {
             error: None,
             stopped: false,
             filter: Filter::new("Filter")
-                .placeholder("type to filter by key, title, page, host, project or person")
+                .placeholder("type to filter by key, title, kind, lane, page, host, project, person or agent")
                 .hint("enter keeps the filter · esc clears it"),
             host: None,
             shown: Shown::Open,
@@ -198,6 +222,7 @@ impl Inbox {
             told: false,
             badge: Badge::off(),
             opener: launch,
+            here: None,
             projects: Vec::new(),
             key_cells: KEY_CELLS,
         }
@@ -268,7 +293,8 @@ impl Inbox {
 
     fn empty(&self) -> String {
         if self.entries.as_ref().is_some_and(Vec::is_empty) {
-            return "No items yet. Reports from your sites land here.".to_owned();
+            return "No cards yet. n files one, and the ones filed on your sites land here."
+                .to_owned();
         }
         if !self.filter.query().is_empty() {
             return "Nothing matches the filter. esc clears it.".to_owned();
@@ -483,7 +509,7 @@ impl Inbox {
         });
     }
 
-    fn reply(&mut self, body: String, cx: &mut Cx<'_, Msg>) {
+    fn reply(&mut self, body: String, files: Vec<std::path::PathBuf>, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &mut self.open else { return };
         open.sending = true;
         let internal = open.internal;
@@ -494,8 +520,101 @@ impl Inbox {
             open.host.clone(),
         );
         cx.detach(move || {
-            let result = source.comment(space, host.as_deref(), &key, &body, internal);
-            Msg::Commented(key, result.map(|_| internal))
+            let result = source.reply(space, host.as_deref(), &key, &body, internal, &files);
+            Msg::Commented(key, result.map(|files| (internal, files)))
+        });
+    }
+
+    fn edit(&mut self, title: String, details: String, cx: &mut Cx<'_, Msg>) {
+        let Some(issue) = self.issue() else { return };
+        let title = title.trim().to_owned();
+        let body = unflat(&details);
+        let change = Change {
+            title: (title != issue.title.trim()).then_some(title),
+            body: (body != unflat(&flat(&issue.body))).then_some(body),
+            ..Change::default()
+        };
+        let what: Vec<&'static str> = [
+            change.title.as_ref().map(|_| "title"),
+            change.body.as_ref().map(|_| "details"),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        if what.is_empty() {
+            cx.say("Nothing changed.", Tone::Muted);
+            return;
+        }
+        self.change(change, cx);
+        if let Some(open) = &mut self.open {
+            open.asked = Asked::Edited(what);
+        }
+    }
+
+    fn link(&mut self, reference: String, cx: &mut Cx<'_, Msg>) {
+        let Some(open) = &mut self.open else { return };
+        open.sending = true;
+        open.asked = Asked::Linked(reference.clone());
+        let (source, key, space, host) = (
+            self.source.clone(),
+            open.key.clone(),
+            open.space,
+            open.host.clone(),
+        );
+        cx.detach(move || {
+            let result = source.link(space, host.as_deref(), &key, &reference);
+            Msg::Changed(key, result)
+        });
+    }
+
+    fn merge(&mut self, into: String, cx: &mut Cx<'_, Msg>) {
+        let Some(open) = &mut self.open else { return };
+        open.sending = true;
+        open.asked = Asked::Status;
+        let (source, key, space, host) = (
+            self.source.clone(),
+            open.key.clone(),
+            open.space,
+            open.host.clone(),
+        );
+        cx.detach(move || {
+            let result = source.merge(space, host.as_deref(), &key, &into);
+            Msg::Changed(key, result)
+        });
+    }
+
+    fn pick_file(&mut self, cx: &mut Cx<'_, Msg>) {
+        let Some(thread) = self.open.as_ref().and_then(|o| o.thread.as_ref()) else {
+            return;
+        };
+        if thread.attachments.is_empty() {
+            cx.say("This card has no files.", Tone::Muted);
+            return;
+        }
+        let rows = thread
+            .attachments
+            .iter()
+            .map(|file| format!("{}  {}", file.name, size(file.bytes)))
+            .collect::<Vec<_>>();
+        self.picking = Some(Picking::File(
+            thread.attachments.iter().map(|file| file.id).collect(),
+        ));
+        cx.pick(Pick::new("Save a file here", rows).hints(pick_hints()));
+    }
+
+    fn save_file(&mut self, id: i64, cx: &mut Cx<'_, Msg>) {
+        let Some(open) = &self.open else { return };
+        let (source, space, host) = (self.source.clone(), open.space, open.host.clone());
+        let here = self.here.clone();
+        cx.detach(move || {
+            let saved = here
+                .map_or_else(std::env::current_dir, Ok)
+                .map_err(|e| format!("this folder: {e}"))
+                .and_then(|dir| {
+                    let file = source.download(space, host.as_deref(), id)?;
+                    save(&dir, id, &file)
+                });
+            Msg::Saved(saved)
         });
     }
 
@@ -654,7 +773,7 @@ impl Inbox {
         let Some(issue) = self.issue() else { return };
         let url = issue.page.url.clone();
         if !(url.starts_with("https://") || url.starts_with("http://")) {
-            cx.say("This item has no page to open.", Tone::Alert);
+            cx.say("This card has no page to open.", Tone::Alert);
             return;
         }
         match (self.opener)(&url) {
@@ -666,38 +785,19 @@ impl Inbox {
     fn thread_key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
         let Some(open) = &mut self.open else { return };
         if let Some(typing) = &mut open.typing {
-            let input = match typing {
-                Typing::Reply(input) | Typing::Duplicate(input) | Typing::Delete(input, _) => input,
-            };
-            match input.key(key.into()) {
+            if key.code == KeyCode::Tab
+                && let Typing::Reply(input) = typing
+            {
+                let body = input.value().trim().to_owned();
+                if !body.is_empty() {
+                    open.typing = Some(Typing::Files(body, Input::new(), None));
+                }
+                return;
+            }
+            match typing.input().key(key.into()) {
                 Edit::Submit(value) => {
-                    let value = value.trim().to_owned();
-                    let reply = matches!(typing, Typing::Reply(_));
-                    let delete = matches!(typing, Typing::Delete(..));
-                    open.typing = None;
-                    if value.is_empty() {
-                        return;
-                    }
-                    if delete {
-                        if value.eq_ignore_ascii_case(&open.key) {
-                            self.delete(cx);
-                        } else {
-                            cx.say(
-                                format!("{} is kept: the key typed back didn't match", open.key),
-                                Tone::Muted,
-                            );
-                        }
-                    } else if reply {
-                        self.reply(value, cx);
-                    } else {
-                        let of = value.to_uppercase();
-                        self.change(
-                            Change {
-                                duplicate_of: Some(of),
-                                ..Change::default()
-                            },
-                            cx,
-                        );
+                    if let Some(typing) = open.typing.take() {
+                        self.typed(typing, value, cx);
                     }
                 }
                 Edit::Cancel => open.typing = None,
@@ -719,6 +819,12 @@ impl Inbox {
                 self.read_thread(cx);
             }
             KeyCode::Char('r') if ready => open.typing = Some(Typing::Reply(Input::new())),
+            KeyCode::Char('e') if ready => {
+                let title = open.thread.as_ref().map_or("", |t| t.issue.title.as_str());
+                open.typing = Some(Typing::Title(Input::new().with(title)));
+            }
+            KeyCode::Char('l') if ready => open.typing = Some(Typing::Link(Input::new())),
+            KeyCode::Char('f') if ready => self.pick_file(cx),
             KeyCode::Char('a') if ready => self.pick_assignee(cx),
             KeyCode::Char('m') if ready => self.pick_label(cx),
             KeyCode::Char('o') => self.browse(cx),
@@ -727,6 +833,37 @@ impl Inbox {
                 open.typing = Some(Typing::Delete(Input::new(), prompt));
             }
             _ => {}
+        }
+    }
+
+    fn typed(&mut self, typing: Typing, value: String, cx: &mut Cx<'_, Msg>) {
+        let Some(open) = &mut self.open else { return };
+        let trimmed = value.trim().to_owned();
+        match typing {
+            Typing::Details(title, _) => self.edit(title, value, cx),
+            Typing::Title(_) if trimmed.is_empty() => {
+                cx.say("A card needs a title; nothing changed.", Tone::Muted);
+            }
+            _ if trimmed.is_empty() => {}
+            Typing::Reply(_) => self.reply(trimmed, Vec::new(), cx),
+            Typing::Files(body, ..) => match paths(&trimmed) {
+                Ok(files) => self.reply(body, files, cx),
+                Err(why) => {
+                    let input = Input::new().with(&value);
+                    open.typing = Some(Typing::Files(body, input, Some(why)));
+                }
+            },
+            Typing::Delete(..) if trimmed.eq_ignore_ascii_case(&open.key) => self.delete(cx),
+            Typing::Delete(..) => cx.say(
+                format!("{} is kept: the key typed back didn't match", open.key),
+                Tone::Muted,
+            ),
+            Typing::Duplicate(_) => self.merge(trimmed.to_uppercase(), cx),
+            Typing::Title(_) => {
+                let body = open.thread.as_ref().map_or("", |t| t.issue.body.as_str());
+                open.typing = Some(Typing::Details(trimmed, Input::new().with(&flat(body))));
+            }
+            Typing::Link(_) => self.link(trimmed, cx),
         }
     }
 
@@ -917,6 +1054,11 @@ fn lines(
             facts.push(Span::styled(issue.env.clone(), tone));
         }
     }
+    if let Some(project) = issue.project.as_deref().filter(|p| !p.is_empty()) {
+        facts.push(dot());
+        facts.push(Span::styled("project ", palette.muted));
+        facts.push(Span::styled(project.to_owned(), palette.accent));
+    }
     out.push(Line::from(facts));
     let mut placed = Vec::new();
     if !issue.page.path.is_empty() {
@@ -930,7 +1072,7 @@ fn lines(
     let mut reported = vec![
         Span::styled(who, palette.strong),
         Span::styled(
-            format!(" reported it {}", since(&issue.created_at)),
+            format!(" filed it {}", since(&issue.created_at)),
             palette.muted,
         ),
     ];
@@ -1023,6 +1165,23 @@ fn lines(
             }
         }
     }
+    if !thread.attachments.is_empty() {
+        out.push(Line::default());
+        out.push(Line::styled(
+            format!("Files ({})", thread.attachments.len()),
+            palette.strong,
+        ));
+        for file in &thread.attachments {
+            out.push(Line::from(vec![
+                Span::styled(
+                    format!("  {}", text::clip(&file.name, width.saturating_sub(16))),
+                    palette.ink,
+                ),
+                dot(),
+                Span::styled(size(file.bytes), palette.muted),
+            ]));
+        }
+    }
     out.push(Line::default());
     out.push(Line::styled(
         format!("Comments ({})", thread.comments.len()),
@@ -1056,6 +1215,16 @@ fn lines(
             for part in text::wrap(paragraph, width.saturating_sub(2)) {
                 out.push(Line::styled(format!("  {part}"), palette.ink));
             }
+        }
+        let names: Vec<&str> = comment
+            .attachments
+            .iter()
+            .filter_map(|id| thread.attachments.iter().find(|file| file.id == *id))
+            .map(|file| file.name.as_str())
+            .collect();
+        if !names.is_empty() {
+            let said = format!("  files: {}", names.join(", "));
+            out.push(Line::styled(text::clip(&said, width), palette.muted));
         }
         out.push(Line::default());
     }
@@ -1103,17 +1272,17 @@ impl Screen<Msg> for Inbox {
         match (&self.error, self.stopped) {
             (Some(error), _) => Phase::Trouble(
                 vec![
-                    Line::from("Couldn't read the inbox."),
+                    Line::from("Couldn't read the cards."),
                     Line::from(error.as_str()),
                     Line::default(),
                     Line::from("r reads it again · p99 tui --demo shows sample data"),
                 ]
                 .into(),
             ),
-            (None, false) => Phase::Loading("Reading the inbox…".into()),
+            (None, false) => Phase::Loading("Reading the cards…".into()),
             (None, true) => Phase::Trouble(
                 vec![
-                    Line::from("Stopped waiting for the inbox."),
+                    Line::from("Stopped waiting for the cards."),
                     Line::from("r reads it again."),
                 ]
                 .into(),
@@ -1178,6 +1347,8 @@ impl Screen<Msg> for Inbox {
                 }
             }
             Msg::Pushed(space, key) => self.pushed(space, key, cx),
+            Msg::Saved(Ok(said)) => cx.say(said, Tone::Good),
+            Msg::Saved(Err(error)) => cx.say(error, Tone::Alert),
             Msg::Labels(Ok(labels)) => self.offer_labels(labels, cx),
             Msg::Labels(Err(error)) => cx.say(error, Tone::Alert),
             Msg::Heard(space, text) => self.heard(space, &text, cx),
@@ -1192,14 +1363,18 @@ impl Screen<Msg> for Inbox {
                         self.open = None;
                         self.drop_entry(space, &key);
                         let mut said = format!("Deleted {key}");
-                        if done.files > 0 {
-                            said.push_str(&format!(" and its {} files", done.files));
+                        match done.files {
+                            0 => {}
+                            1 => said.push_str(" and its file"),
+                            n => said.push_str(&format!(" and its {n} files")),
                         }
                         if !done.unlinked.is_empty() {
-                            said.push_str(&format!(
-                                "; {} back in the inbox",
-                                done.unlinked.join(", ")
-                            ));
+                            let verb = if done.unlinked.len() == 1 {
+                                "stands on its own"
+                            } else {
+                                "stand on their own"
+                            };
+                            said.push_str(&format!("; {} {verb} again", done.unlinked.join(", ")));
                             self.refresh(cx);
                         }
                         cx.say(said, Tone::Good);
@@ -1231,17 +1406,27 @@ impl Screen<Msg> for Inbox {
                 };
                 open.sending = false;
                 match result {
-                    Ok(internal) => {
+                    Ok((internal, files)) => {
                         open.scroll = usize::MAX;
                         let word = if internal {
                             "Internal note added"
                         } else {
                             "Replied"
                         };
-                        cx.say(format!("{word} on {key}"), Tone::Good);
+                        let with = match files {
+                            0 => String::new(),
+                            1 => " with 1 file".to_owned(),
+                            n => format!(" with {n} files"),
+                        };
+                        cx.say(format!("{word} on {key}{with}"), Tone::Good);
                         self.read_thread(cx);
                     }
-                    Err(error) => cx.say(error, Tone::Alert),
+                    Err(error) => {
+                        if error.starts_with("Replied on ") {
+                            self.read_thread(cx);
+                        }
+                        cx.say(error, Tone::Alert);
+                    }
                 }
             }
             Msg::Changed(key, result) => {
@@ -1252,9 +1437,11 @@ impl Screen<Msg> for Inbox {
                 match result {
                     Ok(issue) => {
                         let at = open.entry;
-                        let said = match open.asked {
+                        let said = match &open.asked {
                             Asked::Status => format!("{key} is {}", state(&issue)),
                             Asked::Label => format!("{key} moved to {}", issue_label(&issue)),
+                            Asked::Edited(what) => format!("{key} edited: {}", what.join(" and ")),
+                            Asked::Linked(to) => format!("{key} linked to {to}"),
                         };
                         cx.say(said, Tone::Good);
                         self.summary_from(at, &issue);
@@ -1310,6 +1497,11 @@ impl Screen<Msg> for Inbox {
             return;
         };
         match picking {
+            Picking::File(ids) => {
+                if let Some(id) = ids.get(choice) {
+                    self.save_file(*id, cx);
+                }
+            }
             Picking::Host(hosts) => {
                 self.host = choice.checked_sub(1).and_then(|at| hosts.get(at).cloned());
                 self.sift();
@@ -1373,11 +1565,8 @@ impl Screen<Msg> for Inbox {
 
     fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
         if let Some(open) = &mut self.open {
-            if let Some(
-                Typing::Reply(input) | Typing::Duplicate(input) | Typing::Delete(input, _),
-            ) = &mut open.typing
-            {
-                input.paste(text);
+            if let Some(typing) = &mut open.typing {
+                typing.input().paste(text);
             }
             return;
         }
@@ -1417,24 +1606,54 @@ impl Screen<Msg> for Inbox {
         let Some(open) = &self.open else {
             return self.filter.bar();
         };
+        let note = if open.internal {
+            "Internal note"
+        } else {
+            "Reply"
+        };
         match open.typing.as_ref()? {
-            Typing::Reply(input) => {
-                let label = if open.internal {
-                    "Internal note"
-                } else {
-                    "Reply"
-                };
-                Some(
-                    InputBar::new(label, input)
-                        .placeholder("write a reply")
-                        .hint("enter sends · esc cancels")
-                        .tone(Tone::Accent),
-                )
-            }
+            Typing::Reply(input) => Some(
+                InputBar::new(note, input)
+                    .placeholder("write a reply, then tab adds files")
+                    .hint("enter sends · tab adds files · esc cancels")
+                    .tone(Tone::Accent),
+            ),
+            Typing::Files(_, input, trouble) => Some(
+                InputBar::new("Files", input)
+                    .placeholder("paths to attach, split by spaces; quote one with spaces")
+                    .hint(match trouble {
+                        Some(why) => why.as_str(),
+                        None if open.internal => "enter sends the note with them · esc cancels",
+                        None => "enter sends the reply with them · esc cancels",
+                    })
+                    .tone(if trouble.is_some() {
+                        Tone::Alert
+                    } else {
+                        Tone::Accent
+                    }),
+            ),
             Typing::Duplicate(input) => Some(
-                InputBar::new("Duplicate of", input)
-                    .placeholder("an item key, such as BUG-11")
-                    .hint("enter marks it · esc cancels")
+                InputBar::new("Merge into", input)
+                    .placeholder("the card it duplicates, such as BUG-11")
+                    .hint("enter merges it there and closes this one · esc cancels")
+                    .tone(Tone::Accent),
+            ),
+            Typing::Title(input) => Some(
+                InputBar::new("Title", input)
+                    .placeholder("one line that says what it is about")
+                    .hint("enter goes on to the details · esc cancels")
+                    .tone(Tone::Accent),
+            ),
+            Typing::Details(_, input) => Some(
+                InputBar::new("Details", input)
+                    .placeholder("what happened or what is wanted; ¶ starts a new line")
+                    .hint("enter saves · esc cancels")
+                    .tone(Tone::Accent),
+            ),
+            Typing::Link(input) => Some(
+                InputBar::new("Link to", input)
+                    .placeholder("a pull request, commit, tag or URL")
+                    .hint("enter links it · esc cancels")
                     .tone(Tone::Accent),
             ),
             Typing::Delete(input, prompt) => Some(
@@ -1463,16 +1682,28 @@ impl Screen<Msg> for Inbox {
                     Hint::new("esc", "back"),
                 ];
             }
-            return vec![
+            let files = open
+                .thread
+                .as_ref()
+                .is_some_and(|t| !t.attachments.is_empty());
+            let mut hints = vec![
                 Hint::new("r", "reply"),
-                Hint::new("a", "assign").rank(1),
+                Hint::new("e", "edit").rank(1),
                 Hint::new("m", "move to").rank(1),
+                Hint::new("a", "assign").rank(1),
+                Hint::new("l", "link").rank(2),
                 Hint::new("i", internal).rank(2),
+            ];
+            if files {
+                hints.push(Hint::new("f", "save file").rank(2));
+            }
+            hints.extend([
                 Hint::new("o", "open page").rank(3),
                 Hint::new("d", "delete").rank(3),
                 Hint::new("↑↓", "scroll").rank(3),
                 Hint::new("esc", "back"),
-            ];
+            ]);
+            return hints;
         }
         if self.entries.is_none() {
             return vec![Hint::new("r", "read again")];

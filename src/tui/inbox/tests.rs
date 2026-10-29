@@ -53,7 +53,7 @@ fn thread(app: &Run, key: &str) -> Thread {
 fn the_inbox_lists_open_items_newest_first_and_counts_the_unread() {
     let mut app = run(sample());
     let text = app.text();
-    assert!(text.contains("21 of 28 items"), "{text}");
+    assert!(text.contains("21 of 28 cards"), "{text}");
     assert!(text.contains("3 unread"), "{text}");
     assert!(text.contains("sample data"), "{text}");
     let rows: Vec<usize> = OPEN.iter().map(|key| row(&text, key)).collect();
@@ -115,16 +115,16 @@ fn the_list_colours_unread_marks_labels_and_hosts_by_what_they_mean() {
 fn s_cycles_open_closed_and_both() {
     let mut app = run(sample());
     let closed = app.press("s");
-    assert!(closed.contains("7 of 28 items"), "{closed}");
+    assert!(closed.contains("7 of 28 cards"), "{closed}");
     for key in CLOSED {
         assert!(closed.contains(key), "{key}:\n{closed}");
     }
     assert!(!closed.contains("BUG-11 "), "{closed}");
     let both = app.press("s");
-    assert!(both.contains("28 of 28 items"), "{both}");
+    assert!(both.contains("28 of 28 cards"), "{both}");
     assert!(both.contains("open or closed"), "{both}");
     let open = app.press("s");
-    assert!(open.contains("21 of 28 items"), "{open}");
+    assert!(open.contains("21 of 28 cards"), "{open}");
 }
 
 #[test]
@@ -132,18 +132,18 @@ fn a_filter_narrows_as_it_is_typed_keeps_on_enter_and_esc_clears_it() {
     let mut app = run(sample());
     let typing = app.press("/ cart");
     assert!(typing.contains("Filter"), "{typing}");
-    assert!(typing.contains("1 of 28 items"), "{typing}");
+    assert!(typing.contains("1 of 28 cards"), "{typing}");
     assert!(inbox(&app).typing());
     let kept = app.press("enter");
     assert!(!inbox(&app).typing());
-    assert!(kept.contains("1 of 28 items"), "{kept}");
+    assert!(kept.contains("1 of 28 cards"), "{kept}");
     assert!(kept.contains("BUG-11 "), "{kept}");
     assert!(kept.contains("esc clear filter"), "{kept}");
-    assert!(app.press("s").contains("2 of 28 items"));
-    assert!(app.press("s").contains("3 of 28 items"));
+    assert!(app.press("s").contains("2 of 28 cards"));
+    assert!(app.press("s").contains("3 of 28 cards"));
     app.press("s");
     let cleared = app.press("esc");
-    assert!(cleared.contains("21 of 28 items"), "{cleared}");
+    assert!(cleared.contains("21 of 28 cards"), "{cleared}");
     assert!(!cleared.contains("esc clear filter"), "{cleared}");
 }
 
@@ -151,10 +151,10 @@ fn a_filter_narrows_as_it_is_typed_keeps_on_enter_and_esc_clears_it() {
 fn a_filter_matches_people_and_ignores_case_and_accents() {
     let mut app = run(sample());
     let plain = app.press("/ hopper");
-    assert!(plain.contains("9 of 28 items"), "{plain}");
+    assert!(plain.contains("9 of 28 cards"), "{plain}");
     app.press("esc");
     let accented = app.press("/ Hóppér");
-    assert!(accented.contains("9 of 28 items"), "{accented}");
+    assert!(accented.contains("9 of 28 cards"), "{accented}");
     assert!(!accented.contains("TASK-6 "), "{accented}");
 }
 
@@ -162,17 +162,17 @@ fn a_filter_matches_people_and_ignores_case_and_accents() {
 fn a_paste_lands_in_the_filter_only_while_typing() {
     let mut app = run(sample());
     let ignored = app.paste("cart");
-    assert!(ignored.contains("21 of 28 items"), "{ignored}");
+    assert!(ignored.contains("21 of 28 cards"), "{ignored}");
     app.press("/");
     let pasted = app.paste("cart");
-    assert!(pasted.contains("1 of 28 items"), "{pasted}");
+    assert!(pasted.contains("1 of 28 cards"), "{pasted}");
 }
 
 #[test]
 fn a_filter_with_no_match_says_how_to_clear_it() {
     let mut app = run(sample());
     let text = app.press("/ zzqx enter");
-    assert!(text.contains("0 of 28 items"), "{text}");
+    assert!(text.contains("0 of 28 cards"), "{text}");
     assert!(
         text.contains("Nothing matches the filter. esc clears it."),
         "{text}"
@@ -184,10 +184,10 @@ fn an_empty_inbox_says_where_reports_land() {
     let mut app = run(sample());
     let text = app.event(INBOX, Msg::Inbox(Ok(Loaded::default())));
     assert!(
-        text.contains("No items yet. Reports from your sites land here."),
+        text.contains("No cards yet. n files one, and the ones filed on your sites land here."),
         "{text}"
     );
-    assert!(text.contains("0 of 0 items"), "{text}");
+    assert!(text.contains("0 of 0 cards"), "{text}");
     assert!(!text.contains("unread"), "{text}");
 }
 
@@ -199,7 +199,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
         assert!(pick.contains(host), "{host}:\n{pick}");
     }
     let one = app.press("down enter");
-    assert!(one.contains("2 of 2 items"), "{one}");
+    assert!(one.contains("2 of 2 cards"), "{one}");
     assert!(one.contains("1 unread"), "{one}");
     assert!(one.contains("host dev.example.com"), "{one}");
     assert!(!line(&one, "BUG-8 ").contains("dev.example.com"), "{one}");
@@ -211,7 +211,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
     );
     app.press("s s h");
     let all = app.press("up enter");
-    assert!(all.contains("21 of 28 items"), "{all}");
+    assert!(all.contains("21 of 28 cards"), "{all}");
     assert!(
         !all.contains("host dev") && !all.contains("host shop"),
         "{all}"
@@ -222,7 +222,7 @@ fn h_picks_one_host_drops_the_host_column_and_picks_all_again() {
 fn a_cancelled_host_pick_keeps_every_host() {
     let mut app = run(sample());
     let text = app.press("h down esc");
-    assert!(text.contains("21 of 28 items"), "{text}");
+    assert!(text.contains("21 of 28 cards"), "{text}");
     assert!(
         !text.contains("host dev") && !text.contains("host shop"),
         "{text}"
@@ -251,9 +251,9 @@ fn nothing_open_here_points_to_the_closed_items() {
         "{text}"
     );
     assert!(!text.contains("h picks another host"), "{text}");
-    assert!(text.contains("0 of 7 items"), "{text}");
+    assert!(text.contains("0 of 7 cards"), "{text}");
     let shown = app.press("s");
-    assert!(shown.contains("7 of 7 items"), "{shown}");
+    assert!(shown.contains("7 of 7 cards"), "{shown}");
     assert!(!shown.contains("Nothing"), "{shown}");
 }
 
@@ -294,7 +294,7 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
         "BUG-11  The total does not update after removing a line",
         "Bug · New · host shop.example.com · production",
         "/cart · unassigned",
-        "Grace Hopper reported it 50m ago · updated 12m ago",
+        "Grace Hopper filed it 50m ago · updated 12m ago",
         "I removed the second lamp from my cart and the total still shows both.",
         "Landed  nowhere yet",
         "Merged here (1)",
@@ -368,7 +368,10 @@ fn r_sends_a_reply_that_lands_on_the_thread() {
     let mut app = run(sample());
     let typing = app.press("enter r");
     assert!(typing.contains("Reply"), "{typing}");
-    assert!(typing.contains("enter sends · esc cancels"), "{typing}");
+    assert!(
+        typing.contains("enter sends · tab adds files · esc cancels"),
+        "{typing}"
+    );
     assert!(inbox(&app).typing());
     let sent = app.press("Thanks enter");
     assert!(sent.contains("Replied on BUG-11"), "{sent}");
@@ -436,14 +439,19 @@ fn d_deletes_only_when_the_key_is_typed_back() {
     assert!(app.demo(|demo| demo.thread("BUG-11").is_ok()));
     let gone = app.press("d bug-11 enter");
     assert!(
-        gone.contains("Deleted BUG-11; BUG-12 back in the inbox"),
+        gone.contains("Deleted BUG-11 and its file; BUG-12 stands on its own again"),
         "{gone}"
     );
     assert_eq!(inbox(&app).crumb(), None);
     assert!(app.demo(|demo| demo.thread("BUG-11").is_err()));
-    assert!(gone.contains("21 of 27 items"), "{gone}");
+    assert!(gone.contains("21 of 27 cards"), "{gone}");
     assert!(gone.contains("BUG-12 "), "{gone}");
-    assert!(!gone.contains("BUG-11 "), "{gone}");
+    assert!(
+        !gone
+            .lines()
+            .any(|line| line.contains("BUG-11 ") && !line.contains("Deleted")),
+        "{gone}"
+    );
 }
 
 #[test]
@@ -459,7 +467,7 @@ fn a_deleted_item_with_files_says_how_many_went_with_it() {
     };
     let text = app.event(INBOX, Msg::Deleted("BUG-11".into(), Ok(done)));
     assert!(text.contains("Deleted BUG-11 and its 3 files"), "{text}");
-    assert!(text.contains("20 of 27 items"), "{text}");
+    assert!(text.contains("20 of 27 cards"), "{text}");
 }
 
 #[test]
@@ -476,7 +484,7 @@ fn move_to_lists_the_seven_lanes_and_moves_the_item() {
         "Landed",
         "Done",
         "Drop (close without fixing)",
-        "Duplicate of…",
+        "Duplicate: merge into…",
     ] {
         assert!(pick.contains(label), "{label}:\n{pick}");
     }
@@ -567,7 +575,7 @@ fn move_to_drop_closes_the_item_without_fixing_it() {
     assert_eq!(issue.status, "done");
     assert_eq!(issue.resolution.as_deref(), Some("abandoned"));
     let list = app.press("esc");
-    assert!(list.contains("20 of 28 items"), "{list}");
+    assert!(list.contains("20 of 28 cards"), "{list}");
 }
 
 #[test]
@@ -575,8 +583,11 @@ fn move_to_duplicate_asks_for_the_key_and_merges_into_it() {
     let mut app = run(sample());
     app.press("enter m");
     let asked = app.press("down down down down down down down down enter");
-    assert!(asked.contains("Duplicate of"), "{asked}");
-    assert!(asked.contains("an item key, such as BUG-11"), "{asked}");
+    assert!(asked.contains("Merge into"), "{asked}");
+    assert!(
+        asked.contains("the card it duplicates, such as BUG-11"),
+        "{asked}"
+    );
     let merged = app.press("bug-3 enter");
     assert!(merged.contains("BUG-11 is Done (duplicate)"), "{merged}");
     assert!(merged.contains(", merged into BUG-3"), "{merged}");
@@ -714,7 +725,7 @@ fn a_thread_that_cannot_be_read_says_why_and_how_to_retry() {
     app.demo(|demo| demo.delete("BUG-11").expect("the sample has it"));
     let text = app.press("enter");
     assert!(text.contains("Couldn't read BUG-11."), "{text}");
-    assert!(text.contains("no item is called BUG-11"), "{text}");
+    assert!(text.contains("no card is called BUG-11"), "{text}");
     assert!(
         text.contains("ctrl+r reads it again · esc goes back"),
         "{text}"
@@ -727,7 +738,7 @@ fn a_thread_that_cannot_be_read_says_why_and_how_to_retry() {
     app.key(ctrl('r'));
     assert!(app.text().contains("Couldn't read BUG-11."));
     let back = app.press("esc");
-    assert!(back.contains("21 of 28 items"), "{back}");
+    assert!(back.contains("21 of 28 cards"), "{back}");
 }
 
 #[test]
@@ -740,7 +751,7 @@ fn a_stale_result_for_another_item_or_a_closed_thread_is_ignored() {
     assert!(!text.contains("Move product images"), "{text}");
     for msg in [
         Msg::Changed("TASK-6".into(), Ok(other.issue.clone())),
-        Msg::Commented("TASK-6".into(), Ok(false)),
+        Msg::Commented("TASK-6".into(), Ok((false, 0))),
         Msg::Deleted("TASK-6".into(), Err("gone".into())),
     ] {
         let text = app.event(INBOX, msg);
@@ -753,7 +764,7 @@ fn a_stale_result_for_another_item_or_a_closed_thread_is_ignored() {
         Msg::Thread("BUG-11".into(), Ok(thread(&app, "BUG-11"))),
     );
     assert_eq!(inbox(&app).crumb(), None);
-    assert!(list.contains("21 of 28 items"), "{list}");
+    assert!(list.contains("21 of 28 cards"), "{list}");
 }
 
 #[test]
@@ -761,7 +772,7 @@ fn r_rereads_the_list_and_a_failed_reread_keeps_it_and_says_why() {
     let mut app = run(sample());
     app.demo(|demo| demo.delete("TASK-6").expect("the sample has it"));
     let reread = app.press("r");
-    assert!(reread.contains("20 of 27 items"), "{reread}");
+    assert!(reread.contains("20 of 27 cards"), "{reread}");
     assert!(!reread.contains("reading…"), "{reread}");
     tap(&mut app, "r");
     let reading = dump::text(&app.tui.frame(WIDE, HIGH));
@@ -769,7 +780,7 @@ fn r_rereads_the_list_and_a_failed_reread_keeps_it_and_says_why() {
     app.tui.event(INBOX, Msg::Inbox(Err("offline".into())));
     let failed = dump::text(&app.tui.frame(WIDE, HIGH));
     assert!(failed.contains("offline"), "{failed}");
-    assert!(failed.contains("20 of 27 items"), "{failed}");
+    assert!(failed.contains("20 of 27 cards"), "{failed}");
     assert!(!failed.contains("reading…"), "{failed}");
 }
 
@@ -786,18 +797,18 @@ fn a_reread_asked_while_one_runs_runs_once_more_after_it() {
     let text = app.text();
     assert!(!text.contains("first read"), "{text}");
     assert!(!text.contains("reading…"), "{text}");
-    assert!(text.contains("of 27 items"), "{text}");
+    assert!(text.contains("of 27 cards"), "{text}");
     app.demo(|demo| demo.delete("FEAT-9").expect("the sample has it"));
     app.tui.settle();
     let after = app.text();
-    assert!(after.contains("of 27 items"), "{after}");
+    assert!(after.contains("of 27 cards"), "{after}");
 }
 
 #[test]
 fn an_unasked_failed_read_keeps_the_list() {
     let mut app = run(sample());
     let text = app.event(INBOX, Msg::Inbox(Err("offline".into())));
-    assert!(text.contains("21 of 28 items"), "{text}");
+    assert!(text.contains("21 of 28 cards"), "{text}");
     assert!(!text.contains("offline"), "{text}");
 }
 
@@ -835,7 +846,7 @@ fn a_delete_heard_from_elsewhere_closes_the_thread_and_says_who() {
     let text = app.event(INBOX, Msg::Heard(0, heard.to_string()));
     assert_eq!(inbox(&app).crumb(), None);
     assert!(text.contains("Grace Hopper 🤖 deleted BUG-11"), "{text}");
-    assert!(text.contains("20 of 27 items"), "{text}");
+    assert!(text.contains("20 of 27 cards"), "{text}");
     let nameless = json!({"type": "delete", "key": "TASK-6"});
     app.press("enter");
     assert_eq!(inbox(&app).crumb().as_deref(), Some("TASK-6"));
@@ -858,7 +869,7 @@ fn heard_events_that_are_not_a_delete_here_change_nothing() {
         assert!(!shown.contains("deleted"), "{shown}");
     }
     let list = app.press("esc");
-    assert!(list.contains("21 of 28 items"), "{list}");
+    assert!(list.contains("21 of 28 cards"), "{list}");
 }
 
 #[test]
@@ -876,7 +887,7 @@ fn a_failed_inbox_load_says_why_and_r_tries_again() {
     let mut app = run(Source::Broken("no space yet; p99 setup makes one".into()));
     let text = app.text();
     for said in [
-        "Couldn't read the inbox.",
+        "Couldn't read the cards.",
         "no space yet; p99 setup makes one",
         "r reads it again · p99 tui --demo shows sample data",
     ] {
@@ -884,9 +895,9 @@ fn a_failed_inbox_load_says_why_and_r_tries_again() {
     }
     assert!(text.contains("r read again"), "{text}");
     let again = app.press("r");
-    assert!(again.contains("Couldn't read the inbox."), "{again}");
+    assert!(again.contains("Couldn't read the cards."), "{again}");
     let ignored = app.press("s h enter");
-    assert!(ignored.contains("Couldn't read the inbox."), "{ignored}");
+    assert!(ignored.contains("Couldn't read the cards."), "{ignored}");
 }
 
 #[test]
@@ -894,15 +905,15 @@ fn esc_while_loading_stops_waiting_and_r_reads_again() {
     let mut app = waiting(sample());
     assert_eq!(
         inbox(&app).phase(),
-        Phase::Loading("Reading the inbox…".into())
+        Phase::Loading("Reading the cards…".into())
     );
     let stopped = app.press("esc");
     assert!(
-        stopped.contains("Stopped waiting for the inbox."),
+        stopped.contains("Stopped waiting for the cards."),
         "{stopped}"
     );
     let read = app.press("r");
-    assert!(read.contains("21 of 28 items"), "{read}");
+    assert!(read.contains("21 of 28 cards"), "{read}");
 }
 
 #[test]
@@ -977,7 +988,7 @@ fn o_on_an_item_without_a_web_page_says_so() {
     pageless.issue.page.url = "file:///etc/hosts".into();
     app.event(INBOX, Msg::Thread("BUG-11".into(), Ok(pageless)));
     let text = app.press("o");
-    assert!(text.contains("This item has no page to open."), "{text}");
+    assert!(text.contains("This card has no page to open."), "{text}");
 }
 
 #[test]
@@ -997,7 +1008,7 @@ fn a_thread_shows_where_its_fix_landed_its_links_and_its_history() {
         "BUG-2  Broken link on the about page",
         "Bug · Done · host example.com · production",
         "/about · assigned to @ada.lovelace",
-        "Ada Lovelace 🤖 reported it 12d ago · via pci · updated 6d ago",
+        "Ada Lovelace 🤖 filed it 12d ago · via pci · updated 6d ago",
         "Landed  dev 9d ago 3a9f2c1 · production 6d ago 1.4.0 3abc678",
         "GitHub  https://github.com/example/site/pull/7 fixes",
         "Comments (0)",
@@ -1099,7 +1110,7 @@ fn an_unparsed_stamp_is_shown_as_it_came() {
     item.events[0].at = "yesterday".into();
     let text = said(&lines(&item, 120, &palette(), NOW, &units()));
     assert!(
-        text.iter().any(|l| l.contains("reported it yesterday")),
+        text.iter().any(|l| l.contains("filed it yesterday")),
         "{text:?}"
     );
     assert!(
@@ -1218,9 +1229,9 @@ mod marks {
     #[test]
     fn an_agent_thread_shows_the_robot_and_its_label_on_the_reporter_comment_and_event() {
         let text = drawn(&thread(true, Some("pci·splicer")));
-        let reporter = text.iter().find(|l| l.contains("reported it")).unwrap();
+        let reporter = text.iter().find(|l| l.contains("filed it")).unwrap();
         assert!(
-            reporter.starts_with("Ada Lovelace 🤖 reported it"),
+            reporter.starts_with("Ada Lovelace 🤖 filed it"),
             "{reporter}"
         );
         assert!(reporter.contains(" · via pci·splicer"), "{reporter}");
@@ -1242,7 +1253,7 @@ mod marks {
         let text = drawn(&thread(true, None));
         assert!(
             text.iter()
-                .any(|l| l.starts_with("Ada Lovelace 🤖 reported it"))
+                .any(|l| l.starts_with("Ada Lovelace 🤖 filed it"))
         );
         assert!(text.iter().all(|l| !l.contains("via ")));
         let event = text.iter().find(|l| l.contains("created")).unwrap();
@@ -1257,10 +1268,7 @@ mod marks {
             text.iter()
                 .all(|l| !l.contains("via ") && !l.contains("(pci)"))
         );
-        assert!(
-            text.iter()
-                .any(|l| l.starts_with("Ada Lovelace reported it"))
-        );
+        assert!(text.iter().any(|l| l.starts_with("Ada Lovelace filed it")));
     }
 
     #[test]
@@ -1270,4 +1278,192 @@ mod marks {
         assert_eq!(via_of(true, None), None);
         assert_eq!(via_of(false, Some("pci")), None);
     }
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("tmp")
+        .join(format!("p99-tui-inbox-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a scratch folder");
+    dir
+}
+
+#[test]
+fn tab_in_a_reply_asks_for_files_and_they_go_with_the_comment() {
+    let dir = scratch("reply");
+    let note = dir.join("note.txt");
+    std::fs::write(&note, "the log").expect("a note");
+    let mut app = run(sample());
+    let asked = app.press("enter r Ok tab");
+    assert!(asked.contains("Files"), "{asked}");
+    assert!(
+        asked.contains("enter sends the reply with them · esc cancels"),
+        "{asked}"
+    );
+    app.paste(&format!("'{}'", note.display()));
+    let sent = app.press("enter");
+    assert!(sent.contains("Replied on BUG-11 with 1 file"), "{sent}");
+    let thread = thread(&app, "BUG-11");
+    let comment = thread.comments.last().expect("the reply landed");
+    assert_eq!(comment.body, "Ok");
+    assert_eq!(comment.attachments.len(), 1);
+    let file = thread
+        .attachments
+        .iter()
+        .find(|file| file.name == "note.txt")
+        .expect("the file landed");
+    assert_eq!(
+        (file.comment_id, file.bytes),
+        (Some(comment.id), "the log".len() as i64)
+    );
+    let shown = app.press("G");
+    assert!(shown.contains("Files (2)"), "{shown}");
+    assert!(shown.contains("note.txt · 7 B"), "{shown}");
+    assert!(shown.contains("files: note.txt"), "{shown}");
+}
+
+#[test]
+fn tab_on_an_empty_reply_stays_on_the_reply() {
+    let mut app = run(sample());
+    let text = app.press("enter r tab");
+    assert!(
+        text.contains("Reply write a reply, then tab adds files"),
+        "{text}"
+    );
+    assert!(text.contains("enter sends · tab adds files"), "{text}");
+    assert!(!text.contains("paths to attach"), "{text}");
+}
+
+#[test]
+fn a_file_that_cannot_be_read_sends_nothing_and_says_why() {
+    let dir = scratch("unread");
+    let mut app = run(sample());
+    let comments = thread(&app, "BUG-11").comments.len();
+    app.press("enter r Ok tab");
+    app.paste(&dir.join("gone.png").display().to_string());
+    let text = app.press("enter");
+    assert!(text.contains("gone.png"), "{text}");
+    assert!(!text.contains("Replied"), "{text}");
+    assert_eq!(thread(&app, "BUG-11").comments.len(), comments);
+    let open = app.press("enter r Ok tab 'x enter");
+    assert!(
+        open.contains("a quote around a path is never closed"),
+        "{open}"
+    );
+    assert!(open.contains("Files 'x"), "{open}");
+    assert_eq!(thread(&app, "BUG-11").comments.len(), comments);
+}
+
+#[test]
+fn e_edits_the_title_then_the_details_and_sends_only_what_changed() {
+    let mut app = run(sample());
+    let title = app.press("enter e");
+    assert!(
+        title.contains("Title The total does not update after removing a line"),
+        "{title}"
+    );
+    assert!(
+        title.contains("enter goes on to the details · esc cancels"),
+        "{title}"
+    );
+    let details = app.press("backspace backspace backspace backspace item enter");
+    assert!(
+        details.contains("Details I removed the second lamp"),
+        "{details}"
+    );
+    let saved = app.press("enter");
+    assert!(saved.contains("BUG-11 edited: title"), "{saved}");
+    assert!(
+        saved.contains("BUG-11  The total does not update after removing a item"),
+        "{saved}"
+    );
+    let issue = thread(&app, "BUG-11").issue;
+    assert!(issue.body.starts_with("I removed the second lamp"));
+    app.press("e enter");
+    tap(&mut app, "ctrl+u");
+    let body = app.press("Two space lines ¶ second enter");
+    assert!(body.contains("BUG-11 edited: details"), "{body}");
+    assert_eq!(thread(&app, "BUG-11").issue.body, "Two lines\nsecond");
+    let same = app.press("e enter enter");
+    assert!(same.contains("Nothing changed."), "{same}");
+    let empty = app.press("e ctrl+u enter");
+    assert!(
+        empty.contains("A card needs a title; nothing changed."),
+        "{empty}"
+    );
+    let kept = app.press("e esc");
+    assert!(!kept.contains("Title "), "{kept}");
+}
+
+#[test]
+fn l_links_the_card_and_the_history_names_it() {
+    let mut app = run(sample());
+    let asked = app.press("enter l");
+    assert!(asked.contains("Link to"), "{asked}");
+    assert!(
+        asked.contains("a pull request, commit, tag or URL"),
+        "{asked}"
+    );
+    let linked = app.press("PR space #42 enter");
+    assert!(linked.contains("BUG-11 linked to PR #42"), "{linked}");
+    let events = thread(&app, "BUG-11").events;
+    let link = events.last().expect("a link event");
+    assert_eq!(link.kind, "link");
+    assert_eq!(link.detail["ref"], "PR #42");
+    assert!(app.press("G").contains("linked PR #42 by Ada Lovelace"));
+    let nothing = app.press("l enter");
+    assert!(!nothing.contains("linked to"), "{nothing}");
+}
+
+#[test]
+fn f_saves_a_file_here_and_never_over_one_already_there() {
+    let dir = scratch("save");
+    let mut app = run(sample());
+    app.tui
+        .find_mut::<Around<Inbox>>()
+        .expect("the inbox is a screen")
+        .inner
+        .here = Some(dir.clone());
+    let pick = app.press("enter f");
+    assert!(pick.contains("Save a file here"), "{pick}");
+    assert!(pick.contains("cart-total.png  48 KB"), "{pick}");
+    let saved = app.press("enter");
+    assert!(
+        saved.contains("Saved cart-total.png (48 KB) to "),
+        "{saved}"
+    );
+    let bytes = std::fs::read(dir.join("cart-total.png")).expect("the file is saved");
+    assert_eq!(bytes.len(), 48 * 1024);
+    app.press("f enter");
+    assert!(dir.join("cart-total-2.png").exists());
+}
+
+#[test]
+fn a_thread_lists_its_files_and_its_project_and_f_is_offered_only_with_files() {
+    let mut app = run(sample());
+    let text = app.press("enter");
+    assert!(text.contains("Files (1)"), "{text}");
+    assert!(text.contains("cart-total.png · 48 KB"), "{text}");
+    assert!(text.contains("f save file"), "{text}");
+    let card = app.press("esc / FEAT-23 enter enter");
+    assert!(card.contains("Cards / FEAT-23"), "{card}");
+    assert!(card.contains("project Storefront"), "{card}");
+    assert!(!card.contains("Files ("), "{card}");
+    assert!(!card.contains("f save file"), "{card}");
+    let none = app.press("f");
+    assert!(none.contains("This card has no files."), "{none}");
+}
+
+#[test]
+fn the_filter_finds_the_cards_an_agent_filed() {
+    let mut app = run(sample());
+    let text = app.press("/ agent");
+    assert!(text.contains("4 of 28 cards"), "{text}");
+    for key in ["BUG-8 ", "BUG-25 ", "BUG-26 ", "FEAT-27 "] {
+        assert!(text.contains(key), "{key}:\n{text}");
+    }
+    let by = app.press("ctrl+u pci");
+    assert!(by.contains("4 of 28 cards"), "{by}");
 }

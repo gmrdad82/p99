@@ -13,8 +13,7 @@ use super::inbox::Inbox;
 use super::source::{Source, fold};
 
 pub const ALL: &str = "All projects";
-pub const NONE_YET: &str =
-    "No projects yet: p99 card new --project <name> --title <text> files a card.";
+pub const NONE_YET: &str = "No projects yet: n files a card and names its project.";
 
 pub const EVERY_SPACE: &str = "All spaces";
 

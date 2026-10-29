@@ -183,15 +183,15 @@ fn keys_name_every_key_or_say_which_one_has_no_name() {
 }
 
 #[test]
-fn the_app_opens_on_the_inbox_with_its_three_screens_and_the_help_line() {
+fn the_app_opens_on_the_cards_with_its_three_screens_and_the_help_line() {
     let mut app = run(sample());
-    assert_eq!(app.tui.names(), ["Inbox", "Board", "Codes"]);
+    assert_eq!(app.tui.names(), ["Cards", "Board", "Codes"]);
     let text = app.text();
     let head = text.lines().take(4).collect::<Vec<_>>().join("\n");
-    for word in ["P99", "Inbox", "Board", "Codes"] {
+    for word in ["P99", "Cards", "Board", "Codes"] {
         assert!(head.contains(word), "{word} in the header:\n{text}");
     }
-    assert!(text.contains("21 of 28 items"), "{text}");
+    assert!(text.contains("21 of 28 cards"), "{text}");
     assert!(text.contains("? help"), "{text}");
     assert!(text.contains("ctrl+c twice quit"), "{text}");
 }
@@ -356,7 +356,7 @@ fn w_lists_what_needs_you_newest_first_and_enter_opens_the_card() {
     );
     assert!(thread.contains("r reply"), "{thread}");
     let back = app.press("esc");
-    assert!(back.contains("21 of 28 items"), "{back}");
+    assert!(back.contains("21 of 28 cards"), "{back}");
     assert!(
         !back.contains("BUG-25  Waveform drifts after a cut"),
         "{back}"
@@ -402,7 +402,7 @@ fn p_offers_every_project_and_enter_narrows_the_inbox_and_closes_the_picker() {
     let kept = app.press("esc");
     assert!(!kept.contains("All projects"), "{kept}");
     assert!(kept.contains("in Mobile app"), "{kept}");
-    assert!(kept.contains("2 of 2 items"), "{kept}");
+    assert!(kept.contains("2 of 2 cards"), "{kept}");
     for key in ["TASK-24 ", "FEAT-27 "] {
         assert!(kept.contains(key), "{key}:\n{kept}");
     }
@@ -415,10 +415,10 @@ fn several_projects_narrow_every_tab_and_esc_clears_them() {
     settled(&mut app);
     let both = app.press("p down enter p down down enter");
     assert!(both.contains("in Mobile app, Storefront"), "{both}");
-    assert!(both.contains("5 of 6 items"), "{both}");
+    assert!(both.contains("5 of 6 cards"), "{both}");
     let board = app.go(BOARD);
     for said in [
-        "6 items",
+        "6 cards",
         "New 1",
         "Landed 1",
         "Done 1",
@@ -431,10 +431,10 @@ fn several_projects_narrow_every_tab_and_esc_clears_them() {
     assert!(list.contains("Needs you · 3"), "{list}");
     app.press("esc");
     let cleared = app.press("esc");
-    assert!(cleared.contains("28 items"), "{cleared}");
+    assert!(cleared.contains("28 cards"), "{cleared}");
     assert!(cleared.contains("New 8"), "{cleared}");
     let inbox = app.go(INBOX);
-    assert!(inbox.contains("21 of 28 items"), "{inbox}");
+    assert!(inbox.contains("21 of 28 cards"), "{inbox}");
     assert!(!inbox.contains("in Mobile app"), "{inbox}");
 }
 
@@ -462,7 +462,7 @@ fn all_projects_clears_the_choice_and_closes_the_picker() {
     app.press("p down enter");
     let all = app.press("p enter");
     assert!(!all.contains("Projects"), "{all}");
-    assert!(all.contains("21 of 28 items"), "{all}");
+    assert!(all.contains("21 of 28 cards"), "{all}");
     assert!(!all.contains("in Mobile app"), "{all}");
 }
 
@@ -545,7 +545,7 @@ fn esc_clears_the_text_filter_first_and_the_projects_on_the_next_esc() {
     assert!(first.contains("esc all projects"), "{first}");
     let second = app.press("esc");
     assert!(!second.contains("in Mobile app"), "{second}");
-    assert!(second.contains("21 of 28 items"), "{second}");
+    assert!(second.contains("21 of 28 cards"), "{second}");
     assert!(!second.contains("esc all projects"), "{second}");
 }
 
@@ -564,5 +564,173 @@ fn a_change_made_in_a_thread_opened_from_w_refreshes_the_inbox_underneath() {
         .expect("the sample takes the change");
     app.event(INBOX, Msg::Changed("BUG-25".into(), Ok(issue)));
     let back = app.press("esc");
-    assert!(back.contains("20 of 28 items"), "{back}");
+    assert!(back.contains("20 of 28 cards"), "{back}");
+}
+
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("tmp")
+        .join(format!("p99-tui-new-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("a scratch folder");
+    dir
+}
+
+fn issue(app: &Run, key: &str) -> crate::wire::Thread {
+    app.demo(|demo| demo.thread(key).expect("the sample has the card"))
+}
+
+#[test]
+fn n_files_a_card_in_the_place_chosen_with_its_kind_details_and_files_and_opens_it() {
+    let dir = scratch("files");
+    std::fs::write(dir.join("shot.png"), [1, 2, 3]).expect("a picture");
+    let mut app = run(sample());
+    settled(&mut app);
+    let list = app.text();
+    assert!(list.contains("n new card"), "{list}");
+    let places = app.press("n");
+    assert!(places.contains("New card in"), "{places}");
+    let rows = [
+        "Mobile app",
+        "Storefront",
+        "Storefront · shop.example.com",
+        "A new project…",
+    ];
+    let at: Vec<usize> = rows.iter().map(|r| row(&places, r)).collect();
+    assert!(at.windows(2).all(|pair| pair[0] < pair[1]), "{places}");
+    let kinds = app.press("down down enter");
+    for kind in ["Kind", "Bug", "Idea", "Improvement", "Question", "Task"] {
+        assert!(kinds.contains(kind), "{kind}:\n{kinds}");
+    }
+    let form = app.press("down enter");
+    assert!(
+        form.contains("New Idea in Storefront · shop.example.com"),
+        "{form}"
+    );
+    for field in [
+        "Title",
+        "Details",
+        "Files",
+        "tab next field",
+        "enter file it",
+    ] {
+        assert!(form.contains(field), "{field}:\n{form}");
+    }
+    app.press("Gift space cards tab One ¶ Two tab");
+    app.paste(&dir.join("shot.png").display().to_string());
+    let filed = app.press("enter");
+    assert!(
+        filed.contains("FEAT-29 filed in Storefront on shop.example.com with 1 file"),
+        "{filed}"
+    );
+    assert!(filed.contains("Cards / FEAT-29"), "{filed}");
+    assert!(filed.contains("project Storefront"), "{filed}");
+    let card = issue(&app, "FEAT-29");
+    assert_eq!(card.issue.kind, "feature");
+    assert_eq!(card.issue.title, "Gift cards");
+    assert_eq!(card.issue.body, "One\nTwo");
+    assert_eq!(card.issue.host.as_deref(), Some("shop.example.com"));
+    assert_eq!(card.issue.label.as_deref(), Some("New"));
+    assert_eq!(card.attachments.len(), 1);
+    let back = app.press("esc");
+    assert!(back.contains("22 of 29 cards"), "{back}");
+    assert!(back.contains("FEAT-29"), "{back}");
+}
+
+#[test]
+fn n_offers_the_project_chosen_with_p_first() {
+    let mut app = run(sample());
+    settled(&mut app);
+    app.event(
+        INBOX,
+        Msg::Projects(Ok(vec!["Mobile app".into(), "Storefront".into()])),
+    );
+    app.press("down down enter");
+    let places = app.press("n");
+    let lit = line(&places, "│▌");
+    assert!(lit.contains("Storefront") && !lit.contains("·"), "{places}");
+}
+
+#[test]
+fn a_new_project_needs_its_name_and_every_card_needs_a_title() {
+    let mut app = run(sample());
+    settled(&mut app);
+    let form = app.press("n end enter enter");
+    assert!(form.contains("New Bug in a new project"), "{form}");
+    assert!(form.contains("Project"), "{form}");
+    let unnamed = app.press("enter");
+    assert!(unnamed.contains("Name the project first."), "{unnamed}");
+    let untitled = app.press("Ops enter");
+    assert!(untitled.contains("A card needs a title."), "{untitled}");
+    let filed = app.press("tab Rotate space keys enter");
+    assert!(filed.contains("BUG-29 filed in Ops"), "{filed}");
+    let card = issue(&app, "BUG-29").issue;
+    assert_eq!(card.project.as_deref(), Some("Ops"));
+    assert_eq!(card.host, None);
+    assert!(card.page.path.is_empty());
+}
+
+#[test]
+fn a_path_that_cannot_be_read_keeps_the_form_open_and_files_nothing() {
+    let dir = scratch("gone");
+    let mut app = run(sample());
+    settled(&mut app);
+    app.press("n enter enter Lamp tab tab");
+    app.paste(&dir.join("gone.png").display().to_string());
+    let refused = app.press("enter");
+    assert!(refused.contains("gone.png: "), "{refused}");
+    assert!(refused.contains("New Bug in Mobile app"), "{refused}");
+    assert!(app.demo(|demo| demo.thread("BUG-29").is_err()));
+    let quoted = app.press("ctrl+u 'x enter");
+    assert!(
+        quoted.contains("a quote around a path is never closed"),
+        "{quoted}"
+    );
+    let closed = app.press("esc");
+    assert!(!closed.contains("New Bug in"), "{closed}");
+    assert!(closed.contains("21 of 28 cards"), "{closed}");
+    assert!(app.demo(|demo| demo.thread("BUG-29").is_err()));
+}
+
+#[test]
+fn a_refused_card_says_why_in_the_form() {
+    let mut app = run(sample());
+    settled(&mut app);
+    app.press("n enter enter Lamp");
+    let text = app.event(
+        INBOX,
+        Msg::Filed(Err("no project is called Lamp (404)".into())),
+    );
+    assert!(text.contains("New Bug in Mobile app"), "{text}");
+    let late = app.press("esc");
+    let said = app.event(INBOX, Msg::Filed(Err("offline".into())));
+    assert!(!late.contains("New Bug in"), "{late}");
+    assert!(said.contains("offline"), "{said}");
+}
+
+#[test]
+fn n_on_the_board_files_a_card_into_new() {
+    let mut app = run(sample());
+    settled(&mut app);
+    let board = app.go(BOARD);
+    assert!(board.contains("n new card"), "{board}");
+    let filed = app.press("n enter enter Lamp enter");
+    assert!(filed.contains("BUG-29 filed in Mobile app"), "{filed}");
+    assert!(filed.contains("Board / BUG-29"), "{filed}");
+    app.press("esc");
+    let back = app.advance(Duration::from_secs(1));
+    assert!(back.contains("29 cards"), "{back}");
+    let new = line(&back, "New 9");
+    let first = back.lines().skip_while(|l| !l.contains("New 9")).nth(2);
+    assert!(first.is_some_and(|l| l.contains("BUG-29")), "{new}\n{back}");
+}
+
+#[test]
+fn n_while_typing_a_filter_types_it() {
+    let mut app = run(sample());
+    settled(&mut app);
+    let text = app.press("/ n");
+    assert!(!text.contains("New card in"), "{text}");
+    assert!(text.contains("Filter n"), "{text}");
 }

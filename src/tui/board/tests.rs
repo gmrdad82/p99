@@ -161,7 +161,7 @@ fn the_one_board_shows_seven_lanes_with_every_item_in_lane_order() {
     for head in HEADS {
         assert!(text.contains(head), "{head}:\n{text}");
     }
-    for fact in ["sample", "28 items", "7/28 done", "sample data"] {
+    for fact in ["sample", "28 cards", "7/28 done", "sample data"] {
         assert!(text.contains(fact), "{fact}:\n{text}");
     }
     for gone in ["Shop", "QA ready", "Testing", "b boards", "watching"] {
@@ -731,7 +731,7 @@ fn a_card_of_a_second_space_opens_its_own_thread() {
     app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
     let text = app.press("enter");
     assert_eq!(board(&app).crumb().as_deref(), Some("BUG-90"));
-    assert!(text.contains("no item is called BUG-90"), "{text}");
+    assert!(text.contains("no card is called BUG-90"), "{text}");
 }
 
 #[test]
@@ -1153,7 +1153,7 @@ fn a_first_load_that_lands_after_a_new_filter_is_read_again_for_it() {
     assert!(want < all, "the filter narrows the sample");
     assert_eq!(cards(&app), want, "{text}");
     assert_eq!(board(&app).asked, ["Mobile app"]);
-    assert!(text.contains(&format!("{want} item")), "{text}");
+    assert!(text.contains(&format!("{want} card")), "{text}");
 }
 
 #[test]
@@ -1169,7 +1169,7 @@ fn an_answer_for_an_older_filter_never_replaces_the_board_shown() {
     let late = app.event(BOARD, Msg::Board(Vec::new(), Ok(full)));
     assert_eq!(cards(&app), want, "{late}");
     assert!(late.contains("Mobile app"), "{late}");
-    assert!(!late.contains("28 items"), "{late}");
+    assert!(!late.contains("28 cards"), "{late}");
     let failed = app.event(BOARD, Msg::Board(Vec::new(), Err("offline".into())));
     assert!(!failed.contains("offline"), "{failed}");
     assert_eq!(cards(&app), want, "{failed}");

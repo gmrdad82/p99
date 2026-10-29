@@ -90,7 +90,7 @@ fn us_delete_001_an_open_thread_hears_the_delete_and_says_who() {
     );
     tui.press(b"\r");
     assert!(
-        tui.wait_for("Inbox / BUG-12", Duration::from_secs(30))
+        tui.wait_for("Cards / BUG-12", Duration::from_secs(30))
             .is_some(),
         "the thread never opened:\n{}",
         tui.screen()
@@ -106,7 +106,7 @@ fn us_delete_001_an_open_thread_hears_the_delete_and_says_who() {
         tui.screen()
     );
     let after = tui.screen();
-    assert!(!after.contains("Inbox / BUG-12"), "{after}");
+    assert!(!after.contains("Cards / BUG-12"), "{after}");
     assert!(!after.contains("The total does not update"), "{after}");
     tui.press(b"\x03");
 }

@@ -235,10 +235,10 @@ fn a_move_the_sample_cannot_make_says_why_like_the_worker() {
     );
     assert_eq!(
         demo.shift(&to("lamp", "New", "planned")).err().as_deref(),
-        Some("lamp is not an item key")
+        Some("lamp is not a card key")
     );
     assert_eq!(
         demo.shift(&to("BUG-99", "New", "planned")).err().as_deref(),
-        Some("no item is called BUG-99")
+        Some("no card is called BUG-99")
     );
 }

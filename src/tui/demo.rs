@@ -1,10 +1,12 @@
 use serde_json::{Value, json};
 
 use crate::wire::{
-    self, Assignee, Author, Change, Code, Comment, Event, Issue, Landing, Member, PageRef, Person,
-    Reached, Summary, Thread,
+    self, Assignee, Attachment, Author, Change, Code, Comment, Download, Event, Issue, Landing,
+    Member, PageRef, Person, Reached, Summary, Thread,
 };
 
+use super::compose::{Draft, Place};
+use super::files::Upload;
 use super::source::{Entry, iso};
 
 mod boards;
@@ -336,7 +338,11 @@ pub struct Demo {
     codes: Vec<Code>,
     next_comment: i64,
     shelf: boards::Shelf,
+    files: Vec<(i64, Vec<u8>)>,
 }
+
+const SHOT: &str = "cart-total.png";
+const SHOT_BYTES: usize = 48 * 1024;
 
 impl Demo {
     pub fn new() -> Demo {
@@ -411,12 +417,209 @@ impl Demo {
         for thread in &mut threads {
             thread.events.sort_by(|a, b| a.at.cmp(&b.at));
         }
-        Demo {
+        let mut demo = Demo {
             shelf: boards::Shelf::new(&threads),
             threads,
             codes: codes(),
             next_comment,
+            files: Vec::new(),
+        };
+        let shot = Upload {
+            name: SHOT.into(),
+            kind: "image/png",
+            bytes: vec![0; SHOT_BYTES],
+        };
+        let _ = demo.attach("BUG-11", &shot, None);
+        if let Some(file) = demo.threads[10].attachments.first_mut() {
+            file.created_at = iso(NOW - 50 * MINUTE);
         }
+        demo
+    }
+
+    pub fn places(&self) -> Vec<Place> {
+        let mut places = Vec::new();
+        for project in self.projects() {
+            let hosts: &[&str] = if project == boards::PROJECTS[0] {
+                &["shop.example.com"]
+            } else {
+                &[]
+            };
+            places.push(Place {
+                space: 0,
+                project: project.clone(),
+                host: None,
+            });
+            places.extend(hosts.iter().map(|host| Place {
+                space: 0,
+                project: project.clone(),
+                host: Some((*host).into()),
+            }));
+        }
+        places
+    }
+
+    pub fn attach(
+        &mut self,
+        key: &str,
+        upload: &Upload,
+        comment: Option<i64>,
+    ) -> Result<(), String> {
+        let id = self.files.len() as i64 + 1;
+        let thread = self.find(key)?;
+        if let Some(comment) = comment {
+            let said = thread
+                .comments
+                .iter_mut()
+                .find(|c| c.id == comment)
+                .ok_or_else(|| format!("no comment {comment} on {key}"))?;
+            said.attachments.push(id);
+        }
+        thread.attachments.push(Attachment {
+            id,
+            client_uid: format!("demo-file-{id}"),
+            role: "file".into(),
+            name: upload.name.clone(),
+            content_type: upload.kind.into(),
+            bytes: upload.bytes.len() as i64,
+            comment_id: comment,
+            created_at: iso(NOW),
+            ..Attachment::default()
+        });
+        thread.issue.attachments += 1;
+        self.files.push((id, upload.bytes.clone()));
+        Ok(())
+    }
+
+    pub fn download(&self, id: i64) -> Result<Download, String> {
+        let file = self
+            .threads
+            .iter()
+            .flat_map(|t| &t.attachments)
+            .find(|a| a.id == id)
+            .ok_or_else(|| format!("no file {id} (404)"))?;
+        let bytes = self
+            .files
+            .iter()
+            .find(|(at, _)| *at == id)
+            .map(|(_, bytes)| bytes.clone())
+            .unwrap_or_default();
+        Ok(Download {
+            name: file.name.clone(),
+            content_type: file.content_type.clone(),
+            bytes,
+        })
+    }
+
+    pub fn file_card(&mut self, draft: &Draft) -> Result<(String, String), String> {
+        if !wire::KINDS.contains(&draft.kind.as_str()) {
+            return Err("kind must be bug, feature, improvement, question or task".into());
+        }
+        let title = draft.title.trim();
+        if title.is_empty() {
+            return Err("a card needs a title".into());
+        }
+        let id = self.threads.iter().map(|t| t.issue.id).max().unwrap_or(0) + 1;
+        let place = &draft.place;
+        let host = place.host.clone();
+        let issue = Issue {
+            id,
+            key: format!("{}-{id}", wire::prefix(&draft.kind)),
+            kind: draft.kind.clone(),
+            status: "inbox".into(),
+            title: title.into(),
+            host: host.clone(),
+            env: host.as_deref().map(env_of).unwrap_or_default().into(),
+            page: PageRef {
+                url: host
+                    .as_ref()
+                    .map(|h| format!("https://{h}/"))
+                    .unwrap_or_default(),
+                path: String::new(),
+                title: title.into(),
+            },
+            reporter: json!({"email": ME.1, "name": ME.0, "agent": false, "via": null}),
+            created_at: iso(NOW),
+            updated_at: iso(NOW),
+            body: draft.body.clone(),
+            project: Some(place.project.clone()),
+            label: Some(boards::status_label("inbox").into()),
+            ..Issue::default()
+        };
+        let key = issue.key.clone();
+        self.shelf_top(&key);
+        self.threads.push(Thread {
+            events: vec![Event {
+                actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
+                kind: "created".into(),
+                detail: json!({"kind": draft.kind, "title": title}),
+                at: iso(NOW),
+            }],
+            issue,
+            comments: Vec::new(),
+            attachments: Vec::new(),
+            people: Vec::new(),
+        });
+        Ok((key, place.project.clone()))
+    }
+
+    pub fn link(&mut self, key: &str, reference: &str) -> Result<(), String> {
+        let reference = reference.trim();
+        if reference.is_empty() {
+            return Err("ref must be 1 to 200 characters".into());
+        }
+        let thread = self.find(key)?;
+        thread.events.push(Event {
+            actor: Some(ME.1.into()),
+            actor_name: Some(ME.0.into()),
+            agent: false,
+            via: None,
+            kind: "link".into(),
+            detail: json!({"ref": reference, "note": null}),
+            at: iso(NOW),
+        });
+        thread.issue.updated_at = iso(NOW);
+        Ok(())
+    }
+
+    pub fn merge(&mut self, key: &str, into: &str) -> Result<(), String> {
+        let target = self.find(into)?.issue.key.clone();
+        let source = self.find(key)?.issue.key.clone();
+        if target == source {
+            return Err("a card cannot merge into itself".into());
+        }
+        let event = |detail: Value| Event {
+            actor: Some(ME.1.into()),
+            actor_name: Some(ME.0.into()),
+            agent: false,
+            via: None,
+            kind: "merge".into(),
+            detail,
+            at: iso(NOW),
+        };
+        let folded = self.find(&source)?;
+        folded.events.push(event(json!({"into": target})));
+        let issue = &mut folded.issue;
+        issue.duplicate_of = Some(target.clone());
+        issue.status = "done".into();
+        issue.resolution = Some("duplicate".into());
+        issue.label = Some("Done".into());
+        issue.closed_at = Some(iso(NOW));
+        issue.updated_at = iso(NOW);
+        let merged = wire::Merged {
+            key: issue.key.clone(),
+            title: issue.title.clone(),
+            host: issue.host.clone(),
+            reporter: issue.reporter.clone(),
+        };
+        let kept = self.find(&target)?;
+        kept.events.push(event(json!({"item": source})));
+        kept.issue.merged.retain(|m| m.key != merged.key);
+        kept.issue.merged.push(merged);
+        kept.issue.updated_at = iso(NOW);
+        Ok(())
     }
 
     pub fn hosts(&self) -> Vec<String> {
@@ -435,11 +638,11 @@ impl Demo {
     }
 
     fn find(&mut self, key: &str) -> Result<&mut Thread, String> {
-        let number = wire::item_number(key).ok_or_else(|| format!("{key} is not an item key"))?;
+        let number = wire::item_number(key).ok_or_else(|| format!("{key} is not a card key"))?;
         self.threads
             .iter_mut()
             .find(|thread| thread.issue.id == number)
-            .ok_or_else(|| format!("no item is called {key}"))
+            .ok_or_else(|| format!("no card is called {key}"))
     }
 
     pub fn thread(&mut self, key: &str) -> Result<Thread, String> {
@@ -481,12 +684,12 @@ impl Demo {
     }
 
     pub fn delete(&mut self, key: &str) -> Result<wire::Deleted, String> {
-        let number = wire::item_number(key).ok_or_else(|| format!("{key} is not an item key"))?;
+        let number = wire::item_number(key).ok_or_else(|| format!("{key} is not a card key"))?;
         let at = self
             .threads
             .iter()
             .position(|thread| thread.issue.id == number)
-            .ok_or_else(|| format!("no item is called {key}"))?;
+            .ok_or_else(|| format!("no card is called {key}"))?;
         let gone = self.threads.remove(at);
         let mut unlinked = Vec::new();
         for thread in &mut self.threads {
@@ -562,6 +765,34 @@ impl Demo {
         }
         if let Some(of) = &change.duplicate_of {
             issue.duplicate_of = Some(of.clone());
+        }
+        if let Some(title) = &change.title {
+            let title = title.trim();
+            if title.is_empty() {
+                return Err("title must be 1 to 200 characters".into());
+            }
+            thread.events.push(Event {
+                actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
+                kind: "title".into(),
+                detail: json!({"from": issue.title, "to": title}),
+                at: iso(NOW),
+            });
+            issue.title = title.into();
+        }
+        if let Some(body) = &change.body {
+            thread.events.push(Event {
+                actor: Some(ME.1.into()),
+                actor_name: Some(ME.0.into()),
+                agent: false,
+                via: None,
+                kind: "body".into(),
+                detail: Value::Null,
+                at: iso(NOW),
+            });
+            issue.body = body.clone();
         }
         let closing = match (&change.status, &change.resolution, &change.duplicate_of) {
             (None, Some(resolution), _) => Some(resolution.clone()),

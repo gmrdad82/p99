@@ -63,10 +63,10 @@ fn us_triage_001_an_inbox_that_cannot_load_says_why_and_offers_to_read_again() {
         },
     );
     let failed = down.screen("120x30", "");
-    assert!(failed.contains("Couldn't read the inbox."), "{failed}");
+    assert!(failed.contains("Couldn't read the cards."), "{failed}");
     assert!(failed.contains("D1 is down (500)"), "{failed}");
     assert!(failed.contains("r reads it again"), "{failed}");
-    assert!(!failed.contains("No items yet"), "{failed}");
+    assert!(!failed.contains("No cards yet"), "{failed}");
     assert!(!has_key(&failed, "BUG-12"), "{failed}");
 
     let tries = Arc::new(AtomicUsize::new(0));
@@ -82,7 +82,7 @@ fn us_triage_001_an_inbox_that_cannot_load_says_why_and_offers_to_read_again() {
     );
     let again = recovering.screen("120x30", "r");
     assert!(has_key(&again, "BUG-12"), "{again}");
-    assert!(!again.contains("Couldn't read the inbox."), "{again}");
+    assert!(!again.contains("Couldn't read the cards."), "{again}");
     assert!(tries.load(Ordering::SeqCst) >= 2);
 }
 
@@ -106,9 +106,9 @@ fn us_triage_002_a_failed_reply_says_why_and_keeps_the_thread() {
         },
     );
     let empty = desk.screen("120x34", "enter r enter");
-    assert!(empty.contains("Inbox / BUG-12"), "{empty}");
+    assert!(empty.contains("Cards / BUG-12"), "{empty}");
     let cancelled = desk.screen("120x34", "enter r Thanks esc");
-    assert!(cancelled.contains("Inbox / BUG-12"), "{cancelled}");
+    assert!(cancelled.contains("Cards / BUG-12"), "{cancelled}");
     assert!(
         comment_posts(&desk).is_empty(),
         "an empty or cancelled reply was sent"
@@ -116,7 +116,7 @@ fn us_triage_002_a_failed_reply_says_why_and_keeps_the_thread() {
 
     let failed = desk.screen("120x34", "enter r Thanks enter");
     assert!(failed.contains("the database is busy"), "{failed}");
-    assert!(failed.contains("Inbox / BUG-12"), "{failed}");
+    assert!(failed.contains("Cards / BUG-12"), "{failed}");
     assert!(failed.contains("The total does not update"), "{failed}");
     assert!(!failed.contains("Replied on BUG-12"), "{failed}");
     let sent = comment_posts(&desk);
@@ -350,6 +350,54 @@ fn us_triage_003_p99_card_status_closes_as_abandoned_or_duplicate() {
     desk.all_signed();
 }
 
+fn attached(req: &crate::stub::Req) -> Option<Reply> {
+    (req.method == "PUT" && req.path.contains("/attachments/")).then(|| {
+        Reply::json(
+            201,
+            json!({
+                "id": 7,
+                "name": req.param("name"),
+                "type": req.header("content-type"),
+                "bytes": req.body.len(),
+                "role": "file",
+            }),
+        )
+    })
+}
+
+#[test]
+fn us_triage_002_tab_in_a_reply_adds_files_tied_to_that_comment() {
+    let desk = Desk::with(
+        "us-triage-002-files",
+        World::new(vec![Item::new(12, "The total does not update")]),
+        |req, _| attached(req),
+    );
+    std::fs::write(desk.home.dir.join("shot.png"), [1, 2, 3]).unwrap();
+    let asked = desk.screen("120x34", "enter r Thanks tab");
+    assert!(asked.contains("Files"), "{asked}");
+    assert!(
+        desk.calls("POST", "/_p99/v1/issues/BUG-12/comments")
+            .is_empty()
+    );
+    let sent = desk.screen("120x34", "enter r Thanks tab shot.png enter");
+    assert!(sent.contains("Replied on BUG-12 with 1 file"), "{sent}");
+    let comments = desk.calls("POST", "/_p99/v1/issues/BUG-12/comments");
+    assert_eq!(comments.len(), 1, "{sent}");
+    assert_eq!(comments[0].json()["body"], "Thanks");
+    let files: Vec<_> = desk
+        .home
+        .stub
+        .seen()
+        .into_iter()
+        .filter(|r| r.method == "PUT" && r.path.contains("/issues/BUG-12/attachments/"))
+        .collect();
+    assert_eq!(files.len(), 1, "{sent}");
+    assert_eq!(files[0].param("name"), Some("shot.png"));
+    assert_eq!(files[0].param("comment"), Some("31"));
+    assert_eq!(files[0].body, [1, 2, 3]);
+    desk.all_signed();
+}
+
 #[test]
 fn us_triage_003_p99_status_still_moves_once_and_says_it_is_now_p99_card_status() {
     let desk = Desk::new(
@@ -400,4 +448,99 @@ fn us_triage_001_p99_list_source_keeps_the_cards_a_person_or_an_agent_changed_la
     );
     h.p99(&["list", "--source", "robot"])
         .clap("invalid value 'robot' for '--source <SOURCE>'");
+}
+
+#[test]
+fn us_triage_003_e_edits_the_title_and_details_from_the_thread_and_sends_only_what_changed() {
+    let desk = Desk::new(
+        "us-triage-003-edit",
+        vec![Item::new(12, "The total does not update")],
+    );
+    let edited = desk.screen("120x34", "enter e space now enter enter");
+    assert!(edited.contains("BUG-12 edited: title"), "{edited}");
+    let patches = desk.calls("PATCH", "/_p99/v1/issues/BUG-12");
+    assert_eq!(patches.len(), 1, "{edited}");
+    assert_eq!(
+        patches[0].json(),
+        json!({"title": "The total does not update now"})
+    );
+    let details = desk.screen("120x34", "enter e enter ctrl+u Zero ¶ always enter");
+    assert!(details.contains("BUG-12 edited: details"), "{details}");
+    let patches = desk.calls("PATCH", "/_p99/v1/issues/BUG-12");
+    assert_eq!(patches.len(), 2, "{details}");
+    assert_eq!(patches[1].json(), json!({"body": "Zero\nalways"}));
+    let same = desk.screen("120x34", "enter e enter enter");
+    assert!(same.contains("Nothing changed."), "{same}");
+    assert_eq!(desk.calls("PATCH", "/_p99/v1/issues/BUG-12").len(), 2);
+}
+
+#[test]
+fn us_triage_003_l_links_a_card_to_a_request_commit_tag_or_url() {
+    let desk = Desk::with(
+        "us-triage-003-link",
+        World::new(vec![
+            Item::new(12, "The total does not update").hostless("Ops"),
+        ]),
+        |req, _| {
+            (req.method == "POST" && req.path == "/_p99/v1/cards/BUG-12/links").then(|| {
+                Reply::json(
+                    201,
+                    json!({"key": "BUG-12", "link": {"ref": req.json()["ref"], "note": null}}),
+                )
+            })
+        },
+    );
+    let linked = desk.screen("120x34", "enter l PR space #42 enter");
+    assert!(linked.contains("BUG-12 linked to PR #42"), "{linked}");
+    let links = desk.calls("POST", "/_p99/v1/cards/BUG-12/links");
+    assert_eq!(links.len(), 1, "{linked}");
+    assert_eq!(links[0].json(), json!({"ref": "PR #42", "note": null}));
+    let refused = Desk::with(
+        "us-triage-003-link-refused",
+        World::new(vec![Item::new(12, "The total does not update")]),
+        |req, _| {
+            req.path
+                .ends_with("/links")
+                .then(|| Reply::problem(409, "BUG-12 is not a card"))
+        },
+    );
+    let said = refused.screen("120x34", "enter l PR space #42 enter");
+    assert!(said.contains("BUG-12 is not a card"), "{said}");
+    assert!(said.contains("Cards / BUG-12"), "{said}");
+}
+
+#[test]
+fn us_triage_001_a_thread_lists_its_files_and_f_saves_one_beside_the_tui() {
+    let desk = Desk::with(
+        "us-triage-001-files",
+        World::new(vec![Item::new(12, "The total does not update")]),
+        |req, world| match (req.method.as_str(), req.path.as_str()) {
+            ("GET", "/_p99/v1/issues/BUG-12") => Some(Reply::ok(json!({
+                "issue": world.get(12).issue(),
+                "comments": [],
+                "attachments": [{"id": 5, "name": "cart.png", "type": "image/png", "bytes": 3, "role": "file"}],
+                "events": [],
+            }))),
+            ("GET", "/_p99/v1/files/5") => Some(
+                Reply::raw(200, "image/png", &[9, 8, 7])
+                    .with("content-disposition", "attachment; filename=\"cart.png\""),
+            ),
+            _ => None,
+        },
+    );
+    let thread = desk.screen("120x34", "enter");
+    assert!(thread.contains("Files (1)"), "{thread}");
+    assert!(thread.contains("cart.png · 3 B"), "{thread}");
+    assert!(thread.contains("f save file"), "{thread}");
+    let saved = desk.screen("120x34", "enter f enter");
+    assert!(saved.contains("Saved cart.png (3 B) to "), "{saved}");
+    assert_eq!(
+        std::fs::read(desk.home.dir.join("cart.png")).unwrap(),
+        [9, 8, 7]
+    );
+    desk.screen("120x34", "enter f enter");
+    assert_eq!(
+        std::fs::read(desk.home.dir.join("cart-2.png")).unwrap(),
+        [9, 8, 7]
+    );
 }
