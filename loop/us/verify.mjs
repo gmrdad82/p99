@@ -75,11 +75,19 @@ export default async function (kit) {
 
     const run = await kit.p99(["invites", "totp", String(id)]);
     assert.equal(run.code, 0, run.stderr);
-    assert.ok(run.stdout.includes(`code ${id} of Grace Hopper <${email}> now asks for an authenticator code`), run.stdout);
-    assert.match(run.stdout, /this is the only time the key is shown\n$/);
-    const key = /^key:\s+([A-Z2-7]+)/m.exec(run.stdout)?.[1];
-    assert.ok(key, run.stdout);
-    assert.match(run.stdout, /^totp:\s+otpauth:\/\/totp\/.+algorithm=SHA1&digits=6&period=30$/m);
+    assert.equal(run.stdout, `code ${id} of Grace Hopper <${email}> now asks for an authenticator code\nmailed the authenticator setup to ${email}\n`);
+    const setup = await kit.until("the authenticator mail", () => {
+      const got = kit.mail.inbox(email);
+      return got.length === 1 && got[0];
+    });
+    assert.equal(setup.subject, "Set up your authenticator for P99");
+    assert.match(setup.text, /^Grace, your P99 link now asks for a 6-digit code from an authenticator app/);
+    assert.ok(setup.html.includes(`src="cid:${setup.attachments[0].content_id}"`));
+    assert.equal(setup.text.includes(made.secret), false, "the setup mail carries no link");
+    const key = /type this key: ([A-Z2-7 ]+)$/m.exec(setup.text)?.[1].replace(/ /g, "");
+    assert.ok(key, setup.text);
+    assert.match(setup.text, /otpauth:\/\/totp\/.+algorithm=SHA1&digits=6&period=30$/m);
+    assert.equal(run.stdout.includes(key), false, "the terminal never shows the mailed key");
 
     const listed = await invitesJson(kit);
     assert.equal(listed.codes.find((c) => c.id === id).totp, true);

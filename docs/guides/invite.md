@@ -38,7 +38,7 @@ Grace Hopper <grace@example.com>
 mailed the link for example.com, shop.example.com to grace@example.com
 ```
 
-The mail has one "Open P99 on <host>" button for each host the code covers, sized for a phone, and its plain-text part lists each link as `https://<host>/#p99=<code>`. Replies go to the e-mail of whoever sent the invite. The authenticator key of a `--totp` code is never in the mail: the terminal prints it, for you to send apart. Add `--no-mail` to print the links in the terminal instead. When the space has no mail, or the mail doesn't go out, the terminal prints the links once with one line that says so.
+The mail, "Your P99 access for <space>", says in a line what the person can do and in which role, then walks them through it in numbered steps: open the link once in each browser they use, with one "Open P99 on <host>" button per host the code covers, sized for a phone, the busiest site first (the one with the most items filed or changed in the last 30 days); what the + and the ⋯ beside it do on the site; and, for an Owner, the board, and the P99 page when the space has one. Its plain-text part lists each link as `https://<host>/#p99=<code>`. Replies go to the e-mail of whoever sent the invite. With `--totp`, P99 mails the authenticator setup separately, right after the link, as a second message: "Set up your authenticator for P99", with the QR code to scan, the key in groups of four and a link that adds it in one tap on a phone. The link is never in that mail and the key never in the link's, so one forwarded message never carries both, and the terminal prints neither. Add `--no-mail` to print the links and the key in the terminal instead, for you to send apart. When the space has no mail, or a mail doesn't go out, the terminal prints what didn't go once, with one line that says so.
 
 Your own links never go by mail: inviting the e-mail in your config's `[me]` prints them in the terminal, one line per host, and `--mail-me` also mails them to you. P99 writes them nowhere, so save them in your password manager if you keep them there.
 
@@ -51,7 +51,7 @@ p99 relink grace@example.com --host shop.example.com
 p99 relink --self
 ```
 
-`p99 relink` mints a new code for the same person, with the same name, e-mail, grant and role, and revokes the old one in the same request, so there is no moment when both work or neither does. It mails the new link as `p99 invite` does (with `--no-mail` and `--mail-me` the same way), and the old link answers 401 from then on. Name the code by its id from `p99 invites`, or by the person's e-mail when they hold one code; `--host` picks the code that covers that host, and `--self` takes your own e-mail from the config. Items, comments and history follow the e-mail, so nothing is lost. A code with an authenticator keeps it: the new code gets the same secret, still encrypted in the Worker, so the person's app keeps giving the right 6-digit codes; each browser asks for one again, once. `--new-totp` gives the new code a new authenticator and prints its setup.
+`p99 relink` mints a new code for the same person, with the same name, e-mail, grant and role, and revokes the old one in the same request, so there is no moment when both work or neither does. It mails the new link as `p99 invite` does (with `--no-mail` and `--mail-me` the same way), and the old link answers 401 from then on. Name the code by its id from `p99 invites`, or by the person's e-mail when they hold one code; `--host` picks the code that covers that host, and `--self` takes your own e-mail from the config. Items, comments and history follow the e-mail, so nothing is lost. A code with an authenticator keeps it: the new code gets the same secret, still encrypted in the Worker, so the person's app keeps giving the right 6-digit codes; each browser asks for one again, once. `--new-totp` gives the new code a new authenticator and mails its setup separately, as `p99 invite --totp` does.
 
 ### Open your own link
 
@@ -138,6 +138,8 @@ A code can ask for a 6-digit code from an authenticator app the first time each 
 p99 invite --project Shop --name "Grace Hopper" --email grace@example.com --totp
 p99 invites totp 3
 ```
+
+With mail on, P99 mails the person the setup in a message of its own, apart from the link: which authenticator apps work (1Password, Google Authenticator, Microsoft Authenticator, or the phone's built-in passwords app), the QR code to scan, the key in groups of four to type, and a link that adds it in one tap on a phone. The account shows as "P99: <their e-mail>", with a 6-digit code that changes every 30 seconds. The terminal says the setup went and prints no key. With `--no-mail`, or when the mail doesn't go out, the terminal prints the setup instead:
 
 ```text
 key:    <32 base32 characters>   (paste it as a one-time password or setup key; totp is the same as a link)

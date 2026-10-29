@@ -56,6 +56,16 @@ pub fn mailing(owner: bool, no_mail: bool, mail_me: bool) -> bool {
     !no_mail && (!owner || mail_me)
 }
 
+pub fn shown(minted: &Minted) -> Result<serde_json::Value, String> {
+    let mut value = serde_json::to_value(minted).map_err(|e| e.to_string())?;
+    if minted.totp_mail.as_deref() == Some("sent")
+        && let Some(fields) = value.as_object_mut()
+    {
+        fields.remove("totp_key");
+    }
+    Ok(value)
+}
+
 pub fn report(minted: &Minted, owner: bool, asked: bool) -> Result<(), String> {
     let code = &minted.code;
     let role = if code.manager { " (Owner)" } else { "" };
@@ -80,12 +90,21 @@ pub fn report(minted: &Minted, owner: bool, asked: bool) -> Result<(), String> {
             out!("link:   {link}");
         }
     }
-    match minted.totp.as_deref() {
-        Some("carried") => {
+    match (minted.totp.as_deref(), minted.totp_mail.as_deref()) {
+        (Some("carried"), _) => {
             out!("the authenticator carries over: the same app keeps giving the 6-digit codes")
         }
-        _ => {
+        (_, Some("sent")) => {
+            out!(
+                "mailed the authenticator setup to {} in a second mail",
+                code.email
+            )
+        }
+        (_, mailed) => {
             if let Some(key) = &minted.totp_key {
+                if mailed.is_some() {
+                    out!("the authenticator mail didn't go out; send the key yourself");
+                }
                 print_totp(code, key);
             }
         }
@@ -189,7 +208,7 @@ pub fn relink(config: &Config, global: &Global, args: &RelinkArgs) -> Result<(),
         },
     )?;
     if global.json {
-        return print_json(&minted);
+        return print_json(&shown(&minted)?);
     }
     report(&minted, mine, asked)
 }

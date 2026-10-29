@@ -591,12 +591,12 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
         [
             "Grace Hopper <grace@example.com> (Owner)",
             "mailed the link to grace@example.com (projects: Shop)",
-            "key:    JBSWY3DPEHPK3PXP   (paste it as a one-time password or setup key; totp is the same as a link)",
-            "totp:   otpauth://totp/P99:grace@example.com?secret=JBSWY3DPEHPK3PXP&issuer=P99&algorithm=SHA1&digits=6&period=30",
-            "send these apart from the link; each browser asks for its 6-digit code once",
+            "mailed the authenticator setup to grace@example.com in a second mail",
         ]
     );
     assert!(!out.stdout.contains("abcd-efgh-jkmn"));
+    assert!(!out.stdout.contains("JBSWY3DPEHPK3PXP"));
+    assert!(!out.stdout.contains("otpauth"));
     let sent = h.stub.call("POST", "/_p99/v1/codes");
     assert!(sent.signed);
     let body = sent.json();
@@ -1233,9 +1233,26 @@ fn invites_totp_with_a_host_adds_the_authenticator_in_that_hosts_space() {
 }
 
 #[test]
-fn invites_totp_shows_the_new_key_once() {
+fn invites_totp_mails_the_setup_or_shows_the_new_key_once() {
     let h = home("invites-totp");
     let out = h.p99(&["invites", "totp", "4"]);
+    out.ok();
+    assert_eq!(
+        out.lines(),
+        [
+            "code 4 of Grace Hopper <grace@example.com> now asks for an authenticator code",
+            "mailed the authenticator setup to grace@example.com",
+        ]
+    );
+    assert_eq!(
+        h.stub.calls("POST", "/_p99/v1/codes/4/totp")[0].query,
+        [("mail".to_owned(), "1".to_owned())]
+    );
+    let mailed = h.p99(&["invites", "totp", "4", "--json"]).json();
+    assert_eq!(mailed["mail"], "sent");
+    assert!(mailed.get("totp_key").is_none());
+    assert!(mailed.get("otpauth").is_none());
+    let out = h.p99(&["invites", "totp", "4", "--no-mail"]);
     out.ok();
     assert_eq!(
         out.lines(),
@@ -1247,7 +1264,14 @@ fn invites_totp_shows_the_new_key_once() {
             "this is the only time the key is shown",
         ]
     );
-    let answer = h.p99(&["invites", "totp", "4", "--json"]).json();
+    assert!(
+        h.stub.calls("POST", "/_p99/v1/codes/4/totp")[2]
+            .query
+            .is_empty()
+    );
+    let answer = h
+        .p99(&["invites", "totp", "4", "--no-mail", "--json"])
+        .json();
     assert_eq!(answer["totp_key"], "JBSWY3DPEHPK3PXP");
     assert_eq!(
         answer["otpauth"],

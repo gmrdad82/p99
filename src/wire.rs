@@ -958,6 +958,12 @@ pub struct Minted {
         deserialize_with = "lenient",
         skip_serializing_if = "Option::is_none"
     )]
+    pub totp_mail: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub revoked: Option<Code>,
 }
 
@@ -982,6 +988,12 @@ pub struct Relink {
 pub struct TotpKey {
     pub code: Code,
     pub totp_key: String,
+    #[serde(
+        default,
+        deserialize_with = "lenient",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub mail: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

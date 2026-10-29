@@ -150,6 +150,9 @@ pub fn worker(req: &Req) -> Reply {
             if body["totp"] == true {
                 made["code"]["totp"] = json!(true);
                 made["totp_key"] = json!("JBSWY3DPEHPK3PXP");
+                if mail.is_some() {
+                    made["totp_mail"] = json!("sent");
+                }
             }
             Reply::json(201, made)
         }
@@ -170,6 +173,12 @@ pub fn worker(req: &Req) -> Reply {
             );
             if body["new_totp"] != true {
                 made["totp"] = json!("carried");
+            } else {
+                made["totp"] = json!("new");
+                made["totp_key"] = json!("JBSWY3DPEHPK3PXP");
+                if body["mail"] == true {
+                    made["totp_mail"] = json!("sent");
+                }
             }
             Reply::ok(made)
         }
@@ -191,7 +200,11 @@ pub fn worker(req: &Req) -> Reply {
                 &["shop.example.com"],
             );
             held["totp"] = json!(true);
-            Reply::ok(json!({"code": held, "totp_key": "JBSWY3DPEHPK3PXP"}))
+            let mut set = json!({"code": held, "totp_key": "JBSWY3DPEHPK3PXP"});
+            if req.query.iter().any(|(k, v)| k == "mail" && v == "1") {
+                set["mail"] = json!("sent");
+            }
+            Reply::ok(set)
         }
         ("POST", ["people", "rename"]) => Reply::ok(json!({
             "from": body["from"],

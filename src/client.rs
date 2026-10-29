@@ -381,8 +381,9 @@ impl Client {
         )
     }
 
-    pub fn totp(&self, id: i64) -> Result<crate::wire::TotpKey, String> {
-        self.json("POST", &format!("/v1/codes/{id}/totp"), None)
+    pub fn totp(&self, id: i64, mail: bool) -> Result<crate::wire::TotpKey, String> {
+        let ask = if mail { "?mail=1" } else { "" };
+        self.json("POST", &format!("/v1/codes/{id}/totp{ask}"), None)
     }
 
     pub fn announce(&self, build: &Build) -> Result<(), String> {

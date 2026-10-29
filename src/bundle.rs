@@ -49,6 +49,7 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("deletes.js", ES),
     worker!("backup.js", ES),
     worker!("links.js", ES),
+    worker!("qr.js", ES),
     worker!("people.js", ES),
     worker!("tries.js", ES),
     worker!("text.js", ES),
