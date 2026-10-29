@@ -2,6 +2,21 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.4 — 2026-10-29
+
+### Fixed
+
+- On a site whose security policy allows only its own files (such as `default-src 'self'`), the screenshot, its preview, the crops and the avatars now work, with the masked areas still solid blocks. If a site blocks the screenshot entirely, the form says so and sends the text report.
+- After the 6-digit code, P99 trusts the browser for good: the "+", Your items, the board and a reload no longer ask again, an Owner's ⋯ button shows at once, and the board goes live.
+- The pop-up board's lanes scroll sideways with the bar, a touchpad swipe, a mouse's side wheel or shift+wheel, and the ordinary wheel moves them too wherever there's nothing to scroll up or down. The same goes for the board on the P99 page.
+- The board's and the panel's scrollbars stay thin on sites that colour their own scrollbars.
+- A card with no project no longer shows the word "null".
+- The Projects and Last change by chips show the pointer cursor.
+
+### Changed
+
+- The background texture is about 60 KB instead of 1 MB, still grainy, and every deploy uploads that much less.
+
 ## v1.13.3 — 2026-10-29
 
 ### Fixed
