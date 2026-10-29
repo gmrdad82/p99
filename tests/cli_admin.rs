@@ -629,6 +629,7 @@ fn invite_a_legacy_host_list_grants_the_projects_of_its_hosts_and_says_so() {
             "Grace Hopper <grace@example.com>",
             "secret: abcd-efgh-jkmn",
             "link:   https://shop.example.com/#p99=abcdefghjkmn",
+            "link:   https://blog.example.com/#p99=abcdefghjkmn",
             "link:   https://dev.example.com/#p99=abcdefghjkmn",
             "this is the only time the secret is shown",
         ]

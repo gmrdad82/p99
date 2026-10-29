@@ -178,8 +178,19 @@ mod tests {
         ] {
             assert!(page.contains(&format!(" p99 {command}\n")), "{command}");
         }
-        for hidden in ["--demo", "--dump", "--capture", "docs-cli", "p99 help"] {
+        for hidden in [
+            "--demo",
+            "--dump",
+            "--capture <dir>",
+            "--compare",
+            "docs-cli",
+            "p99 help",
+        ] {
             assert!(!page.contains(hidden), "{hidden}");
         }
+        assert!(
+            page.contains("`--capture <CAPTURE>`"),
+            "hosts set --capture"
+        );
     }
 }

@@ -1150,7 +1150,10 @@ fn a_search_always_ends_in_results_a_no_match_line_or_one_plain_error() {
     assert_eq!(none.out, "no items\n");
     let none = home.ok(&["list", "-q", "nothing like this", "--json"]);
     let none: Value = serde_json::from_str(&none).unwrap();
-    assert_eq!(none, json!({"issues": [], "more": false}));
+    assert_eq!(
+        none,
+        json!({"issues": [], "more": false, "space": {"slug": "main", "name": "main"}})
+    );
 
     let slow = home.ok(&["list", "-q", "slow"]);
     assert_eq!(slow, "no items\n");

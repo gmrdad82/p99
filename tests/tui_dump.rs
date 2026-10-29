@@ -346,7 +346,10 @@ fn every_tab_header_names_the_space_beside_the_licence_pill() {
     for size in ["120x34", "80x24"] {
         for keys in ["", "tab", "tab tab"] {
             let text = dump(size, keys);
-            let head = text.lines().next().unwrap_or_default();
+            let head = text
+                .lines()
+                .find(|l| !l.trim().is_empty())
+                .unwrap_or_default();
             for said in ["P99", "Example shop", "Free", "waiting"] {
                 assert!(head.contains(said), "{size} {keys:?} {said}:\n{text}");
             }
@@ -357,13 +360,13 @@ fn every_tab_header_names_the_space_beside_the_licence_pill() {
 #[test]
 fn a_project_filter_is_named_in_the_facts_narrows_the_count_and_esc_takes_it_off() {
     let one = dump("120x34", "p down enter");
-    let head: String = one.lines().take(3).collect::<Vec<_>>().join("\n");
+    let head: String = one.lines().take(4).collect::<Vec<_>>().join("\n");
     assert!(head.contains("in Mobile app"), "{one}");
     assert!(head.contains("1 waiting"), "{one}");
     assert!(!head.contains("3 waiting"), "{one}");
     assert!(one.contains("esc all projects"), "{one}");
     let off = dump("120x34", "p down enter esc");
-    let head: String = off.lines().take(3).collect::<Vec<_>>().join("\n");
+    let head: String = off.lines().take(4).collect::<Vec<_>>().join("\n");
     assert!(!head.contains("in Mobile app"), "{off}");
     assert!(head.contains("3 waiting"), "{off}");
     assert!(!off.contains("esc all projects"), "{off}");
