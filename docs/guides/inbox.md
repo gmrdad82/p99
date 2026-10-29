@@ -1,5 +1,5 @@
 ---
-title: Work the inbox
+title: Work your cards
 description: Read, answer, assign and close cards in p99 tui or with the CLI, and read them as JSON in scripts.
 sidebar:
   order: 4
@@ -7,7 +7,7 @@ sidebar:
 
 ![A thread in p99 tui: a card with its comments, an agent's reply and where its fix has landed](../images/thread.png)
 
-Every card people file lands in one inbox per space, across the projects the code reaches. Work it in the terminal UI, or one command at a time from the CLI.
+Every card people file lands in its space, and you see them all, across the projects your code reaches. Work it in the terminal UI, or one command at a time from the CLI.
 
 ## Cards
 
@@ -32,7 +32,7 @@ p99 labels rename needs-you "Waiting on me"
 
 `p99 board` prints each lane as `Name (count)` with its cards below, each with its project; `--project` repeats and keeps those projects' cards, and `--host` one host's cards. `--to` takes a lane's word (`new`, `planned`, `in-progress`, `needs-you`, `stuck`, `landed`, `done`) or its name, in any case; `--before` or `--after` also places the card beside another in that lane. `p99 labels` lists the seven lanes with their words, and `p99 labels rename` renames one, by its name or its word, for everyone; the word stays.
 
-Before 1.11 each Owner had boards of their own. Deploying 1.11 folds them into the one board, after `p99 migrate --plan` shows how ([deploy](deploy.md)): each card keeps its lane or gets the one its old column maps to, with a `label` event naming the old column, and the order of the oldest Owner's boards comes first. The same deploy then deletes the old boards and the labels that aren't lanes, after carrying onto the one board any card or place only they still held; the plan names each, and nothing is archived. `p99 boards` prints a deprecation line on standard error and the one board, as `p99 board` does, and `p99 boards set` answers `p99: boards are one per space; see p99 board`, exit 1. A Worker not deployed since answers `p99 board` with `p99: this Worker still has a board per person; run p99 deploy for the one board`.
+Before 1.11 each Owner had boards of their own. Deploying 1.11 folds them into the one board, after `p99 migrate --plan` shows how ([deploy](deploy.md)): each card keeps its lane or gets the one its old column maps to, with a `label` event naming the old column, and the order of the oldest Owner's boards comes first. The same deploy then deletes the old boards and the labels that aren't lanes, after carrying onto the one board any card or place only they still held; the plan names each, and nothing is archived. A Worker not deployed since answers `p99 board` with `p99: this Worker still has a board per person; run p99 deploy for the one board`.
 
 ## The TUI
 
@@ -42,7 +42,7 @@ p99
 
 `p99` alone, in a terminal, opens the TUI, as `p99 tui` does; its flags (`--space`, `--agent`) go with `p99 tui`. Piped or in a script, a bare `p99` prints clap's short error and exits 2 instead of waiting on a screen.
 
-The header of every screen names the space. The Inbox screen lists the open cards of every host, newest activity first, with a dot on the unread ones and each card's label; the line under the tabs counts the cards shown, out of those in the host and projects chosen, and the unread. `tab`, or `1`, `2` and `3`, switch between the Inbox, Board and Codes screens.
+The header of every screen names the space. The Cards screen lists the open cards of every host, newest activity first, with a dot on the unread ones and each card's label; the line under the tabs counts the cards shown, out of those in the host and projects chosen, and the unread. `tab`, or `1`, `2` and `3`, switch between the Cards, Board and Codes screens.
 
 | Key | In the list |
 | --- | --- |
@@ -137,5 +137,5 @@ p99 list --all --json | jq -r '.issues[] | select(.unread) | .key'
 
 ## Next
 
-- [Let agents work the inbox](agents.md): the same commands, marked as an agent's.
+- [Let agents work your cards](agents.md): the same commands, marked as an agent's.
 - [Announce builds and landings](announce.md): show on each card where its fix is.

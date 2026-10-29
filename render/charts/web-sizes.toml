@@ -1,24 +1,24 @@
 title = "WHAT A PAGE DOWNLOADS"
 unit = "KB GZIPPED"
 better = "lower"
-subtitle = "P99 1.9.0, GZIP -9"
-date = "2026-10-20"
+subtitle = "P99 1.13.8, GZIP -9"
+date = "2026-10-30"
 suffix = " KB"
-notes = ["EVERY PAGE: THE LOADER ONLY. FIRST CLICK: THE PANEL AND ITS STYLES, THEN THE CAPTURE CODE ONCE THE FORM SHOWS. THE BOARD: ONLY WHEN A MANAGER OPENS IT."]
+notes = ["EVERY PAGE: THE LOADER ONLY. FIRST CLICK: THE PANEL AND ITS STYLES, THEN THE CAPTURE CODE ONCE THE FORM SHOWS. THE BOARD: ONLY WHEN AN OWNER OPENS IT."]
 parties = [{ name = "P99" }]
 
 [[groups]]
 name = "EVERY PAGE"
-rows = [{ label = "LOADER (P99.JS, AS SERVED)", values = [2.007] }]
+rows = [{ label = "LOADER (P99.JS, AS SERVED)", values = [1.954] }]
 
 [[groups]]
 name = "ON DEMAND"
 rows = [
-  { label = "PANEL (PANEL.JS)", values = [22.335] },
-  { label = "STYLES (P99.CSS)", values = [6.742] },
-  { label = "CAPTURE (SHOT.JS AND MODERN-SCREENSHOT)", values = [17.506] },
+  { label = "PANEL (PANEL.JS)", values = [29.614] },
+  { label = "STYLES (P99.CSS)", values = [8.139] },
+  { label = "CAPTURE (SHOT.JS AND MODERN-SCREENSHOT)", values = [19.341] },
 ]
 
 [[groups]]
-name = "MANAGERS"
-rows = [{ label = "BOARD (BOARD.JS)", values = [11.029] }]
+name = "OWNERS"
+rows = [{ label = "BOARD (BOARD.JS)", values = [12.112] }]

@@ -31,7 +31,7 @@ bundle/
 | `read` | `item`, `email`, `at` |
 | `manager` | `email` |
 
-`via` is the label of the agent that acted (`pci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per card, and a file's first bytes must match its `content_type` (the same types the panel takes). A card that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported cards land in the one board's lanes by their status (`inbox` in `New`, `doing` in `In progress`, `review` in `Landed`, `done` in `Done`) with no place of their own, so each sits at the top of its lane, newest first.
+`via` is the label of the agent that acted (`ci`, say), kept only when `agent` is true and cut to 80 characters. The limits are P99's own: a title of 1 to 200 characters, a body of up to 20 000, files of up to 20 MB and 30 per card, and a file's first bytes must match its `content_type` (the same types the panel takes). A card that is not open gets `closed_at` from `updated_at` when the bundle leaves it out. Imported cards land in the one board's lanes by their status (`inbox` in `New`, `doing` in `In progress`, `review` in `Landed`, `done` in `Done`) with no place of their own, so each sits at the top of its lane, newest first.
 
 A `manager` line imports nothing. It names an Owner: P99's Owners are people with an Owner code, or e-mails in the Worker's `MANAGERS` secret; the summary lists every Owner in the bundle who has neither yet, with the `p99 invite --owner` line to mint one.
 
@@ -70,7 +70,7 @@ example.com: 7 records imported
   read               1         0          0
   manager            1         0          0
   files uploaded: 1
-  items recounted: 1, duplicates linked: 0
+  cards recounted: 1, duplicates linked: 0
 these Owners have no Owner code yet; mint one each, or list them in MANAGERS:
   p99 invite example.com --owner --name "<name>" --email grace@example.com
 ```

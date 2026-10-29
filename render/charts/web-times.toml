@@ -1,35 +1,35 @@
 title = "HOW FAST THE WIDGET SHOWS"
 unit = "MILLISECONDS, MEDIAN OF 5 RUNS OF 10"
 better = "lower"
-subtitle = "HEADLESS CHROMIUM 154 ON LOCALHOST, AMD RYZEN 9 9950X"
-date = "2026-10-20"
+subtitle = "P99 1.13.8, HEADLESS CHROMIUM 154 ON LOCALHOST, AMD RYZEN 9 9950X"
+date = "2026-10-30"
 suffix = " MS"
-notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT.", "THE P99 PAGE: 150 MS ROUND TRIPS, 1.6 MBPS, A 4X SLOWER CPU.", "LOAD AVERAGE 19 TO 30 ON 32 THREADS."]
-parties = [{ name = "P99 1.9.0" }]
+notes = ["PAINTED = THE FIRST ANIMATION FRAME WITH THE BUTTON, SO TIMES SNAP TO 16.7 MS FRAMES.", "COLD = A FRESH BROWSER CONTEXT. WARM = A RELOAD IN THE SAME CONTEXT.", "THE P99 PAGE: 150 MS ROUND TRIPS, 1.6 MBPS, A 4X SLOWER CPU, MEDIAN OF 50.", "LOAD AVERAGE 3 TO 13 ON 32 THREADS."]
+parties = [{ name = "P99 1.13.8" }]
 
 [[groups]]
 name = "THE BUTTON"
 rows = [
-  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [8.9] },
-  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [3.4] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [42.6] },
-  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [13.8] },
+  { label = "LOADER START TO THE BUTTON PAINTED, COLD", values = [10.1] },
+  { label = "LOADER START TO THE BUTTON PAINTED, WARM", values = [2.4] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, COLD", values = [26.5] },
+  { label = "PAGE NAVIGATION TO THE BUTTON PAINTED, WARM", values = [10.3] },
 ]
 
 [[groups]]
 name = "THE PANEL"
 rows = [
-  { label = "CLICK TO THE FORM ON SCREEN, COLD", values = [59.0] },
-  { label = "CLICK TO THE FORM ON SCREEN, WARM", values = [25.5] },
+  { label = "CLICK TO THE FORM ON SCREEN, COLD", values = [34.2] },
+  { label = "CLICK TO THE FORM ON SCREEN, WARM", values = [23.5] },
 ]
 
 [[groups]]
 name = "THE BOARD"
-rows = [{ label = "CLICK ON BOARD TO THE BOARD WITH 270 CARDS, COLD", values = [294.1] }]
+rows = [{ label = "CLICK ON BOARD TO THE BOARD WITH 180 CARDS, COLD", values = [131.9] }]
 
 [[groups]]
 name = "THE P99 PAGE ON A MID-RANGE PHONE"
 rows = [
-  { label = "FIRST PAINT, SIGNED OUT", values = [226] },
-  { label = "FIRST PAINT, SIGNED IN", values = [216] },
+  { label = "FIRST PAINT, SIGNED OUT", values = [204] },
+  { label = "FIRST PAINT, SIGNED IN", values = [196] },
 ]

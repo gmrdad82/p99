@@ -32,7 +32,7 @@ The one board shows every card; a filter narrows it (`p99 board --project Splice
 Anyone but a User may put a card in `needs-you`, an agent included; `--note` says what to look at in the same write:
 
 ```sh
-p99 --agent=pci card status FEAT-41 needs-you --note "Look at the export clip: https://example.com/clip"
+p99 --agent=ci card status FEAT-41 needs-you --note "Look at the export clip: https://example.com/clip"
 ```
 
 The card leaves Needs you by itself, back to the lane it came from, when a person (not an agent) comments on it, and whenever anyone sets its status. `p99 cards --waiting` lists what waits on a person, the cards in `needs-you`, `stuck` and `landed`, newest change first; its text output starts with the count (`3 cards wait on you`, or `nothing waits on you`). `--waiting` takes no other filter. A Worker deployed before Needs you answers `p99: this Worker has no Needs you list yet; run p99 deploy`.
@@ -50,10 +50,9 @@ p99 card status FEAT-41 stuck --note "Waiting on the mixer"
 p99 card move FEAT-41 --to in-progress --after FEAT-40
 p99 card comment FEAT-41 "Found it." --internal
 p99 card comment BUG-12 "Here is the log." --attach app.log
-p99 card link FEAT-41 pci#2700 --note "Splicer export"
+p99 card link FEAT-41 req#2700 --note "Splicer export"
 p99 projects
 p99 edit BUG-12 --project Splicer
-p99 edit BUG-12 --no-project
 ```
 
 - `p99 cards` lists cards in lane order, every lane but `done` unless you name `--status`. `--project` and `--status` repeat. `--since` takes a time (`2026-10-22T08:00:00Z`) or an age (`90m`, `6h`, `2d`); `--source human` or `--source agent` keeps the cards whose last change was a person's or an agent's; `--limit` is 200 by default, up to 500, and `--cursor` reads on from `next_cursor`.
@@ -64,8 +63,8 @@ p99 edit BUG-12 --no-project
 - `p99 file`, `p99 comment`, `p99 status` and `p99 move` still run for one release and print their new name: `p99 card new`, `card comment`, `card status` and `card move`.
 - `card new --body`, `card comment`'s text and `card status --note` take `-` to read standard input.
 - A project name has 1 to 40 characters and is matched without regard to case; the first spelling used is kept.
-- `p99 edit --project` files a card under a project, and `--no-project` takes that name off again, leaving the card in its site's project; the card keeps its lane either way.
-- `p99 board` prints the one board: each lane as `Name (count)`, then its cards with their project. [Work the inbox](inbox.md#the-one-board) has the rest.
+- `p99 edit --project` files a card under a project, or moves it to another; the card keeps its lane.
+- `p99 board` prints the one board: each lane as `Name (count)`, then its cards with their project. [Work your cards](inbox.md#the-one-board) has the rest.
 
 In text, an agent's action reads as the person's name with 🤖 (`Ada Lovelace 🤖`), with its label after `via` in `p99 card show`. Mark an agent as [the agents guide](agents.md) says.
 

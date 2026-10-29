@@ -10,6 +10,7 @@ case "${1:-}" in
     ;;
 esac
 if [ -d .dev ]; then .dev/bin/story-check; fi
+bin/no-old-words
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --no-tests=pass; else cargo test --quiet; fi

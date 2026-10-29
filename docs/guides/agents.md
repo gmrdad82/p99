@@ -1,11 +1,11 @@
 ---
-title: Let agents work the inbox
+title: Let agents work your cards
 description: Let a coding agent read and answer cards as you, marked with 🤖 everywhere it acts, using --agent or P99_AGENT and the JSON output.
 sidebar:
   order: 5
 ---
 
-An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same space key. What it writes is marked: its cards, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (pci)` in `p99 show`, `via pci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
+An agent, such as a coding assistant working in your repository, uses the same `p99` commands you do and signs with the same space key. What it writes is marked: its cards, comments and changes read as your name with a robot, `Ada Lovelace 🤖`, in the TUI, the CLI, the panel on the site, Slack and Discord, and in mail. When the agent gives a label (`--agent=<label>` or `P99_AGENT=<label>`), the thread's details show it too: `Ada Lovelace 🤖 (ci)` in `p99 show`, `via ci` in the TUI's thread and beside the robot in the panel. So everyone can tell what you wrote from what an agent wrote for you.
 
 ## Mark an agent's commands
 
