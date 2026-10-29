@@ -906,6 +906,7 @@ fn a_needs_you_answer_from_before_a_space_switch_never_sets_the_count() {
     use super::super::tests::{INBOX, run};
     let second = std::time::Duration::from_secs(1);
     let mut app = run(workers(&[("shop", current), ("two", current_too)]));
+    app.advance(second);
     let all = app.advance(second);
     assert!(all.contains("4 waiting"), "{all}");
     app.press("S");

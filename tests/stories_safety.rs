@@ -296,7 +296,10 @@ fn an_access_protected_host_answers_the_cli_through_its_service_token_and_p99_st
     let out = p99(&home, &["list", "--json"]);
     assert_eq!(out.status.code(), Some(0), "{}", text(&out.stderr));
     let answer: Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(answer, serde_json::json!({"issues": [], "more": false}));
+    assert_eq!(
+        answer,
+        serde_json::json!({"issues": [], "more": false, "space": {"slug": "main", "name": "main"}})
+    );
     keeps_secrets(&out);
     let heard = stub.heard.lock().unwrap();
     assert_eq!(heard.len(), 1);

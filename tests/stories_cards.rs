@@ -722,7 +722,10 @@ fn card_new_files_with_no_host_a_client_uid_and_the_body_from_stdin() {
         &[],
         None,
     );
-    assert_eq!(bare.stdout, "FEAT-41 filed in Splicer: t\n");
+    assert_eq!(
+        bare.stdout,
+        "FEAT-41 filed in Splicer: Export keeps every audio track\n"
+    );
 }
 
 #[test]

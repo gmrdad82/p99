@@ -820,7 +820,9 @@ fn a_code_reaches_its_projects_or_the_whole_space_or_nothing() {
 #[test]
 fn a_parked_code_reads_in_the_warning_colour_and_is_not_counted_active() {
     let mut app = run(with_parked());
-    app.go(CODES);
+    let text = app.go(CODES);
+    assert!(line(&text, "▌").contains("…p4rk"), "{text}");
+    app.press("down");
     let buffer = app.frame();
     assert_eq!(
         Some(buffer[spot(&buffer, "…p4rk", "parked")].fg),

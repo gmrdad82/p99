@@ -488,7 +488,11 @@ fn cards_of_several_spaces_share_the_lanes_and_name_their_space() {
     view.cards.push(other);
     let text = app.event(BOARD, Msg::Board(Vec::new(), Ok(view)));
     assert!(text.contains("Stuck 2"), "{text}");
-    assert!(text.contains("shop, blog"), "{text}");
+    assert!(
+        text.lines()
+            .any(|l| l.contains(" FEAT-9 ") && l.contains(" blog ")),
+        "{text}"
+    );
     assert!(line(&text, " FEAT-9 ").contains(" shop "), "{text}");
     assert_eq!(lane(&app, "Stuck"), ["BUG-26", "FEAT-9"]);
     heard(

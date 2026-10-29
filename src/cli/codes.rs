@@ -254,6 +254,7 @@ mod tests {
                 "name",
                 "email",
                 "hosts",
+                "grant",
                 "manager",
                 "role",
                 "hint",

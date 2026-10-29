@@ -2121,12 +2121,13 @@ fn the_interactive_walk_asks_name_email_mail_and_host_in_order_and_takes_each_de
     let out = h.run(
         &["setup", "--no-vault"],
         &[("P99_TOKEN", TOKEN)],
-        Some("Ada Lovelace\nada@example.com\nn\nshop.example.com\n\n\n"),
+        Some("Ada Lovelace\nada@example.com\n\nn\nshop.example.com\n\n\n"),
     );
     out.ok();
     let order: Vec<usize> = [
         "Your name, as P99 shows it: ",
         "Your e-mail (it becomes the space's first Owner): ",
+        "Where does the P99 key come from?",
         "Turn mail on through Resend? [y/N]: ",
         "Hosts this space serves, comma separated: ",
         "Environment of shop.example.com [production]: ",
@@ -2156,7 +2157,7 @@ fn the_interactive_walk_asks_again_for_a_blank_name_a_bad_email_and_a_mistyped_y
     let out = h.run(
         &["setup", "--no-vault", "--host", "shop.example.com"],
         &[("P99_TOKEN", TOKEN)],
-        Some("\nAda Lovelace\nada\nada@example.com\nmaybe\nn\n"),
+        Some("\nAda Lovelace\nada\nada@example.com\n\nmaybe\nn\n"),
     );
     out.ok();
     assert_eq!(
@@ -2206,7 +2207,7 @@ fn the_interactive_walk_refuses_a_host_that_is_not_a_hostname() {
     let out = h.run(
         &["setup", "--no-vault", "--no-mail"],
         &[("P99_TOKEN", TOKEN)],
-        Some("Ada Lovelace\nada@example.com\n-bad\n"),
+        Some("Ada Lovelace\nada@example.com\n\n-bad\n"),
     );
     assert_eq!(out.code, Some(1), "{}", out.stderr);
     assert!(out.stderr.contains("is not a hostname"), "{}", out.stderr);

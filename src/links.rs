@@ -350,7 +350,7 @@ mod tests {
         assert!(
             pick(codes(), "grace@example.com", None, None)
                 .unwrap_err()
-                .contains("2 (example.com), 3 (shop.example.com)")
+                .contains("2 (hosts: example.com), 3 (hosts: shop.example.com)")
         );
         assert!(pick(codes(), "linus@example.com", None, None).is_err());
     }
