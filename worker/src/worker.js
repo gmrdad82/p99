@@ -52,12 +52,8 @@ import avatarSource from "./web/avatar.js";
 import cssSource from "./web/p99.css";
 import concreteWebp from "./web/art/concrete.webp";
 import concrete2xWebp from "./web/art/concrete-2x.webp";
-import concretePng from "./web/art/concrete.png";
-import concrete2xPng from "./web/art/concrete-2x.png";
 import concreteDarkWebp from "./web/art/concrete-dark.webp";
 import concreteDark2xWebp from "./web/art/concrete-dark-2x.webp";
-import concreteDarkPng from "./web/art/concrete-dark.png";
-import concreteDark2xPng from "./web/art/concrete-dark-2x.png";
 import lockupDarkSource from "./web/art/lockup-dark.svg";
 import badgeFreeSource from "./web/badges/free.svg";
 import badgeStudioSource from "./web/badges/studio.svg";
@@ -163,12 +159,8 @@ const STATIC_FILES = {
   "/_p99/capture.js": { source: CAPTURE_SOURCE, type: JS_TYPE },
   "/_p99/art/concrete.webp": { bytes: concreteWebp, type: "image/webp" },
   "/_p99/art/concrete-2x.webp": { bytes: concrete2xWebp, type: "image/webp" },
-  "/_p99/art/concrete.png": { bytes: concretePng, type: "image/png" },
-  "/_p99/art/concrete-2x.png": { bytes: concrete2xPng, type: "image/png" },
   "/_p99/art/concrete-dark.webp": { bytes: concreteDarkWebp, type: "image/webp" },
   "/_p99/art/concrete-dark-2x.webp": { bytes: concreteDark2xWebp, type: "image/webp" },
-  "/_p99/art/concrete-dark.png": { bytes: concreteDarkPng, type: "image/png" },
-  "/_p99/art/concrete-dark-2x.png": { bytes: concreteDark2xPng, type: "image/png" },
   "/_p99/art/lockup-dark.svg": { source: lockupDarkSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/free.svg": { source: badgeFreeSource, type: "image/svg+xml; charset=utf-8" },
   "/_p99/badges/studio.svg": { source: badgeStudioSource, type: "image/svg+xml; charset=utf-8" },

@@ -31,7 +31,7 @@ const OWN_FILES = {
   "/_p99/app.js": { source: appScript, type: JS_TYPE },
   "/_p99/app.css": { source: appStyle, type: "text/css; charset=utf-8" },
 };
-const SHARED_FILES = ["/_p99/panel.js", "/_p99/board.js", "/_p99/avatar.js", "/_p99/p99.css", "/_p99/art/concrete.webp", "/_p99/art/concrete-2x.webp", "/_p99/art/concrete.png", "/_p99/art/concrete-2x.png", "/_p99/art/concrete-dark.webp", "/_p99/art/concrete-dark-2x.webp", "/_p99/art/concrete-dark.png", "/_p99/art/concrete-dark-2x.png", "/_p99/art/lockup-dark.svg", "/_p99/badges/free.svg", "/_p99/badges/studio.svg", "/_p99/badges/agency.svg", "/_p99/badges/ff.svg"];
+const SHARED_FILES = ["/_p99/panel.js", "/_p99/board.js", "/_p99/avatar.js", "/_p99/p99.css", "/_p99/art/concrete.webp", "/_p99/art/concrete-2x.webp", "/_p99/art/concrete-dark.webp", "/_p99/art/concrete-dark-2x.webp", "/_p99/art/lockup-dark.svg", "/_p99/badges/free.svg", "/_p99/badges/studio.svg", "/_p99/badges/agency.svg", "/_p99/badges/ff.svg"];
 
 export function appHost(env) {
   const host = typeof env.APP_HOST === "string" ? env.APP_HOST.trim().toLowerCase() : "";
