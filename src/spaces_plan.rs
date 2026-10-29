@@ -408,6 +408,32 @@ pub fn parked(plan: Option<&Value>, park: &[u64]) -> Result<(), String> {
     }
 }
 
+pub const PARKED_SQL: &str =
+    "SELECT id, grant_json FROM codes WHERE id IN (SELECT value FROM json_each(?1))";
+
+pub fn kept_parked(rows: &[Value], park: &[u64]) -> Option<String> {
+    let still = |id: u64| {
+        rows.iter().any(|row| {
+            u64::try_from(count(row, "id")).is_ok_and(|at| at == id)
+                && row["grant_json"]
+                    .as_str()
+                    .and_then(|text| serde_json::from_str::<Value>(text).ok())
+                    .is_some_and(|grant| {
+                        grant.get("space").is_none()
+                            && grant["projects"].as_array().is_some_and(Vec::is_empty)
+                    })
+        })
+    };
+    if park.is_empty() || !park.iter().all(|id| still(*id)) {
+        return None;
+    }
+    let ids: Vec<String> = park.iter().map(|id| format!("#{id}")).collect();
+    Some(format!(
+        "--park {}: already parked by the deploy that applied 0018; nothing to change",
+        ids.join(", ")
+    ))
+}
+
 pub fn lower(section: &Value) -> Option<String> {
     let (before, after) = (&section["counts"]["before"], &section["counts"]["after"]);
     let refuse = |what: String, was: i64, now: i64| {
@@ -978,6 +1004,29 @@ mod tests {
         );
         assert_eq!(parked(None, &[]), Ok(()));
         assert_eq!(parked(Some(&json!({})), &[]), Ok(()));
+    }
+
+    #[test]
+    fn park_on_a_rerun_after_0018_accepts_only_codes_already_parked() {
+        let rows = [
+            json!({ "id": 2, "grant_json": "{\"projects\":[]}" }),
+            json!({ "id": 3, "grant_json": "{\"projects\":[]}" }),
+            json!({ "id": 4, "grant_json": "{\"projects\":[1]}" }),
+            json!({ "id": 5, "grant_json": "{\"space\":true}" }),
+            json!({ "id": 6, "grant_json": null }),
+        ];
+        assert_eq!(
+            kept_parked(&rows, &[2, 3]).as_deref(),
+            Some(
+                "--park #2, #3: already parked by the deploy that applied 0018; nothing to change"
+            )
+        );
+        assert_eq!(kept_parked(&rows, &[2, 4]), None);
+        assert_eq!(kept_parked(&rows, &[5]), None);
+        assert_eq!(kept_parked(&rows, &[6]), None);
+        assert_eq!(kept_parked(&rows, &[9]), None);
+        assert_eq!(kept_parked(&rows, &[]), None);
+        assert_eq!(kept_parked(&[], &[2]), None);
     }
 
     #[test]

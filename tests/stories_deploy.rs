@@ -2800,11 +2800,55 @@ fn deploy_park_gives_a_listed_code_no_grant_mails_nobody_and_only_while_0018_is_
     assert!(h.cf.lock().unwrap().mail.is_none());
     assert_eq!(h.applied(), names(&SHIPPED));
 
+    h.cf.lock().unwrap().rows.insert(
+        0,
+        (
+            "grant_json FROM codes",
+            json!([
+                { "id": 1, "grant_json": "{\"space\":true}" },
+                { "id": 2, "grant_json": "{\"projects\":[]}" },
+                { "id": 3, "grant_json": "{\"projects\":[]}" }
+            ]),
+        ),
+    );
+    h.forget();
+    let rerun = h.run(&[
+        "deploy",
+        "--accept-plan",
+        &hash,
+        "--park",
+        "2",
+        "--park",
+        "3",
+    ]);
+    assert_eq!(rerun.code, Some(0), "{}", rerun.stderr);
+    assert!(
+        rerun.all().contains(
+            "  --  --park #2, #3: already parked by the deploy that applied 0018; nothing to change\n"
+        ),
+        "{}",
+        rerun.all()
+    );
+    assert!(h.inserted().is_empty());
+    assert!(!rerun.all().contains("  ok  parked #"), "{}", rerun.all());
+    let asked = h
+        .calls()
+        .iter()
+        .find(|c| c.sql().is_some_and(|s| s.contains("grant_json FROM codes")))
+        .map(|c| serde_json::from_str::<Value>(&c.body).unwrap()["params"].clone())
+        .expect("the deploy read the parked codes");
+    assert_eq!(asked, json!(["[2,3]"]));
+    assert!(h.cf.lock().unwrap().mail.is_none());
+
     h.refuses_and_changes_nothing(
-        &["deploy", "--park", "2"],
+        &["deploy", "--park", "1"],
         "--park parks a code only in the deploy that applies 0018; after it, `p99 invites set <id> --park` does it",
     );
-    never_shows_a_secret(&[&out, &done], &[]);
+    h.refuses_and_changes_nothing(
+        &["deploy", "--park", "2", "--park", "7"],
+        "--park parks a code only in the deploy that applies 0018; after it, `p99 invites set <id> --park` does it",
+    );
+    never_shows_a_secret(&[&out, &done, &rerun], &[]);
 }
 
 #[test]
