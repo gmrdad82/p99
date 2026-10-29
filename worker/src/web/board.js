@@ -301,6 +301,7 @@ function card(c) {
   e.dataset.order = String(c.order == null ? "" : c.order);
   e.dataset.label = c.label;
   if (c.host) e.dataset.host = c.host;
+  if (c.project) e.dataset.project = c.project;
   const a = person(c.assignee);
   e.append(h("div", { class: "p99-card-top" }, h("span", { class: "p99-key", text: c.key }), who(a)), h("b", { class: "p99-card-title", text: c.title }), c.project ? h("span", { class: "p99-card-project", text: c.project }) : null);
   e.setAttribute("aria-label", c.key + ", " + c.title + (c.project ? ", " + c.project : "") + (a && a.username ? ", " + handle(a) : ""));

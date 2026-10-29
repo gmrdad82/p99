@@ -9,7 +9,12 @@ let env = null, fonts = null, shots = 0;
 
 export function capture(e, full, since) {
   env = e;
+  if (!masks().whole) return Promise.reject(Object.assign(new Error("a mask selector can't be read here"), { why: "capture_mask" }));
   return shoot(full, CAPTURE_DEADLINE - (Date.now() - (since || Date.now())));
+}
+export function readable(e) {
+  env = e;
+  return masks().whole;
 }
 export function elementsAt(e, r) {
   env = e;
@@ -125,16 +130,23 @@ function probe() {
 let masked = null;
 function masks() {
   const list = Array.isArray(env && env.mask) ? env.mask : [];
-  if (masked && masked.list === list) return masked.ok;
-  const ok = list.slice(0, 50).filter((m) => {
-    if (typeof m !== "string" || !m.trim() || m.length > 200) return false;
+  if (masked && masked.list === list) return masked;
+  const ok = list.filter((m) => {
+    if (typeof m !== "string" || !m.trim()) return false;
     try { document.querySelector(m); return true; } catch (x) { return false; }
   });
-  masked = { list, ok };
-  return ok;
+  masked = { list, ok, whole: ok.length === list.length };
+  return masked;
 }
 function secret() {
-  return ["[data-p99-redact]"].concat(masks()).join(", ");
+  return ["[data-p99-redact]"].concat(masks().ok).join(", ");
+}
+function everywhere(scope, selector, out) {
+  scope.querySelectorAll(selector).forEach((n) => out.push(n));
+  scope.querySelectorAll("*").forEach((n) => {
+    if (n.shadowRoot && n !== env.host) everywhere(n.shadowRoot, selector, out);
+  });
+  return out;
 }
 function fillOf() {
   const c = env && typeof env.fill === "string" && env.fill.trim() ? env.fill.trim() : "#3b7dd8";
@@ -190,7 +202,7 @@ function shoot(full, deadline) {
   const hidden = [];
   const boxes = [];
   const fill = fillOf();
-  document.querySelectorAll(secret()).forEach((n) => {
+  everywhere(document, secret(), []).forEach((n) => {
     if (n.closest("[data-p99-ignore]") || n === env.host) return;
     const b = n.getBoundingClientRect();
     mark(n, "data-p99-hide", String(hidden.length));
