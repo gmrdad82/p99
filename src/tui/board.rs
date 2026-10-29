@@ -941,12 +941,11 @@ fn draw_card(
         tail.push((format!(" {who} "), palette.muted));
     }
     let mut parts = Vec::new();
-    if let Some(project) = card
-        .project
-        .as_deref()
-        .and_then(|p| snip(p, room.saturating_sub(2)))
-    {
-        parts.push((format!(" {project} "), palette.accent));
+    if let Some(project) = card.project.as_deref().filter(|_| room > 2) {
+        parts.push((
+            format!(" {} ", text::clip(project, room - 2)),
+            palette.accent,
+        ));
     }
     edge(
         buf,

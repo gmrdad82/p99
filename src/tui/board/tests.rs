@@ -229,7 +229,7 @@ fn a_card_shows_its_project_on_its_bottom_edge_and_a_plain_item_none() {
 }
 
 #[test]
-fn a_narrow_card_shortens_its_assignee_and_project_and_never_draws_a_lone_ellipsis() {
+fn a_narrow_card_shortens_its_assignee_and_never_draws_a_lone_ellipsis_for_it() {
     assert_eq!(handle("ada.lovelace", 20).as_deref(), Some("@ada.lovelace"));
     assert_eq!(handle("ada.lovelace", 9).as_deref(), Some("@ada…"));
     assert_eq!(handle("grace.hopper", 7).as_deref(), Some("@grace…"));

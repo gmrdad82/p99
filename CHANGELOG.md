@@ -7,7 +7,7 @@ All notable changes to P99 are listed here, newest first.
 ### Changed
 
 - An agent acting for a person can move a card to Done and close it as fixed, abandoned or duplicate, as the person can. Licence, parking and grants stay a person's.
-- The boards follow the approved drafts more closely: a web card shows its project and its assignee's face on its last row, the web board's header shows how many cards are done with a small bar, and a narrow TUI card still names its assignee and project (`@ada…`, `Storefr…`) instead of a lone `…`.
+- The boards follow the approved drafts more closely: a web card shows its project and its assignee's face on its last row, the web board's header shows how many cards are done with a small bar, and a narrow TUI card still names its assignee (`@ada…`) instead of a lone `…`; a project too long for its card is still cut after a whole word.
 - The README and docs images show today's P99: cards everywhere, the polished boards and the two counts on ⋯.
 
 ### Fixed
