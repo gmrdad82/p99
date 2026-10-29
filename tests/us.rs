@@ -28,6 +28,8 @@ mod licence;
 mod link;
 #[path = "us/migrate.rs"]
 mod migrate;
+#[path = "us/page.rs"]
+mod page;
 #[path = "us/projects.rs"]
 mod projects;
 #[path = "us/relink.rs"]
