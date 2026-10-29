@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
+
+[ "$(uname -s)/$(uname -m)" = "Darwin/arm64" ] || { echo "pack-mac: runs on an Apple Silicon Mac, not $(uname -s)/$(uname -m)" >&2; exit 2; }
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+[ -n "$version" ] || { echo "pack-mac: no version in Cargo.toml" >&2; exit 1; }
+
+cargo build --release --locked
+built=$(target/release/p99 --version)
+[ "$built" = "p99 $version" ] || { echo "pack-mac: target/release/p99 says '$built', not 'p99 $version'" >&2; exit 1; }
+
+stage=tmp/pack-mac
+rm -rf "$stage" && mkdir -p "$stage" dist
+cp target/release/p99 LICENSE README.md NOTICE "$stage/"
+tarball="dist/p99-v$version-macos-arm64.tar.gz"
+tar -czf "$tarball" -C "$stage" p99 LICENSE README.md NOTICE
+rm -rf "$stage"
+echo "pack-mac: $tarball"
