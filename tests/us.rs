@@ -10,6 +10,8 @@ mod live;
 #[path = "cli/stub.rs"]
 mod stub;
 
+#[path = "us/agent.rs"]
+mod agent;
 #[path = "us/board.rs"]
 mod board;
 #[path = "us/cloudflare.rs"]
@@ -18,6 +20,10 @@ mod cloudflare;
 mod delete;
 #[path = "us/deploy.rs"]
 mod deploy;
+#[path = "us/github.rs"]
+mod github;
+#[path = "us/hooks.rs"]
+mod hooks;
 #[path = "us/install.rs"]
 mod install;
 #[path = "us/invite.rs"]
@@ -26,6 +32,8 @@ mod invite;
 mod licence;
 #[path = "us/link.rs"]
 mod link;
+#[path = "us/mail.rs"]
+mod mail;
 #[path = "us/migrate.rs"]
 mod migrate;
 #[path = "us/page.rs"]
