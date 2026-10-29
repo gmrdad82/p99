@@ -705,7 +705,10 @@ fn event_line(text: &str) -> Option<String> {
     };
     Some(format!(
         "{key}  {}  {}  {name}: {said}",
-        field("type"),
+        match field("type").as_str() {
+            "item" | "issue" => "card".to_owned(),
+            other => other.to_owned(),
+        },
         field("host")
     ))
 }

@@ -98,11 +98,11 @@ The cards' own commands sit under `p99 card`: `new` files one (with `--project` 
 
 <p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first card's JSON: key, kind, status, title, host, env, page, reporter, counts and landing."></p>
 
-**Changes arrive live.** A new card, a comment, a change of label, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open inbox and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new cards as they come.
+**Changes arrive live.** A new card, a comment, a change of label, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open `p99 tui` and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new cards as they come.
 
 ```
 $ p99 watch --host shop.example.com
-BUG-12  item  shop.example.com  Grace Hopper: The total does not update
+BUG-12  card  shop.example.com  Grace Hopper: The total does not update
 BUG-12  comment  shop.example.com  Ada Lovelace 🤖: The total does not update
 BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 ```

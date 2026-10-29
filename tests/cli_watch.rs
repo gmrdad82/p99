@@ -90,7 +90,7 @@ fn event(value: serde_json::Value) -> String {
 fn watch_connects_signed_and_prints_one_line_per_event() {
     let events = [
         event(
-            json!({"type": "issue", "key": "BUG-7", "host": "shop.example.com", "title": "Cart is empty", "by": {"name": "Grace Hopper"}}),
+            json!({"type": "item", "key": "BUG-7", "host": "shop.example.com", "title": "Cart is empty", "by": {"name": "Grace Hopper"}}),
         ),
         event(
             json!({"type": "move", "key": "BUG-7", "host": "shop.example.com", "title": "Cart is empty", "from": "inbox", "to": "doing", "board": "Web", "by": {"name": "Ada Lovelace", "agent": true}}),
@@ -122,7 +122,7 @@ fn watch_connects_signed_and_prints_one_line_per_event() {
     assert_eq!(
         printed,
         [
-            "BUG-7  issue  shop.example.com  Grace Hopper: Cart is empty",
+            "BUG-7  card  shop.example.com  Grace Hopper: Cart is empty",
             "BUG-7  move  shop.example.com  Ada Lovelace 🤖: Cart is empty  Inbox -> Doing on Web",
             "board:Web  board.move  shop.example.com  P99: Doing -> Review",
             "board:Web  board  shop.example.com  P99: renamed",
