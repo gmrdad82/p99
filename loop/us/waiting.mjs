@@ -23,7 +23,7 @@ export default async function (kit) {
 
     const opened = await kit.tui("w enter");
     assert.ok(opened.includes(made.key) && opened.includes(`Look at the clip ${t}`), opened);
-    assert.ok(!opened.includes("Needs you ·"), opened);
+    assert.ok(opened.includes(`Cards / ${made.key}`), opened);
 
     await ok(kit, ["card", "move", made.key, "--to", "in-progress"]);
     assert.equal(waitingCount(await kit.tui("")), before, "the count goes down as the card moves out");

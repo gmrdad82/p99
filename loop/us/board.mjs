@@ -85,7 +85,7 @@ export default async function (kit) {
     const made = await card(kit, where.ops, `Still no host ${t}`);
 
     const opened = await kit.tui(`/ ${t} enter enter`);
-    assert.ok(opened.includes(`Inbox / ${made.key}`), opened);
+    assert.ok(opened.includes(`Cards / ${made.key}`), opened);
     assert.ok(opened.includes(`Still no host ${t}`), opened);
     assert.ok(!/host (null|undefined)/.test(opened), opened);
 
