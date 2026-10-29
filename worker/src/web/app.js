@@ -542,7 +542,7 @@ function drawBoard() {
   const shadow = el.attachShadow({ mode: "closed" });
   S.board = el;
   mount("board", h("div", { class: "app-screen app-wide" }, strip(), el));
-  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: hostFor(picked()) || firstHost(), stay: true, query, pickWord: "", item: (key, from) => openItem(key, from) };
+  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: hostFor(picked()) || firstHost(), stay: true, query, pickWord: "", item: (key, from) => openItem(key, from), add: (from) => openItem(null, from) };
   Promise.all([boardModule(), sheets()]).then(([m, list]) => {
     if (S.board !== el) return;
     shadow.adoptedStyleSheets = list;
@@ -573,9 +573,10 @@ function openItem(key, from) {
     space: host,
     title: spaceName(),
     code: null,
-    view: "item",
+    view: key ? "item" : "card",
     key,
     from,
+    project: picked(),
     ring: [],
     forget: () => {},
     closed: () => { s.open = false; },

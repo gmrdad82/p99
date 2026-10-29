@@ -6,6 +6,7 @@ const WORDS = {
   board: "Board",
   filtered: "showing {what}",
   close_board: "Close the board",
+  new_card: "New card",
   live: "Live",
   connecting: "Connecting…",
   offline_live: "Not live",
@@ -41,7 +42,10 @@ const CSS = `
 .p99-live[data-state=connecting]::before{background:var(--p99-status-warning);animation:p99-pulse 1.4s var(--p99-ease-in-out) infinite}
 .p99-board .p99-x{flex:none;display:grid;place-items:center;width:40px;height:40px;padding:0;border:1px solid color-mix(in srgb,currentColor 35%,transparent);border-radius:var(--p99-radius-full);background:transparent;color:var(--p99-ink);font:var(--p99-weight-medium) var(--p99-text-xl)/1 var(--p99-font-text);cursor:pointer;transition:background var(--p99-motion-hover-out) var(--p99-ease-in-out),border-color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
 @media (hover:hover){.p99-board .p99-x:hover{border-color:var(--p99-ink);background:color-mix(in srgb,var(--p99-ink) 10%,transparent);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
-.p99-board .p99-x:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
+.p99-board-new{flex:none;display:inline-flex;align-items:center;gap:var(--p99-space-sm);min-height:40px;padding:0 var(--p99-space-lg);border:1px solid var(--p99-control);border-radius:var(--p99-radius-full);background:var(--p99-raised);color:var(--p99-ink);font:var(--p99-weight-medium) var(--p99-text-sm) var(--p99-font-text);white-space:nowrap;cursor:pointer;transition:border-color var(--p99-motion-hover-out) var(--p99-ease-in-out)}
+.p99-board-new b{font-size:var(--p99-text-lg);line-height:1;color:var(--p99-accent-ink)}
+@media (hover:hover){.p99-board-new:hover{border-color:var(--p99-ink);transition-duration:var(--p99-motion-hover-in);transition-timing-function:var(--p99-ease-enter)}}
+.p99-board .p99-x:focus-visible,.p99-board-new:focus-visible,.p99-board-state button:focus-visible{outline:2px solid var(--p99-focus);outline-offset:2px}
 .p99-cols{--n:7;flex:1;min-height:0;display:grid;grid-template-columns:repeat(var(--n),minmax(172px,1fr));gap:var(--p99-space-lg);margin-bottom:var(--p99-space-md);padding:var(--p99-space-md) var(--p99-space-xl);overflow-x:auto;overscroll-behavior-x:contain}
 .p99-board{scrollbar-color:auto}
 @supports not selector(::-webkit-scrollbar){.p99-cols,.p99-cards{scrollbar-width:thin;scrollbar-color:var(--p99-scroll-thumb) transparent}}
@@ -149,9 +153,10 @@ function build(root) {
   B.live = h("span", { class: "p99-live", "data-state": "off", text: t("offline_live") });
   B.cols = h("div", { class: "p99-cols" });
   B.say = h("p", { class: "p99-sr", role: "status", "aria-live": "assertive" });
+  const add = typeof B.ctx.add === "function" ? h("button", { type: "button", class: "p99-board-new", onclick: (e) => B.ctx.add(e.currentTarget) }, h("b", { "aria-hidden": "true", text: "+" }), t("new_card")) : null;
   const x = stay ? null : h("button", { type: "button", class: "p99-x", "aria-label": t("close_board"), title: t("close_board"), onclick: () => close() }, h("span", { "aria-hidden": "true", text: "×" }));
   B.el = h("div", { class: stay ? "p99-board is-page" : "p99-board", role: stay ? "region" : "dialog", "aria-modal": stay ? null : "true", "aria-labelledby": "p99-board-title", tabindex: "-1", hidden: true },
-    h("header", { class: "p99-board-head" }, stay ? null : h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, x),
+    h("header", { class: "p99-board-head" }, stay ? null : h("b", { class: "p99-logo", text: "P99" }), h("div", { class: "p99-board-name" }, B.title, B.filter), B.live, add, x),
     B.cols,
     h("p", { class: "p99-sr", id: "p99-drag-help", text: t("drag_help") }),
     B.say);
