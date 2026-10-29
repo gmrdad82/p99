@@ -304,7 +304,8 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.ok(Object.hasOwn(me, "space") && Object.hasOwn(me.space, "slug") && Object.hasOwn(me.space, "name"));
     assert.deepEqual(me.projects, [hereProject]);
     assert.equal(me.project, hereProject);
-    assert.deepEqual(Object.keys(me.licence).sort(), ["link", "state"]);
+    assert.deepEqual(Object.keys(me.licence).sort(), ["link", "state", "stored"]);
+    assert.equal(me.licence.stored, false);
     assert.equal(me.licence.state, me.license);
     assert.equal(me.licensed, me.license !== "free");
     assert.equal(me.avatar, null);
@@ -339,16 +340,19 @@ export async function spaceChecks({ base, call, browse, mint, check, issueBody, 
     assert.match(lapsed.json.message, /covers builds up to 2020-01-01/);
     const put = await browse("PUT", "/licence", owner.secret, { key });
     assert.equal(put.status, 200, JSON.stringify(put.json));
-    assert.deepEqual(put.json.licence, { state: "studio", link: "shown" });
+    assert.deepEqual(put.json.licence, { state: "studio", link: "shown", stored: true });
     const me = (await browse("GET", "/me", owner.secret)).json;
     assert.equal(me.license, "studio");
     assert.equal(me.licensed, true);
+    assert.equal(me.licence.stored, true);
     const agency = await call("PUT", "/_p99/v1/licence", { actor: ada, body: { key: licenceKey({ tier: "agency", paid_through: "2099-12-31" }) } });
-    assert.deepEqual(agency.json.licence, { state: "agency", link: "hideable" });
+    assert.deepEqual(agency.json.licence, { state: "agency", link: "hideable", stored: true });
     const removed = await browse("DELETE", "/licence", owner.secret);
     assert.equal(removed.status, 200);
     assert.equal(removed.json.removed, true);
-    assert.equal((await browse("GET", "/me", owner.secret)).json.license, before);
+    const after = (await browse("GET", "/me", owner.secret)).json;
+    assert.equal(after.license, before);
+    assert.equal(after.licence.stored, false);
   });
 
   const avatarPut = (code, bytes, type) =>

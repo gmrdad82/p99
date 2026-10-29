@@ -224,7 +224,7 @@ export async function licenceOf(env, stored, now) {
   const read = await verifyKey(publicKeyOf(env), stored);
   if (!read.claims) return bindingLicence(env);
   const state = stateOf(read.claims, buildDay(env, now));
-  return { state, link: linkOf(state) };
+  return { state, link: linkOf(state), stored: true };
 }
 
 export function settingStatement(DB) {

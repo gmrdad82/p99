@@ -1621,7 +1621,7 @@ async function getMe(c) {
     link: linkShown(licence, config),
     license: licence.state,
     licensed: licensed(licence),
-    licence: { state: licence.state, link: licence.link },
+    licence: { state: licence.state, link: licence.link, stored: Boolean(licence.stored) },
     space: spaceOf(c.env),
     projects: projectNames(c.reach, c.dir),
     project: c.dir.projects.get(c.hostRow.project_id)?.name ?? null,
