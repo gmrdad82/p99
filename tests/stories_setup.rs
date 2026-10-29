@@ -982,6 +982,164 @@ fn an_account_scoped_token_is_verified_on_its_account_and_setup_goes_on() {
     never_shows(&[&out], &[]);
 }
 
+fn projects_written(h: &Home) -> Vec<Value> {
+    sqls(h)
+        .into_iter()
+        .filter(|(s, _)| s.starts_with("INSERT INTO projects"))
+        .map(|(_, p)| p)
+        .collect()
+}
+
+#[test]
+fn setup_puts_every_host_in_a_project_from_the_config_or_one_named_after_it() {
+    let (h, _cf) = blank("setup-projects", fresh());
+    setup(&h, &["--host", "shop.example.com", "--no-mail"]).ok();
+    assert_eq!(
+        projects_written(&h),
+        [json!(["shop.example.com", "shop.example.com"])]
+    );
+    let mut config = h.toml();
+    config["spaces"]["main"]
+        .get_mut("projects")
+        .and_then(toml::Value::as_table_mut)
+        .expect("setup placed the host in a project")
+        .insert(
+            "Blog".into(),
+            toml::Value::try_from(vec!["blog.example.com"]).unwrap(),
+        );
+    h.write(&toml::to_string(&config).unwrap());
+    let out = setup(
+        &h,
+        &[
+            "--json",
+            "--space",
+            "main",
+            "--host",
+            "shop.example.com",
+            "--host",
+            "blog.example.com=dev",
+            "--no-mail",
+        ],
+    );
+    out.ok();
+    assert_eq!(
+        projects_written(&h)[1..],
+        [
+            json!(["shop.example.com", "shop.example.com"]),
+            json!(["Blog", "blog.example.com"])
+        ]
+    );
+    let written = sqls(&h);
+    assert!(
+        written
+            .iter()
+            .filter(|(s, _)| s.starts_with("INSERT INTO projects"))
+            .all(|(s, _)| s.contains("ON CONFLICT (name) DO NOTHING"))
+    );
+    let hosts: Vec<&(String, Value)> = written
+        .iter()
+        .filter(|(s, _)| s.starts_with("INSERT INTO hosts"))
+        .collect();
+    assert_eq!(hosts.len(), 3);
+    for ((sql, params), (host, project)) in hosts.iter().zip([
+        ("shop.example.com", "shop.example.com"),
+        ("shop.example.com", "shop.example.com"),
+        ("blog.example.com", "Blog"),
+    ]) {
+        assert!(
+            sql.contains("(SELECT id FROM projects WHERE name = ?4)"),
+            "{sql}"
+        );
+        assert_eq!(params[0], host);
+        assert_eq!(params[3], project);
+    }
+    let mended: Vec<Value> = written
+        .iter()
+        .filter(|(s, _)| s.starts_with("UPDATE items SET project_id"))
+        .map(|(_, p)| p.clone())
+        .collect();
+    assert_eq!(mended.len(), 3);
+    assert_eq!(mended[2], json!(["blog.example.com"]));
+    assert!(
+        out.stderr
+            .contains("  ok  blog.example.com is in the project Blog"),
+        "{}",
+        out.stderr
+    );
+    let report = out.json();
+    let placed: Vec<(&str, &str)> = report["hosts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| (h["host"].as_str().unwrap(), h["project"].as_str().unwrap()))
+        .collect();
+    assert_eq!(
+        placed,
+        [
+            ("blog.example.com", "Blog"),
+            ("shop.example.com", "shop.example.com")
+        ]
+    );
+    let config = h.toml();
+    let projects = &config["spaces"]["main"]["projects"];
+    assert_eq!(
+        projects["Blog"],
+        toml::Value::try_from(vec!["blog.example.com"]).unwrap()
+    );
+    assert_eq!(
+        projects["shop.example.com"],
+        toml::Value::try_from(vec!["shop.example.com"]).unwrap()
+    );
+}
+
+#[test]
+fn setup_keeps_the_project_a_host_already_has_and_writes_it_to_the_config() {
+    let state: Shared = Arc::new(Mutex::new(fresh()));
+    let seen = state.clone();
+    let stub = Stub::new(move |req: &Req| {
+        let held = req.path.ends_with("/query")
+            && req.json()["sql"]
+                .as_str()
+                .is_some_and(|s| s.starts_with("SELECT p.name AS project FROM hosts"));
+        if held {
+            Reply::cf(
+                json!([{"success": true, "results": [{"project": "Storefront"}], "meta": {}}]),
+            )
+        } else {
+            answer(&seen, req)
+        }
+    });
+    let text = home::config(&stub.base);
+    let h = Home::with_config("setup-project-kept", stub, &text);
+    std::fs::remove_file(h.file()).unwrap();
+    let out = setup(&h, &["--host", "shop.example.com", "--no-mail"]);
+    out.ok();
+    assert!(
+        out.stdout
+            .contains("  ok  shop.example.com is in the project Storefront"),
+        "{}",
+        out.stdout
+    );
+    let host = sqls(&h)
+        .into_iter()
+        .find(|(s, _)| s.starts_with("INSERT INTO hosts"))
+        .expect("the host was written");
+    assert!(
+        host.0
+            .contains("project_id = COALESCE(hosts.project_id, excluded.project_id)"),
+        "{}",
+        host.0
+    );
+    assert_eq!(
+        h.toml()["spaces"]["main"]["projects"],
+        toml::Value::try_from(std::collections::BTreeMap::from([(
+            "Storefront",
+            vec!["shop.example.com"]
+        )]))
+        .unwrap()
+    );
+}
+
 #[test]
 fn a_route_another_worker_holds_is_named_and_the_host_is_not_added() {
     let cloud = Cloud {

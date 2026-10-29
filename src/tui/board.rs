@@ -17,7 +17,7 @@ use super::Msg;
 use super::badge::Badge;
 use super::deck::{BoardView, Card, MOVED, Patch, patch, request, settle, sort, stale};
 use super::inbox::Inbox;
-use super::projects::Narrow;
+use super::projects::{Narrow, Shared};
 use super::source::Source;
 
 const TALL: i32 = 4;
@@ -118,6 +118,7 @@ pub struct Board {
     following: bool,
     stale: Option<Instant>,
     badge: Badge,
+    shared: Option<Shared>,
 }
 
 impl Board {
@@ -127,6 +128,7 @@ impl Board {
             following: false,
             stale: None,
             names: source.spaces(),
+            shared: None,
             many: source.scoped().len() > 1,
             projects: Vec::new(),
             asked: Vec::new(),
@@ -156,6 +158,19 @@ impl Board {
     pub fn badge(mut self, badge: Badge) -> Self {
         self.badge = badge;
         self
+    }
+
+    pub fn shared(mut self, shared: Shared) -> Self {
+        self.shared = Some(shared);
+        self
+    }
+
+    fn named(&mut self) {
+        let Some(shared) = &self.shared else { return };
+        let state = shared.0.borrow();
+        if state.names.len() == self.names.len() && state.names != self.names {
+            self.names.clone_from(&state.names);
+        }
     }
 
     fn lanes(&self) -> usize {
@@ -1223,6 +1238,7 @@ impl Screen<Msg> for Board {
             return;
         }
         super::BOARD_SHOWN.store(true, Ordering::Relaxed);
+        self.named();
         self.draw_board(frame, area, palette);
     }
 

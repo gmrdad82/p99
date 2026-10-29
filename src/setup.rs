@@ -864,7 +864,25 @@ fn steps(
 ) -> Result<Steps, String> {
     let before = applied(cf, &entry.account_id, &entry.database_id)?;
     let (accepted, plan) = crate::migrate::gate(cf, space, entry, &before, accept)?.unzip();
-    crate::spaces_plan::parked(plan.as_ref(), park)?;
+    let park = match crate::spaces_plan::parked(plan.as_ref(), park) {
+        Ok(()) => park.to_vec(),
+        Err(why)
+            if before
+                .iter()
+                .any(|a| a.starts_with(crate::spaces_plan::STEP)) =>
+        {
+            let ids = serde_json::to_string(park).map_err(|e| e.to_string())?;
+            let rows = cf.query(
+                &entry.account_id,
+                &entry.database_id,
+                crate::spaces_plan::PARKED_SQL,
+                &[json!(ids)],
+            )?;
+            note(&crate::spaces_plan::kept_parked(&rows, park).ok_or(why)?);
+            Vec::new()
+        }
+        Err(why) => return Err(why),
+    };
     let already: Vec<String> = bundle::MIGRATIONS
         .iter()
         .filter(|(name, _)| before.iter().any(|a| a == name))
@@ -875,7 +893,7 @@ fn steps(
         already,
         accepted,
         plan,
-        park: park.to_vec(),
+        park,
     })
 }
 
@@ -1207,15 +1225,62 @@ fn write_env(cf: &Cloudflare, account: &Account, env: &str, kind: &str) -> Resul
     Ok(())
 }
 
-fn write_host(cf: &Cloudflare, account: &Account, host: &str, entry: &Host) -> Result<(), String> {
+const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+
+fn write_host(
+    cf: &Cloudflare,
+    account: &Account,
+    host: &str,
+    entry: &Host,
+    project: &str,
+) -> Result<String, String> {
     let config = entry.pushed();
+    let (id, db) = (&account.account_id, &account.database_id);
     cf.query(
-        &account.account_id,
-        &account.database_id,
-        "INSERT INTO hosts (host, env, config_json, created_at) VALUES (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json",
-        &[json!(host), json!(entry.env), json!(config.to_string())],
+        id,
+        db,
+        &format!(
+            "INSERT INTO projects (name, created_at) SELECT ?1, {NOW} WHERE NOT EXISTS (SELECT 1 FROM hosts WHERE host = ?2 AND project_id IS NOT NULL) ON CONFLICT (name) DO NOTHING"
+        ),
+        &[json!(project), json!(host)],
     )?;
-    Ok(())
+    cf.query(
+        id,
+        db,
+        &format!(
+            "INSERT INTO hosts (host, env, config_json, created_at, project_id) VALUES (?1, ?2, ?3, {NOW}, (SELECT id FROM projects WHERE name = ?4)) ON CONFLICT (host) DO UPDATE SET env = excluded.env, config_json = excluded.config_json, project_id = COALESCE(hosts.project_id, excluded.project_id)"
+        ),
+        &[
+            json!(host),
+            json!(entry.env),
+            json!(config.to_string()),
+            json!(project),
+        ],
+    )?;
+    cf.query(
+        id,
+        db,
+        "UPDATE items SET project_id = (SELECT project_id FROM hosts WHERE host = ?1) WHERE host = ?1 AND project_id IS NULL",
+        &[json!(host)],
+    )?;
+    let held = cf.query(
+        id,
+        db,
+        "SELECT p.name AS project FROM hosts h JOIN projects p ON p.id = h.project_id WHERE h.host = ?1",
+        &[json!(host)],
+    )?;
+    Ok(held
+        .first()
+        .and_then(|row| row["project"].as_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(project)
+        .to_owned())
+}
+
+fn project_for(account: &Account, host: &str) -> String {
+    account
+        .project_of(host)
+        .map_or_else(|| host.to_owned(), str::to_owned)
 }
 
 fn route_pattern(host: &str) -> String {
@@ -1872,14 +1937,17 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         let mut entry = config.hosts.get(&spec.host).cloned().unwrap_or_default();
         entry.account = name.clone();
         entry.env = spec.env.clone();
+        let wanted = project_for(&account, &spec.host);
         write_env(&cf, &account, &spec.env, &spec.kind)?;
-        write_host(&cf, &account, &spec.host, &entry)?;
+        let project = write_host(&cf, &account, &spec.host, &entry, &wanted)?;
         done(&format!(
             "{} serves the environment {} ({})",
             spec.host, spec.env, spec.kind
         ));
+        done(&format!("{} is in the project {project}", spec.host));
+        account.place(&spec.host, &project);
         config.hosts.insert(spec.host.clone(), entry);
-        config.save()?;
+        save(&mut config, &account)?;
     }
 
     let hosts: Vec<&str> = config.hosts_of(&name);
@@ -1932,6 +2000,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
                 json!({
                     "host": h,
                     "env": config.hosts[*h].env,
+                    "project": config.project_of_host(h),
                     "kind": kind,
                     "routes": [route_pattern(h)],
                     "created": did.map(|r| r.created),

@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use super::{Global, client_for, key_of, print_json};
+use super::{Global, client_for, key_of, named, print_json};
 use crate::config::Config;
 use crate::wire::{Merged, out};
 
@@ -107,7 +107,7 @@ fn feed_list(config: &Config, global: &Global) -> Result<(), String> {
     let hosts: Vec<(&String, bool)> = config
         .hosts
         .iter()
-        .filter(|(_, h)| global.account.as_ref().is_none_or(|a| *a == h.account))
+        .filter(|(_, h)| named(global).is_none_or(|a| a == h.account))
         .map(|(host, h)| (host, h.feed))
         .collect();
     if global.json {

@@ -64,6 +64,21 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
         if !self.shared.0.borrow().counted {
             self.ask(false, cx);
         }
+        self.name(cx);
+    }
+
+    fn name(&mut self, cx: &mut Cx<'_, Msg>) {
+        let name = {
+            let mut state = self.shared.0.borrow_mut();
+            !std::mem::replace(&mut state.named, true) && !self.source.is_demo()
+        };
+        if name {
+            let source = self.source.clone();
+            cx.detach(move || {
+                let (names, whole) = source.lookup();
+                Msg::Spaces(names, whole)
+            });
+        }
     }
 
     fn reading(&self) -> bool {
@@ -91,8 +106,8 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             state.asking = true;
             state.due = None;
         }
-        let source = self.source.clone();
-        cx.detach(move || Msg::Waiting(open, source.waiting()));
+        let (source, scoped) = (self.source.clone(), self.shared.scoped());
+        cx.detach(move || Msg::Waiting(open, scoped, source.waiting()));
     }
 
     fn soon(&mut self, after: Duration) {
@@ -170,12 +185,25 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
         );
     }
 
-    fn got(&mut self, open: bool, result: Result<Waiting, String>, cx: &mut Cx<'_, Msg>) {
-        {
+    fn got(
+        &mut self,
+        open: bool,
+        scoped: u64,
+        result: Result<Waiting, String>,
+        cx: &mut Cx<'_, Msg>,
+    ) {
+        let counted = {
             let mut state = self.shared.0.borrow_mut();
             state.asking = false;
+            state.counted
+        };
+        if scoped != self.shared.scoped() {
+            if !counted {
+                self.ask(open, cx);
+            }
+            return;
         }
-        tally(&self.shared, &result);
+        tally(&self.shared, scoped, &result);
         match result {
             _ if !open || !self.free() => {}
             Ok((_, cards)) => self.offer_waiting(cards, cx),
@@ -184,7 +212,10 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
     }
 }
 
-pub fn tally(shared: &Shared, result: &Result<Waiting, String>) {
+pub fn tally(shared: &Shared, scoped: u64, result: &Result<Waiting, String>) {
+    if scoped != shared.scoped() {
+        return;
+    }
     if let Ok((count, cards)) = result {
         let projects = cards
             .iter()
@@ -312,14 +343,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         if !self.shared.0.borrow().counted {
             self.ask(false, cx);
         }
-        let name = {
-            let mut state = self.shared.0.borrow_mut();
-            !std::mem::replace(&mut state.named, true) && !self.source.is_demo()
-        };
-        if name {
-            let source = self.source.clone();
-            cx.detach(move || Msg::Spaces(source.named()));
-        }
+        self.name(cx);
     }
 
     fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -381,8 +405,13 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         self.now = self.now.max(cx.now());
         self.watch(&event);
         match event {
-            Msg::Waiting(open, result) => self.got(open, result, cx),
-            Msg::Spaces(names) => self.shared.names(names, self.source.scope()),
+            Msg::Waiting(open, scoped, result) => self.got(open, scoped, result, cx),
+            Msg::Spaces(names, whole) => {
+                self.shared.names(names, self.source.scope());
+                if !whole {
+                    self.shared.0.borrow_mut().named = false;
+                }
+            }
             Msg::Projects(Ok(names)) => {
                 self.shared.0.borrow_mut().known = names;
                 if self.free() {

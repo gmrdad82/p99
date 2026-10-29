@@ -272,9 +272,9 @@ pub enum Msg {
     Shifted(String, Result<deck::Moved, String>),
     Heard(usize, String),
     Labels(Result<Vec<String>, String>),
-    Waiting(bool, Result<waiting::Waiting, String>),
+    Waiting(bool, u64, Result<waiting::Waiting, String>),
     Projects(Result<Vec<String>, String>),
-    Spaces(Vec<String>),
+    Spaces(Vec<String>, bool),
 }
 
 fn report(
@@ -391,7 +391,9 @@ fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
         .screen(
             Section::new("Board"),
             Around::new(
-                Board::new(source.clone(), palette).badge(badge.clone()),
+                Board::new(source.clone(), palette)
+                    .badge(badge.clone())
+                    .shared(shared.clone()),
                 source.clone(),
                 palette,
                 shared.clone(),

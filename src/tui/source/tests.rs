@@ -590,7 +590,7 @@ fn current(path: &str) -> (u16, &'static str) {
     if path.starts_with("/v1/space") {
         return (
             200,
-            r#"{"space":{"slug":"shop","name":"Shop"},"projects":[]}"#,
+            r#"{"space":{"slug":"shop","name":"Shop"},"projects":[{"name":"Storefront","hosts":["shop.example.com"],"open":1,"closed":0}]}"#,
         );
     }
     static WAITING: OnceLock<String> = OnceLock::new();
@@ -604,10 +604,7 @@ fn current(path: &str) -> (u16, &'static str) {
         return (200, waiting.as_str());
     }
     if path.starts_with("/v1/projects") {
-        return (
-            200,
-            r#"{"projects":[{"name":"Storefront","open":1,"done":0}]}"#,
-        );
+        return (403, r#"{"message":"not an owner"}"#);
     }
     if path.starts_with("/v1/labels") {
         return (
@@ -619,11 +616,28 @@ fn current(path: &str) -> (u16, &'static str) {
 }
 
 fn current_too(path: &str) -> (u16, &'static str) {
-    if path.starts_with("/v1/projects") {
+    if path.starts_with("/v1/space") {
         return (
             200,
-            r#"{"projects":[{"name":"storefront","open":2,"done":0},{"name":"Mobile app","open":1,"done":1}]}"#,
+            r#"{"space":{"slug":"two","name":"Two"},"projects":[{"name":"storefront","hosts":[],"open":2,"closed":0},{"name":"Mobile app","hosts":["app.example.com"],"open":0,"closed":0}]}"#,
         );
+    }
+    current(path)
+}
+
+fn before_spaces(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/v1/space") {
+        return ROUTELESS;
+    }
+    if path.starts_with("/v1/projects") {
+        return (200, r#"{"projects":[{"name":"Legacy","open":1,"done":0}]}"#);
+    }
+    current(path)
+}
+
+fn space_down(path: &str) -> (u16, &'static str) {
+    if path.starts_with("/v1/space") {
+        return (500, r#"{"message":"the space is not answering"}"#);
     }
     current(path)
 }
@@ -837,6 +851,75 @@ fn projects_merge_across_spaces_in_any_case_and_skip_a_routeless_one() {
         alone.projects().expect("nothing failed"),
         Vec::<String>::new()
     );
+}
+
+#[test]
+fn projects_come_from_the_space_for_any_code_even_empty_ones_and_fall_back_on_an_older_worker() {
+    let source = workers(&[("two", current_too)]);
+    assert_eq!(
+        source.projects().expect("the space lists its projects"),
+        ["Mobile app", "storefront"]
+    );
+    let older = workers(&[("old", before_spaces)]);
+    assert_eq!(
+        older
+            .projects()
+            .expect("the older Worker lists its projects"),
+        ["Legacy"]
+    );
+    let down = workers(&[("down", space_down)]);
+    assert_eq!(
+        down.projects().err().as_deref(),
+        Some("down: the space is not answering (500)")
+    );
+}
+
+#[test]
+fn a_space_whose_name_cannot_be_read_says_so_so_the_next_start_asks_again() {
+    let named = workers(&[("shop", current), ("two", current_too)]);
+    assert_eq!(named.lookup(), (vec!["Shop".into(), "Two".into()], true));
+    let partly = workers(&[("shop", current), ("down", space_down)]);
+    assert_eq!(partly.lookup(), (vec!["Shop".into(), "down".into()], false));
+    let sample = Source::demo(std::time::Duration::ZERO);
+    assert!(sample.lookup().1);
+}
+
+#[test]
+fn board_cards_from_several_spaces_are_tagged_with_each_space_name_not_its_slug() {
+    use super::super::tests::{BOARD, run};
+    let mut app = run(workers(&[("shop", current), ("two", current_too)]));
+    let text = app.go(BOARD);
+    let cards: Vec<&str> = text.lines().filter(|l| l.contains("BUG-25")).collect();
+    assert!(cards.iter().any(|l| l.contains(" Shop ")), "{text}");
+    assert!(cards.iter().any(|l| l.contains(" Two ")), "{text}");
+    assert!(
+        cards
+            .iter()
+            .all(|l| !l.contains(" shop ") && !l.contains(" two ")),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_needs_you_answer_from_before_a_space_switch_never_sets_the_count() {
+    use super::super::Msg;
+    use super::super::tests::{INBOX, run};
+    let second = std::time::Duration::from_secs(1);
+    let mut app = run(workers(&[("shop", current), ("two", current_too)]));
+    let all = app.advance(second);
+    assert!(all.contains("4 waiting"), "{all}");
+    app.press("S");
+    let one = app.advance(second);
+    assert!(one.contains("2 waiting"), "{one}");
+    app.event(INBOX, Msg::Waiting(false, 0, Ok((9, Vec::new()))));
+    let stale = app.advance(second);
+    assert!(
+        stale.contains("2 waiting") && !stale.contains("9 waiting"),
+        "{stale}"
+    );
+    app.event(INBOX, Msg::Waiting(false, 1, Ok((7, Vec::new()))));
+    let fresh = app.advance(second);
+    assert!(fresh.contains("7 waiting"), "{fresh}");
 }
 
 #[test]

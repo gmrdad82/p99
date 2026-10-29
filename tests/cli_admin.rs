@@ -325,6 +325,58 @@ fn hosts_add_into_a_project_the_space_lacks_says_how_to_make_it_and_changes_noth
 }
 
 #[test]
+fn hosts_add_that_the_worker_refuses_leaves_the_config_as_it_was() {
+    let h = Home::new("hosts-add-put-refused", |req: &Req| {
+        if req.is("PUT", "/_p99/v1/hosts/new.example.com") {
+            Reply::problem(400, "config is not valid")
+        } else {
+            fake::any(req)
+        }
+    });
+    let before = h.config();
+    h.p99(&["hosts", "add", "new.example.com", "--project", "Shop"])
+        .refused("config is not valid (400)");
+    assert_eq!(h.config(), before);
+    assert!(h.stub.under("PUT", "/_p99/v1/envs/").is_empty());
+}
+
+#[test]
+fn hosts_add_when_the_space_cannot_be_read_stops_before_any_change() {
+    let h = Home::new("hosts-add-space-down", |req: &Req| {
+        if req.is("GET", "/_p99/v1/space") {
+            Reply::problem(500, "the space is not answering")
+        } else {
+            fake::any(req)
+        }
+    });
+    let before = h.config();
+    h.p99(&["hosts", "add", "new.example.com", "--project", "Shop"])
+        .refused("the space is not answering");
+    assert_eq!(h.config(), before);
+    assert!(h.stub.writes().is_empty());
+    assert!(h.stub.under("POST", "/cf/").is_empty());
+}
+
+#[test]
+fn hosts_set_on_a_host_the_worker_lacks_gets_the_workers_project_refusal() {
+    let h = home("hosts-set-new-host");
+    h.write(&format!(
+        "{}\n[hosts.\"new.example.com\"]\nspace = \"main\"\n",
+        h.config()
+    ));
+    h.p99(&["hosts", "set", "new.example.com", "--corner", "top-left"])
+        .refused(
+            "a new host needs a project: p99 hosts add new.example.com --project <name> (400)",
+        );
+    let put = h.stub.call("PUT", "/_p99/v1/hosts/new.example.com").json();
+    assert!(put.get("project").is_none());
+    let moved = h.p99(&["hosts", "set", "new.example.com", "--project", "Nowhere"]);
+    moved.refused(
+        "no project is called Nowhere in the space main; p99 projects add \"Nowhere\" makes it",
+    );
+}
+
+#[test]
 fn hosts_add_with_a_token_cloudflare_refuses_stops_before_the_worker() {
     let h = Home::new("hosts-add-denied", |req: &Req| {
         if req.path.starts_with("/cf/") {
@@ -510,6 +562,12 @@ fn feed_lists_turns_on_and_off_and_pushes_each_change() {
     assert_eq!(
         other.stdout,
         "no hosts yet; p99 hosts add <host> --project <name> --env <env>\n"
+    );
+    let bare = h.p99(&["feed", "--space"]);
+    bare.ok();
+    assert_eq!(
+        bare.lines(),
+        ["dev.example.com   off", "shop.example.com  off"]
     );
 }
 
@@ -1928,6 +1986,97 @@ fn invites_set_changes_a_grant_and_never_mails() {
             .writes()
             .iter()
             .all(|r| r.json().get("mail").is_none())
+    );
+}
+
+#[test]
+fn invites_set_reads_the_code_out_of_the_workers_reply() {
+    let h = Home::new("invites-set-shape", |req: &Req| {
+        if req.is("PATCH", "/_p99/v1/codes/4") {
+            let mut held = code(
+                4,
+                "Grace Hopper",
+                "grace@example.com",
+                &["shop.example.com"],
+            );
+            held["grant"] = req.json()["grant"].clone();
+            Reply::ok(json!({"code": held}))
+        } else {
+            fake::any(req)
+        }
+    });
+    let json = h
+        .p99(&["invites", "set", "4", "--project", "Blog", "--json"])
+        .json();
+    assert_eq!(json["id"], 4);
+    assert_eq!(json["grant"], json!({"projects": ["Blog"]}));
+    assert!(json.get("code").is_none());
+    let bare = Home::new("invites-set-bare", |req: &Req| {
+        if req.is("PATCH", "/_p99/v1/codes/4") {
+            Reply::ok(code(4, "Grace Hopper", "grace@example.com", &[]))
+        } else {
+            fake::any(req)
+        }
+    });
+    bare.p99(&["invites", "set", "4", "--park"])
+        .refused("unexpected answer: no code in the reply");
+}
+
+#[test]
+fn a_named_space_with_no_project_says_it_grants_the_whole_space_before_sending() {
+    let h = Home::new("invite-whole-named", |req: &Req| {
+        if req.is("POST", "/_p99/v1/codes") || req.is("PATCH", "/_p99/v1/codes/4") {
+            Reply::problem(503, "held")
+        } else {
+            fake::any(req)
+        }
+    });
+    let note = "--space main with no --project grants the whole space PITO MD";
+    let out = h.p99(&[
+        "invite",
+        "--space",
+        "main",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--owner",
+        "--no-mail",
+    ]);
+    out.refused("held (503)");
+    assert!(
+        out.stderr
+            .contains(&format!("{note} as an Owner; --project <name> grants less")),
+        "{}",
+        out.stderr
+    );
+    let set = h.p99(&["invites", "set", "4", "--space", "main"]);
+    set.refused("held");
+    assert!(
+        set.stderr
+            .contains(&format!("{note}; --project <name> grants less")),
+        "{}",
+        set.stderr
+    );
+    let bare = h.p99(&["invites", "set", "4", "--space"]);
+    assert!(
+        !bare.stderr.contains("with no --project"),
+        "{}",
+        bare.stderr
+    );
+    let some = h.p99(&[
+        "invites",
+        "set",
+        "4",
+        "--space",
+        "main",
+        "--project",
+        "Shop",
+    ]);
+    assert!(
+        !some.stderr.contains("with no --project"),
+        "{}",
+        some.stderr
     );
 }
 
