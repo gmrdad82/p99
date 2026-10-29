@@ -34,6 +34,11 @@ pub struct BoardCard {
     #[serde(default)]
     pub lane: Option<u32>,
     pub title: String,
+    #[serde(
+        default,
+        deserialize_with = "crate::card::host_in",
+        serialize_with = "crate::card::host_out"
+    )]
     pub host: String,
     #[serde(default)]
     pub assignee: Option<String>,
@@ -286,6 +291,23 @@ mod tests {
                 boards: Vec::new(),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_card_with_no_host_reads_on_the_board_and_writes_back_as_null() {
+        let raw = serde_json::json!({
+            "board": {"lanes": [{"word": "new", "label": "New"}]},
+            "cards": [{
+                "key": "FEAT-7", "kind": "feature", "project": "Ops", "status": "new",
+                "label": "New", "lane": 1, "title": "No host", "host": null,
+                "changed_at": "2026-10-22T09:12:00.000Z"
+            }]
+        });
+        let board: OneBoard = serde_json::from_value(raw).unwrap();
+        assert_eq!(board.cards[0].host, "");
+        assert!(board_lines(&board).iter().any(|l| l.contains("FEAT-7")));
+        let back = serde_json::to_value(&board.cards[0]).unwrap();
+        assert_eq!(back["host"], serde_json::Value::Null);
     }
 
     #[test]

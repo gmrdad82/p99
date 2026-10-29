@@ -20,9 +20,12 @@ use super::badge::Badge;
 use super::deck::Move;
 use super::source::{Entry, Source, counted, hits, merged_hosts, person, unix, words};
 
+const KEY_CELLS: u16 = 8;
+const KEY_MOST: u16 = 12;
+
 const COLUMNS_ALL: [Column; 8] = [
     Column::new("", 1, 1).pinned(),
-    Column::new("Key", 6, 8).pinned(),
+    Column::new("Key", 6, KEY_CELLS).pinned(),
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
@@ -33,13 +36,24 @@ const COLUMNS_ALL: [Column; 8] = [
 
 const COLUMNS_ONE: [Column; 7] = [
     Column::new("", 1, 1).pinned(),
-    Column::new("Key", 6, 8).pinned(),
+    Column::new("Key", 6, KEY_CELLS).pinned(),
     Column::new("Kind", 4, 11).priority(2),
     Column::new("Label", 6, 11).pinned(),
     Column::new("Title", 16, 0).flex(),
     Column::new("Reporter", 10, 22).priority(1),
     Column::new("Updated", 4, 7).right().pinned(),
 ];
+
+fn key_cells(entries: &[Entry]) -> u16 {
+    let longest = entries
+        .iter()
+        .map(|e| e.summary.key.chars().count())
+        .max()
+        .unwrap_or_default();
+    u16::try_from(longest)
+        .unwrap_or(KEY_MOST)
+        .clamp(KEY_CELLS, KEY_MOST)
+}
 
 fn production(env: &str) -> bool {
     env.is_empty() || env == "production"
@@ -139,6 +153,7 @@ pub struct Inbox {
     badge: Badge,
     opener: fn(&str) -> Result<(), String>,
     projects: Vec<String>,
+    key_cells: u16,
 }
 
 fn launch(url: &str) -> Result<(), String> {
@@ -184,6 +199,7 @@ impl Inbox {
             badge: Badge::off(),
             opener: launch,
             projects: Vec::new(),
+            key_cells: KEY_CELLS,
         }
     }
 
@@ -326,6 +342,7 @@ impl Inbox {
             Row::new(cells)
         };
         filter.sift(&entries, keeps, line);
+        self.key_cells = key_cells(&entries);
         self.counts = entries
             .iter()
             .filter(|e| {
@@ -1373,11 +1390,12 @@ impl Screen<Msg> for Inbox {
             self.draw_thread(frame, area, palette);
             return;
         }
-        let columns: &[Column] = if self.host.is_none() {
-            &COLUMNS_ALL
-        } else {
-            &COLUMNS_ONE
-        };
+        let key = Column::new("Key", 6, self.key_cells).pinned();
+        let mut all = COLUMNS_ALL;
+        let mut one = COLUMNS_ONE;
+        all[1] = key;
+        one[1] = key;
+        let columns: &[Column] = if self.host.is_none() { &all } else { &one };
         let empty = self.empty();
         let view = self
             .filter

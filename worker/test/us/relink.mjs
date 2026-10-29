@@ -32,7 +32,7 @@ export default async function (kit) {
 
     const ticket = await browse("POST", "/stream-ticket", old);
     assert.equal(ticket.status, 201, JSON.stringify(ticket.json));
-    const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${ticket.json.ticket}`, []);
+    const board = await socketOf(`${kit.origin().replace(/^http/, "ws")}/_p99/api/stream?t=${ticket.json.ticket}`, []);
     assert.ok(board, "the board opens");
 
     const relinked = await call("POST", `/_p99/v1/codes/${made.json.code.id}/relink`, { actor: people.ada, body: {} });

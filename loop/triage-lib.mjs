@@ -108,7 +108,7 @@ export function pickerOptions(screen, title) {
   const right = lines[top].lastIndexOf("╮");
   const options = [];
   for (let at = top + 1; at < lines.length; at++) {
-    if (lines[at].join("").includes("╰")) break;
+    if (lines[at][left] === "╰") break;
     const inner = lines[at].slice(left + 1, right).join("").replace(/^[▌\s]+/, "").trim();
     if (inner !== "") options.push(inner);
   }

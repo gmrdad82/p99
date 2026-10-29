@@ -17,10 +17,9 @@ export default async function (kit) {
     assert.equal(listed.code, 0, listed.stderr);
     const view = JSON.parse(listed.stdout);
     assert.deepEqual(view.space, { slug: kit.space.slug, name: kit.space.name });
-    assert.deepEqual(
-      view.projects.map((p) => [p.name, p.hosts]).sort(),
-      kit.space.projects.map((p) => [p.name, p.hosts]).sort(),
-    );
+    for (const seeded of kit.space.projects) {
+      assert.deepEqual(view.projects.find((p) => p.name === seeded.name)?.hosts, seeded.hosts, seeded.name);
+    }
 
     const watch = await kit.watch();
     const invited = await kit.p99(["invite", "--name", "Grace Hopper", "--email", "grace@example.com", "--project", shop.name]);

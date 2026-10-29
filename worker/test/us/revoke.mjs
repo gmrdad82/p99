@@ -32,7 +32,7 @@ export default async function (kit) {
     const open = `${first.secret}.${verified.json.device}`;
     const ticket = await browse("POST", "/stream-ticket", open);
     assert.equal(ticket.status, 201, JSON.stringify(ticket.json));
-    const board = await socketOf(`ws://127.0.0.1:${port}/_p99/api/stream?t=${ticket.json.ticket}`, []);
+    const board = await socketOf(`${kit.origin().replace(/^http/, "ws")}/_p99/api/stream?t=${ticket.json.ticket}`, []);
     assert.ok(board, "the board opens");
     const filed = await browse("POST", "/issues", open, kit.issueBody({ title: `Filed before the revoke ${tag}` }));
     assert.equal(filed.status, 201, JSON.stringify(filed.json));

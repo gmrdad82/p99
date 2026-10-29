@@ -22,6 +22,17 @@ import {
   waitingCount,
 } from "../triage-lib.mjs";
 
+function laneCounts(screen) {
+  const lines = screen.split("\n");
+  const at = lines.findIndex((line) => /─{4,}\s+─{4,}/.test(line) && !line.includes("╭"));
+  const head = at > 0 ? lines[at - 1] : "";
+  return LANE_NAMES.map((name) => [name, new RegExp(`(?:^|\\s)${name} (\\d+)`).exec(head)])
+    .filter(([, found]) => found)
+    .map(([name, found]) => [name, Number(found[1]), found.index])
+    .sort((a, b) => a[2] - b[2])
+    .map(([name, count]) => [name, count]);
+}
+
 export default async function (kit) {
   const { check } = kit;
   const where = cast(kit);
@@ -265,11 +276,14 @@ export default async function (kit) {
     const shopItem = await card(kit, "Shop", `Cart total ${t}`);
     const blogItem = await card(kit, "Blog", `Post draft ${t}`);
 
-    for (const size of ["80x24", "120x34"]) {
-      const board = await kit.tui("tab", { size });
-      assert.equal(laneRule(board).length, 7, `${size}:\n${board}`);
-    }
     const wide = await kit.tui("tab", { size: "120x34" });
+    assert.equal(laneRule(wide).length, 7, wide);
+    const counts = laneCounts(wide);
+    assert.deepEqual(counts.map(([name]) => name), LANE_NAMES, wide);
+    const narrow = await kit.tui("tab", { size: "80x24" });
+    const kept = LANE_NAMES.filter((name, at) => at === 0 || counts.find(([n]) => n === name)[1] > 0);
+    assert.deepEqual(laneCounts(narrow).map(([name]) => name), kept, `below 120 columns the lanes with cards and the focused one show:\n${narrow}`);
+    assert.equal(laneRule(narrow).length, kept.length, narrow);
     const lanes = wide.split("\n").find((line) => line.includes("Planned"));
     assert.ok(lanes, wide);
     let from = 0;
