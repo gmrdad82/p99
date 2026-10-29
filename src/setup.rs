@@ -1746,7 +1746,7 @@ pub fn setup(args: &SetupArgs, global: &Global) -> Result<(), String> {
         7,
         total,
         "Mail (optional)",
-        "P99 sends no mail by default: the TUI is the inbox. With a Resend API key it mails\nOwners about new cards and the people who filed them about replies and fixes.",
+        "P99 sends no mail by default: the TUI shows the cards. With a Resend API key it mails\nOwners about new cards and the people who filed them about replies and fixes.",
     );
     let mut key = match args.resend_key.as_deref() {
         Some(spec) => {

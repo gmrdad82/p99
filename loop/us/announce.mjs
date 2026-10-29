@@ -19,7 +19,7 @@ export default async function (kit) {
       assert.equal((await landed()).includes("landed in"), false, "nothing has landed yet");
       const dev = await kit.p99(["announce", "--env", "dev", "--branch", "main", "--version", "v-dev"], { env: repo.env });
       assert.equal(dev.code, 0, dev.stderr);
-      assert.match(dev.stdout, /announced [0-9a-f]{8} main v-dev to dev: 1 items \(1 fixes\)/);
+      assert.match(dev.stdout, /announced [0-9a-f]{8} main v-dev to dev: 1 cards \(1 fixes\)/);
       let shown = await landed();
       assert.match(shown, /landed in dev \(development\)/);
       assert.equal(shown.includes("landed in production"), false);

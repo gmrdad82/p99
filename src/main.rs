@@ -42,7 +42,7 @@ const ASK: &str = "P99: got questions or doubts? Ping me on Discord https://disc
     name = "p99",
     version,
     about = "P99: issue and feedback reporting for any website, on Cloudflare",
-    long_about = "P99: issue and feedback reporting for any website, on Cloudflare\n\n`p99` alone, in a terminal, opens the inbox (as `p99 tui` does); any command or flag is the CLI.",
+    long_about = "P99: issue and feedback reporting for any website, on Cloudflare\n\n`p99` alone, in a terminal, opens the cards (as `p99 tui` does); any command or flag is the CLI.",
     after_help = ASK,
     subcommand_required = true,
     arg_required_else_help = false
@@ -56,7 +56,7 @@ struct P99 {
 
 #[derive(Subcommand)]
 enum Command {
-    #[command(about = "open the inbox in the terminal, as `p99` alone does")]
+    #[command(about = "open the cards in the terminal, as `p99` alone does")]
     Tui(tui::Args),
     #[command(
         about = "set up a space, step by step: the Cloudflare token, D1, R2, the Worker, routes and keys"

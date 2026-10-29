@@ -35,7 +35,7 @@ export default async function (kit) {
     const before = named(await projects(kit), home.name);
     try {
       const moved = await p99(kit, ["hosts", "set", host, "--project", docs]);
-      assert.ok(moved.stdout.includes(`${host} is in the project ${docs} now; its items moved with it`), moved.stdout);
+      assert.ok(moved.stdout.includes(`${host} is in the project ${docs} now; its cards moved with it`), moved.stdout);
       const listed = await projects(kit);
       const holding = named(listed, docs);
       assert.deepEqual(holding.hosts, [host]);

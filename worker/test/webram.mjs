@@ -192,9 +192,9 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
       lanes: LANE_NAMES.map((lane) => ({ lane, items: { New: 69, "In progress": 1, Done: 3 }[lane] ?? 0 })),
     });
     const text = (await run(["migrate", "--plan"])).stdout;
-    assert.match(text, new RegExp(`\nCount check\n  before: 73 items, ${before.comments.length} comments, ${before.attachments.length} attachments, ${before.events.length} events\n`));
+    assert.match(text, new RegExp(`\nCount check\n  before: 73 cards, ${before.comments.length} comments, ${before.attachments.length} attachments, ${before.events.length} events\n`));
     assert.match(text, /\n  before, by label: Doing 1, Done 3, Inbox 69\n/);
-    assert.match(text, new RegExp(`\n  after:  73 items, ${before.comments.length} comments, ${before.attachments.length} attachments, ${before.events.length + moved} events\n`));
+    assert.match(text, new RegExp(`\n  after:  73 cards, ${before.comments.length} comments, ${before.attachments.length} attachments, ${before.events.length + moved} events\n`));
     assert.match(text, /\n  after, by lane: New 69, In progress 1, Done 3\n/);
     assert.match(text, /\n  the order in each lane: dev\.example\.com \(ada@example\.com\) 73 cards\n/);
     assert.doesNotMatch(text, /archived labels|archived boards|archived, read-only|read-only/);
@@ -297,7 +297,7 @@ export async function webramChecks({ check, root, work, state, run, plan, writes
     );
     const refused = await run(["deploy", "--no-check", "--accept-plan", p.hash]);
     assert.equal(refused.status, 1);
-    assert.match(refused.stderr, /^p99: the count check stopped 0017: the items in New no longer count 69 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it/);
+    assert.match(refused.stderr, /^p99: the count check stopped 0017: the cards in New no longer count 69 as the plan said, so every migration of this deploy rolled back: the database is as the deploy found it/);
     assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 0"), 3);
     assert.equal(n(db, "SELECT count(*) AS n FROM boards WHERE cards = 1"), 0);
     assert.deepEqual(all(db, "SELECT name FROM d1_migrations WHERE name >= '0016'"), []);

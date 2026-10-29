@@ -549,7 +549,7 @@ fn attached_lines(attached: &[Attachment]) {
 
 pub(crate) fn not_a_card(error: &str) -> bool {
     let bare = refusal(error.to_owned());
-    (error.ends_with("(409)") && (bare.contains(" not a card") || bare.contains(" in no project")))
+    (error.ends_with("(409)") && (bare.contains(" not a card") || bare.contains(" no project")))
         || (error.ends_with("(403)") && bare == OWNERS_ONLY)
         || bare == crate::card::NOT_YET
 }
@@ -1016,6 +1016,27 @@ mod tests {
     fn a_status_line_names_the_label_the_word_and_the_place() {
         let card = &thread().card.card;
         assert_eq!(status_text(card), "Stuck (stuck, #3 in its lane)");
+    }
+
+    #[test]
+    fn only_a_refusal_that_reflects_no_project_or_no_owner_falls_back_to_the_item_route() {
+        for falls in [
+            "FEAT-41 has no project of its own; give it one with p99 edit FEAT-41 --project <name> (409)",
+            "BUG-12 is not a card; give it a project with p99 edit BUG-12 --project <name> (409)",
+            "only an Owner may do this (403)",
+            "no such route (404)",
+        ] {
+            assert!(not_a_card(falls), "{falls}");
+        }
+        for stays in [
+            "this card moved; refreshed (409)",
+            "client_uid is already used (409)",
+            "only a person closes a card (403)",
+            "no item FEAT-99 (404)",
+            "BUG-12 is not a card",
+        ] {
+            assert!(!not_a_card(stays), "{stays}");
+        }
     }
 
     #[test]
