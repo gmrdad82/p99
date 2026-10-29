@@ -221,7 +221,8 @@ async function api(request, env, ctx, url, path) {
   const codes = await signedIn(request, env, url, now);
   if (path === "/verify") K.fail(404, "no such route");
   const dir = await K.loadDirectory(env);
-  const host = (url.searchParams.get("host") || "").toLowerCase();
+  const asked = (url.searchParams.get("host") || "").toLowerCase();
+  const host = asked === "*" ? "" : asked;
   const admitted = codes.map((c) => ({ ...c, grant: grantOf(c, dir) })).filter((c) => !parked(c.grant));
   for (const c of admitted) c.reach = reachOf(c.grant, dir);
   const all = host ? null : combinedCode(admitted, dir);
@@ -233,7 +234,7 @@ async function api(request, env, ctx, url, path) {
     const outcome = await env.RATE.limit({ key: `code:${code.id}` });
     if (!outcome.success) K.fail(429, "too many requests with this code; try again in a minute");
   }
-  return K.browserRun(request, env, ctx, url, path, dir, hostRow, code, now);
+  return K.browserRun(request, env, ctx, url, path, dir, hostRow, code, now, !host);
 }
 
 async function stream(request, env, url) {

@@ -6,6 +6,7 @@ const ADA = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const SHOP = "us-shop.example.com";
 const DOCS = "us-docs.example.com";
 const PROJECT = { shop: "Us Shop", docs: "Us Docs", ops: "Us Ops" };
+const HELP = { name: "Us Help", hosts: ["us-help.example.com", "us-help-2.example.com"] };
 const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
 const WORDS = {
   denied: "That e-mail and code don't match. Check the e-mail, wait for the next code and try again.",
@@ -298,12 +299,25 @@ export default async function (kit) {
   });
 
   await check("us-page-002 an owner opens the board and narrows it by project", async () => {
-    const ada = await person({ name: "Ada Lovelace", grant: { projects: [PROJECT.shop, PROJECT.docs] }, owner: true });
+    await world();
+    const made = await signed("POST", "/projects", { name: HELP.name });
+    assert.ok(made.status === 201 || made.status === 409, JSON.stringify(made.json));
+    for (const host of HELP.hosts) {
+      const put = await signed("PUT", `/hosts/${host}`, { env: "production", project: HELP.name, config: {} });
+      assert.equal(put.status, 200, JSON.stringify(put.json));
+    }
+    const ada = await person({ name: "Ada Lovelace", grant: { projects: [PROJECT.shop, PROJECT.docs, HELP.name] }, owner: true });
     const reporter = { name: "Grace Hopper", email: email("grace") };
     const inShop = `Shop report ${TAG}`;
     const inDocs = `Docs report ${TAG}`;
+    const inHelp = HELP.hosts.map((host, i) => `Help report ${i + 1} ${TAG}`);
+    const helpCard = `Help card with no site ${TAG}`;
     await report(SHOP, inShop, reporter);
     await report(DOCS, inDocs, reporter);
+    for (const [i, host] of HELP.hosts.entries()) await report(host, inHelp[i], reporter);
+    const card = await signed("POST", "/cards", { client_uid: randomUUID(), project: HELP.name, title: helpCard });
+    assert.equal(card.status, 201, JSON.stringify(card.json));
+    const help = [...inHelp, helpCard];
     await visit("/", async ({ p }) => {
       const asked = [];
       p.on("request", (r) => {
@@ -312,11 +326,12 @@ export default async function (kit) {
       });
       await signIn(p, ada.email, kit.totp(ada.key));
       await boardShown(p);
-      await boardShows(p, [inShop, inDocs]);
+      await boardShows(p, [inShop, inDocs, ...help]);
       assert.equal(asked[0]?.has("host"), false, "the All board asked one host instead of the whole reachable space");
       const chips = await p.locator(".app-project").evaluateAll((list) => list.map((b) => [b.dataset.name, b.querySelector(".app-hosts")?.textContent ?? null, b.getAttribute("aria-pressed")]));
       assert.deepEqual(chips[0], ["", null, "true"]);
-      assert.deepEqual(chips.slice(1).sort(), [[PROJECT.docs, DOCS, "false"], [PROJECT.shop, SHOP, "false"]]);
+      const sites = (chip) => (chip[0] === HELP.name ? [chip[0], chip[1].split(" · ").sort().join(" · "), chip[2]] : chip);
+      assert.deepEqual(chips.slice(1).map(sites).sort(), [[PROJECT.docs, DOCS, "false"], [HELP.name, [...HELP.hosts].sort().join(" · "), "false"], [PROJECT.shop, SHOP, "false"]]);
       assert.equal((await header(p)).sites, 0);
       const only = async (project, shown, hidden) => {
         const board = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/board");
@@ -324,15 +339,17 @@ export default async function (kit) {
         await board;
         assert.equal(await p.getAttribute(`.app-project[data-name="${project}"]`, "aria-pressed"), "true");
         assert.equal(asked.at(-1)?.getAll("project").join(), project);
-        await boardShows(p, [shown], [hidden]);
+        assert.equal(asked.at(-1)?.has("host"), false, "the narrowed board asked one of the project's sites instead of the whole project");
+        await boardShows(p, shown, hidden);
       };
-      await only(PROJECT.docs, inDocs, inShop);
-      await only(PROJECT.shop, inShop, inDocs);
+      await only(PROJECT.docs, [inDocs], [inShop, ...help]);
+      await only(HELP.name, help, [inShop, inDocs]);
+      await only(PROJECT.shop, [inShop], [inDocs, ...help]);
       const all = p.waitForResponse((r) => new URL(r.url()).pathname === "/_p99/api/board");
       await p.click('.app-project[data-name=""]');
       await all;
       assert.deepEqual(asked.at(-1)?.getAll("project"), []);
-      await boardShows(p, [inShop, inDocs]);
+      await boardShows(p, [inShop, inDocs, ...help]);
       await p.keyboard.press("Escape");
       assert.equal(await p.evaluate(() => document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-board").hidden), false);
       assert.equal(await screen(p), "board");
@@ -452,7 +469,7 @@ export default async function (kit) {
   await check("us-page-003 a good username is saved in lower case and shown instead of her email", async () => {
     const grace = await person({ name: "Grace Hopper", grant: { projects: [PROJECT.shop] } });
     const username = `grace.hopper.${TAG}`;
-    const key = await report(SHOP, `Assign me ${TAG}`, grace);
+    const key = await report(SHOP, `Assign me ${TAG}`, { name: "Mary Jackson", email: email("mary") });
     await visit("/", async ({ p }) => {
       await signIn(p, grace.email, kit.totp(grace.key));
       await itemsShown(p);

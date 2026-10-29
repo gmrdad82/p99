@@ -145,7 +145,11 @@ function hostFor(project) {
 
 function boardHost() {
   const p = picked();
-  return p ? hostFor(p) : S.reach.has(null) ? null : firstHost();
+  return S.reach.has(null) ? null : p ? hostFor(p) : firstHost();
+}
+
+function listHost(project) {
+  return project ? hostFor(project) || firstHost() : S.reach.has(null) ? "*" : firstHost();
 }
 
 function at(path, host) {
@@ -490,7 +494,7 @@ function narrow(name) {
   keepPick(name);
   for (const b of root.querySelectorAll(".app-project")) b.setAttribute("aria-pressed", String(b.dataset.name === name));
   if (root.dataset.screen === "items" && S.full) {
-    const next = hostFor(name) || firstHost();
+    const next = listHost(name);
     if (next && next !== S.fullHost) {
       closeFull();
       root.dataset.screen = "";
@@ -527,7 +531,7 @@ function board() {
     }
     const host = firstHost();
     if (!reachable() || (!host && !owner())) return mount("board", h("div", { class: "app-screen" }, h("p", { class: "app-empty", text: say("none") })));
-    if (!owner()) return items(hostFor(picked()) || host);
+    if (!owner()) return items(listHost(picked()) || host);
     drawBoard();
   }, (e) => { if (seq === S.seq) failed(e); });
 }
@@ -550,7 +554,7 @@ function drawBoard() {
 }
 
 function openItem(key, from) {
-  const host = (from && from.dataset && from.dataset.host) || hostFor((from && from.dataset && from.dataset.project) || picked()) || firstHost();
+  const host = (from && from.dataset && from.dataset.host) || (S.reach.has(null) ? "*" : hostFor((from && from.dataset && from.dataset.project) || picked()) || firstHost());
   if (!host) return;
   if (!S.sheet) {
     const el = h("p99-root", { class: "app-sheet" });

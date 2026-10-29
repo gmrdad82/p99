@@ -1,7 +1,8 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
+import { createServer as createTlsServer } from "node:https";
 import { createRequire } from "node:module";
 import { connect } from "node:net";
 import { extname, join, normalize, relative } from "node:path";
@@ -132,7 +133,16 @@ function outside() {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({ server, seen, answers, origin: `http://127.0.0.1:${server.address().port}` })));
 }
 
-function site(repo, workerPort) {
+function selfSigned(dir) {
+  mkdirSync(dir, { recursive: true });
+  const key = join(dir, "app.key");
+  const cert = join(dir, "app.crt");
+  const made = spawnSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert, "-days", "2", "-subj", `/CN=${APP}`], { encoding: "utf8" });
+  if (made.status !== 0) throw new Error(`openssl could not make the app host's test certificate: ${made.error?.message ?? made.stderr}`);
+  return { key: readFileSync(key), cert: readFileSync(cert) };
+}
+
+function site(repo, workerPort, tls) {
   const files = join(repo, "render", "web", "site");
   const routeOf = (req) => {
     const pinned = /^\/@([a-z0-9.-]+)(\/.*)?$/i.exec(req.url);
@@ -146,10 +156,12 @@ function site(repo, workerPort) {
     res.writeHead(200, { "content-type": TYPES[extname(name)] || "application/octet-stream", "cache-control": "no-cache" });
     res.end(readFileSync(name));
   };
-  const server = createServer((req, res) => {
+  const handle = (secure) => (req, res) => {
     const { host, path } = routeOf(req);
     if (host !== APP && !path.startsWith("/_p99/")) return page(res, path);
-    const up = request({ host: "127.0.0.1", port: workerPort, method: req.method, path, headers: { ...req.headers, host } }, (answer) => {
+    const headers = { ...req.headers, host };
+    if (secure && headers.origin === `https://${host}`) headers.origin = `http://${host}`;
+    const up = request({ host: "127.0.0.1", port: workerPort, method: req.method, path, headers }, (answer) => {
       res.writeHead(answer.statusCode, answer.headers);
       answer.pipe(res);
     });
@@ -158,13 +170,15 @@ function site(repo, workerPort) {
       res.end("the story Worker did not answer");
     });
     req.pipe(up);
-  });
-  server.on("upgrade", (req, socket, head) => {
+  };
+  const upgrade = (secure) => (req, socket, head) => {
     const { host, path } = routeOf(req);
     const up = connect(workerPort, "127.0.0.1", () => {
       const lines = [`${req.method} ${path} HTTP/1.1`];
       for (let i = 0; i < req.rawHeaders.length; i += 2) {
-        lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i].toLowerCase() === "host" ? host : req.rawHeaders[i + 1]}`);
+        const name = req.rawHeaders[i].toLowerCase();
+        const value = req.rawHeaders[i + 1];
+        lines.push(`${req.rawHeaders[i]}: ${name === "host" ? host : secure && name === "origin" && value === `https://${host}` ? `http://${host}` : value}`);
       }
       up.write(`${lines.join("\r\n")}\r\n\r\n`);
       if (head.length > 0) up.write(head);
@@ -172,8 +186,22 @@ function site(repo, workerPort) {
     });
     up.on("error", () => socket.destroy());
     socket.on("error", () => up.destroy());
-  });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server)));
+  };
+  const plain = createServer(handle(false));
+  plain.on("upgrade", upgrade(false));
+  const secure = createTlsServer(tls, handle(true));
+  secure.on("upgrade", upgrade(true));
+  const listening = (server) => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
+  return Promise.all([listening(plain), listening(secure)]).then(([port, tlsPort]) => ({
+    port,
+    tlsPort,
+    close: () => {
+      for (const server of [plain, secure]) {
+        server.close();
+        server.closeAllConnections();
+      }
+    },
+  }));
 }
 
 function binaryOf(repo) {
@@ -313,8 +341,8 @@ export async function loopStories(h) {
     return;
   }
   h.setBase(workerBase);
-  front = await site(repo, h.port);
-  const sitePort = front.address().port;
+  front = await site(repo, h.port, selfSigned(join(h.work, "loop-tls")));
+  const sitePort = front.port;
   const home = scratchHome(scratch, workerBase, h.keys);
   const clockAt = async (body) => {
     const response = await fetch(`${workerBase}/_p99/test/clock`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -447,7 +475,7 @@ export async function loopStories(h) {
       executablePath,
       env: { ...process.env, TMPDIR: process.env.XDG_RUNTIME_DIR || process.env.TMPDIR },
       args: [
-        `--host-resolver-rules=MAP example.com 127.0.0.1:${sitePort}, MAP *.example.com 127.0.0.1:${sitePort}`,
+        `--host-resolver-rules=MAP ${APP} 127.0.0.1:${front.tlsPort}, MAP example.com 127.0.0.1:${sitePort}, MAP *.example.com 127.0.0.1:${sitePort}`,
         `--unsafely-treat-insecure-origin-as-secure=${[...hosts, "*.example.com"].map((host) => `http://${host}`).join(",")}`,
         "--hide-scrollbars",
       ],
@@ -519,13 +547,13 @@ export async function loopStories(h) {
         return handle;
       },
       page: async (options = {}) => {
-        const context = await (await browserOf()).newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", ...options });
+        const context = await (await browserOf()).newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: "reduce", ignoreHTTPSErrors: true, ...options });
         await context.addInitScript(openShadow);
         pages.push(context);
         return context.newPage();
       },
       siteUrl: (host = SHOP, path = "/") => `http://${host}${path.startsWith("/") ? path : `/${path}`}`,
-      appUrl: (path = "/") => `http://${APP}${path.startsWith("/") ? path : `/${path}`}`,
+      appUrl: (path = "/") => `https://${APP}${path.startsWith("/") ? path : `/${path}`}`,
       mail: {
         inbox: (email) =>
           fakes.seen.mail
@@ -590,7 +618,6 @@ export async function loopStories(h) {
     await browser?.close().catch(() => {});
     for (const child of running) child.kill("SIGKILL");
     front.close();
-    front.closeAllConnections();
     fakes.server.close();
     fakes.server.closeAllConnections();
     await dev.stop();
