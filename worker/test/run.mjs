@@ -37,6 +37,7 @@ import { placementChecks } from "./placement.mjs";
 import { importChecks } from "./imports.mjs";
 import { LICENCE_TEST_KEY, spaceChecks, spaceUnitChecks } from "./spaces.mjs";
 import { spaceStories } from "./stories/spaces.mjs";
+import { loopStories } from "./loop.mjs";
 
 if (process.env.P99_COVERAGE) delete process.env.NODE_V8_COVERAGE;
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -401,6 +402,26 @@ async function main() {
       dev = await startDev(port + 2, [...vars, "LICENSE_LINK:shown"], "test-dev-webram.log", { persist: webram, upstream: BUSIEST });
     });
     if (dev) await webramBoardChecks({ check, browse, mint, work });
+    await dev?.stop();
+    dev = null;
+    await loopStories({
+      root,
+      work,
+      port: port + 3,
+      keys,
+      startDev,
+      wranglerSync,
+      check,
+      red,
+      call,
+      listen,
+      issueBody,
+      until,
+      sha256,
+      setBase: (next) => {
+        base = next;
+      },
+    });
     console.log(`${passed} checks passed, ${reds.length} known red, ${failed.length} failed, ${unexpected.length} red that passed`);
     if (failed.length + unexpected.length > 0) process.exitCode = 1;
   } finally {

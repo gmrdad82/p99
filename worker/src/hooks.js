@@ -301,7 +301,7 @@ function testMessage(service, host, by, accent) {
 
 function testOrigin(c, kit) {
   const origin = c.env.HOOKS_TEST_ORIGIN;
-  return typeof origin === "string" && TEST_ORIGIN.test(origin) && kit.isLocal(c.url) ? origin : null;
+  return typeof origin === "string" && TEST_ORIGIN.test(origin) && (kit.isLocal(c.url) || c.env.LOOP_TEST === "1") ? origin : null;
 }
 
 async function post(c, kit, hook, payload) {

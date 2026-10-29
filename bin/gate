@@ -9,6 +9,7 @@ case "${1:-}" in
     exit 2
     ;;
 esac
+if [ -d .dev ]; then .dev/bin/story-check; fi
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --no-tests=pass; else cargo test --quiet; fi
@@ -18,6 +19,7 @@ if [ "${1:-}" = --fast ]; then
 fi
 cargo build --release
 bin/budget
+(cd render/web && npm ci --no-fund --no-audit)
 (cd worker && npm ci --no-fund --no-audit && npm test)
 node --test render/web/coverage.test.mjs
 echo "gate: green"
