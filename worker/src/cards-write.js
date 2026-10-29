@@ -223,7 +223,7 @@ export async function postCard(c) {
         `INSERT INTO items (client_uid, kind, label_id, open, title, body, origin_env, page_url, page_path, page_title,
            reporter_email, reporter_name, reporter_json, context_json, marks_json, activity_at, public_activity_at,
            created_at, updated_at, host, reporter_agent, search_text, project, reporter_via, project_id)
-         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, '/', ?4, ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, '', ?4, ?8, ?9, ?10, '{}', '[]', ?11, ?11, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
          RETURNING id`,
       ).bind(
         uid,
