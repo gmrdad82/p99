@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.2 — 2026-10-29
+
+### Changed
+
+- The licence badges have a little depth again: a gentle gradient, a thin highlight along the top and P99's soft shadow, still one height with centred text.
+
 ## v1.13.1 — 2026-10-29
 
 ### Changed
