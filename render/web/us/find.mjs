@@ -126,7 +126,7 @@ export default async function (kit) {
       await settled(kit, p);
       await search(p, RUN);
       s = await settled(kit, p, (x) => x.keys.includes(here));
-      assert.ok(s.keys.includes(here), `Everyone lists this host's item (${s.keys})`);
+      assert.ok(s.keys.includes(here), `All lists this host's item (${s.keys})`);
       assert.ok(s.keys.includes(card), `and the project's card without a host (${s.keys})`);
       assert.ok(!s.keys.includes(away), `never another project's item (${s.keys})`);
     });

@@ -25,7 +25,7 @@ export default async function (kit) {
       await owner.waitForFunction(() => document.querySelector("p99-root")?.shadowRoot?.querySelector(".p99-panel.is-open .p99-delete"), null, { timeout: 20000 });
       const button = owner.locator(inPanel(".p99-danger"));
       assert.equal(await button.isDisabled(), true, "the button waits for the key");
-      await owner.locator(inPanel(".p99-delete input")).pressSequentially(`${doomed.key.slice(0, -1)}9`);
+      await owner.locator(inPanel(".p99-delete input")).pressSequentially(`${doomed.key.slice(0, -1)}${doomed.key.endsWith("9") ? "8" : "9"}`);
       assert.equal(await button.isDisabled(), true, "a wrong key keeps it disabled");
       await owner.locator(inPanel(".p99-delete input")).fill(doomed.key.toLowerCase());
       assert.equal(await button.isDisabled(), false, "the key matches without its case");

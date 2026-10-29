@@ -13,7 +13,7 @@ export default async function (kit) {
   const blog = kit.space.projects.find((p) => p.name === "Blog");
   const host = shop.hosts[0];
   const email = () => `grace.${randomUUID().slice(0, 8)}@example.com`;
-  const minted = async (grant = { projects: [shop.name] }) => kit.mint("Grace Hopper", email(), grant);
+  const minted = async (reach = shop.hosts) => kit.mint("Grace Hopper", email(), reach);
   const stored = (page) => page.evaluate(() => localStorage.getItem("p99:code"));
   const plusBox = (page) =>
     page.evaluate(() => {
@@ -63,7 +63,7 @@ export default async function (kit) {
     assert.equal((await kit.call("POST", `/_p99/v1/codes/${revoked.code.id}/revoke`, { actor: ada })).status, 200);
     const parked = await minted();
     assert.equal((await kit.call("PATCH", `/_p99/v1/codes/${parked.code.id}`, { actor: ada, body: { grant: { projects: [] } } })).status, 200);
-    const elsewhere = await minted({ projects: [blog.name] });
+    const elsewhere = await minted(blog.hosts);
     for (const [why, secret] of [
       ["an unknown code", "zzzzzzzzzzzz"],
       ["a revoked code", revoked.secret],
