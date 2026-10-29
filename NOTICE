@@ -64,7 +64,7 @@ by prec from the shots in render/terminal.toml (p99 tui --demo on sample data,
 and p99 setup on the mock account in render/mock-cloudflare.mjs) and made GIFs
 by pcod; arrives.gif is prec's arrives shot on a local Worker seeded by
 render/web/record.mjs, made a GIF by pcod; thread.png, codes.png and list-json.png are prec stills of the shots of
-the same names; architecture.png is rendered from render/architecture.svg.
+the same names; architecture.png is rendered from render/architecture.svg by rsvg-convert.
 flow.gif joins render/web/record.mjs's frame-exact recording of the web panel
 on the sample shop in render/web/site/ with prec's arrives shot, made a GIF by
 pcod; panel-light.png, panel-dark.png, badge-light.png, badge-dark.png and

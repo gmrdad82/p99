@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/flow.gif" width="800" alt="A sample coffee shop's checkout page: Grace Hopper presses the blue plus in the corner, the P99 panel opens, she picks Bug, types a title and a detail, marks the payment form (the card number shows blanked in the capture), sends it, and the card BUG-5 appears. The clip cuts to a terminal running p99 tui, where BUG-5 sits at the top of the inbox on host shop.example.com and opens."></p>
+<p align="center"><img src="docs/images/flow.gif" width="800" alt="A sample coffee shop's checkout page: Grace Hopper presses the blue plus in the corner, the P99 panel opens, she picks Bug, types a title and a detail, marks the payment form (the card number shows blanked in the capture), sends it, and the card BUG-5 appears. The clip cuts to a terminal running p99 tui, where BUG-5 sits at the top of the cards on host shop.example.com and opens."></p>
 
 # P99
 
@@ -52,7 +52,7 @@ Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each agai
 <script src="/_p99/p99.js" async></script>
 ```
 
-<p align="center"><img src="docs/images/badge-light.png" width="40%" alt="The bottom-right corner of a light page: a blue plus button and a list button carrying an unread count of 1."> <img src="docs/images/badge-dark.png" width="40%" alt="The same corner on a dark page."></p>
+<p align="center"><img src="docs/images/badge-light.png" width="40%" alt="The bottom-right corner of a light page: a plus button and a ⋯ button carrying two counts of 1, the cards that need you or have replies at its top right and the open cards filed on this page at its top left."> <img src="docs/images/badge-dark.png" width="40%" alt="The same corner on a dark page."></p>
 
 **The panel loads on the first click.** Its New card form files a bug, an idea, an improvement, a question or a task; the panel lists the cards the person filed with what's new for them, and shows each thread with its replies, files, status changes and where its fix has landed. It follows the page's light or dark scheme and takes the site's colours through CSS variables.
 
@@ -66,21 +66,21 @@ Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each agai
 
 ## On a real site
 
-<p align="center"><img src="docs/images/pitomd.gif" width="800" alt="The Splicer page on pitomd.com: Grace Hopper presses the question mark, picks Idea, types &quot;The download button could say which platform it detected&quot;, marks the Download free button and sends it, and FEAT-4 appears. The clip cuts to p99 tui, where FEAT-4 sits at the top of the inbox on host dev.pitomd.com and opens."></p>
+<p align="center"><img src="docs/images/pitomd.gif" width="800" alt="The Splicer page on pitomd.com: Grace Hopper presses the plus, picks Idea, types &quot;The download button could say which platform it detected&quot;, marks the Download 1.2.0 free button and sends it, and FEAT-4 appears. The clip cuts to p99 tui, where FEAT-4 sits at the top of the cards on host dev.pitomd.com and opens."></p>
 
 This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on its dev server with a local P99 Worker and sample people. The site added one tag and nothing else; its host config keeps the "+" clear of the site's own back-to-top button.
 
 <p align="center"><img src="docs/images/pitomd-corner.png" width="40%" alt="The corner of the Splicer page at the top: the P99 buttons at their usual offset."> <img src="docs/images/pitomd-corner-scrolled.png" width="40%" alt="The same corner after scrolling: the site's back-to-top button has appeared and the P99 buttons sit just above it."></p>
 
-<p align="center"><img src="docs/images/pitomd-panel-light.png" width="49%" alt="The P99 panel over a light cream section of the Splicer page on card BUG-2: the card, a reply from Ada Lovelace, the answer of the person who filed it, a status change and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/pitomd-panel-dark.png" width="49%" alt="The same thread in the dark scheme over the page's dark oxblood pricing section."></p>
+<p align="center"><img src="docs/images/pitomd-panel-light.png" width="49%" alt="The P99 panel in the light scheme over the Splicer page's numbers, on card BUG-2: the card, a reply from Ada Lovelace, the answer of the person who filed it, a status change and a reply from Ada Lovelace 🤖 (an agent acting for her)."> <img src="docs/images/pitomd-panel-dark.png" width="49%" alt="The same thread in the dark scheme over the top of the page."></p>
 
 ## In your terminal
 
 **The inbox.** `p99` (or `p99 tui`) shows every card across your sites and Cloudflare accounts, or one site at a time, with its host and its label on every row. Open a thread to read it, reply, add an internal note, move it to another lane with `m`, or assign it. `w` lists the cards that need you, and the header counts them (`3 waiting`). People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
 
-<p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the inbox lists cards from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a thread opens with its host and environment, a reply is sent, the card moved to Done, and the view switches to one host."></p>
+<p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the Cards screen lists cards from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a card opens with its host and environment, a reply is sent, the card moved to Done, and the view switches to one host."></p>
 
-<p align="center"><img src="docs/images/thread.png" width="49%" alt="A thread in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace 🤖 (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, hosts, role (Owner or User), the code's last four characters, when it was last used, and whether it is active."></p>
+<p align="center"><img src="docs/images/thread.png" width="49%" alt="A card in p99 tui: BUG-3 on host shop.example.com in production, landed in dev and production, with three comments, one of them from Ada Lovelace 🤖 (her agent), and its events."> <img src="docs/images/codes.png" width="49%" alt="The codes screen of p99 tui: each invited person, their e-mail, what the code reaches (a project or the whole space), role (Owner or User), the code's last four characters, when it was last used, and whether it is active."></p>
 
 **The board.** Each space has one board, and every card sits in one of its seven lanes, in that order. A lane's order is its priority: the top matters most, and there is no priority field to fill. Any Owner moves any card, and a filter narrows what shows (projects, hosts, who changed it last). An agent that needs a person's call moves its card to `Needs you`, and an Owner's reply sends it back to the lane it came from. `p99 card move BUG-12 --to in-progress` (or `--to "In progress"`, with `--before` or `--after` another card) does it from a script or an agent; `p99 board` lists the lanes and their cards, `p99 cards --waiting` what needs you, and `p99 labels` the lanes' names, each with `--json`.
 
@@ -121,7 +121,7 @@ BUG-12  change  shop.example.com  Ada Lovelace: The total does not update
 
 **Setup that explains itself.** `p99 setup` says which Cloudflare API token to create, where, and why each permission is needed. It checks the token and every permission, then creates the D1 database, the R2 bucket, the key, the Worker and a route for each site, showing its progress. For each secret it asks where it comes from: pasted, a file only you can read, an environment variable, or a command that prints it (`pass show …`, `bw get …`), and the config keeps the source, never the value. It ends with what exists and the command to run next. It is safe to run again, and a second Cloudflare account goes in beside the first. `p99 deploy` uploads a new version later, keeping every secret.
 
-<p align="center"><img src="docs/images/setup.gif" width="800" alt="p99 setup on a sample space: it explains the token and its five permissions, checks them, picks the space, creates the D1 database, applies its migration, creates the R2 bucket, the key and the Worker, adds routes for example.com and dev.example.com, checks their health and prints a summary with the next command."></p>
+<p align="center"><img src="docs/images/setup.gif" width="800" alt="p99 setup on a sample space: it explains the token and its five permissions, asks where the token and the key come from, checks the token, picks the space, creates the D1 database, applies its migration, creates the R2 bucket, the key and the Worker, adds routes for example.com and dev.example.com, checks their health and prints a summary with the next command."></p>
 
 ## How it fits together
 

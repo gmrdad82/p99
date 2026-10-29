@@ -36,7 +36,7 @@ brightWhite = "#c0caf5"
 
 [shots.inbox]
 kind = "clip"
-line = "The inbox on sample data: a filter, a thread opened, a reply, a status change and a switch to one host"
+line = "The cards on sample data: a filter, a card opened, a reply, a move to Done and a switch to one host"
 tape = "render/terminal/inbox.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
@@ -52,14 +52,14 @@ poster = "before-closure"
 
 [shots.list-json]
 kind = "still"
-line = "p99 list --json on sample data: items across example.com and shop.example.com, as agents and scripts read them"
+line = "p99 list --json on sample data: cards across example.com and shop.example.com, as agents and scripts read them"
 tape = "render/terminal/list-json.tape"
 launch = "clear"
 settle = "300ms"
 
 [shots.thread]
 kind = "still"
-line = "A thread in the TUI: an item with comments, an agent's reply and its landings in dev and production"
+line = "A card in the TUI: its comments, an agent's reply and its landings in dev and production"
 tape = "render/terminal/thread.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
@@ -73,7 +73,7 @@ settle = "400ms"
 
 [shots.arrives]
 kind = "clip"
-line = "The item the web widget just filed, at the top of the inbox with its Inbox label and its host, then opened; needs render/web/serve.mjs running and seeded"
+line = "The card the web widget just filed, at the top of the cards with its New label and its host, then opened; needs render/web/serve.mjs running and seeded"
 tape = "render/terminal/arrives.tape"
 launch = "P99_CONFIG={tmp}/web/home/.config/p99/config.toml p99 tui"
 settle = "1200ms"
@@ -88,7 +88,7 @@ settle = "300ms"
 
 [shots.board]
 kind = "clip"
-line = "The board on sample data: one board with seven lanes, item cards with their assignee or project, a card picked up with the keys and dropped into Planned, then the project filter narrowing it to Storefront and the cards that need you"
+line = "The board on sample data: one board with seven lanes, cards with their assignee or project, a card picked up with the keys and dropped into Planned, then the project filter narrowing it to Storefront and the cards that need you"
 tape = "render/terminal/board.tape"
 launch = "p99 tui --demo"
 settle = "400ms"
