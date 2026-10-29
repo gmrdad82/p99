@@ -79,12 +79,8 @@ pub const MODULES: &[(&str, &str, &[u8])] = &[
     worker!("web/vendor/modern-screenshot-4.7.0.js", TEXT),
     worker!("web/art/concrete.webp", DATA),
     worker!("web/art/concrete-2x.webp", DATA),
-    worker!("web/art/concrete.png", DATA),
-    worker!("web/art/concrete-2x.png", DATA),
     worker!("web/art/concrete-dark.webp", DATA),
     worker!("web/art/concrete-dark-2x.webp", DATA),
-    worker!("web/art/concrete-dark.png", DATA),
-    worker!("web/art/concrete-dark-2x.png", DATA),
     worker!("web/art/lockup-dark.svg", TEXT),
     worker!("web/badges/free.svg", TEXT),
     worker!("web/badges/studio.svg", TEXT),
@@ -239,7 +235,7 @@ mod tests {
             }
         }
         for base in ["concrete", "concrete-dark"] {
-            for tail in [".webp", "-2x.webp", ".png", "-2x.png"] {
+            for tail in [".webp", "-2x.webp"] {
                 let name = format!("web/art/{base}{tail}");
                 assert!(MODULES.iter().any(|m| m.0 == name), "{name} is not bundled");
             }

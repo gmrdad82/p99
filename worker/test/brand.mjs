@@ -57,18 +57,18 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
     assert.equal((await call("GET", "/_p99/badges/owner.svg?v=dev")).status, 404);
   });
 
-  await check("the concrete texture is served once-rendered: WebP and PNG tiles at 1x and 2x, cached for good, and the same bytes every time", async () => {
-    const magic = { webp: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP", png: (b) => b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) };
+  await check("the concrete texture is served once-rendered: small WebP tiles at 1x and 2x, cached for good, and the same bytes every time, with no PNG copies", async () => {
+    const magic = { webp: (b) => b.subarray(0, 4).toString("latin1") === "RIFF" && b.subarray(8, 12).toString("latin1") === "WEBP" };
     for (const name of ["concrete", "concrete-dark"]) {
       for (const scale of ["", "-2x"]) {
-        for (const kind of ["webp", "png"]) {
+        for (const kind of ["webp"]) {
           const path = `/_p99/art/${name}${scale}.${kind}?v=dev`;
           const first = await call("GET", path);
           assert.equal(first.status, 200, path);
           assert.equal(first.response.headers.get("content-type"), `image/${kind}`, path);
           assert.match(first.response.headers.get("cache-control"), /immutable/, path);
           const bytes = Buffer.from(await first.response.arrayBuffer());
-          assert.ok(bytes.length > 1000 && magic[kind](bytes), path);
+          assert.ok(bytes.length > 1000 && bytes.length < 50000 && magic[kind](bytes), path);
           const again = Buffer.from(await (await call("GET", path)).response.arrayBuffer());
           assert.ok(again.equals(bytes), path);
           assert.equal((await call("HEAD", path)).status, 200, path);
@@ -76,6 +76,7 @@ export async function brandChecks({ call, browse, mint, check, here, placement }
       }
     }
     assert.equal((await call("GET", "/_p99/art/concrete.svg?v=dev")).status, 404);
+    assert.equal((await call("GET", "/_p99/art/concrete.png?v=dev")).status, 404);
   });
 }
 

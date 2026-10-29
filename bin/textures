@@ -5,10 +5,9 @@ masters=assets/art
 out=worker/src/web/art
 work=tmp/textures
 size=400
-quality=98
-colours=256
+quality=85
 magick=$(command -v magick || command -v convert || true)
-[ -n "$magick" ] || { echo "textures: ImageMagick is missing; it encodes the WebP and PNG tiles" >&2; exit 1; }
+[ -n "$magick" ] || { echo "textures: ImageMagick is missing; it encodes the WebP tiles" >&2; exit 1; }
 browser=$(command -v chromium || command -v chromium-browser || command -v google-chrome || true)
 rsvg=$(command -v rsvg-convert || true)
 resvg=$(command -v resvg || true)
@@ -40,7 +39,6 @@ for name in concrete concrete-dark; do
     raw="$work/$name$suffix.png"
     render "$masters/$name.svg" "$scale" "$raw"
     "$magick" "$raw" -strip -quality "$quality" -define webp:method=6 -define webp:sns-strength=0 -define webp:filter-strength=0 "$out/$name$suffix.webp"
-    "$magick" "$raw" -strip -colors "$colours" -define png:compression-level=9 -define png:compression-filter=5 -define png:exclude-chunks=all "$out/$name$suffix.png"
-    printf 'textures: %s%s is %s bytes as WebP, %s as PNG\n' "$name" "$suffix" "$(wc -c < "$out/$name$suffix.webp")" "$(wc -c < "$out/$name$suffix.png")"
+    printf 'textures: %s%s is %s bytes as WebP\n' "$name" "$suffix" "$(wc -c < "$out/$name$suffix.webp")"
   done
 done
