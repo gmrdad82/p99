@@ -7,7 +7,8 @@ const SHOP = "us-shop.example.com";
 const DOCS = "us-docs.example.com";
 const PROJECT = { shop: "Us Shop", docs: "Us Docs", ops: "Us Ops" };
 const HELP = { name: "Us Help", hosts: ["us-help.example.com", "us-help-2.example.com"] };
-const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
+const BADGES = { free: "Free", studio: "Studio", agency: "Agency", ff: "F&F" };
+const shown = (state) => (state === "owner" ? "agency" : state);
 const WORDS = {
   denied: "That e-mail and code don't match. Check the e-mail, wait for the next code and try again.",
   limited: "Too many tries. Wait a few minutes, then try again.",
@@ -87,8 +88,22 @@ async function header(p) {
       name: bar.querySelector(".app-space-name")?.textContent ?? null,
       badge: badge ? badge.getAttribute("src") : null,
       sites: document.querySelectorAll(".app-space, .app-spaces").length,
+      places: Object.fromEntries([["mark", "a.app-mark"], ["badge", ".app-badge"], ["name", ".app-space-name"], ["me", ".app-me"]].map(([k, q]) => {
+        const el = bar.querySelector(q);
+        return [k, el ? [el.offsetLeft, el.offsetTop, el.offsetLeft + el.offsetWidth, el.offsetTop + el.offsetHeight] : null];
+      })),
+      inner: [bar.clientWidth, bar.clientHeight],
+      overflow: bar.scrollWidth > bar.clientWidth,
     };
   });
+}
+
+async function settledHeader(p) {
+  await p.waitForFunction(() => {
+    const b = document.querySelector(".app-bar .app-badge");
+    return b && b.complete && b.naturalWidth > 0 && document.querySelector(".app-bar .app-me").firstChild;
+  });
+  return header(p);
 }
 
 function asks(p, path, init = {}) {
@@ -200,7 +215,7 @@ export default async function (kit) {
       assert.ok(kit.space.name, "the seeded space has a name");
       assert.equal(listed.json.space?.name, kit.space.name);
       assert.equal(top.name, kit.space.name);
-      assert.ok(top.badge.startsWith(`/_p99/badges/${listed.json.license}.svg?v=`), top.badge);
+      assert.ok(top.badge.startsWith(`/_p99/badges/${shown(listed.json.license)}.svg?v=`), top.badge);
       assert.equal(top.sites, 0);
       await p.reload();
       await itemsShown(p);
@@ -387,16 +402,19 @@ export default async function (kit) {
     const ada = await person({ name: "Ada Lovelace", grant: { projects: [PROJECT.shop] }, owner: true });
     const grace = await person({ name: "Grace Hopper", grant: { projects: [PROJECT.shop] } });
     let place = null;
+    let places = null;
     await visit("/", async ({ p }) => {
       await signIn(p, ada.email, kit.totp(ada.key));
       await boardShown(p);
-      const onBoard = await header(p);
+      const onBoard = await settledHeader(p);
       place = onBoard.rect;
+      places = onBoard.places;
       assert.equal(onBoard.position, "fixed");
       assert.equal(onBoard.mark, "#");
       await profile(p);
-      const onProfile = await header(p);
+      const onProfile = await settledHeader(p);
       assert.deepEqual(onProfile.rect, place);
+      assert.deepEqual(onProfile.places, places);
       assert.equal(onProfile.position, "fixed");
       assert.equal(onProfile.mark, "#");
       await p.click(".app-bar a.app-mark");
@@ -407,6 +425,7 @@ export default async function (kit) {
       await signIn(p, grace.email, kit.totp(grace.key));
       await itemsShown(p);
       assert.deepEqual((await header(p)).rect, place);
+      assert.deepEqual((await settledHeader(p)).places, places);
       await profile(p);
       assert.deepEqual((await header(p)).rect, place);
       await p.click(".app-bar a.app-mark");
@@ -714,7 +733,7 @@ export default async function (kit) {
       await p.click(".app-licence button[type=submit]");
       await p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, "that is not a PITO MD licence key");
       assert.equal(await p.getAttribute(".app-licence textarea", "aria-invalid"), "true");
-      assert.match(await badgeOf(p), new RegExp(`^/_p99/badges/${before.state}\\.svg`));
+      assert.match(await badgeOf(p), new RegExp(`^/_p99/badges/${shown(before.state)}\\.svg`));
       assert.equal(await p.locator(".app-licence .app-quiet").isHidden(), true);
       assert.deepEqual(await licenceOf(p), before);
       assert.equal(before.stored, false);
@@ -733,9 +752,9 @@ export default async function (kit) {
         await p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, WORDS.licenceSaved);
         assert.match(await badgeOf(p), /^\/_p99\/badges\/studio\.svg\?v=/);
         await p.click(".app-licence .app-quiet");
-        const said = before.state === "free" ? "Removed. This space is on Free." : `Removed. This space still has ${BADGES[before.state]} from its own setup.`;
+        const said = before.state === "free" ? "Removed. This space is on Free." : `Removed. This space still has ${BADGES[shown(before.state)]} from its own setup.`;
         await p.waitForFunction((w) => document.querySelector(".app-licence .app-status").textContent === w, said);
-        assert.match(await badgeOf(p), new RegExp(`^/_p99/badges/${before.state}\\.svg\\?v=`));
+        assert.match(await badgeOf(p), new RegExp(`^/_p99/badges/${shown(before.state)}\\.svg\\?v=`));
         assert.equal(await p.locator(".app-licence .app-quiet").isHidden(), true);
         assert.deepEqual(await licenceOf(p), before);
       });

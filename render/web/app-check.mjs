@@ -177,8 +177,36 @@ async function header(p) {
       name: bar.querySelector(".app-space-name")?.textContent ?? null,
       badge: badge ? badge.getAttribute("src") : null,
       sites: document.querySelectorAll(".app-space, .app-spaces").length,
+      places: Object.fromEntries([["mark", "a.app-mark"], ["badge", ".app-badge"], ["name", ".app-space-name"], ["me", ".app-me"]].map(([k, q]) => {
+        const el = bar.querySelector(q);
+        return [k, el ? [el.offsetLeft, el.offsetTop, el.offsetLeft + el.offsetWidth, el.offsetTop + el.offsetHeight] : null];
+      })),
+      inner: [bar.clientWidth, bar.clientHeight],
+      overflow: bar.scrollWidth > bar.clientWidth,
     };
   });
+}
+
+async function settledHeader(p) {
+  await p.waitForFunction(() => {
+    const b = document.querySelector(".app-bar .app-badge");
+    return b && b.complete && b.naturalWidth > 0 && document.querySelector(".app-bar .app-me").firstChild;
+  });
+  return header(p);
+}
+
+function laidOut(top) {
+  const { mark, badge, name, me } = top.places;
+  const [width, height] = top.inner;
+  const middle = (b) => (b[1] + b[3]) / 2;
+  assert.ok(badge[0] >= mark[2] && badge[0] - mark[2] <= 16, `the badge sits right beside the mark: ${JSON.stringify(top.places)}`);
+  assert.ok(mark[0] <= 24, `the mark and badge hold the left: ${JSON.stringify(top.places)}`);
+  assert.ok(me[2] <= width && width - me[2] <= 24, `the avatar holds the right: ${JSON.stringify(top.places)}`);
+  assert.ok(name[2] <= me[0] && me[0] - name[2] <= 12, `the space's name sits right beside the avatar: ${JSON.stringify(top.places)}`);
+  assert.ok(name[0] > badge[2], `the name stays clear of the badge: ${JSON.stringify(top.places)}`);
+  for (const b of [badge, name, me]) assert.ok(Math.abs(middle(b) - height / 2) <= 1.5, `centred in the bar: ${JSON.stringify(top.places)}`);
+  assert.equal(badge[3] - badge[1], 24);
+  assert.equal(top.overflow, false);
 }
 
 async function boardShown(p) {
@@ -231,13 +259,21 @@ async function check(back) {
 
     await signIn(p, ` ${ada.email.toUpperCase()} `, totpOf(ada.key).replace(/^(\d{3})/, "$1 "));
     await itemsShown(p);
-    const top = await header(p);
+    const top = await settledHeader(p);
     assert.equal(top.position, "fixed");
     assert.equal(top.mark, "#");
     assert.equal(top.lockup, true);
     assert.equal(top.name, SPACE_NAME);
     assert.match(top.badge, /^\/_p99\/badges\/studio\.svg\?v=/);
     assert.equal(top.sites, 0);
+    laidOut(top);
+    await p.setViewportSize({ width: 360, height: 740 });
+    const phone = await settledHeader(p);
+    laidOut(phone);
+    assert.equal(phone.rect[3], top.rect[3]);
+    assert.equal(phone.position, "fixed");
+    await p.setViewportSize({ width: 1280, height: 860 });
+    assert.deepEqual((await settledHeader(p)).places, top.places);
     assert.equal(await p.locator("p99-root").count(), 1);
     assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector("p99-root.app-full").shadowRoot.querySelector(".p99-head")).display), "none");
     ok("the right code opens the space: its name and licence badge in one fixed header, her items below it, and no list of sites");
@@ -254,6 +290,7 @@ async function check(back) {
     await p.evaluate(() => (location.hash = "#profile"));
     await waitScreen(p, "profile");
     assert.deepEqual((await header(p)).rect, top.rect);
+    assert.deepEqual((await settledHeader(p)).places, top.places);
     assert.equal(await p.locator("p99-root").count(), 0);
     assert.equal(await p.getAttribute(".app-profile a.app-back", "href"), "#");
     assert.equal(await p.locator(".app-licence").count(), 0);
@@ -262,6 +299,7 @@ async function check(back) {
     await p.keyboard.press("Escape");
     await itemsShown(p);
     assert.deepEqual((await header(p)).rect, top.rect);
+    assert.deepEqual((await settledHeader(p)).places, top.places);
     await p.evaluate(() => (location.hash = "#profile"));
     await waitScreen(p, "profile");
     await p.click(".app-profile a.app-back");

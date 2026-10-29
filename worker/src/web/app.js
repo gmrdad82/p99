@@ -44,7 +44,7 @@ const WORDS = {
   licence_empty: "Paste a licence key first.",
   sign_out: "Sign out",
 };
-const BADGES = { free: "Free", studio: "Studio", agency: "Agency", owner: "Owner", ff: "F&F" };
+const BADGES = { free: "Free", studio: "Studio", agency: "Agency", ff: "F&F" };
 const PICTURE = 256;
 const PICTURE_BYTES = 256 * 1024;
 const PICK_KEY = "p99:page-project";
@@ -188,7 +188,8 @@ function owner() {
 function licence() {
   const l = S.me && S.me.licence;
   const s = l && typeof l === "object" ? l.state : S.spaces && S.spaces.license;
-  return Object.hasOwn(BADGES, s) ? s : "free";
+  const shown = s === "owner" ? "agency" : s;
+  return Object.hasOwn(BADGES, shown) ? shown : "free";
 }
 
 function spaceName() {
@@ -225,7 +226,7 @@ function disc(person, size) {
 function badge() {
   if (!S.spaces && !S.me) return null;
   const state = licence();
-  const pill = h("img", { class: S.badged ? "app-badge" : "app-badge app-badge-in", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 47 });
+  const pill = h("img", { class: S.badged ? "app-badge" : "app-badge app-badge-in", src: "/_p99/badges/" + state + ".svg?v=" + V, alt: BADGES[state] + " licence", height: 24 });
   S.badged = true;
   return pill;
 }
@@ -240,8 +241,9 @@ function head() {
           route();
         } },
           h("img", { class: "app-lockup", src: "/_p99/art/lockup-dark.svg?v=" + V, alt: "P99", width: 1371, height: 243 })),
-        h("div", { class: "app-bar-name" }, h("span", { class: "app-space-name" }), h("span", { class: "app-pill" })),
-        h("a", { class: "app-me", href: "#profile", title: say("profile"), "aria-label": say("profile") })));
+        h("span", { class: "app-pill" }),
+        h("div", { class: "app-bar-who" }, h("span", { class: "app-space-name" }),
+          h("a", { class: "app-me", href: "#profile", title: say("profile"), "aria-label": say("profile") }))));
   }
   repaintHead();
   return S.head;
