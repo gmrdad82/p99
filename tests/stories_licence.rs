@@ -314,23 +314,24 @@ fn story_a_lapsed_subscription_must_keep_every_build_it_paid_for_and_no_later_on
 }
 
 #[test]
-fn story_the_owner_must_keep_agency_and_the_hidden_link_on_every_build_through_9999() {
+fn story_an_owner_group_key_must_read_as_a_customer_at_its_tier_through_9999() {
     let issuer = Issuer::new(&SEED);
-    for tier in ["agency", "studio"] {
+    for (tier, expected) in [("agency", State::Agency), ("studio", State::Studio)] {
         let key = issuer.key(&Sale {
             tier,
             ..Sale::grouped("owner")
         });
         let claims = issuer.read(&key).unwrap();
-        assert_eq!(claims.tier(), "agency");
+        assert_eq!(claims.tier(), tier);
         for built in ["2026-10-21", "2099-01-01", FOREVER] {
             let state = claims.state(Some(built));
-            assert_eq!(state, State::Owner, "{tier} {built}");
-            assert_eq!(state.label(), "Agency");
-            assert!(state.may_hide_link());
-            assert_eq!(state.link_binding(), "hideable");
+            assert_eq!(state, expected, "{tier} {built}");
+            assert_eq!(state.may_hide_link(), tier == "agency", "{tier} {built}");
         }
     }
+    let agency = State::Agency;
+    assert_eq!(agency.label(), "Agency");
+    assert_eq!(agency.link_binding(), "hideable");
 }
 
 #[test]
@@ -491,14 +492,15 @@ fn story_a_signed_key_for_another_app_kind_tier_or_format_must_be_refused() {
 #[test]
 fn story_the_bindings_deploy_writes_must_be_the_words_the_worker_reads() {
     let words: Vec<&str> = State::ALL.iter().map(|s| s.word()).collect();
-    assert_eq!(words, ["free", "studio", "agency", "owner", "ff"]);
+    assert_eq!(words, ["free", "studio", "agency", "ff"]);
     let hiders: Vec<&str> = State::ALL
         .iter()
         .filter(|s| s.may_hide_link())
         .map(|s| s.word())
         .collect();
-    assert_eq!(hiders, ["agency", "owner"]);
-    assert_eq!(license::HIDES_LINK, ["agency", "owner"]);
+    assert_eq!(hiders, ["agency"]);
+    assert_eq!(license::HIDES_LINK, ["agency"]);
+    assert_eq!(State::parse("owner"), Some(State::Agency));
     for state in State::ALL {
         assert_eq!(State::parse(state.word()), Some(state));
         let expected = if state.may_hide_link() {
@@ -508,7 +510,7 @@ fn story_the_bindings_deploy_writes_must_be_the_words_the_worker_reads() {
         };
         assert_eq!(state.link_binding(), expected, "{}", state.word());
     }
-    for word in ["", "Free", "OWNER", " owner", "trial", "f&f"] {
+    for word in ["", "Free", "OWNER", " owner", "trial", "f&f", "Owner"] {
         assert_eq!(State::parse(word), None, "{word:?}");
     }
     let worker = std::fs::read_to_string(repo().join("worker/src/license.js")).unwrap();
@@ -1128,7 +1130,7 @@ fn dump(home: &Home, demo: bool, state: Option<&str>) -> String {
     text(&out.stdout)
 }
 
-const LABELS: [&str; 5] = ["Free", "Studio", "Agency", "Owner", "F&F"];
+const LABELS: [&str; 4] = ["Free", "Studio", "Agency", "F&F"];
 
 fn badge_of(screen: &str) -> Vec<&'static str> {
     LABELS

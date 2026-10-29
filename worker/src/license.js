@@ -1,5 +1,5 @@
-const STATES = ["free", "studio", "agency", "owner", "ff"];
-const HIDES_LINK = ["agency", "owner"];
+const STATES = ["free", "studio", "agency", "ff"];
+const HIDES_LINK = ["agency"];
 const PUBLIC_KEY = "jeSuvgBw+ExXNw32a/dbweivyLRLNGyE67aSb8BBfdg=";
 const PREFIX = "PITO1";
 const MAX_LEN = 16 * 1024;
@@ -29,6 +29,7 @@ export function useLicenceKit(kit) {
 
 export function licenseState(env) {
   const word = env && typeof env.LICENSE_STATE === "string" ? env.LICENSE_STATE : "";
+  if (word === "owner") return "agency";
   return STATES.includes(word) ? word : "free";
 }
 
@@ -201,7 +202,6 @@ export function covers(claims, built) {
 
 export function stateOf(claims, built) {
   if (!covers(claims, built)) return "free";
-  if (claims.group === "owner") return "owner";
   if (claims.group === "friends-family") return "ff";
   return claims.tier === "studio" ? "studio" : claims.tier === "agency" ? "agency" : "free";
 }
@@ -255,7 +255,7 @@ async function putLicence(c) {
   const state = stateOf(read.claims, built);
   return K.json(200, {
     licence: { state, link: linkOf(state), stored: true },
-    tier: read.claims.group === "owner" || read.claims.group === "friends-family" ? "agency" : read.claims.tier,
+    tier: read.claims.group === "friends-family" ? "agency" : read.claims.tier,
     studio: typeof read.claims.studio === "string" ? read.claims.studio : null,
     paid_through: read.claims.paid_through,
   });

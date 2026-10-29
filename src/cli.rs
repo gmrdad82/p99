@@ -2258,8 +2258,8 @@ mod tests {
     }
 
     #[test]
-    fn owner_turns_the_link_off() {
-        let link = pitomd_link(State::Owner, "off").unwrap();
+    fn an_old_owner_word_turns_the_link_off_as_agency() {
+        let link = pitomd_link(State::parse("owner").unwrap(), "off").unwrap();
         assert_eq!(link, Some(false));
         assert_eq!(pushed(link)["link"], false);
     }

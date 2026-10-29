@@ -112,8 +112,8 @@ export async function hideableLinkChecks({ call, browse, mint, check, here, plac
       assert.equal(hidden.status, 200, JSON.stringify(hidden.json));
       assert.equal(hidden.json.link, false);
       assert.equal(hidden.json.host, here);
-      const shown = hidden.json.license === "owner" ? "agency" : hidden.json.license;
-      assert.equal((await call("GET", `/_p99/badges/${shown}.svg?v=dev`)).status, 200);
+      assert.equal(hidden.json.license, "agency");
+      assert.equal((await call("GET", `/_p99/badges/${hidden.json.license}.svg?v=dev`)).status, 200);
     } finally {
       assert.equal((await call("PUT", `/_p99/v1/hosts/${here}`, { body: { env, config: placement } })).status, 200);
     }
