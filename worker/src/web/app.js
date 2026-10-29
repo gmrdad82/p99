@@ -51,7 +51,7 @@ const PICK_KEY = "p99:page-project";
 const SHEET = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}`;
 const BOARD = `:host{--p99-accent:#3b7dd8;color-scheme:light dark;display:flex;flex-direction:column;min-height:0}`;
 const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
-:host(.app-full) .p99-panel{top:var(--app-bar,64px);left:0;right:0;bottom:0;width:auto;max-height:none;border-radius:0;box-shadow:none;--p99-slide:0px;transform:translateY(12px)}
+:host(.app-full) .p99-panel{top:var(--app-top,var(--app-bar,64px));left:0;right:0;bottom:0;width:auto;max-height:none;border-radius:0;box-shadow:none;--p99-slide:0px;transform:translateY(12px)}
 :host(.app-full) .p99-panel.is-open{transform:none}
 :host(.app-full) .p99-panel::after{box-shadow:none}
 :host(.app-full) .p99-scrim,:host(.app-full) .p99-grip,:host(.app-full) .p99-head{display:none}
@@ -60,7 +60,7 @@ const FULL = `:host{--p99-accent:#3b7dd8;color-scheme:light dark}
 @media (prefers-reduced-motion:reduce){:host(.app-full) .p99-panel{transform:none}}`;
 
 const root = document.getElementById("app");
-const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, sheet: null, pick: null, legacy: null, via: null, reach: new Map() };
+const S = { spaces: null, me: null, space: null, panel: null, panelTries: 0, avatar: null, boardMod: null, css: null, seq: 0, badged: false, head: null, board: null, ctx: null, full: null, fullHost: null, sheet: null, pick: null, legacy: null, via: null, reach: new Map() };
 const link = document.getElementById("app-css");
 const styled = new Promise((done) => {
   if (!link) return done();
@@ -132,18 +132,30 @@ function firstHost() {
   return S.via || hosts()[0] || null;
 }
 
+function reachable() {
+  const d = S.spaces || {};
+  return !!firstHost() || (Array.isArray(d.projects) && d.projects.length > 0);
+}
+
 function hostFor(project) {
-  if (!project) return firstHost();
   const via = firstHost();
-  const seen = S.reach.get(via);
-  if (seen && seen.has(project)) return via;
+  if (!project) return via;
+  for (const host of [via, ...S.reach.keys()]) {
+    const seen = host ? S.reach.get(host) : null;
+    if (seen && seen.has(project)) return host;
+  }
   const own = entries().find((x) => x.project === project);
-  return own ? own.host : via;
+  return own ? own.host : S.reach.has(null) ? null : via;
+}
+
+function boardHost() {
+  const p = picked();
+  return p ? hostFor(p) : S.reach.has(null) ? null : firstHost();
 }
 
 function at(path, host) {
-  const on = host || firstHost();
-  return "/_p99/api" + path + (path.includes("?") ? "&" : "?") + "host=" + encodeURIComponent(on || "");
+  const on = host === undefined ? firstHost() : host;
+  return "/_p99/api" + path + (on ? (path.includes("?") ? "&" : "?") + "host=" + encodeURIComponent(on) : "");
 }
 
 function api(method, path, body, type) {
@@ -151,7 +163,7 @@ function api(method, path, body, type) {
 }
 
 function boardCall(method, path, body) {
-  return call(method, at(path, hostFor(picked())), body).catch((e) => {
+  return call(method, at(path, boardHost()), body).catch((e) => {
     signedOut(e);
     throw e;
   });
@@ -351,7 +363,7 @@ function probes() {
     out.push(x.host);
   }
   const first = hosts()[0];
-  return out.length ? out : first ? [first] : [];
+  return (out.length ? out : first ? [first] : []).concat([null]);
 }
 
 function widest(rows) {
@@ -383,7 +395,7 @@ function reachFrom() {
   });
   return Promise.all(probes().map(one)).then((rows) => {
     S.reach = new Map(rows.filter((r) => r.space).map((r) => [r.host, new Set(r.projects.map((p) => p && p.name))]));
-    const best = widest(rows);
+    const best = widest(rows.filter((r) => r.host));
     S.via = best ? best.host : null;
     return merged(rows);
   });
@@ -392,9 +404,9 @@ function reachFrom() {
 function ready() {
   const spaces = S.spaces ? Promise.resolve(S.spaces) : call("GET", "/_p99/app/spaces").then((d) => (S.spaces = d || {}));
   return Promise.all([spaces, styled]).then(() => {
-    if (!firstHost()) return;
+    if (!reachable()) return;
     const space = S.space ? Promise.resolve(S.space) : reachFrom().then((x) => (S.space = x));
-    const early = hosts()[0];
+    const early = hosts()[0] || null;
     const first = S.me ? Promise.resolve(S.me) : call("GET", at("/me", early)).then((m) => m || {});
     const me = Promise.all([first, space]).then(([m]) => {
       if (S.me) return S.me;
@@ -482,8 +494,17 @@ function narrow(name) {
   if (picked() === name) return;
   keepPick(name);
   for (const b of root.querySelectorAll(".app-project")) b.setAttribute("aria-pressed", String(b.dataset.name === name));
+  if (root.dataset.screen === "items" && S.full) {
+    const next = hostFor(name) || firstHost();
+    if (next && next !== S.fullHost) {
+      closeFull();
+      root.dataset.screen = "";
+      items(next);
+    }
+    return;
+  }
   if (S.ctx) {
-    S.ctx.via = hostFor(name);
+    S.ctx.via = hostFor(name) || firstHost();
     boardModule().then((m) => m.open(S.ctx), () => {});
   }
 }
@@ -510,18 +531,18 @@ function board() {
       if (p) keepPick(p.name);
     }
     const host = firstHost();
-    if (!host) return mount("board", h("div", { class: "app-screen" }, h("p", { class: "app-empty", text: say("none") })));
-    if (!owner()) return items(host);
-    drawBoard(host);
+    if (!reachable() || (!host && !owner())) return mount("board", h("div", { class: "app-screen" }, h("p", { class: "app-empty", text: say("none") })));
+    if (!owner()) return items(hostFor(picked()) || host);
+    drawBoard();
   }, (e) => { if (seq === S.seq) failed(e); });
 }
 
-function drawBoard(host) {
+function drawBoard() {
   const el = h("p99-root", { class: "app-board" });
   const shadow = el.attachShadow({ mode: "closed" });
   S.board = el;
   mount("board", h("div", { class: "app-screen app-wide" }, strip(), el));
-  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: hostFor(picked()), stay: true, query, pickWord: "", item: (key, from) => openItem(key, from) };
+  S.ctx = { root: shadow, call: boardCall, me: S.me, h, blob, host: null, via: hostFor(picked()) || firstHost(), stay: true, query, pickWord: "", item: (key, from) => openItem(key, from) };
   Promise.all([boardModule(), sheets()]).then(([m, list]) => {
     if (S.board !== el) return;
     shadow.adoptedStyleSheets = list;
@@ -534,7 +555,8 @@ function drawBoard(host) {
 }
 
 function openItem(key, from) {
-  const host = (from && from.dataset && from.dataset.host) || hostFor((from && from.dataset && from.dataset.project) || picked());
+  const host = (from && from.dataset && from.dataset.host) || hostFor((from && from.dataset && from.dataset.project) || picked()) || firstHost();
+  if (!host) return;
   if (!S.sheet) {
     const el = h("p99-root", { class: "app-sheet" });
     const shadow = el.attachShadow({ mode: "closed" });
@@ -570,8 +592,12 @@ function openItem(key, from) {
 
 function items(host) {
   if (root.dataset.screen === "items" && S.full) return;
-  waiting("items");
+  const nav = projects().length > 1 ? strip() : null;
+  if (nav) mount("items", h("div", { class: "app-screen app-under" }, nav));
+  else waiting("items");
   const el = h("p99-root", { class: "app-full" });
+  if (nav) el.style.setProperty("--app-top", Math.ceil(nav.getBoundingClientRect().bottom + 8) + "px");
+  S.fullHost = host;
   const shadow = el.attachShadow({ mode: "closed" });
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(FULL);
@@ -597,7 +623,7 @@ function items(host) {
         forgetAll();
         signIn();
       },
-    }).then(() => { if (S.full === el) mount("items", h("div", { class: "app-screen app-under" })); }),
+    }).then(() => { if (S.full === el && !nav) mount("items", h("div", { class: "app-screen app-under" })); }),
   ).catch((e) => {
     if (S.full !== el) return;
     closeFull();
@@ -632,7 +658,7 @@ function profile() {
   ready().then(() => {
     if (seq !== S.seq) return;
     const m = S.me;
-    if (!m || !firstHost()) {
+    if (!m || !reachable()) {
       history.replaceState(null, "", "/");
       return board();
     }

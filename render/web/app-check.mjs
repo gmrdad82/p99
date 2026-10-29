@@ -22,6 +22,7 @@ const ADA = { name: "Ada Lovelace", email: "ada@example.com" };
 const GRACE = { name: "Grace Hopper", email: "grace@example.com" };
 const MARY = { name: "Mary Jackson", email: "mary@example.com" };
 const LIN = { name: "Lin Okafor", email: "lin@example.com" };
+const KATHERINE = { name: "Katherine Johnson", email: "katherine@example.com" };
 const WORDS = {
   needs: "Enter your e-mail and the 6-digit code.",
   denied: "That e-mail and code don't match. Check the e-mail, wait for the next code and try again.",
@@ -95,6 +96,8 @@ async function worker() {
     lin: await person(LIN, [SHOP]),
   };
   await signed("DELETE", `/hosts/${GONE}`);
+  const hostless = await signed("POST", "/codes", { name: KATHERINE.name, email: KATHERINE.email, grant: { projects: ["Old"] }, role: "owner", totp: true });
+  people.katherine = { ...KATHERINE, id: hostless.code.id, key: hostless.totp_key };
   await signed(
     "POST",
     `/issues?host=${SHOP}`,
@@ -207,7 +210,7 @@ async function picturePng(p, w, h) {
 }
 
 async function check(back) {
-  const { ada, grace, mary, lin } = back.people;
+  const { ada, grace, mary, lin, katherine } = back.people;
   const browser = await launch();
   try {
     const { ctx, p, errors } = await visit(browser);
@@ -238,6 +241,15 @@ async function check(back) {
     assert.equal(await p.locator("p99-root").count(), 1);
     assert.equal(await p.evaluate(() => getComputedStyle(document.querySelector("p99-root.app-full").shadowRoot.querySelector(".p99-head")).display), "none");
     ok("the right code opens the space: its name and licence badge in one fixed header, her items below it, and no list of sites");
+
+    const listChips = await p.locator(".app-project").evaluateAll((list) => list.map((b) => [b.dataset.name, b.getAttribute("aria-pressed")]));
+    assert.deepEqual(listChips, [["", "true"], ["Docs", "false"], ["Shop", "false"]]);
+    assert.equal(await p.evaluate(() => document.querySelector("p99-root.app-full").shadowRoot.querySelector(".p99-panel").getBoundingClientRect().top >= document.querySelector(".app-projects").getBoundingClientRect().bottom), true);
+    await p.click('.app-project[data-name="Shop"]');
+    await p.waitForFunction(() => document.querySelector('.app-project[data-name="Shop"]')?.getAttribute("aria-pressed") === "true");
+    await itemsShown(p);
+    assert.equal(await p.locator("p99-root").count(), 1);
+    ok("a User's list opens with the project strip above it, so every project her codes reach is one click away");
 
     await p.evaluate(() => (location.hash = "#profile"));
     await waitScreen(p, "profile");
@@ -422,6 +434,7 @@ async function check(back) {
     await g.p.click(".app-bar a.app-mark");
     await boardShown(g.p);
     assert.deepEqual((await header(g.p)).sites, 0);
+    assert.equal(asked[0]?.has("host"), false, "the All board asked one host instead of the whole reachable space");
     const chips = await g.p.locator(".app-project").evaluateAll((list) => list.map((b) => [b.dataset.name, b.querySelector(".app-hosts")?.textContent ?? null, b.getAttribute("aria-pressed")]));
     assert.deepEqual(chips, [["", null, "true"], ["Docs", DOCS, "false"]]);
     const page = await g.p.evaluate(() => { const r = document.querySelector("p99-root.app-board").shadowRoot; return { x: !!r.querySelector(".p99-board .p99-x"), role: r.querySelector(".p99-board").getAttribute("role"), logo: !!r.querySelector(".p99-board-head .p99-logo") }; });
@@ -433,6 +446,7 @@ async function check(back) {
     await narrowed;
     assert.equal(await g.p.getAttribute('.app-project[data-name="Docs"]', "aria-pressed"), "true");
     assert.equal(asked.at(-1)?.getAll("project").join(), "Docs");
+    assert.equal(asked.at(-1)?.get("host"), DOCS);
     await g.p.keyboard.press("Escape");
     assert.equal(await g.p.evaluate(() => document.querySelector("p99-root.app-board").shadowRoot.querySelector(".p99-board").hidden), false);
     ok("picking a project narrows the board to it, and Esc leaves the page's board open");
@@ -492,6 +506,19 @@ async function check(back) {
     assert.equal(await m.p.locator("p99-root").count(), 0);
     ok("a person whose sites are all gone is told to ask for a P99 link");
     await m.ctx.close();
+
+    const k = await visit(browser);
+    const hostAsked = [];
+    k.p.on("request", (r) => { const u = new URL(r.url()); if (["/_p99/api/space", "/_p99/api/me", "/_p99/api/board"].includes(u.pathname)) hostAsked.push([u.pathname, u.searchParams.has("host")]); });
+    await signIn(k.p, katherine.email, totpOf(katherine.key));
+    await boardShown(k.p);
+    const kChips = await k.p.locator(".app-project").evaluateAll((list) => list.map((b) => [b.dataset.name, b.querySelector(".app-hosts")?.textContent ?? null]));
+    assert.deepEqual(kChips, [["", null], ["Old", "No sites"]]);
+    for (const path of ["/_p99/api/space", "/_p99/api/me", "/_p99/api/board"]) assert.ok(hostAsked.some(([p]) => p === path), `${path} was never asked`);
+    assert.deepEqual(hostAsked.filter(([, host]) => host), []);
+    assert.deepEqual(k.errors, []);
+    ok("an Owner of a project with no site yet gets its board, asking the space, herself and the board with no host");
+    await k.ctx.close();
 
     const l = await visit(browser);
     const right = totpOf(lin.key, 1);
