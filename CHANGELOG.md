@@ -2,6 +2,26 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.1 — 2026-10-29
+
+### Changed
+
+- The page's header keeps the P99 mark and its licence badge on the left and the space's name beside your picture on the right, and stays the same on every view.
+- The licence badges are flat and crisp: one height, centred text, a thin border.
+- An owner key is shown and treated as Agency everywhere; there is no Owner badge any more. A never-lapsing key says "every release" instead of a date.
+- The page's background texture is drawn from a ready image instead of a live noise filter: the same look and the same slow drift, for less work on every frame.
+
+### Fixed
+
+- Password fields are blanked in screenshots, as the docs always said.
+- `p99 board`, the TUI board and the page show cards that have no host, and a card with no host opens from the page board.
+- Narrowing the page's board to a project shows all of that project's cards, and the page reaches every project your codes reach.
+- An Owner's panel keeps a project's cards that have no host.
+- `p99 announce` and other commands no longer fail on an empty answer from the Worker.
+- A refused deploy no longer makes a write on the space.
+- The TUI inbox shows keys longer than eight characters in full.
+- Older Safari shows the page's texture.
+
 ## v1.13.0 — 2026-10-29
 
 ### Changed
