@@ -383,8 +383,8 @@ async function clip() {
   mkdirSync(frames, { recursive: true });
   const browser = await launch(true);
   const { p } = await open(browser, { media: false, motion: "reduce" });
-  const dl = await sectionTop(p, "#download");
-  await p.evaluate((y) => scrollTo({ top: y, behavior: "instant" }), dl - 40);
+  const hero = await sectionTop(p, ".st-hero");
+  await p.evaluate((y) => scrollTo({ top: y, behavior: "instant" }), hero);
   await p.waitForTimeout(900);
   const r = await recorder(p, frames);
   r.push(p.mouse.move(r.at.x, r.at.y));
@@ -403,7 +403,7 @@ async function clip() {
   await r.skip(400);
   await r.until(() => inside(p, ".p99-mark-layer"));
   await r.tick(250);
-  const b = await outside(p, "#download a.key-mustard");
+  const b = await outside(p, ".st-hero a.key-mustard");
   const a = { x: Math.round(b.x - 14), y: Math.round(b.y - 14) };
   const z = { x: Math.round(b.x + b.w + 14), y: Math.round(b.y + b.h + 14) };
   await r.glide(a);
@@ -430,7 +430,7 @@ async function clip() {
 
 async function stills(thread) {
   const browser = await launch();
-  for (const [scheme, sel, pad] of [["light", "#demo", 120], ["dark", "#price", 40]]) {
+  for (const [scheme, sel, pad] of [["light", ".st-glance", 0], ["dark", ".st-hero", 0]]) {
     const ctx = await context(browser, { scheme, cursor: false });
     const p = await ctx.newPage();
     const code = readFileSync(join(work, "code"), "utf8").trim();

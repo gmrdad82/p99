@@ -9,13 +9,19 @@ Enter
 Wait /first Owner\): $/
 Type@35ms "ada@example.com"
 Enter
-Wait /Paste the token \(hidden\): $/
+Wait /Choice \[1\]: $/
 Sleep 2.5s
+Enter
+Wait /Paste the token \(hidden\): $/
+Sleep 600ms
 Type@8ms "cfut_7Qm2vXk9LpR4sT8wYb3nHd6JfZa1Ce5Gu0Wi"
 Enter
 Wait /Which account\? \(1-2\): $/
 Sleep 1.2s
 Type "1"
+Enter
+Wait /Choice \[1\]: $/
+Sleep 1.5s
 Enter
 Wait /Turn mail on through Resend\? \[y\/N\]: $/
 Sleep 1.5s
