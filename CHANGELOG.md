@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## v1.13.6 — 2026-10-29
+
+### Changed
+
+- The blue count on ⋯ adds up the cards in Needs you and the replies someone else left on your items. Cards in Landed or Stuck no longer count there; they stay on the board.
+
 ## v1.13.5 — 2026-10-29
 
 ### Added
