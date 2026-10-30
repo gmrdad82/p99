@@ -255,7 +255,7 @@ fn check_attachment(value: &Value, dir: &Path) -> Result<(), String> {
     }
     let marked = !absent(value, "mark");
     if marked && value["mark"].as_u64().is_none_or(|m| m > 99) {
-        return Err("mark must be the index of one of the item's marks".to_owned());
+        return Err("mark must be the index of one of the card's marks".to_owned());
     }
     if marked != (role == "region") {
         return Err("a region carries a mark, and nothing else does".to_owned());
@@ -1074,7 +1074,7 @@ mod tests {
             let line = with(&region, "mark", Some(mark));
             assert_eq!(
                 one(&line),
-                "line 1: attachment: mark must be the index of one of the item's marks",
+                "line 1: attachment: mark must be the index of one of the card's marks",
                 "{line}"
             );
         }

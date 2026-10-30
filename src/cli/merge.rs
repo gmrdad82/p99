@@ -8,6 +8,7 @@ use crate::wire::{Merged, out};
 pub struct MergeArgs {
     #[arg(
         required = true,
+        value_name = "KEYS",
         help = "the cards that repeat it, such as BUG-14 BUG-15"
     )]
     pub items: Vec<String>,

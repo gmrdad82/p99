@@ -84,7 +84,7 @@ pub fn delete(config: &Config, global: &Global, args: &DeleteArgs) -> Result<(),
     }
     if !done.unlinked.is_empty() {
         out!(
-            "{} were merged into it: unlinked, and back in the inbox",
+            "{} were merged into it: unlinked, and back in New",
             done.unlinked.join(", ")
         );
     }

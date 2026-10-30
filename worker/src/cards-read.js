@@ -1,6 +1,6 @@
-import { boardView, inView } from "./boards.js";
+import { boardView } from "./boards.js";
 import { projectFilterSql, reachSql } from "./grants.js";
-import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, notCard, personOf, projectName } from "./cards.js";
+import { DEFAULT_CARDS_LIMIT, K, LANES, MAX_CARDS_LIMIT, WAITING_LANES, laneIndex, laneWord, personOf, projectName } from "./cards.js";
 import { peopleOf } from "./people.js";
 import { withAvatars } from "./avatars.js";
 
@@ -68,7 +68,7 @@ function listSql(scope, lanes, outer, limit, newest = false) {
         SELECT i.id, ${laneSql("i", "ln")} AS lane, bp.key AS ord FROM items i
         LEFT JOIN lanes ln ON ln.label_id = i.label_id
         LEFT JOIN board_positions bp ON bp.board_id = ln.board_id AND bp.item_id = i.id AND bp.label_id = i.label_id
-        WHERE i.project_id IS NOT NULL AND ${scope("i")})
+        WHERE ${scope("i")})
       WHERE ${lanes}),
     page AS (
       SELECT r.lane, r.ord, r.keyed, r.place, ${columnsSql(false)}
@@ -84,17 +84,17 @@ function oneSql(scope, id, body) {
       SELECT i.id, ${laneSql("i", "ln")} AS lane, bp.key AS ord FROM items i
       LEFT JOIN lanes ln ON ln.label_id = i.label_id
       LEFT JOIN board_positions bp ON bp.board_id = ln.board_id AND bp.item_id = i.id AND bp.label_id = i.label_id
-      WHERE i.id = ${id} AND i.project_id IS NOT NULL AND ${scope("i")}),
+      WHERE i.id = ${id} AND ${scope("i")}),
     peers AS (
-      SELECT o.id FROM t JOIN items o ON o.label_id = (SELECT label_id FROM lanes WHERE lane = t.lane) WHERE t.lane < ${DONE_LANE} AND o.project_id IS NOT NULL
+      SELECT o.id FROM t JOIN items o ON o.label_id = (SELECT label_id FROM lanes WHERE lane = t.lane) WHERE t.lane < ${DONE_LANE}
       UNION
-      SELECT o.id FROM t JOIN items o ON o.open = 1 AND o.project_id IS NOT NULL WHERE t.lane = 0 AND o.label_id NOT IN (SELECT label_id FROM lanes)),
+      SELECT o.id FROM t JOIN items o ON o.open = 1 WHERE t.lane = 0 AND o.label_id NOT IN (SELECT label_id FROM lanes)),
     page AS (
       SELECT t.lane, t.ord, t.ord IS NOT NULL AS keyed,
         CASE WHEN t.lane = ${DONE_LANE} THEN NULL ELSE 1 + (
           SELECT count(*) FROM peers p JOIN items o ON o.id = p.id
           LEFT JOIN board_positions op ON op.board_id = (SELECT id FROM boards WHERE cards = 1) AND op.item_id = o.id AND op.label_id = o.label_id
-          WHERE o.project_id IS NOT NULL AND ${scope("o")}
+          WHERE ${scope("o")}
             AND (op.key IS NOT NULL, COALESCE(op.key, ''), -o.id) < (t.ord IS NOT NULL, COALESCE(t.ord, ''), -t.id)) END AS place,
         ${columnsSql(body)}
       FROM t JOIN items i ON i.id = t.id ${HEAVY_JOINS})
@@ -236,15 +236,9 @@ async function cardRow(c, raw, body = false) {
   const q = K.query();
   const scope = scopeOf(v, q);
   const { DB } = c.env;
-  const [card, plain] = await DB.batch([
-    DB.prepare(oneSql(scope, q.bind(id), body)).bind(...q.binds),
-    DB.prepare("SELECT id, kind, host, project_id FROM items WHERE id = ?1").bind(id),
-  ]);
-  const row = card.results[0];
-  if (row) return row;
-  const item = plain.results[0];
-  if (!item || !inView(v, item)) K.fail(404, `no card ${shownKey(raw)}`);
-  K.fail(409, notCard(K.keyOf(item.kind, item.id)));
+  const row = await DB.prepare(oneSql(scope, q.bind(id), body)).bind(...q.binds).first();
+  if (!row) K.fail(404, `no card ${shownKey(raw)}`);
+  return row;
 }
 
 function cardPeople(card) {
@@ -414,7 +408,7 @@ export function waitingCountStatement(c, words = WAITING_LANES) {
   return c.env.DB.prepare(
     `WITH ${LANES_CTE}
      SELECT count(*) AS n FROM items i JOIN lanes ON lanes.label_id = i.label_id
-     WHERE i.project_id IS NOT NULL AND ${scope("i")} AND ${waitingLanes(q, "lanes.lane", words)}`,
+     WHERE ${scope("i")} AND ${waitingLanes(q, "lanes.lane", words)}`,
   ).bind(...q.binds);
 }
 

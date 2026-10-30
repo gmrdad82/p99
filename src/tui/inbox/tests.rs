@@ -301,7 +301,7 @@ fn enter_opens_the_thread_with_its_facts_comments_and_events() {
         "BUG-12  Cart total stays the same after removing an item · Grace Hopper",
         "Comments (4)",
         "It happens with any item, not just the lamp.",
-        "Ada Lovelace 🤖 · via pci · internal · 20m ago",
+        "Ada Lovelace 🤖 · via dispatch · internal · 20m ago",
         "50m  created by Grace Hopper",
     ] {
         assert!(text.contains(said), "{said}:\n{text}");
@@ -1008,7 +1008,7 @@ fn a_thread_shows_where_its_fix_landed_its_links_and_its_history() {
         "BUG-2  Broken link on the about page",
         "Bug · Done · host example.com · production",
         "/about · assigned to @ada.lovelace",
-        "Ada Lovelace 🤖 filed it 12d ago · via pci · updated 6d ago",
+        "Ada Lovelace 🤖 filed it 12d ago · via dispatch · updated 6d ago",
         "Landed  dev 9d ago 3a9f2c1 · production 6d ago 1.4.0 3abc678",
         "GitHub  https://github.com/example/site/pull/7 fixes",
         "Comments (0)",
@@ -1464,6 +1464,6 @@ fn the_filter_finds_the_cards_an_agent_filed() {
     for key in ["BUG-8 ", "BUG-25 ", "BUG-26 ", "FEAT-27 "] {
         assert!(text.contains(key), "{key}:\n{text}");
     }
-    let by = app.press("ctrl+u pci");
+    let by = app.press("ctrl+u dispatch");
     assert!(by.contains("4 of 28 cards"), "{by}");
 }

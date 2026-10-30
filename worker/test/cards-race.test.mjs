@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { LABEL_COLUMNS, LABEL_JOIN, useKit as useBoardKit } from "../src/boards.js";
 import { useKit as useCardKit } from "../src/cards.js";
-import { cardsBoard, patchProject, postCardStatus } from "../src/cards-write.js";
+import { PROJECT_MOVE, cardsBoard, patchProject, postCardStatus } from "../src/cards-write.js";
 import { leaveNeedsYou } from "../src/needs-you.js";
 import { isChars } from "../src/text.js";
 
@@ -292,26 +292,36 @@ test("two project sets of one plain issue at once, both read first: the winner's
   assert.deepEqual(positions(w, 51), []);
 });
 
-test("two project clears of one card in a lane at once, both read first: one project event, the card stays in its lane with its key; the loser gets 409", async () => {
+test("two project moves of one card in a lane at once, both read first: one project event, the card stays in its lane with its key; the loser gets 409", async () => {
   const w = await world();
   item(w, 61, w.lanes[2], "Splicer", "a0");
-  const { out } = await race(w, [project(w, 61, null), project(w, 61, null)]);
-  assert.deepEqual(out[1], { status: 200, body: { id: 61 } });
+  const { out } = await race(w, [project(w, 61, "Paper"), project(w, 61, "Paper")]);
+  assert.equal(out[1].status, 200, JSON.stringify(out[1]));
   assert.deepEqual(out[0], MOVED);
-  assert.deepEqual(itemOf(w, 61), { label_id: w.lanes[2], project: null, comment_count: 0 });
-  assert.deepEqual(events(w, 61, "project"), [{ from: "Splicer", to: null }]);
+  assert.deepEqual(itemOf(w, 61), { label_id: w.lanes[2], project: "Paper", comment_count: 0 });
+  assert.deepEqual(events(w, 61, "project"), [{ from: "Splicer", to: "Paper" }]);
   assert.deepEqual(events(w, 61, "label"), []);
   assert.deepEqual(positions(w, 61), [{ label_id: w.lanes[2], key: "a0" }]);
 });
 
-test("a project rename of one card raced by a clear, both read first: the first to write stands with its one event; the other gets 409", async () => {
+test("a project move of one card raced by another, both read first: the first to write stands with its one event; the other gets 409", async () => {
   const w = await world();
-  item(w, 65, w.lanes[1], "Splicer", "a0");
-  const { out } = await race(w, [project(w, 65, "Paper"), project(w, 65, null)]);
-  assert.deepEqual(out[1], { status: 200, body: { id: 65 } });
+  item(w, 65, w.lanes[1], "Ops", "a0");
+  const { out } = await race(w, [project(w, 65, "Paper"), project(w, 65, "Splicer")]);
+  assert.equal(out[1].status, 200, JSON.stringify(out[1]));
   assert.deepEqual(out[0], MOVED);
-  assert.equal(itemOf(w, 65).project, null);
-  assert.deepEqual(events(w, 65, "project"), [{ from: "Splicer", to: null }]);
+  assert.equal(itemOf(w, 65).project, "Splicer");
+  assert.deepEqual(events(w, 65, "project"), [{ from: "Ops", to: "Splicer" }]);
+});
+
+test("taking a card out of every project is refused before any write: the card keeps its project, lane and key", async () => {
+  const w = await world();
+  item(w, 66, w.lanes[1], "Splicer", "a0");
+  const out = await answer(() => patchProject(context(d1(w.db), {}), rowOf(w, 66), { project: null }));
+  assert.deepEqual(out, { status: 400, body: { message: PROJECT_MOVE, error: undefined } });
+  assert.deepEqual(itemOf(w, 66), { label_id: w.lanes[1], project: "Splicer", comment_count: 0 });
+  assert.deepEqual(events(w, 66, "project"), []);
+  assert.deepEqual(positions(w, 66), [{ label_id: w.lanes[1], key: "a0" }]);
 });
 
 test("a project set on a plain issue already open in the first lane lands without a move", async () => {

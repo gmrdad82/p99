@@ -1,4 +1,4 @@
-import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PAGE_NEEDS_HOST, laneIndex, notCard, personOf, projectName } from "./cards.js";
+import { K, LANES, LANE_NAMES, MAX_NOTE_CHARS, MAX_REF_CHARS, PAGE_NEEDS_HOST, laneIndex, personOf, projectName } from "./cards.js";
 import { loadCard } from "./cards-read.js";
 import { MOVED, labelChangeStatements, placeIn } from "./boards.js";
 import { projectNamed, reachesProject } from "./grants.js";
@@ -9,6 +9,7 @@ const UID_RULE = "client_uid must be 1 to 64 letters, digits, dots, dashes or un
 const STATUS_RULE = `status must be ${LANES.slice(0, -1).join(", ")} or ${LANES.at(-1)}`;
 const REF_RULE = `a link has 1 to ${MAX_REF_CHARS} characters`;
 const NOTE_RULE = `a note has at most ${MAX_NOTE_CHARS} characters`;
+export const PROJECT_MOVE = "project must name a project: a card moves to another project, never out of one";
 const LANES_SQL = `SELECT b.id AS board, l.id, l.name, l.role, l.closes FROM boards b
   JOIN board_columns bc ON bc.board_id = b.id JOIN labels l ON l.id = bc.label_id
   WHERE b.cards = 1 ORDER BY bc.position`;
@@ -99,10 +100,7 @@ function projectEvent(c, itemId, detail) {
 }
 
 function projectStatement(c, itemId, from, project) {
-  return c.env.DB.prepare(
-    `UPDATE items SET project = ?3, project_id = COALESCE(?5, (SELECT h.project_id FROM hosts h WHERE h.host = items.host), project_id),
-       updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2`,
-  ).bind(itemId, from, project ? project.name : null, c.now, project ? project.id : null);
+  return c.env.DB.prepare("UPDATE items SET project = ?3, project_id = ?5, updated_at = ?4, activity_at = ?4 WHERE id = ?1 AND project IS ?2").bind(itemId, from, project.name, c.now, project.id);
 }
 
 function usernameStatement(c) {
@@ -142,9 +140,7 @@ async function itemRow(c, rawKey) {
 
 async function cardRow(c, rawKey) {
   K.requireManager(c);
-  const row = await itemRow(c, rawKey);
-  if (row.project_id === null || row.project_id === undefined) K.fail(409, notCard(K.keyOf(row.kind, row.id)));
-  return row;
+  return await itemRow(c, rawKey);
 }
 
 const PROJECT_BY_NAME = "SELECT id, name FROM projects WHERE name = ?1";
@@ -371,15 +367,15 @@ export async function patchProject(c, row, body) {
   K.requireManager(c);
   if (Object.keys(body).some((field) => field !== "project")) K.fail(400, "project is changed on its own");
   const from = row.project ?? null;
-  const project = body.project === null ? null : await knownProject(c, body.project);
-  const name = project ? project.name : null;
-  const answer = async () => (name === null ? K.issueResponse(c, row.id, 200) : K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) }));
+  if (body.project === null) K.fail(400, PROJECT_MOVE);
+  const project = await knownProject(c, body.project);
+  const name = project.name;
+  const answer = async () => K.json(200, { card: await loadCard(c, K.keyOf(row.kind, row.id)) });
   if (from === name) return answer();
   const { DB } = c.env;
   const results = await DB.batch([projectStatement(c, row.id, from, project), projectEvent(c, row.id, { from, to: name }), K.readStatement(c, row.id)]);
   if (!results[0].meta.changes) K.fail(409, MOVED, "moved");
-  const after = project ? project.id : (c.dir.hosts.get(row.host)?.project_id ?? row.project_id ?? null);
-  K.push(c, "change", row, { what: ["project"], projects: [...new Set([row.project_id, after].filter((id) => id !== null && id !== undefined))] });
+  K.push(c, "change", row, { what: ["project"], projects: [...new Set([row.project_id, project.id].filter((id) => id !== null && id !== undefined))] });
   return answer();
 }
 

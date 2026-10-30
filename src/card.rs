@@ -10,17 +10,20 @@ pub const NOT_YET: &str = "this Worker has no cards yet; run p99 deploy";
 pub const PROJECT_RULE: &str = "a project name has 1 to 40 characters";
 pub const SINCE_RULE: &str = "--since takes a time like 2026-10-22T08:00:00Z or an age like 6h";
 
-pub(crate) fn host_in<'de, D: serde::Deserializer<'de>>(
+pub(crate) fn blank_in<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<String, D::Error> {
     Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
-pub(crate) fn host_out<S: serde::Serializer>(host: &str, serializer: S) -> Result<S::Ok, S::Error> {
-    if host.is_empty() {
+pub(crate) fn blank_out<S: serde::Serializer>(
+    text: &str,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    if text.is_empty() {
         serializer.serialize_none()
     } else {
-        serializer.serialize_str(host)
+        serializer.serialize_str(text)
     }
 }
 
@@ -94,12 +97,13 @@ pub struct Link {
 pub struct Card {
     pub key: String,
     pub kind: String,
+    #[serde(default, deserialize_with = "blank_in", serialize_with = "blank_out")]
     pub project: String,
     pub status: Lane,
     pub label: String,
     pub lane: Option<u32>,
     pub title: String,
-    #[serde(default, deserialize_with = "host_in", serialize_with = "host_out")]
+    #[serde(default, deserialize_with = "blank_in", serialize_with = "blank_out")]
     pub host: String,
     pub reporter: Person,
     pub created_at: String,
@@ -212,7 +216,7 @@ pub struct NewComment {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectChange {
-    pub project: Option<String>,
+    pub project: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -747,8 +751,11 @@ mod tests {
             serde_json::json!({"ref":"pci#1","note":"n"})
         );
         assert_eq!(
-            serde_json::to_value(ProjectChange { project: None }).unwrap(),
-            serde_json::json!({"project":null})
+            serde_json::to_value(ProjectChange {
+                project: "Shop".into()
+            })
+            .unwrap(),
+            serde_json::json!({"project":"Shop"})
         );
     }
 

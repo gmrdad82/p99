@@ -582,7 +582,7 @@ fn invite_mails_a_new_code_and_shows_only_what_the_owner_may_see() {
         "Grace Hopper",
         "--email",
         "grace@example.com",
-        "--manager",
+        "--owner",
         "--totp",
     ]);
     out.ok();
@@ -1033,15 +1033,9 @@ fn invites_and_its_codes_alias_print_every_role_as_owner_or_user() {
 }
 
 #[test]
-fn a_role_filter_takes_owner_or_user_and_every_old_word() {
+fn a_role_filter_takes_owner_or_user_alone() {
     let h = two_codes("invites-role-filter");
-    for (word, id) in [
-        ("owner", "6"),
-        ("manager", "6"),
-        ("user", "4"),
-        ("person", "4"),
-        ("reporter", "4"),
-    ] {
+    for (word, id) in [("owner", "6"), ("user", "4")] {
         let out = h.p99(&["invites", "--role", word]);
         out.ok();
         assert_eq!(out.lines().len(), 1, "{word}: {}", out.stdout);
@@ -1063,26 +1057,41 @@ fn a_role_filter_takes_owner_or_user_and_every_old_word() {
     );
     h.p99(&["codes", "--role", "Admin"])
         .clap("invalid value 'Admin' for '--role <ROLE>'");
+    for old in ["manager", "person", "reporter"] {
+        h.p99(&["invites", "--role", old])
+            .clap(&format!("invalid value '{old}' for '--role <ROLE>'"));
+    }
 }
 
 #[test]
-fn invite_owner_and_its_old_manager_alias_mint_an_owner() {
-    for flag in ["--owner", "--manager"] {
-        let h = home(&format!("invite-owner{flag}"));
-        let out = h.p99(&[
-            "invite",
-            "shop.example.com",
-            "--name",
-            "Grace Hopper",
-            "--email",
-            "grace@example.com",
-            flag,
-            "--no-mail",
-        ]);
-        out.ok();
-        let sent = h.stub.call("POST", "/_p99/v1/codes").json();
-        assert_eq!(sent["role"], "owner", "{flag}");
-    }
+fn invite_owner_mints_an_owner_and_the_old_manager_flag_is_gone() {
+    let h = home("invite-owner");
+    let out = h.p99(&[
+        "invite",
+        "shop.example.com",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--owner",
+        "--no-mail",
+    ]);
+    out.ok();
+    let sent = h.stub.call("POST", "/_p99/v1/codes").json();
+    assert_eq!(sent["role"], "owner");
+    let gone = home("invite-manager");
+    gone.p99(&[
+        "invite",
+        "shop.example.com",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--manager",
+        "--no-mail",
+    ])
+    .clap("unexpected argument '--manager' found");
+    assert!(gone.stub.seen().is_empty());
     let h = home("invite-user");
     h.p99(&[
         "invite",

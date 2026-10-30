@@ -26,10 +26,6 @@ export function laneWord(index) {
   return LANES[index] ?? null;
 }
 
-export function notCard(key) {
-  return `${key} is in no project; give it one with p99 edit ${key} --project <name>`;
-}
-
 export function personOf(name, username, agent, via) {
   return { name: name ?? null, username: username ?? null, agent: Boolean(agent), via: agent ? (via ?? null) : null };
 }

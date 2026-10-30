@@ -9,8 +9,7 @@ use crate::card::{
     NewComment, NewLink, Person, ProjectChange, Source, StatusChange, ago, refusal, who,
 };
 use crate::cli::{
-    EditArgs, Global, ProjectsAction, ProjectsArgs, client_for, key_of, print_json,
-    read_attachment, text_arg,
+    Global, ProjectsAction, ProjectsArgs, client_for, key_of, print_json, read_attachment, text_arg,
 };
 use crate::client::{Client, segment, uid};
 use crate::config::Config;
@@ -443,9 +442,7 @@ pub fn new(config: &Config, global: &Global, args: &CardNewArgs) -> Result<(), S
                     &client,
                     "PATCH",
                     &client.item(&number, "")?,
-                    Some(body_of(&ProjectChange {
-                        project: Some(project),
-                    })?),
+                    Some(body_of(&ProjectChange { project })?),
                 )?;
                 let reply: CardReply =
                     serde_json::from_value(answer).map_err(|_| crate::card::NOT_YET.to_owned())?;
@@ -868,60 +865,34 @@ fn project_rename(
     Ok(())
 }
 
-pub fn edit_project(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String> {
-    let project = match &args.project {
-        Some(name) => Some(crate::card::project(name)?),
-        None => None,
-    };
-    let number = key_of(&args.key)?;
-    let (client, _) = client_for(config, global, args.host.as_deref())?;
-    let client = client.with_host(args.host.as_deref());
-    let body = body_of(&ProjectChange {
-        project: project.clone(),
-    })?;
+pub fn edit_project(
+    config: &Config,
+    global: &Global,
+    raw: &str,
+    host: Option<&str>,
+    name: &str,
+) -> Result<(), String> {
+    let project = crate::card::project(name)?;
+    let number = key_of(raw)?;
+    let (client, _) = client_for(config, global, host)?;
+    let client = client.with_host(host);
+    let body = body_of(&ProjectChange { project })?;
     let pq = client.item(&number, "")?;
-    if project.is_some() {
-        let answer: Value = ask(&client, "PATCH", &pq, Some(body))?;
-        if answer.get("card").is_none() {
-            return Err(crate::card::NOT_YET.to_owned());
-        }
-        let reply: CardReply =
-            serde_json::from_value(answer).map_err(|e| format!("unexpected answer: {e}"))?;
-        if global.json {
-            return print_json(&json!({"card": reply.card}));
-        }
-        out!(
-            "{} is a card of {}, in {}",
-            reply.card.key,
-            reply.card.project,
-            reply.card.label
-        );
-        return Ok(());
-    }
-    if !global.json {
-        let before: Value = ask(&client, "GET", &pq, None)?;
-        match before["issue"].get("project") {
-            None => return Err(crate::card::NOT_YET.to_owned()),
-            Some(Value::Null) => {
-                out!(
-                    "{} is in no project",
-                    before["issue"]["key"].as_str().unwrap_or(&args.key)
-                );
-                return Ok(());
-            }
-            Some(_) => {}
-        }
-    }
     let answer: Value = ask(&client, "PATCH", &pq, Some(body))?;
-    if answer.get("project").is_none() {
+    if answer.get("card").is_none() {
         return Err(crate::card::NOT_YET.to_owned());
     }
-    let issue: crate::wire::Issue =
+    let reply: CardReply =
         serde_json::from_value(answer).map_err(|e| format!("unexpected answer: {e}"))?;
     if global.json {
-        return print_json(&issue);
+        return print_json(&json!({"card": reply.card}));
     }
-    out!("{} is out of its project, back in Inbox", issue.key);
+    out!(
+        "{} is a card of {}, in {}",
+        reply.card.key,
+        reply.card.project,
+        reply.card.label
+    );
     Ok(())
 }
 

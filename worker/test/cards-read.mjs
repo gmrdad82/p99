@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { LANES, LANE_NAMES, MAX_VIA_CHARS, PROJECT_RULE, actorVia, laneIndex, laneWord, notCard, personOf, projectName, useKit } from "../src/cards.js";
+import { LANES, LANE_NAMES, MAX_VIA_CHARS, PROJECT_RULE, actorVia, laneIndex, laneWord, personOf, projectName, useKit } from "../src/cards.js";
 import { cardOf, decodeCursor, emailsIn, limitOf, linkOf, scrubEmails, sinceOf } from "../src/cards-read.js";
 
 const CARD_FIELDS = ["changed_at", "changed_by", "comments", "created_at", "host", "key", "kind", "label", "lane", "links", "project", "reporter", "status", "title"];
@@ -93,10 +93,6 @@ async function unitChecks(check) {
       assert.throws(() => projectName(bad), refused(400, PROJECT_RULE), String(bad));
     }
     assert.equal(PROJECT_RULE, "a project name has 1 to 40 characters");
-  });
-
-  await check("a card in no project is refused with the command that gives it one", async () => {
-    assert.equal(notCard("BUG-12"), "BUG-12 is in no project; give it one with p99 edit BUG-12 --project <name>");
   });
 
   await check("a card row becomes the contract's card: status by lane, lane null when done, persons without e-mails", async () => {

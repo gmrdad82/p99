@@ -15,7 +15,7 @@ pub const NOW: i64 = 1_791_979_200;
 pub const SPACE: &str = "Example shop";
 pub const ME: (&str, &str) = ("Ada Lovelace", "ada@example.com");
 const GRACE: (&str, &str) = ("Grace Hopper", "grace@example.com");
-const VIA: &str = "pci";
+const VIA: &str = "dispatch";
 
 const MINUTE: i64 = 60;
 const HOUR: i64 = 3600;

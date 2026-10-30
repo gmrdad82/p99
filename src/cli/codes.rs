@@ -314,16 +314,12 @@ mod tests {
         assert_eq!(serde_json::to_value(Role::Owner).unwrap(), json!("owner"));
         assert_eq!(serde_json::to_value(Role::User).unwrap(), json!("user"));
         use clap::ValueEnum;
-        for (word, role) in [
-            ("owner", Role::Owner),
-            ("manager", Role::Owner),
-            ("user", Role::User),
-            ("person", Role::User),
-            ("reporter", Role::User),
-        ] {
+        for (word, role) in [("owner", Role::Owner), ("user", Role::User)] {
             assert_eq!(Role::from_str(word, false), Ok(role), "{word}");
         }
-        for word in ["guest", "member", "admin", ""] {
+        for word in [
+            "manager", "person", "reporter", "guest", "member", "admin", "",
+        ] {
             assert!(Role::from_str(word, false).is_err(), "{word}");
         }
         let shown: Vec<String> = Role::value_variants()
