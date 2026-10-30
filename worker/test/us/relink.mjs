@@ -69,4 +69,36 @@ export default async function (kit) {
     assert.ok(mine.json.issues.some((i) => i.key === itemKey), "the new code lists the same items");
     assert.equal((await call("POST", `/_p99/v1/codes/${made.json.code.id}/relink`, { actor: people.ada, body: {} })).status, 404);
   });
+
+  await check("us-relink-001 a relink with a new authenticator mails the setup and says to replace the old entry", async () => {
+    const tag = randomUUID().slice(0, 8);
+    const email = `grace.newtotp.${tag}@example.com`;
+    const made = await call("POST", "/_p99/v1/codes", {
+      actor: people.ada,
+      body: { name: "Grace Hopper", email, grant: { projects: ["Shop"] }, role: "user", totp: true, mail: false },
+    });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    assert.equal(kit.mail.inbox(email).length, 0);
+
+    const relinked = await call("POST", `/_p99/v1/codes/${made.json.code.id}/relink`, { actor: people.ada, body: { new_totp: true, mail: true } });
+    assert.equal(relinked.status, 201, JSON.stringify(relinked.json));
+    assert.equal(relinked.json.totp, "new");
+    assert.deepEqual([relinked.json.mail, relinked.json.totp_mail], ["sent", "sent"]);
+    const key = relinked.json.totp_key;
+    assert.ok(key && key !== made.json.totp_key, "the relink made a new authenticator key");
+
+    const mails = await until("the two relink mails", () => {
+      const got = kit.mail.inbox(email);
+      return got.length === 2 && got;
+    });
+    const [link, setup] = mails;
+    assert.match(link.subject, /^Your new P99 link/);
+    assert.doesNotMatch(link.text, /replace it/);
+    assert.equal(setup.subject, "Set up your authenticator for P99");
+    assert.match(setup.text, /sent apart from your new link/);
+    assert.match(setup.text, /If your authenticator already has P99 for this e-mail, replace it with this one: the old one no longer works\./);
+    assert.ok(setup.text.includes(key.replace(/(.{4})(?=.)/g, "$1 ")), "the setup mail carries the new key");
+    assert.ok(!setup.text.includes(made.json.totp_key.replace(/(.{4})(?=.)/g, "$1 ")), "the setup mail never carries the old key");
+    assert.ok(setup.html.includes("cid:"), "the setup mail carries the QR code");
+  });
 }

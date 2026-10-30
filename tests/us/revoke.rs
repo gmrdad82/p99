@@ -155,3 +155,74 @@ fn us_revoke_001_a_revoked_code_is_deleted_once_its_four_characters_are_typed_ba
     assert_eq!(deleted.len(), 1);
     assert!(deleted[0].signed);
 }
+
+fn two_roles(name: &str) -> Home {
+    Home::new(name, |req: &Req| {
+        if req.is("GET", "/_p99/v1/codes") {
+            let mut owner = code(6, "Ada Lovelace", "ada@example.com", &["shop.example.com"]);
+            owner["manager"] = json!(true);
+            owner["role"] = json!("owner");
+            let mut user = code(
+                4,
+                "Grace Hopper",
+                "grace@example.com",
+                &["shop.example.com"],
+            );
+            user["role"] = json!("user");
+            Reply::ok(json!({"codes": [owner, user]}))
+        } else {
+            fake::any(req)
+        }
+    })
+}
+
+#[test]
+fn us_revoke_001_invites_role_takes_only_owner_or_user() {
+    let h = two_roles("us-revoke-roles");
+    for (word, id) in [("owner", 6), ("user", 4)] {
+        let out = h.p99(&["invites", "--role", word]);
+        out.ok();
+        assert_eq!(out.lines().len(), 1, "{word}: {}", out.stdout);
+        assert!(
+            out.lines()[0].trim_start().starts_with(&id.to_string()),
+            "{word}: {}",
+            out.stdout
+        );
+        let answer = h.p99(&["codes", "--role", word, "--json"]).json();
+        let ids: Vec<i64> = answer["codes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["id"].as_i64().unwrap())
+            .collect();
+        assert_eq!(ids, [id], "{word}");
+    }
+    let asked = h.stub.seen().len();
+    for old in ["manager", "person", "reporter", "Manager"] {
+        for command in ["invites", "codes"] {
+            let out = h.p99(&[command, "--role", old]);
+            out.clap(&format!("invalid value '{old}' for '--role <ROLE>'"));
+            assert!(
+                out.stderr.contains("[possible values: owner, user]"),
+                "{}",
+                out.stderr
+            );
+        }
+    }
+    h.p99(&[
+        "invite",
+        "--project",
+        "Shop",
+        "--name",
+        "Grace Hopper",
+        "--email",
+        "grace@example.com",
+        "--manager",
+    ])
+    .clap("unexpected argument '--manager' found");
+    assert_eq!(
+        h.stub.seen().len(),
+        asked,
+        "a refused role word reached the Worker"
+    );
+}

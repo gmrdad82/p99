@@ -174,3 +174,95 @@ fn us_report_001_p99_file_still_files_once_and_says_it_is_now_p99_card_new() {
     assert!(!help.stdout.contains("\n  file "), "{}", help.stdout);
     assert!(help.stdout.contains("\n  card "), "{}", help.stdout);
 }
+
+const OLD_WORDS: [&str; 9] = [
+    "item",
+    "items",
+    "report",
+    "reports",
+    "reporter",
+    "reporters",
+    "reported",
+    "reporting",
+    "inbox",
+];
+const KEPT_PHRASES: [&str; 1] = ["issue and feedback reporting"];
+
+fn subcommands(help: &str) -> Vec<String> {
+    help.lines()
+        .skip_while(|l| *l != "Commands:")
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| l.split_whitespace().next())
+        .filter(|name| *name != "help")
+        .map(str::to_owned)
+        .collect()
+}
+
+fn old_words(help: &str) -> Vec<String> {
+    let mut text = help.to_lowercase();
+    for kept in KEPT_PHRASES {
+        text = text.replace(kept, "");
+    }
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|word| OLD_WORDS.contains(word))
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn us_report_001_every_cli_help_says_card_never_item_or_report() {
+    assert_eq!(
+        old_words(
+            "Usage: p99 merge --into <KEY> <ITEMS>...\n  back to Inbox; a Reporter reported it"
+        ),
+        ["items", "inbox", "reporter", "reported"]
+    );
+    assert!(old_words("P99: issue and feedback reporting for any website").is_empty());
+    assert!(old_words("the item_id field and the --kind flag").is_empty());
+    assert_eq!(
+        subcommands(
+            "Usage: p99 card\n\nCommands:\n  new   file one\n  show  show one\n  help  Print this\n\nOptions:\n  -h"
+        ),
+        ["new", "show"]
+    );
+    let h = Home::new("us-report-help", fake::any);
+    let mut queue: Vec<Vec<String>> = ["", "file", "comment", "status", "move"]
+        .iter()
+        .map(|hidden| hidden.split_whitespace().map(str::to_owned).collect())
+        .collect();
+    let mut walked = Vec::new();
+    let mut found = Vec::new();
+    while let Some(path) = queue.pop() {
+        let mut args: Vec<&str> = path.iter().map(String::as_str).collect();
+        args.push("--help");
+        let out = h.p99(&args);
+        out.ok();
+        assert!(out.stderr.is_empty(), "{args:?}: {}", out.stderr);
+        for word in old_words(&out.stdout) {
+            found.push(format!("p99 {}: {word}", args.join(" ")));
+        }
+        for name in subcommands(&out.stdout) {
+            let mut next = path.clone();
+            next.push(name);
+            queue.push(next);
+        }
+        walked.push(path.join(" "));
+    }
+    for path in [
+        "card new",
+        "card comment",
+        "invites",
+        "merge",
+        "edit",
+        "board",
+    ] {
+        assert!(
+            walked.iter().any(|w| w == path),
+            "the walk never reached p99 {path}: {walked:?}"
+        );
+    }
+    assert!(walked.len() > 40, "{walked:?}");
+    assert!(found.is_empty(), "{}", found.join("\n"));
+    assert!(h.stub.seen().is_empty(), "a help screen reached the Worker");
+}

@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{Value, json};
 
 use crate::cloudflare::{
     Cloud, KEY, PEPPER, RESEND, TOKEN, UPLOAD, VERSION, all, cf_calls, configured, inserted,
@@ -245,4 +245,80 @@ fn us_deploy_001_a_cloudflare_failure_mid_deploy_keeps_the_running_worker_and_th
     );
     drop(state);
     never_shows(&[&out, &again], &[crate::stub::KEY, "cf-token"]);
+}
+
+#[test]
+fn us_deploy_001_a_space_with_its_own_page_address_serves_the_page_there_after_deploy() {
+    let (h, cf) = with("us-deploy-app", current(), |base| {
+        space_config(base).replace(
+            "database_id = \"db1\"\n",
+            "database_id = \"db1\"\napp = \"p99.example.com\"\n",
+        )
+    });
+    let out = h.p99_env(&["deploy"], &[("P99_TOKEN", TOKEN)]);
+    out.ok();
+    assert!(
+        all(&out).contains("the P99 page answers on https://p99.example.com/"),
+        "{}",
+        all(&out)
+    );
+    let first = cf_calls(&h);
+    let uploads = uploads_in(&first);
+    assert_eq!(uploads.len(), 1);
+    let sent = metadata(&uploads[0].text());
+    let app_host: Vec<&Value> = sent["bindings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|b| b["name"] == "APP_HOST")
+        .collect();
+    assert_eq!(
+        app_host,
+        [&json!({"type": "plain_text", "name": "APP_HOST", "text": "p99.example.com"})]
+    );
+    let routed = first
+        .iter()
+        .position(|r| {
+            r.is("POST", "/cf/zones/z1/workers/routes")
+                && r.json()["pattern"] == "p99.example.com/*"
+        })
+        .expect("the page's address got no route");
+    assert_eq!(first[routed].json()["script"], "p99");
+    assert!(
+        first.iter().position(|r| r.is("PUT", UPLOAD)).unwrap() < routed,
+        "the route ran before the Worker that serves it"
+    );
+    assert!(
+        !first
+            .iter()
+            .any(|r| r.method == "POST" && r.path.ends_with("/subdomain")),
+        "a space with its own address turned on workers.dev"
+    );
+    {
+        let held = cf.lock().unwrap();
+        assert_eq!(held.binding("APP_HOST")["text"], "p99.example.com");
+        for pattern in ["p99.example.com/*", "example.com/_p99/*"] {
+            assert_eq!(
+                held.routes
+                    .iter()
+                    .filter(|(p, w)| p == pattern && w == "p99")
+                    .count(),
+                1,
+                "{pattern}: {:?}",
+                held.routes
+            );
+        }
+    }
+
+    let n = first.len();
+    let again = h.p99_env(&["deploy", "--json"], &[("P99_TOKEN", TOKEN)]);
+    again.ok();
+    assert_eq!(again.json()["app"], "https://p99.example.com/");
+    assert!(
+        !since(&h, n)
+            .iter()
+            .any(|r| r.is("POST", "/cf/zones/z1/workers/routes")),
+        "a second deploy added a route again"
+    );
+    never_shows(&[&out, &again], &[HOOK]);
 }
