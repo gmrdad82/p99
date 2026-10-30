@@ -829,3 +829,70 @@ fn forty_projects_fit_the_picker_at_120x34_and_80x24_and_the_last_one_is_reachab
         assert!(closed.contains(narrowed), "{closed}");
     }
 }
+
+fn footer(text: &str) -> &str {
+    text.lines()
+        .find(|line| line.contains("ctrl+c twice quit"))
+        .unwrap_or_default()
+}
+
+#[test]
+fn question_mark_opens_every_key_of_the_screen_and_esc_closes_them() {
+    let mut app = run(sample());
+    app.press("?");
+    app.tui.advance(Duration::from_secs(1));
+    let sheet = app.text();
+    for said in [
+        "Keys",
+        "status: open, closed or all",
+        "Elsewhere",
+        "esc closes it",
+    ] {
+        assert!(sheet.contains(said), "{said}:\n{sheet}");
+    }
+    assert!(app.tui.sheet().is_open());
+    app.press("esc");
+    assert!(!app.tui.sheet().is_open());
+}
+
+#[test]
+fn the_footer_shows_the_keys_of_the_tab_and_the_card_in_front() {
+    let mut app = run(sample());
+    let cards = app.text();
+    for hint in ["↑↓ move", "? help", "s status", "n new card"] {
+        assert!(footer(&cards).contains(hint), "{hint}:\n{cards}");
+    }
+    let board = app.go(BOARD);
+    for hint in ["←→↑↓ move", "space pick up", "enter open"] {
+        assert!(footer(&board).contains(hint), "{hint}:\n{board}");
+    }
+    assert!(!footer(&board).contains("s status"), "{board}");
+    let carrying = app.press("space");
+    assert!(footer(&carrying).contains("←→↑↓ carry"), "{carrying}");
+    assert!(footer(&carrying).contains("esc put back"), "{carrying}");
+    app.press("esc");
+    let codes = app.go(CODES);
+    assert!(footer(&codes).contains("/ filter"), "{codes}");
+    assert!(!footer(&codes).contains("n new card"), "{codes}");
+    app.go(INBOX);
+    let card = app.press("enter");
+    for hint in ["r reply", "esc back", "e edit", "i internal off"] {
+        assert!(footer(&card).contains(hint), "{hint}:\n{card}");
+    }
+    let internal = app.press("i");
+    assert!(footer(&internal).contains("i internal on"), "{internal}");
+    let back = app.press("esc");
+    assert!(footer(&back).contains("s status"), "{back}");
+}
+
+#[test]
+fn a_tab_in_the_back_never_takes_the_keys_of_the_tab_in_front() {
+    let mut app = run(sample());
+    app.go(BOARD);
+    app.go(CODES);
+    let codes = app.event(INBOX, Msg::Labels(Ok(Vec::new())));
+    assert!(footer(&codes).contains("/ filter"), "{codes}");
+    assert!(!footer(&codes).contains("n new card"), "{codes}");
+    let codes = app.event(BOARD, Msg::Labels(Ok(Vec::new())));
+    assert!(!footer(&codes).contains("space pick up"), "{codes}");
+}

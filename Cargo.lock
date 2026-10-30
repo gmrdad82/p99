@@ -475,7 +475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -990,8 +990,8 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pito-tui"
-version = "2.0.0"
-source = "git+https://github.com/gmrdad82/pito-tui?tag=v2.0.0#bdf0b575bc5e9d9fc3da65579b11fd1d69dcbcb4"
+version = "2.1.0"
+source = "git+https://github.com/gmrdad82/pito-tui?tag=v2.1.0#b44dd36fb6c9482d862469ecb4fa3790ef6ccecd"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1173,7 +1173,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

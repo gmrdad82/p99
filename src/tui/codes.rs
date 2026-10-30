@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use pito_tui::clock::{self, Units};
-use pito_tui::crossterm::event::{KeyCode, KeyEvent};
-use pito_tui::footer::{Edit, Hint, Input, InputBar, Tone};
+use pito_tui::crossterm::event::KeyEvent;
+use pito_tui::footer::{Edit, Input, InputBar, Tone};
 use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style, text::Line};
 use pito_tui::{Cx, Filter, Job, Palette, Phase, Screen, Span, Turn};
@@ -13,6 +13,7 @@ use crate::wire::Code;
 
 use super::Msg;
 use super::badge::Badge;
+use super::keys::{self, Act, CODES, FILTERED, READ, REVOKED, SPACES, Seat};
 use super::projects::Shared;
 use super::source::{Source, fold, hits, unix, words};
 use super::waiting::tally;
@@ -162,6 +163,52 @@ impl Codes {
         self.codes = Some(codes);
     }
 
+    fn seat(&self) -> Seat {
+        let read = self.codes.is_some();
+        Seat::new(CODES)
+            .with(READ, read)
+            .with(SPACES, read && self.source.spaces().len() > 1)
+            .with(
+                REVOKED,
+                self.chosen().is_some_and(|c| c.revoked_at.is_some()),
+            )
+            .with(FILTERED, read && self.filter.active())
+    }
+
+    fn sync(&self, cx: &mut Cx<'_, Msg>) {
+        if self
+            .shared
+            .as_ref()
+            .is_none_or(|shared| shared.showing(cx.screen()))
+        {
+            cx.keys_now(self.seat().now());
+        }
+    }
+
+    fn pressed(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        let act = keys::action(self.seat().now(), &key).map(|(act, _)| act);
+        if self.codes.is_none() {
+            if act == Some(Act::Reload) {
+                cx.reload();
+            }
+            return;
+        }
+        if let Some(asking) = self.asking.take() {
+            self.answer(asking, key, cx);
+            return;
+        }
+        match self.filter.key(key) {
+            Turn::Filtered => self.sift(),
+            Turn::Pass => match act {
+                Some(Act::Reload) => cx.reload(),
+                Some(Act::Delete) => self.ask(cx),
+                Some(Act::Space) => self.switch(cx),
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
     fn chosen(&self) -> Option<&Code> {
         let at = self.filter.current()?;
         self.codes.as_ref()?.get(at).map(|(code, _)| code)
@@ -290,7 +337,7 @@ impl Screen<Msg> for Codes {
         Some(Box::new(move || Msg::Codes(source.codes())))
     }
 
-    fn loaded(&mut self, event: Msg, _cx: &mut Cx<'_, Msg>) {
+    fn loaded(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
         match event {
             Msg::Codes(Ok(codes)) => {
                 self.codes = Some(
@@ -307,6 +354,7 @@ impl Screen<Msg> for Codes {
             Msg::Codes(Err(error)) => self.error = Some(error),
             _ => {}
         }
+        self.sync(cx);
     }
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
@@ -319,14 +367,18 @@ impl Screen<Msg> for Codes {
             }
             _ => {}
         }
+        self.sync(cx);
     }
 
     fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
-        let Some(shared) = &self.shared else { return };
-        if self.scope != shared.scoped() {
-            self.scope = shared.scoped();
-            cx.reload();
+        if let Some(shared) = &self.shared {
+            shared.show(cx.screen());
+            if self.scope != shared.scoped() {
+                self.scope = shared.scoped();
+                cx.reload();
+            }
         }
+        self.sync(cx);
     }
 
     fn status(&self) -> Option<(String, Style)> {
@@ -339,35 +391,17 @@ impl Screen<Msg> for Codes {
     }
 
     fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
-        if self.codes.is_none() {
-            if key.code == KeyCode::Char('r') {
-                cx.reload();
-            }
-            return;
-        }
-        if let Some(asking) = self.asking.take() {
-            self.answer(asking, key, cx);
-            return;
-        }
-        match self.filter.key(key) {
-            Turn::Filtered => self.sift(),
-            Turn::Pass if key.code == KeyCode::Char('r') => cx.reload(),
-            Turn::Pass if key.code == KeyCode::Char('d') => self.ask(cx),
-            Turn::Pass if key.code == KeyCode::Char('S') && self.source.spaces().len() > 1 => {
-                self.switch(cx);
-            }
-            _ => {}
-        }
+        self.pressed(key, cx);
+        self.sync(cx);
     }
 
-    fn paste(&mut self, text: &str, _cx: &mut Cx<'_, Msg>) {
+    fn paste(&mut self, text: &str, cx: &mut Cx<'_, Msg>) {
         if let Some((input, ..)) = &mut self.asking {
             input.paste(text);
-            return;
-        }
-        if self.filter.paste(text) == Turn::Filtered {
+        } else if self.filter.paste(text) == Turn::Filtered {
             self.sift();
         }
+        self.sync(cx);
     }
 
     fn selected(&self) -> usize {
@@ -397,27 +431,6 @@ impl Screen<Msg> for Codes {
             ),
             None => self.filter.bar(),
         }
-    }
-
-    fn hints(&self) -> Vec<Hint<'_>> {
-        if self.codes.is_none() {
-            return vec![Hint::new("r", "read again")];
-        }
-        let mut hints = vec![
-            Hint::new("↑↓", "move"),
-            Hint::new("/", "filter").rank(1),
-            Hint::new("r", "read again").rank(3),
-        ];
-        if self.source.spaces().len() > 1 {
-            hints.push(Hint::new("S", "space").rank(2));
-        }
-        if self.chosen().is_some_and(|c| c.revoked_at.is_some()) {
-            hints.push(Hint::new("d", "delete").rank(2));
-        }
-        if self.filter.active() {
-            hints.push(Hint::new("esc", "clear filter"));
-        }
-        hints
     }
 
     fn facts(&self) -> Vec<(String, Style)> {

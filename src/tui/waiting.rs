@@ -1,6 +1,6 @@
 use std::time::{Duration, Instant};
 
-use pito_tui::crossterm::event::{KeyCode, KeyEvent, MouseEvent};
+use pito_tui::crossterm::event::{KeyEvent, MouseEvent};
 use pito_tui::footer::{Hint, InputBar, Notice, Tone};
 use pito_tui::layer::Event as Layered;
 use pito_tui::ratatui::{Frame, layout::Rect, style::Style};
@@ -14,6 +14,7 @@ use super::compose::{Draft, Filed, Place, unflat};
 use super::deck::{asked_behind, older, unrouted, wanted};
 use super::files::paths;
 use super::inbox::Inbox;
+use super::keys::{self, Act, CHOSEN, FREE, PROJECTS, SPACES, Seat};
 use super::projects::{self, NONE_YET, Narrow, Picker, Shared, has};
 use super::source::Source;
 
@@ -241,6 +242,94 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
 
     fn reading(&self) -> bool {
         self.reader.crumb().is_some()
+    }
+
+    fn seat(&self) -> Seat {
+        if self.chooser.is_some() {
+            return Seat::new(PROJECTS);
+        }
+        if self.reading() {
+            return self.reader.seat();
+        }
+        let free = self.free();
+        self.inner
+            .seat()
+            .with(FREE, free)
+            .with(SPACES, free && self.source.spaces().len() > 1)
+            .with(CHOSEN, free && self.clears_projects())
+    }
+
+    fn sync(&self, cx: &mut Cx<'_, Msg>) {
+        if self.shared.showing(cx.screen()) {
+            cx.keys_now(self.seat().now());
+        }
+    }
+
+    fn pressed(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
+        self.now = self.now.max(cx.now());
+        if let Some(chooser) = self.chooser.as_mut() {
+            if let Some(choice) = chooser.key(key) {
+                self.chooser = None;
+                self.chose_project(choice, cx);
+            }
+            return;
+        }
+        if self.reading() {
+            self.reader.key(key, cx);
+            return;
+        }
+        if self.free() {
+            match keys::action(self.seat().now(), &key).map(|(act, _)| act) {
+                Some(Act::NeedsYou) => {
+                    self.ask(true, cx);
+                    return;
+                }
+                Some(Act::NewCard) => {
+                    let source = self.source.clone();
+                    cx.detach(move || Msg::Places(source.places()));
+                    return;
+                }
+                Some(Act::Space) => {
+                    self.switch(cx);
+                    return;
+                }
+                Some(Act::Projects) => {
+                    let source = self.source.clone();
+                    cx.detach(move || Msg::Projects(source.projects()));
+                    return;
+                }
+                Some(Act::AllProjects) => {
+                    self.shared.choose(Vec::new());
+                    self.apply(cx);
+                    return;
+                }
+                _ => {}
+            }
+        }
+        self.inner.key(key, cx);
+    }
+
+    fn pasted(&mut self, text: &str, cx: &mut Cx<'_, Msg>) {
+        if self.chooser.is_some() {
+            return;
+        }
+        if self.reading() {
+            self.reader.paste(text, cx);
+        } else {
+            self.inner.paste(text, cx);
+        }
+    }
+
+    fn layered(&mut self, id: u64, event: Layered, cx: &mut Cx<'_, Msg>) {
+        if id != NEW_CARD {
+            self.inner.layer(id, event, cx);
+            return;
+        }
+        match event {
+            Layered::Submitted { .. } => self.submit(cx),
+            Layered::Closed => self.form = None,
+            _ => {}
+        }
     }
 
     fn free(&self) -> bool {
@@ -513,6 +602,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         self.now = self.now.max(cx.now());
         self.watch(&event);
         self.inner.loaded(event, cx);
+        self.sync(cx);
     }
 
     fn cancel(&mut self) {
@@ -526,76 +616,35 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             self.ask(false, cx);
         }
         self.name(cx);
+        self.sync(cx);
     }
 
     fn entered(&mut self, cx: &mut Cx<'_, Msg>) {
+        self.shared.show(cx.screen());
         if self.scope != self.shared.scoped() {
             self.settle(cx);
         } else if self.turn != self.shared.turn() {
             self.apply(cx);
         }
         self.inner.entered(cx);
+        self.sync(cx);
     }
 
     fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
-        self.now = self.now.max(cx.now());
-        if let Some(chooser) = self.chooser.as_mut() {
-            if let Some(choice) = chooser.key(key) {
-                self.chooser = None;
-                self.chose_project(choice, cx);
-            }
-            return;
-        }
-        if self.reading() {
-            self.reader.key(key, cx);
-            return;
-        }
-        if self.free() {
-            match key.code {
-                KeyCode::Char('w') => {
-                    self.ask(true, cx);
-                    return;
-                }
-                KeyCode::Char('n') => {
-                    let source = self.source.clone();
-                    cx.detach(move || Msg::Places(source.places()));
-                    return;
-                }
-                KeyCode::Char('S') if self.source.spaces().len() > 1 => {
-                    self.switch(cx);
-                    return;
-                }
-                KeyCode::Char('p') => {
-                    let source = self.source.clone();
-                    cx.detach(move || Msg::Projects(source.projects()));
-                    return;
-                }
-                KeyCode::Esc if self.clears_projects() => {
-                    self.shared.choose(Vec::new());
-                    self.apply(cx);
-                    return;
-                }
-                _ => {}
-            }
-        }
-        self.inner.key(key, cx);
+        self.pressed(key, cx);
+        self.sync(cx);
     }
 
     fn paste(&mut self, text: &str, cx: &mut Cx<'_, Msg>) {
-        if self.chooser.is_some() {
-            return;
-        }
-        if self.reading() {
-            self.reader.paste(text, cx);
-        } else {
-            self.inner.paste(text, cx);
-        }
+        self.pasted(text, cx);
+        self.sync(cx);
     }
 
     fn mouse(&mut self, mouse: MouseEvent, area: Rect, cx: &mut Cx<'_, Msg>) {
         if !self.reading() && self.chooser.is_none() {
             self.inner.mouse(mouse, area, cx);
         }
+        self.sync(cx);
     }
 
     fn event(&mut self, event: Msg, cx: &mut Cx<'_, Msg>) {
@@ -645,6 +694,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             }
             event => self.inner.event(event, cx),
         }
+        self.sync(cx);
     }
 
     fn picked(&mut self, choice: Option<usize>, cx: &mut Cx<'_, Msg>) {
@@ -667,6 +717,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             (None, choice) if self.reading() => self.reader.picked(choice, cx),
             (None, choice) => self.inner.picked(choice, cx),
         }
+        self.sync(cx);
     }
 
     fn back(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -675,28 +726,17 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         } else {
             self.inner.back(cx);
         }
+        self.sync(cx);
     }
 
     fn hints(&self) -> Vec<Hint<'_>> {
         if self.chooser.is_some() {
-            return projects::hints().to_vec();
+            return Vec::new();
         }
         if self.reading() {
             return self.reader.hints();
         }
-        let mut hints = self.inner.hints();
-        if self.free() && self.inner.phase() == Phase::Ready && !self.inner.typing() {
-            if self.source.spaces().len() > 1 {
-                hints.push(Hint::new("S", "space").rank(2));
-            }
-            hints.push(Hint::new("n", "new card").rank(1));
-            hints.push(Hint::new("p", "projects").rank(2));
-            if self.clears_projects() {
-                hints.push(Hint::new("esc", "all projects"));
-            }
-            hints.push(Hint::new("w", "needs you").rank(2));
-        }
-        hints
+        self.inner.hints()
     }
 
     fn facts(&self) -> Vec<(String, Style)> {
@@ -771,15 +811,8 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn layer(&mut self, id: u64, event: Layered, cx: &mut Cx<'_, Msg>) {
-        if id != NEW_CARD {
-            self.inner.layer(id, event, cx);
-            return;
-        }
-        match event {
-            Layered::Submitted { .. } => self.submit(cx),
-            Layered::Closed => self.form = None,
-            _ => {}
-        }
+        self.layered(id, event, cx);
+        self.sync(cx);
     }
 
     fn tick(&mut self, cx: &mut Cx<'_, Msg>) {
@@ -789,6 +822,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
             self.ask(false, cx);
         }
         self.inner.tick(cx);
+        self.sync(cx);
     }
 }
 

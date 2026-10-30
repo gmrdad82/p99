@@ -4,7 +4,6 @@ use std::rc::Rc;
 use std::time::Instant;
 
 use pito_tui::crossterm::event::KeyEvent;
-use pito_tui::footer::Hint;
 use pito_tui::list::{Cell as Text, Column, Key, Keys, List, Row, Step};
 use pito_tui::ratatui::{
     Frame,
@@ -18,6 +17,7 @@ use crate::card::ProjectList;
 use super::Msg;
 use super::deck::unrouted;
 use super::inbox::Inbox;
+use super::keys::Seat;
 use super::source::{Source, fold};
 
 pub const ALL: &str = "All projects";
@@ -39,6 +39,8 @@ pub trait Narrow {
     }
 
     fn touched(&mut self, cx: &mut Cx<'_, Msg>);
+
+    fn seat(&self) -> Seat;
 }
 
 impl Narrow for Inbox {
@@ -61,6 +63,10 @@ impl Narrow for Inbox {
     fn touched(&mut self, cx: &mut Cx<'_, Msg>) {
         self.refresh(cx);
     }
+
+    fn seat(&self) -> Seat {
+        Inbox::seat(self)
+    }
 }
 
 #[derive(Default)]
@@ -80,6 +86,7 @@ pub struct State {
     pub named: bool,
     pub projects_of: Vec<(usize, String)>,
     pub total: u64,
+    pub shown: Option<usize>,
 }
 
 impl State {
@@ -114,6 +121,14 @@ impl Shared {
             waiting,
             ..State::default()
         })))
+    }
+
+    pub fn show(&self, screen: usize) {
+        self.0.borrow_mut().shown = Some(screen);
+    }
+
+    pub fn showing(&self, screen: usize) -> bool {
+        self.0.borrow().shown.is_none_or(|shown| shown == screen)
     }
 
     pub fn names(&self, names: Vec<String>, scope: Option<usize>) {
@@ -318,14 +333,6 @@ fn more_width(count: usize) -> usize {
         + count
             .checked_ilog10()
             .map_or(1, |digits| digits as usize + 1)
-}
-
-pub fn hints() -> [Hint<'static>; 3] {
-    [
-        Hint::new("enter", "choose or drop"),
-        Hint::new("↑↓", "move"),
-        Hint::new("esc", "close"),
-    ]
 }
 
 impl Source {

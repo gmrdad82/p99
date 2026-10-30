@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use pito_tui::crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
+use pito_tui::crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use pito_tui::footer::{Hint, InputBar, Tone};
+use pito_tui::keys::Key;
 use pito_tui::ratatui::{
     Frame,
     buffer::Buffer,
@@ -17,6 +18,7 @@ use super::Msg;
 use super::badge::Badge;
 use super::deck::{BoardView, Card, MOVED, Patch, patch, request, settle, sort, stale};
 use super::inbox::Inbox;
+use super::keys::{self, Act, BOARD, CARRYING, HERE, READ, Seat};
 use super::projects::{Narrow, Shared};
 use super::source::Source;
 
@@ -317,6 +319,19 @@ impl Board {
 
     fn reading_thread(&self) -> bool {
         self.reader.crumb().is_some()
+    }
+
+    pub fn seat(&self) -> Seat {
+        if self.reading_thread() {
+            return self.reader.seat();
+        }
+        if self.lift.is_some() {
+            return Seat::new(CARRYING);
+        }
+        let read = self.view.is_some();
+        Seat::new(BOARD)
+            .with(READ, read)
+            .with(HERE, read && self.current().is_some())
     }
 
     fn heard(&mut self, space: usize, text: &str) {
@@ -996,6 +1011,24 @@ fn fits(text: &str, room: usize) -> &str {
     &text[..end]
 }
 
+enum Way {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
+impl Way {
+    fn of(key: Key) -> Way {
+        match key {
+            Key::Left | Key::Char('h') => Way::Left,
+            Key::Right | Key::Char('l') => Way::Right,
+            Key::Up | Key::Char('k') => Way::Up,
+            _ => Way::Down,
+        }
+    }
+}
+
 fn key_style(palette: &Palette, lit: bool) -> Style {
     if lit {
         palette.accent.add_modifier(Modifier::BOLD)
@@ -1169,57 +1202,60 @@ impl Screen<Msg> for Board {
             self.reader.key(key, cx);
             return;
         }
+        let Some((act, chord)) = keys::action(self.seat().now(), &key) else {
+            return;
+        };
         if self.view.is_none() {
-            if key.code == KeyCode::Char('r') {
+            if act == Act::Reload {
                 cx.reload();
             }
             return;
         }
         if let Some(lift) = &self.lift {
             let (column, row) = lift.to;
-            match key.code {
-                KeyCode::Left | KeyCode::Char('h') => self.carry(column.saturating_sub(1), row),
-                KeyCode::Right | KeyCode::Char('l') => self.carry(column + 1, row),
-                KeyCode::Up | KeyCode::Char('k') => self.carry(column, row.saturating_sub(1)),
-                KeyCode::Down | KeyCode::Char('j') => self.carry(column, row + 1),
-                KeyCode::Home | KeyCode::Char('g') => self.carry(column, 0),
-                KeyCode::End | KeyCode::Char('G') => self.carry(column, usize::MAX),
-                KeyCode::Enter | KeyCode::Char(' ') => self.drop_card(cx),
-                KeyCode::Esc => self.put_back(),
+            match (act, Way::of(chord.key)) {
+                (Act::Step, Way::Left) => self.carry(column.saturating_sub(1), row),
+                (Act::Step, Way::Right) => self.carry(column + 1, row),
+                (Act::Step, Way::Up) => self.carry(column, row.saturating_sub(1)),
+                (Act::Step, Way::Down) => self.carry(column, row + 1),
+                (Act::Top, _) => self.carry(column, 0),
+                (Act::Bottom, _) => self.carry(column, usize::MAX),
+                (Act::Drop, _) => self.drop_card(cx),
+                (Act::PutBack, _) => self.put_back(),
                 _ => {}
             }
             return;
         }
         let column = self.column;
         let len = self.lane_ids()[column].len();
-        match key.code {
-            KeyCode::Left | KeyCode::Char('h') => {
+        match (act, Way::of(chord.key)) {
+            (Act::Step, Way::Left) => {
                 self.column = column.saturating_sub(1);
                 self.clamp();
             }
-            KeyCode::Right | KeyCode::Char('l') => {
+            (Act::Step, Way::Right) => {
                 self.column = (column + 1).min(self.lanes() - 1);
                 self.clamp();
             }
-            KeyCode::Up | KeyCode::Char('k') => {
+            (Act::Step, Way::Up) => {
                 self.rows[column] = self.rows[column].saturating_sub(1);
                 self.scroll(column);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
+            (Act::Step, Way::Down) => {
                 self.rows[column] = (self.rows[column] + 1).min(len.saturating_sub(1));
                 self.scroll(column);
             }
-            KeyCode::Home | KeyCode::Char('g') => {
+            (Act::Top, _) => {
                 self.rows[column] = 0;
                 self.scroll(column);
             }
-            KeyCode::End | KeyCode::Char('G') => {
+            (Act::Bottom, _) => {
                 self.rows[column] = len.saturating_sub(1);
                 self.scroll(column);
             }
-            KeyCode::Char(' ') => self.lift(None),
-            KeyCode::Enter => self.enter(cx),
-            KeyCode::Char('r') => self.read(cx),
+            (Act::PickUp, _) => self.lift(None),
+            (Act::Open, _) => self.enter(cx),
+            (Act::Reload, _) => self.read(cx),
             _ => {}
         }
     }
@@ -1282,23 +1318,7 @@ impl Screen<Msg> for Board {
         if self.reading_thread() {
             return self.reader.hints();
         }
-        if self.view.is_none() {
-            return vec![Hint::new("r", "read again")];
-        }
-        if self.lift.is_some() {
-            return vec![
-                Hint::new("←→↑↓", "carry"),
-                Hint::new("enter", "drop"),
-                Hint::new("esc", "put back"),
-            ];
-        }
-        let mut hints = vec![Hint::new("←→↑↓", "move")];
-        if self.current().is_some() {
-            hints.push(Hint::new("space", "pick up").rank(1));
-            hints.push(Hint::new("enter", "open").rank(1));
-        }
-        hints.push(Hint::new("r", "read again").rank(3));
-        hints
+        Vec::new()
     }
 
     fn badge(&self) -> &[Span] {
@@ -1353,6 +1373,10 @@ impl Narrow for Board {
         if self.view.is_some() {
             self.stale = Some(self.moment);
         }
+    }
+
+    fn seat(&self) -> Seat {
+        Board::seat(self)
     }
 }
 

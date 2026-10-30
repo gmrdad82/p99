@@ -55,7 +55,7 @@ The header of every screen names the space. The Cards screen lists the open card
 | `w` | the cards waiting on you, in the projects chosen |
 | `S` | with more than one space configured, show every space, then each one in turn |
 | `r` | read the list again, keeping it on screen |
-| `?` | every key of the screen |
+| `?` | every key, those of the screen first, each with when it works; `/` searches them and `esc` closes them |
 | `ctrl+c` twice | quit |
 
 | Key | In a card |

@@ -7,6 +7,7 @@ pub mod demo;
 mod files;
 mod history;
 mod inbox;
+mod keys;
 mod projects;
 mod source;
 #[cfg(test)]
@@ -23,6 +24,7 @@ use pito_tui::capture::{self, Script, Walk};
 use pito_tui::crossterm::event::{KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use pito_tui::footer::Hint;
 use pito_tui::header::Section;
+use pito_tui::keys::Now;
 use pito_tui::ratatui::style::Color;
 use pito_tui::{FRAME, Modes, Palette, Tui, Words, dump};
 
@@ -342,7 +344,6 @@ fn spread(screen: &str, frames: usize, width: u16, height: u16, times: &[Duratio
 
 fn words() -> Words {
     Words::new()
-        .help("? help")
         .again("ctrl+c again to quit")
         .busy(|running| format!("{running} still running. Quit anyway?"))
         .yes("Yes")
@@ -378,10 +379,9 @@ fn build(source: Source, state: State, palette: Palette) -> Tui<Msg> {
     Tui::new(NAME, VERSION, ACCENT)
         .title("P99")
         .words(words())
-        .hints([
-            Hint::new("?", "help").rank(4),
-            Hint::new("ctrl+c", "twice quit").pinned(),
-        ])
+        .hints([Hint::new("ctrl+c", "twice quit").pinned()])
+        .keymap(&keys::KEYS)
+        .keys_now(Now::new(keys::CARDS))
         .footer_look(|footer, _| footer.separator(" · "))
         .modes(Modes::new().mouse(true))
         .screen(

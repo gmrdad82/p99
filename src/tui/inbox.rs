@@ -2,8 +2,9 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use pito_tui::clock::{self, Units};
-use pito_tui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use pito_tui::crossterm::event::{KeyCode, KeyEvent};
 use pito_tui::footer::{Edit, Hint, Input, InputBar, Tone};
+use pito_tui::keys::Key;
 use pito_tui::list::{Cell, Column, Row};
 use pito_tui::ratatui::{
     Frame,
@@ -20,6 +21,9 @@ use super::badge::Badge;
 use super::compose::{flat, unflat};
 use super::deck::Move;
 use super::files::{paths, save, size};
+use super::keys::{
+    self, Act, CARD, CARDS, FILES, FILTERED, HOSTS, INTERNAL, OUTWARD, READ, READY, Seat,
+};
 use super::source::{Entry, Source, counted, hits, merged_hosts, person, unix, words};
 
 const KEY_CELLS: u16 = 8;
@@ -805,35 +809,59 @@ impl Inbox {
             }
             return;
         }
-        let ready = open.thread.is_some() && !open.sending;
+        let Some((act, chord)) = keys::action(self.seat().now(), &key) else {
+            return;
+        };
+        let Some(open) = &mut self.open else { return };
         let scroll = &mut open.scroll;
-        match key.code {
-            KeyCode::Up | KeyCode::Char('k') => *scroll = scroll.saturating_sub(1),
-            KeyCode::Down | KeyCode::Char('j') => *scroll += 1,
-            KeyCode::PageUp => *scroll = scroll.saturating_sub(SCROLL_PAGE),
-            KeyCode::PageDown | KeyCode::Char(' ') => *scroll += SCROLL_PAGE,
-            KeyCode::Home | KeyCode::Char('g') => *scroll = 0,
-            KeyCode::End | KeyCode::Char('G') => *scroll = usize::MAX,
-            KeyCode::Char('i') => open.internal = !open.internal,
-            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.read_thread(cx);
-            }
-            KeyCode::Char('r') if ready => open.typing = Some(Typing::Reply(Input::new())),
-            KeyCode::Char('e') if ready => {
+        match act {
+            Act::Scroll if keys::back(chord) => *scroll = scroll.saturating_sub(1),
+            Act::Scroll => *scroll += 1,
+            Act::Page if chord.key == Key::PageUp => *scroll = scroll.saturating_sub(SCROLL_PAGE),
+            Act::Page => *scroll += SCROLL_PAGE,
+            Act::Top => *scroll = 0,
+            Act::Bottom => *scroll = usize::MAX,
+            Act::Internal => open.internal = !open.internal,
+            Act::ReadAgain => self.read_thread(cx),
+            Act::Reply => open.typing = Some(Typing::Reply(Input::new())),
+            Act::Edit => {
                 let title = open.thread.as_ref().map_or("", |t| t.issue.title.as_str());
                 open.typing = Some(Typing::Title(Input::new().with(title)));
             }
-            KeyCode::Char('l') if ready => open.typing = Some(Typing::Link(Input::new())),
-            KeyCode::Char('f') if ready => self.pick_file(cx),
-            KeyCode::Char('a') if ready => self.pick_assignee(cx),
-            KeyCode::Char('m') if ready => self.pick_label(cx),
-            KeyCode::Char('o') => self.browse(cx),
-            KeyCode::Char('d') if ready => {
+            Act::Link => open.typing = Some(Typing::Link(Input::new())),
+            Act::SaveFile => self.pick_file(cx),
+            Act::Assign => self.pick_assignee(cx),
+            Act::Move => self.pick_label(cx),
+            Act::Browse => self.browse(cx),
+            Act::Delete => {
                 let prompt = format!("type {} to delete it", open.key);
                 open.typing = Some(Typing::Delete(Input::new(), prompt));
             }
             _ => {}
         }
+    }
+
+    pub fn seat(&self) -> Seat {
+        if let Some(open) = &self.open {
+            let read = open.thread.is_some();
+            let ready = read && !open.sending;
+            let files = ready
+                && open
+                    .thread
+                    .as_ref()
+                    .is_some_and(|t| !t.attachments.is_empty());
+            return Seat::new(CARD)
+                .with(READ, read)
+                .with(READY, ready)
+                .with(FILES, files)
+                .with(INTERNAL, read && open.internal)
+                .with(OUTWARD, read && !open.internal);
+        }
+        let read = self.entries.is_some();
+        Seat::new(CARDS)
+            .with(READ, read)
+            .with(HOSTS, read && self.hosts.len() > 1)
+            .with(FILTERED, read && self.filter.active())
     }
 
     fn typed(&mut self, typing: Typing, value: String, cx: &mut Cx<'_, Msg>) {
@@ -1467,8 +1495,9 @@ impl Screen<Msg> for Inbox {
             self.thread_key(key, cx);
             return;
         }
+        let act = keys::action(self.seat().now(), &key).map(|(act, _)| act);
         if self.entries.is_none() {
-            if key.code == KeyCode::Char('r') {
+            if act == Some(Act::Reload) {
                 cx.reload();
             }
             return;
@@ -1476,16 +1505,16 @@ impl Screen<Msg> for Inbox {
         match self.filter.key(key) {
             Turn::Filtered => self.sift(),
             Turn::Open(index) => self.open_at(index, cx),
-            Turn::Pass => match key.code {
-                KeyCode::Char('r') => {
+            Turn::Pass => match act {
+                Some(Act::Reload) => {
                     self.told = true;
                     self.refresh(cx);
                 }
-                KeyCode::Char('s') => {
+                Some(Act::Status) => {
                     self.shown = self.shown.next();
                     self.sift();
                 }
-                KeyCode::Char('h') if self.hosts.len() > 1 => self.pick_host(cx),
+                Some(Act::Host) => self.pick_host(cx),
                 _ => {}
             },
             _ => {}
@@ -1666,62 +1695,10 @@ impl Screen<Msg> for Inbox {
     }
 
     fn hints(&self) -> Vec<Hint<'_>> {
-        if let Some(open) = &self.open {
-            if open.thread.is_none() {
-                return vec![Hint::new("ctrl+r", "read again"), Hint::new("esc", "back")];
-            }
-            let internal = if open.internal {
-                "internal on"
-            } else {
-                "internal off"
-            };
-            if open.sending {
-                return vec![
-                    Hint::new("", "saving…"),
-                    Hint::new("↑↓", "scroll").rank(3),
-                    Hint::new("esc", "back"),
-                ];
-            }
-            let files = open
-                .thread
-                .as_ref()
-                .is_some_and(|t| !t.attachments.is_empty());
-            let mut hints = vec![
-                Hint::new("r", "reply"),
-                Hint::new("e", "edit").rank(1),
-                Hint::new("m", "move to").rank(1),
-                Hint::new("a", "assign").rank(1),
-                Hint::new("l", "link").rank(2),
-                Hint::new("i", internal).rank(2),
-            ];
-            if files {
-                hints.push(Hint::new("f", "save file").rank(2));
-            }
-            hints.extend([
-                Hint::new("o", "open page").rank(3),
-                Hint::new("d", "delete").rank(3),
-                Hint::new("↑↓", "scroll").rank(3),
-                Hint::new("esc", "back"),
-            ]);
-            return hints;
+        match &self.open {
+            Some(open) if open.thread.is_some() && open.sending => vec![Hint::new("", "saving…")],
+            _ => Vec::new(),
         }
-        if self.entries.is_none() {
-            return vec![Hint::new("r", "read again")];
-        }
-        let mut hints = vec![
-            Hint::new("↑↓", "move"),
-            Hint::new("enter", "open").rank(1),
-            Hint::new("/", "filter").rank(1),
-            Hint::new("s", "status").rank(2),
-        ];
-        if self.hosts.len() > 1 {
-            hints.push(Hint::new("h", "host").rank(2));
-        }
-        hints.push(Hint::new("r", "read again").rank(3));
-        if self.filter.active() {
-            hints.push(Hint::new("esc", "clear filter"));
-        }
-        hints
     }
 
     fn moment(&mut self, now: Instant) {
