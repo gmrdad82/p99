@@ -72,7 +72,7 @@ With several hosts and none named, it asks which one in a terminal and lists the
 
 ## Owners and Users
 
-A code holder is a User: they file cards (bugs, ideas, improvements and questions), and see and follow only the cards they filed. Add `--owner` to make the person an Owner, who sees and changes every card, files tasks, writes internal comments and runs the boards (`--manager` still works, as an alias):
+A code holder is a User: they file cards (bugs, ideas, improvements and questions), and see and follow only the cards they filed. Add `--owner` to make the person an Owner, who sees and changes every card, files tasks, writes internal comments and runs the board:
 
 ```sh
 p99 invite --space --name "Ada Lovelace" --email ada@example.com --owner
@@ -99,7 +99,7 @@ p99 codes --role owner
    3  active  Grace Hopper <grace@example.com>  User  ...m9xa  2026-09-23 12:00  hosts: example.com, shop.example.com  last used: 2026-10-14 11:48
 ```
 
-Each line is the code's id, its state, the person, the role (Owner or User), the secret's last four characters, when it was made, its hosts and when it was last used. `p99 codes` is the same command. `--role` keeps one role, `owner` or `user` (`manager`, `person` and `reporter` still work as aliases, for scripts written before). With `--json`, each code carries `"role":"owner"` or `"user"` beside the older `"manager"`. In `p99 tui`, `tab` switches to the same list on the Codes screen, with `/` to filter it.
+Each line is the code's id, its state, the person, the role (Owner or User), the secret's last four characters, when it was made, its hosts and when it was last used. `p99 codes` is the same command. `--role` keeps one role, `owner` or `user`. With `--json`, each code carries `"role":"owner"` or `"user"` beside the older `"manager"`. In `p99 tui`, `tab` switches to the same list on the Codes screen, with `/` to filter it.
 
 ## Revoke a code
 
@@ -123,7 +123,7 @@ p99 invites delete 2
 
 ```text
    2  revoked  Grace Hopper <grace@example.com>  User  ...3fpd
-Deleting it removes the code and its browsers' sign-ins for good; the person's items and comments stay.
+Deleting it removes the code and its browsers' sign-ins for good; the person's cards and comments stay.
 Type 3fpd to delete it: 3fpd
 deleted code 2 of Grace Hopper <grace@example.com>
 ```
@@ -157,11 +157,11 @@ p99 people rename grace@example.com grace.hopper@example.org
 ```
 
 ```text
-moved grace@example.com to grace.hopper@example.org: 2 items, 0 assigned, 1 comments, 3 events, 0 attachments, 1 codes
+moved grace@example.com to grace.hopper@example.org: 2 cards, 0 assigned, 1 comments, 3 events, 0 attachments, 1 codes
 ```
 
 Everything under the old e-mail moves in one transaction on the whole space: cards, assignments, comments, events, attachments and codes, with their authenticators and links unchanged. Set the new e-mail in your config's `[me]` too, so your own new work lands under it.
 
 ## Next
 
-[Work the inbox](inbox.md): read and answer what people file.
+[Work your cards](inbox.md): read and answer what people file.

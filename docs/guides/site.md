@@ -74,7 +74,7 @@ A host behind Cloudflare Access keeps `/_p99/*` behind Access: the browser alrea
 - point the space's `url` in the config at an address of the Worker that is not behind Access, such as a custom domain of its own; or
 - create an Access service token for the application and set the space's `access_client_id` and `access_client_secret`: every request then carries `CF-Access-Client-Id` and `CF-Access-Client-Secret`.
 
-Either way, P99's own signature still guards every request. `p99 setup` and `p99 deploy` report a host behind Access as such, not as a failed check.
+Either way, P99's own signature still guards every request. `p99 setup` and `p99 deploy` show a host behind Access as such, not as a failed check.
 
 ## Next
 

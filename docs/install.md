@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-`p99` is one binary: the CLI, the TUI inbox and the Worker it uploads to Cloudflare. It runs on Linux and macOS, and on Windows through WSL.
+`p99` is one binary: the CLI, the TUI and the Worker it uploads to Cloudflare. It runs on Linux and macOS, and on Windows through WSL.
 
 P99: got questions or doubts? [Ping me on Discord](https://discord.gg/XsNcn3kYzn).
 

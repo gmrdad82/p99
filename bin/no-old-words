@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+allow="$here/no-old-words.allow"
+
+if [ $# -eq 0 ]; then
+  cd "$here/.."
+  set -- README.md docs
+fi
+
+pages=()
+for arg in "$@"; do
+  if [ -d "$arg" ]; then
+    while IFS= read -r page; do
+      pages+=("$page")
+    done < <(find "$arg" -name '*.md' -type f | sort)
+  elif [ -f "$arg" ]; then
+    pages+=("$arg")
+  else
+    echo "usage: bin/no-old-words [file or dir ...]" >&2
+    exit 2
+  fi
+done
+[ ${#pages[@]} -gt 0 ] || exit 0
+[ -f "$allow" ] || { echo "no-old-words: $allow is missing" >&2; exit 2; }
+
+awk -v allow="$allow" '
+  BEGIN {
+    n = 0
+    while ((getline line < allow) > 0) {
+      if (line ~ /^[ ]*$/) continue
+      keep[++n] = line
+    }
+    close(allow)
+  }
+  FNR == 1 { fence = 0 }
+  /^[ ]*(```|~~~)/ { fence = !fence; next }
+  {
+    s = $0
+    gsub(/``[^`]*(`[^`]+)*``/, " ", s)
+    gsub(/`[^`]*`/, " ", s)
+    gsub(/\]\([^)]*\)/, "] ", s)
+    gsub(/(src|href)="[^"]*"/, " ", s)
+    if (fence) gsub(/"[A-Za-z_]+"/, " ", s)
+    for (i = 1; i <= n; i++) gsub(keep[i], " ", s)
+    s = tolower(s)
+    if (s ~ /(^|[^a-z0-9_])(report|reports|reporter|reporters|reported|reporting|item|items|inbox|inboxes)([^a-z0-9_]|$)/) {
+      print FILENAME ":" FNR ":" $0
+      found = 1
+    }
+  }
+  END { exit found ? 1 : 0 }
+' "${pages[@]}"

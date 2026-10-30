@@ -1,24 +1,24 @@
 title = "P99 TUI FRAME TIME"
 unit = "MICROSECONDS PER FRAME, 200 FRAMES"
 better = "lower"
-subtitle = "120X34, P99 1.9.0 RELEASE BUILD, AMD RYZEN 9 9950X"
-date = "2026-10-20"
+subtitle = "120X34, P99 1.13.8 RELEASE BUILD, AMD RYZEN 9 9950X"
+date = "2026-10-30"
 suffix = " US"
-notes = ["120 FPS LEAVES 8,333 US (8.33 MS) A FRAME. MEASURED WITH P99 TUI --DEMO --BENCH 200, THE MEDIAN OF 3 RUNS, AT A LOAD AVERAGE OF 19 ON 32 THREADS.", "THE BOARD WHILE MOVING: A SLIDE ALWAYS RUNNING."]
-parties = [{ name = "P99 1.9.0" }]
+notes = ["120 FPS LEAVES 8,333 US (8.33 MS) A FRAME. MEASURED WITH P99 TUI --DEMO --BENCH 200, THE MEDIAN OF 3 RUNS, AT A LOAD AVERAGE OF 4 ON 32 THREADS.", "THE BOARD WHILE MOVING: A SLIDE ALWAYS RUNNING."]
+parties = [{ name = "P99 1.13.8" }]
 
 [[groups]]
 name = "SCREENS, AVERAGE"
 rows = [
-  { label = "INBOX", values = [99] },
-  { label = "BOARD", values = [112] },
-  { label = "CODES", values = [55] },
-  { label = "THREAD", values = [124] },
+  { label = "CARDS", values = [121] },
+  { label = "BOARD", values = [114] },
+  { label = "CODES", values = [50] },
+  { label = "THREAD", values = [174] },
 ]
 
 [[groups]]
 name = "THE BOARD WHILE MOVING A CARD, WORST FRAME"
 rows = [
-  { label = "CARRIED WITH THE KEYS", values = [380] },
-  { label = "DRAGGED WITH THE MOUSE", values = [352] },
+  { label = "CARRIED WITH THE KEYS", values = [254] },
+  { label = "DRAGGED WITH THE MOUSE", values = [253] },
 ]

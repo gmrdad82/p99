@@ -42,10 +42,10 @@ p99 announce example.com --env production --version v1.4.0
 ```
 
 ```text
-announced 4f1c2a9e main v1.4.0 to production: 3 items (2 fixes)
+announced 4f1c2a9e main v1.4.0 to production: 3 cards (2 fixes)
 ```
 
-It reads the last 500 commits (or the git range `--rev` names, such as `v1.3.0..HEAD`), collects their trailers, and posts the build: its commit, branch, version (`git describe --tags --always` unless `--version` says otherwise) and whether the checkout had uncommitted changes. The environment is the host's, or `--env`; with neither, the space's only host decides. `--branch` overrides the branch git reports, for a CI checkout on a detached head.
+It reads the last 500 commits (or the git range `--rev` names, such as `v1.3.0..HEAD`), collects their trailers, and posts the build: its commit, branch, version (`git describe --tags --always` unless `--version` says otherwise) and whether the checkout had uncommitted changes. The environment is the host's, or `--env`; with neither, the space's only host decides. `--branch` overrides the branch git names, for a CI checkout on a detached head.
 
 Announcing again replaces that environment's build for that branch, so running it twice is harmless. The first time a card lands in an environment is an event on the card, and an environment with `notify` set mails the person who filed it then, when mail is on.
 

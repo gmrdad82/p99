@@ -4,7 +4,7 @@
 
 [![Version](https://img.shields.io/github/v/tag/gmrdad82/p99)](https://github.com/gmrdad82/p99/tags)
 
-P99 turns issues and feedback on any website into cards, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a card (a bug, an idea, an improvement, a question or a task) with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` alone opens the inbox in the terminal (also `p99 tui`), and its commands are a CLI with `--json` for scripts and agents.
+P99 turns issues and feedback on any website into cards, part of [PITO MD](https://pitomd.com). The people you invite see a small "+" on your site; it opens a panel where they file a card (a bug, an idea, an improvement, a question or a task) with a capture of the screen, marked regions and files, and follow the replies. You and your agents answer from the terminal: `p99` alone opens your cards in the terminal (also `p99 tui`), and its commands are a CLI with `--json` for scripts and agents.
 
 Cloudflare is the whole infrastructure: one Worker, one D1 database and one R2 bucket per Cloudflare account, mounted on each site's own domain at `/_p99/*`. The page talks only to its own origin. There is no other backend, no CORS, no framework, no build step and nothing from your stack.
 
@@ -16,33 +16,33 @@ P99: got questions or doubts? [Ping me on Discord](https://discord.gg/XsNcn3kYzn
 
 | | |
 | --- | --- |
-| What every page downloads | **2,007 bytes** gzipped: the loader as served, nothing else |
-| Loader start to the "+" painted | **8.9 ms** cold, **3.4 ms** warm |
-| Page navigation to the "+" painted | **42.6 ms** cold, **13.8 ms** warm |
-| Click to the panel's form on screen | **59.0 ms** cold: panel and styles load only then (29.1 KB gzipped), and the capture code right after the form shows; **25.5 ms** warm |
-| An Owner's click on "Board" to the board with its cards | **294 ms** cold, 270 cards on it: the board's code loads only then (11.0 KB gzipped), with the board from the Worker |
-| The web board while a card is dragged | **1.0 ms** a frame at the median, **4.2 ms** at p95, **7.0 ms** at p99 across the seven lanes (input, scripts, style and layout): 120 fps leaves 8.33 ms |
-| The P99 page's first paint on a mid-range phone | **226 ms** cold signed out, **216 ms** signed in (150 ms round trips, 1.6 Mbps, a 4x slower CPU); 406 and 392 ms before its critical style was inlined |
-| Worker, p50 and p99 per request | **18.5 / 38.2 ms** the loader, **29.3 / 49.9 ms** a card with its thread, **28.7 / 51.7 ms** a board, **39.7 / 72.3 ms** a list of 50, **60.0 / 92.5 ms** a new card, **60.9 / 104 ms** a move, on a local `wrangler dev`, not Cloudflare's edge |
-| CLI start-up | **0.7 ms** `p99 --version`, **0.9 ms** `p99 --demo list` |
-| TUI start to its first frame at 120×34 | **1.7 ms** |
-| TUI frame time at 120×34 | **0.06 to 0.12 ms** average; the board's worst frame while a card is dragged and slides **0.35 ms**: 120 fps leaves 8.33 ms |
+| What every page downloads | **1,954 bytes** gzipped: the loader as served, nothing else |
+| Loader start to the "+" painted | **10.1 ms** cold, **2.4 ms** warm |
+| Page navigation to the "+" painted | **26.5 ms** cold, **10.3 ms** warm |
+| Click to the panel's form on screen | **34.2 ms** cold: panel and styles load only then (37.8 KB gzipped), and the capture code right after the form shows; **23.5 ms** warm |
+| An Owner's click on "Board" to the board with its cards | **132 ms** cold, 180 cards on it: the board's code loads only then (12.1 KB gzipped), with the board from the Worker |
+| The web board while a card is dragged | **0.7 ms** a frame at the median, **2.7 ms** at p95, **6.2 ms** at p99 across the seven lanes (input, scripts, style and layout): 120 fps leaves 8.33 ms |
+| The P99 page's first paint on a mid-range phone | **204 ms** cold signed out, **196 ms** signed in (150 ms round trips, 1.6 Mbps, a 4x slower CPU) |
+| Worker, p50 and p99 per request | **17.9 / 30.4 ms** the loader, **26.1 / 42.1 ms** a card with its thread, **33.8 / 50.6 ms** the board, **49.1 / 103 ms** a list of 50, **35.6 / 72.4 ms** a new card, **77.5 / 159 ms** a move, on a local `wrangler dev`, not Cloudflare's edge |
+| CLI start-up | **0.45 ms** `p99 --version`, **0.65 ms** `p99 --demo list` |
+| TUI start to its first frame at 120×34 | **1.4 ms** |
+| TUI frame time at 120×34 | **0.05 to 0.17 ms** average; the board's worst frame while a card is dragged and slides **0.25 ms**: 120 fps leaves 8.33 ms |
 | Backend | **0** servers: one Cloudflare Worker, D1 and R2 per space |
 | Worker runtime dependencies | **0** (wrangler only to run its tests) |
-| p99 binary | **7.1 MB** (3.2 MB gzipped), 14 direct crates, the Worker and widget embedded |
+| p99 binary | **8.9 MB** (3.9 MB gzipped), 14 direct crates, the Worker and widget embedded |
 
-Measured on 2026-10-20 for 1.9.0 on an AMD Ryzen 9 9950X (32 threads), each against the code before 1.9.0's polish, alternated run by run, with the load average of the machine's other work noted for each:
+Measured on 2026-10-30 for 1.13.8 on an AMD Ryzen 9 9950X (32 threads), with the load average of the machine's other work noted for each:
 
 - Sizes with `gzip -9`: the loader as a host with no placement settings gets it (`bin/budget`), the panel, styles, capture and board code as the Worker serves them.
-- Browser times in headless Chromium 154 on localhost against a local Worker on `wrangler dev` with 360 cards on 2 hosts, each the median of 5 runs of 10 page loads at a load average of 19 to 30, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames). Cold is a fresh browser context, warm a reload in it. Before the polish the same runs gave 7.5 and 3.0 ms from loader start to the button, 52.3 and 26.0 ms from click to the form, and 309 ms to the board: the same within the noise. The board time is from the pointer going down on "Board" to the board on screen with its cards.
-- The web board's frames, measured on 2026-10-23 for the one board: a mouse drag across the seven lanes and back, 8 drags of about 214 frames, at a load average of 22 to 34; each frame from its first input event to the end of style and layout, which leaves out the paint and compositing of headless Chromium's software renderer. The board code before the one board, on the same seven lanes, alternated drag by drag: 0.8, 3.9 and 6.4 ms. About 0.5% of frames pass 8.33 ms on this machine, with 70 cards in a lane.
-- The P99 page: a fresh browser context each time at 412×823, throttled through the DevTools protocol as Lighthouse's mobile profile is, 50 loads each, first paint as Chromium reports it.
-- Worker times on `wrangler dev` (workerd and local D1 on this machine, not Cloudflare's edge), one request at a time over a kept-alive connection, 400 of each after 30 to warm up, signed as the CLI signs them, on 360 cards with 120 comments on 2 hosts, at a load average of 8 to 16. The code before the polish answered within 1.6 ms of these at p50 (within 0.2 ms on every route but a new card). 1.8.0 measured 11.6 / 19.9 ms for the loader up to 53.4 / 95.4 ms for a move; the same code before the polish measured 12.3 ms then 20.3 ms for the loader in single runs the same afternoon, so the gap is the machine's other work, not the code.
-- CLI and TUI start-up: the whole process, the median of 300 runs after 20 to warm up (`p99 tui --demo --dump 120x34` for the first frame); TUI frame times with `p99 tui --demo --bench 200`, the median of 3 runs; both on a release build, at a load average of 19.
+- Browser times in headless Chromium 154 on localhost against a local Worker on `wrangler dev` (`render/web/serve.mjs`) with 360 cards on 2 hosts, each the median of 5 runs of 10 page loads at a load average of 3 to 9, where "painted" is the first animation frame with the button (so times snap to 16.7 ms frames). Cold is a fresh browser context, warm a reload in it, and the panel's warm open is the click after that reload. The board time is from the pointer going down on "Board" to the board on screen with all its cards; it opens on the site's own cards, 180 of the 360.
+- The web board's frames with `render/web/drag-bench.mjs`: a mouse drag across the seven lanes and back, 8 drags of 214 frames with 70 cards in a lane, at a load average of 4 to 6; each frame from its first input event to the end of style and layout, which leaves out the paint and compositing of headless Chromium's software renderer. No frame passed 8.33 ms; the worst took 7.4 ms.
+- The P99 page: a fresh browser context each time at 412×823, throttled through the DevTools protocol (150 ms of latency, 1.6 Mbps down, 750 kbps up, a 4x slower CPU), 50 loads each, first paint as Chromium records it, at a load average of 10 to 13.
+- Worker times on `wrangler dev` (workerd and local D1 on this machine, not Cloudflare's edge), one request at a time over a kept-alive connection, 400 of each after 30 to warm up, signed as the CLI signs them, on 360 cards with 120 comments on 2 hosts (the new-card runs add 430 more before the moves), at a load average of 4 to 13.
+- CLI and TUI start-up: the whole process, the median of 300 runs after 20 to warm up (`p99 tui --demo --dump 120x34` for the first frame), timed from a harness whose own process start costs 0.15 ms; TUI frame times with `p99 tui --demo --bench 200`, the median of 3 runs; both on a release build, at a load average of 4.
 
-<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 22.3 and its styles 6.7 on the first click, then the capture code with its library 17.5; for Owners, the board 11.0 when they open it."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 8.9 cold and 3.4 warm, page navigation to the button painted 42.6 cold and 13.8 warm, click to the panel's form 59.0 cold and 25.5 warm, an Owner's click on Board to the board with 270 cards 294 cold, and the P99 page's first paint on a mid-range phone 226 signed out and 216 signed in."></p>
+<p align="center"><img src="docs/images/web-sizes-bars.png" width="49%" alt="Bar chart of what a page downloads, in KB gzipped: the loader 2.0 on every page; on demand, the panel 29.6 and its styles 8.1 on the first click, then the capture code with its library 19.3; for Owners, the board 12.1 when they open it."> <img src="docs/images/web-times-bars.png" width="49%" alt="Bar chart of how fast the widget shows, median of 5 runs of 10 in milliseconds: loader start to the button painted 10.1 cold and 2.4 warm, page navigation to the button painted 26.5 cold and 10.3 warm, click to the panel's form 34.2 cold and 23.5 warm, an Owner's click on Board to the board with 180 cards 132 cold, and the P99 page's first paint on a mid-range phone 204 signed out and 196 signed in."></p>
 
-<p align="center"><img src="docs/images/tui-frames-bars.png" width="49%" alt="Bar chart of the TUI's frame time at 120 by 34 in microseconds: the average of 200 frames is 99 on the inbox, 112 on the board, 55 on the codes and 124 on a thread; the worst of 200 frames on the board is 380 while a card is carried with the keys and 352 while one is dragged with the mouse, a slide always running; 120 fps leaves 8,333."></p>
+<p align="center"><img src="docs/images/tui-frames-bars.png" width="49%" alt="Bar chart of the TUI's frame time at 120 by 34 in microseconds: the average of 200 frames is 121 on the Cards screen, 114 on the board, 50 on the codes and 174 on a thread; the worst of 200 frames on the board is 254 while a card is carried with the keys and 253 while one is dragged with the mouse, a slide always running; 120 fps leaves 8,333."></p>
 
 ## On your site
 
@@ -76,7 +76,7 @@ This is P99 on PITO MD's own site, [pitomd.com](https://pitomd.com), recorded on
 
 ## In your terminal
 
-**The inbox.** `p99` (or `p99 tui`) shows every card across your sites and Cloudflare accounts, or one site at a time, with its host and its label on every row. Open a thread to read it, reply, add an internal note, move it to another lane with `m`, or assign it. `w` lists the cards that need you, and the header counts them (`3 waiting`). People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
+**The Cards screen.** `p99` (or `p99 tui`) shows every card across your sites and Cloudflare accounts, or one site at a time, with its host and its label on every row. Open a thread to read it, reply, add an internal note, move it to another lane with `m`, or assign it. `w` lists the cards that need you, and the header counts them (`3 waiting`). People are usernames, made from their names and changed by each person for themselves, so an assignee shows as `@grace.hopper` with a disc drawn from it, never an e-mail.
 
 <p align="center"><img src="docs/images/inbox.gif" width="800" alt="p99 tui: the Cards screen lists cards from example.com, shop.example.com and dev.example.com with a host column, a filter narrows it, a card opens with its host and environment, a reply is sent, the card moved to Done, and the view switches to one host."></p>
 
@@ -96,7 +96,7 @@ p99 card move BUG-12 --to Done
 
 The cards' own commands sit under `p99 card`: `new` files one (with `--project` or `--host`, `--kind`, `--title`, `--body`, `--page` and `--attach`), `comment` answers one (`--attach`, `--internal`), `status` sets its lane or closes it as abandoned or a duplicate, and `move` puts it in a lane or beside another card. A card filed from the terminal or by an agent without `--page` is on no page. `p99 file`, `p99 comment`, `p99 status` and `p99 move` still run for one release and print their new name.
 
-<p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first card's JSON: key, kind, status, title, host, env, page, reporter, counts and landing."></p>
+<p align="center"><img src="docs/images/list-json.png" width="80%" alt="A terminal running p99 list --all --status any --json on sample data, showing the first card's JSON: key, kind, status, title, host, env, page, who filed it, counts and landing."></p>
 
 **Changes arrive live.** A new card, a comment, a change of label, assignee, title or details, or a new file shows in an open `p99 tui` within about a second, without polling: the Worker tells a Durable Object, which holds one WebSocket for each open `p99 tui` and `p99 watch`. `p99 watch` prints each change as it happens, and `p99 watch --json` prints one JSON event per line, so an agent can react to new cards as they come.
 
@@ -170,10 +170,10 @@ mkdir -p ~/.local/bin && curl -fsSL "https://github.com/gmrdad82/p99/releases/do
 **First use:**
 
 ```
-p99 tui --demo                      # the inbox on sample data, nothing to set up
+p99 tui --demo                      # your cards on sample data, nothing to set up
 p99 setup                           # your Cloudflare account, step by step
 p99 invite --space --name "Ada Lovelace" --email ada@example.com
-p99                                 # your inbox
+p99                                 # your cards
 ```
 
 Then add the tag to your site's `<head>` and open the link `p99 invite` printed for you.
@@ -188,7 +188,7 @@ Then add the tag to your site's `<head>` and open the link `p99 invite` printed 
 
 ## Part of PITO MD
 
-P99 is one of [PITO MD](https://pitomd.com)'s open tools. Its inbox is built on [pito-tui](https://github.com/gmrdad82/pito-tui), the shared terminal app shell. Its clips and stills are recorded with [prec](https://github.com/gmrdad82/prec) and made GIFs with pcod from [pito-codecs](https://github.com/gmrdad82/pito-codecs). Its charts are drawn with [pito-compare](https://github.com/gmrdad82/pito-compare).
+P99 is one of [PITO MD](https://pitomd.com)'s open tools. Its terminal UI is built on [pito-tui](https://github.com/gmrdad82/pito-tui), the shared terminal app shell. Its clips and stills are recorded with [prec](https://github.com/gmrdad82/prec) and made GIFs with pcod from [pito-codecs](https://github.com/gmrdad82/pito-codecs). Its charts are drawn with [pito-compare](https://github.com/gmrdad82/pito-compare).
 
 ## Build and test
 

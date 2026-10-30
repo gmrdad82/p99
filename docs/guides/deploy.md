@@ -48,7 +48,7 @@ p99 deploy --space shop
 
 Before its first write it reads everything it needs: the migrations already applied, the plan when one is needed, the Worker's bindings and secrets, the account's zones, each host's zone and routes, and the P99 page's address. A deploy refused on any of those (a plan not accepted, a hash that no longer matches, a token Cloudflare turns away on one of those reads, a rate-limiting namespace it can't pick, a host on no zone the token reaches, a route another Worker already holds) changes nothing: no migration, no table, no upload, no secret and no route. Cloudflare only checks a write permission on the write itself, so a token that can read but not edit the Worker, its secrets or its routes is turned away after the migrations are in, and the space keeps them. The Worker stays as it was when its upload was the write refused; when a secret or a route was refused, the new Worker is already up. Run `p99 deploy` again with a token that can write them; it needs no `--accept-plan` then, since nothing is left to accept.
 
-It fails, naming the hosts, when a route can't be added or a host doesn't answer the new version; `--no-check` skips the health check. `--json` prints a report with the modules, the migrations applied, each route and each host's health, and `"ok"`.
+It fails, naming the hosts, when a route can't be added or a host doesn't answer the new version; `--no-check` skips the health check. `--json` prints a summary with the modules, the migrations applied, each route and each host's health, and `"ok"`.
 
 Run it once for each space in the config. The loader is cached for five minutes and every other file is fetched by version, so pages pick up the new panel within five minutes of a deploy, with nothing to purge.
 
