@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { ADA, LANE_WORDS, MARY, card, cast, closePage, openBoard, openPanel, people, report, shown, tag } from "../../../loop/triage-lib.mjs";
+import { bars, barsBrowser, cardIn, clear, hostBars, many, ownerOn, pageTheme, popupBoard, settled, themeOf } from "../us-lib/lanes.mjs";
 
 const LONG_FRAME = 50;
 const LONG = 80;
@@ -64,8 +65,11 @@ export default async function (kit) {
       await page.keyboard.press("ArrowRight");
       await page.keyboard.press("Enter");
       await inLane(page, "in-progress", mine.key);
-      const stored = await kit.call("GET", `/_p99/v1/cards/${mine.key}`, { actor: ADA });
-      assert.equal(stored.json.card.status, "in-progress", JSON.stringify(stored.json));
+      const stored = await kit.until("the browser's move to be stored", async () => {
+        const read = await kit.call("GET", `/_p99/v1/cards/${mine.key}`, { actor: ADA });
+        return read.json?.card?.status === "in-progress" ? read.json : null;
+      });
+      assert.equal(stored.card.status, "in-progress", JSON.stringify(stored));
     } finally {
       await closePage(page);
     }
@@ -308,4 +312,194 @@ export default async function (kit) {
       await closePage(page);
     }
   });
+
+  const LANES_AT = where.blog;
+  const LANES_IN = "Blog";
+  let laid = null;
+  const lanes = () =>
+    (laid ??= (async () => {
+      const code = await ownerOn(kit, LANES_AT);
+      const t = tag();
+      const planned = await many(16, (n) => cardIn(kit, LANES_IN, LANES_AT, `Planned lane card ${n + 1} ${t}`, { status: "planned" }));
+      const mine = await cardIn(kit, LANES_IN, LANES_AT, `Swap the hero photo ${t}`, { status: "in-progress", assignee: "me" });
+      const shipped = await many(2, (n) => cardIn(kit, LANES_IN, LANES_AT, `Shipped ${n + 1} ${t}`, { status: "done" }));
+      return { code, mine, total: 19, keys: [...planned, mine, ...shipped] };
+    })());
+  const lanesUrl = (path, code) => `${kit.siteUrl(LANES_AT, path)}#p99=${code}`;
+  const scrolled = (p) => p.evaluate(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft);
+  const laneAt = (p, word) =>
+    p.evaluate((w) => {
+      const l = document.querySelector("p99-root").shadowRoot.querySelector(`.p99-col[data-word=${w}] .p99-cards`);
+      const r = l.getBoundingClientRect();
+      return { at: [r.x + r.width / 2, r.y + r.height / 2], fits: l.scrollHeight <= l.clientHeight, top: l.scrollTop };
+    }, word);
+
+  await check("us-board-001 every board bar is thin and arrowless on any site", async () => {
+    const { code, total } = await lanes();
+    const t = tag();
+    const made = await kit.call("POST", "/_p99/v1/codes", { actor: ADA, body: { name: ADA.name, email: `ada.lanes.${t}@example.com`, grant: { projects: [LANES_IN] }, role: "owner", totp: true, mail: false } });
+    assert.equal(made.status, 201, JSON.stringify(made.json));
+    const real = await barsBrowser(kit);
+    try {
+      for (const scheme of ["light", "dark"]) {
+        const context = await real.open({ colorScheme: scheme });
+        await hostBars(context, LANES_AT);
+        const p = await context.newPage();
+        await popupBoard(p, lanesUrl("/locked.html", code), total);
+        const policy = await p.evaluate(async () => (await fetch(location.href)).headers.get("content-security-policy"));
+        assert.match(policy || "", /default-src 'self'/, "the page sends a strict Content-Security-Policy");
+        const host = await p.evaluate(() => getComputedStyle(document.body).scrollbarColor);
+        assert.notEqual(host, "auto", "the strict page colours every scrollbar");
+        const b = await bars(p);
+        assert.ok(b.wide && b.cols > 0 && b.cols <= 8, `${scheme}: the pop-up board's lanes bar is P99's thin bar (${JSON.stringify(b)})`);
+        assert.ok(b.lanes.length > 0 && b.lanes.every((w) => w > 0 && w <= 8), `${scheme}: a full lane's bar is at most 8px (${JSON.stringify(b)})`);
+        assert.ok(b.colours.every((c) => c === "auto") && b.widths.every((w) => w === "auto"), `${scheme}: the site's scrollbar colour never reaches the board, so the arrowless WebKit bars draw (${JSON.stringify(b)})`);
+        await context.close();
+      }
+      const context = await real.open({ viewport: { width: 1024, height: 768 }, extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.147" } });
+      const p = await context.newPage();
+      await p.goto(kit.appUrl("/"));
+      await p.fill("#signin input[name=email]", `ada.lanes.${t}@example.com`);
+      await p.fill("#signin input[name=totp]", kit.totp(made.json.totp_key));
+      await p.click("#signin button[type=submit]");
+      await p.waitForFunction((n) => (document.querySelector("p99-root.app-board")?.shadowRoot?.querySelectorAll(".p99-board.is-page.is-open .p99-cols .p99-card").length ?? 0) >= n, total, { timeout: 20000 });
+      await settled(p, "p99-root.app-board");
+      const b = await bars(p, "p99-root.app-board");
+      assert.ok(b.wide && b.cols > 0 && b.cols <= 8, `the P99 page's lanes bar is thin (${JSON.stringify(b)})`);
+      assert.ok(b.lanes.length > 0 && b.lanes.every((w) => w > 0 && w <= 8), `the P99 page's full lane bar is at most 8px (${JSON.stringify(b)})`);
+      await context.close();
+    } finally {
+      await real.close();
+    }
+  });
+
+  await check("us-board-001 both wheels move the lanes sideways", async () => {
+    const { code, total } = await lanes();
+    const p = await kit.page({ viewport: { width: 1024, height: 768 } });
+    try {
+      await popupBoard(p, lanesUrl("/checkout", code), total);
+      const short = await p.evaluate(() => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const view = r.querySelector(".p99-cols").getBoundingClientRect();
+        for (const l of r.querySelectorAll(".p99-col[data-label] .p99-cards")) {
+          const b = l.getBoundingClientRect();
+          if (b.left >= view.left && b.right <= view.right && l.scrollHeight <= l.clientHeight) return { word: l.closest(".p99-col").dataset.word, at: [b.x + b.width / 2, b.y + b.height / 2] };
+        }
+        return null;
+      });
+      assert.ok(short, "a lane in view has room to spare");
+      assert.equal(await scrolled(p), 0);
+      await p.mouse.move(...short.at);
+      await p.mouse.wheel(0, 300);
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft > 0, null, { timeout: 5000 }).catch(() => assert.fail(`the vertical wheel over the short ${short.word} lane moves the lanes sideways`));
+      await p.evaluate(() => {
+        document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft = 0;
+      });
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft === 0);
+      const full = await laneAt(p, "planned");
+      assert.ok(!full.fits && full.top === 0, "the Planned lane overflows");
+      await p.mouse.move(...full.at);
+      await p.mouse.wheel(0, 300);
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-col[data-word=planned] .p99-cards").scrollTop > 0, null, { timeout: 5000 }).catch(() => assert.fail("the vertical wheel over a full lane scrolls its cards"));
+      assert.equal(await scrolled(p), 0, "the vertical wheel over a full lane scrolls its cards and leaves the lanes where they are");
+      await p.mouse.wheel(60, 0);
+      await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-cols").scrollLeft > 0, null, { timeout: 5000 }).catch(() => assert.fail("the sideways wheel over a full lane moves the lanes"));
+    } finally {
+      await closePage(p);
+    }
+  });
+
+  await check("us-board-001 a narrow window scrolls the lanes inside the board", async () => {
+    const { code, total } = await lanes();
+    for (const viewport of [{ width: 390, height: 844 }, { width: 800, height: 600 }]) {
+      const p = await kit.page({ viewport });
+      try {
+        await popupBoard(p, lanesUrl("/checkout", code), total);
+        const fit = await p.evaluate(() => {
+          const r = document.querySelector("p99-root").shadowRoot;
+          const b = r.querySelector(".p99-board").getBoundingClientRect();
+          const c = r.querySelector(".p99-cols");
+          const before = c.scrollLeft;
+          c.scrollLeft = c.scrollWidth;
+          const after = c.scrollLeft;
+          scrollTo(400, 0);
+          return {
+            page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) <= innerWidth,
+            pageX: scrollX,
+            inside: b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight,
+            wide: c.scrollWidth > c.clientWidth,
+            moved: after > before,
+          };
+        });
+        assert.deepEqual(fit, { page: true, pageX: 0, inside: true, wide: true, moved: true }, `${viewport.width}x${viewport.height}`);
+      } finally {
+        await closePage(p);
+      }
+    }
+  });
+
+  await check("us-board-001 a dark mode board on a light page keeps one theme", async () => {
+    const { code, total } = await lanes();
+    for (const [page, scheme] of [["light", "light"], ["light", "dark"], ["dark", "dark"], ["dark", "light"]]) {
+      const p = await kit.page({ colorScheme: scheme });
+      try {
+        await pageTheme(p.context(), page);
+        await popupBoard(p, lanesUrl("/checkout", code), total);
+        assert.equal(await p.evaluate(() => getComputedStyle(document.documentElement).colorScheme), page, "the page keeps its own theme");
+        await p.waitForFunction(() => document.querySelector("p99-root").shadowRoot.querySelector(".p99-live")?.dataset.state === "live", null, { timeout: 20000 });
+        for (const bare of [false, true]) {
+          const at = `a ${page} page in a ${scheme} browser${bare ? ", the texture not loaded" : ""}`;
+          const seen = await themeOf(p, "p99-root", bare);
+          assert.ok(seen.title >= 4.5 && seen.live >= 4.5, `${at}: the title and LIVE read at 4.5:1 or more ${JSON.stringify(seen)}`);
+          assert.ok(seen.ground === scheme && seen.cards === scheme, `${at}: the ground and the cards are both ${scheme} ${JSON.stringify(seen)}`);
+        }
+      } finally {
+        await closePage(p);
+      }
+    }
+  });
+
+  await check("us-board-001 a web card names its project and assignee and the header counts done", async () => {
+    const { code, mine, total } = await lanes();
+    const p = await kit.page();
+    try {
+      await popupBoard(p, lanesUrl("/checkout", code), total);
+      const head = await p.evaluate((key) => {
+        const r = document.querySelector("p99-root").shadowRoot;
+        const roll = r.querySelector(".p99-roll");
+        const feet = Array.from(r.querySelectorAll(".p99-cols .p99-card"), (e) => {
+          const foot = e.querySelector(".p99-card-foot");
+          const who = e.querySelector(".p99-who");
+          const project = e.querySelector(".p99-card-project");
+          return {
+            key: e.dataset.id,
+            foot: !!foot,
+            last: !foot || e.lastElementChild === foot,
+            who: who ? who.parentElement === foot && who.title : null,
+            project: project ? project.parentElement === foot && project.textContent : null,
+            top: e.querySelector(".p99-card-top").children.length,
+            right: !who || !project || who.getBoundingClientRect().left > project.getBoundingClientRect().right,
+          };
+        });
+        return {
+          text: roll.textContent,
+          hidden: roll.hidden,
+          title: roll.title,
+          done: r.querySelectorAll(".p99-col[data-closes] .p99-card").length,
+          total: r.querySelectorAll(".p99-cols .p99-card").length,
+          mine: feet.find((f) => f.key === key),
+          feet,
+        };
+      }, mine);
+      assert.ok(head.done >= 2 && head.total >= total, `the board holds the seeded cards ${JSON.stringify({ done: head.done, total: head.total })}`);
+      assert.deepEqual({ text: head.text, hidden: head.hidden, title: head.title }, { text: `${head.done}/${head.total}`, hidden: false, title: `${head.done} of ${head.total} done` });
+      assert.ok(head.mine && head.mine.project === LANES_IN && typeof head.mine.who === "string" && head.mine.who.length > 0, `the assigned card names its project and its assignee in its foot ${JSON.stringify(head.mine)}`);
+      assert.ok(head.mine.right && head.mine.last && head.mine.top === 1, `the face sits right of the project on the card's last row ${JSON.stringify(head.mine)}`);
+      assert.ok(head.feet.every((f) => f.foot && f.last && f.project === LANES_IN && f.top === 1 && f.right), `every card names its project on its last row ${JSON.stringify(head.feet.filter((f) => !(f.foot && f.last && f.project === LANES_IN && f.top === 1 && f.right)))}`);
+    } finally {
+      await closePage(p);
+    }
+  });
+
+  if (laid) await clear(kit, (await laid.catch(() => ({ keys: [] }))).keys);
 }
