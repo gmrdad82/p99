@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { ADA, GRACE, RUN, S, closing, codeFor, hostOf, issueBody, listButton, signed, tag } from "../us-lib/report.mjs";
+import { cardIn, clear, many, place } from "../us-lib/lanes.mjs";
 
 const WORD = `crème${RUN}`;
 const searchOf = (q) => (url) => url.pathname === "/_p99/api/issues" && url.searchParams.get("q") === q;
@@ -324,6 +325,59 @@ export default async function (kit) {
       await p.locator(S(".p99-filters select[name=status]")).selectOption("lane:Done");
       s = await settled(kit, p, (x) => !x.keys.includes(idea));
       assert.equal(s.empty, `No cards match “${word}”.`, `no done idea matches (${s.keys})`);
+    });
+  });
+
+  await kit.check("us-find-001 a zero count hides and a big one reads 99 plus", async () => {
+    const at = "tally.example.com";
+    const owner = await place(kit, "Tally", at);
+    const dots = async () => {
+      const p = await kit.page();
+      try {
+        await p.goto(`${kit.siteUrl(at, "/tally")}#p99=${owner}`);
+        await p.waitForFunction(() => {
+          const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w .b:not(.f)");
+          return b && !b.hidden;
+        }, null, { timeout: 20000 });
+        return await p.evaluate(() => {
+          const b = document.querySelector("p99-root").shadowRoot.querySelector(".w .b:not(.f)");
+          const one = (e) => ({ text: e.textContent, scale: getComputedStyle(e).scale });
+          return { blue: one(b.querySelector(".n:not(.v)")), page: one(b.querySelector(".n.v")), label: b.ariaLabel };
+        });
+      } finally {
+        await closing(p, async () => {});
+      }
+    };
+    const none = await dots();
+    assert.deepEqual(none, { blue: { text: "", scale: "0" }, page: { text: "", scale: "0" }, label: "Your cards: 0 waiting, 0 on this page" }, "an Owner with nothing keeps the ⋯ and shows no count");
+    const keys = [];
+    try {
+      await many(100, async (n) => keys.push(await cardIn(kit, "Tally", at, tag(`Waiting on the tally page ${n + 1}`), { status: "needs-you", path: "/tally" })));
+      const full = await dots();
+      assert.deepEqual(full.label, "Your cards: 100 waiting, 100 on this page");
+      assert.deepEqual([full.blue.text, full.page.text], ["99+", "99+"], `more than 99 reads 99+ at both corners ${JSON.stringify(full)}`);
+      assert.ok([full.blue.scale, full.page.scale].every((s) => s === "none" || s === "1"), `both counts show at full size ${JSON.stringify(full)}`);
+    } finally {
+      await clear(kit, at, keys);
+    }
+  });
+
+  await kit.check("us-find-001 the project and last change chips show the pointer", async () => {
+    const owner = await seed();
+    const p = await openList(kit, shop, owner, { scope: null });
+    await closing(p, async () => {
+      await p.locator(S(".p99-pick select[name=view]")).selectOption("projects");
+      await p.locator(S(".p99-projects input[name=project][value=Shop]")).waitFor({ state: "attached", timeout: 20000 });
+      const cursors = await p.evaluate(() => {
+        const r = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-pick");
+        const of = (e) => getComputedStyle(e).cursor;
+        const chips = (sel) => Array.from(r.querySelectorAll(`${sel} label`), (l) => [of(l), of(l.querySelector("span")), of(l.querySelector("input"))]);
+        return { projects: chips(".p99-projects"), sources: chips(".p99-sources"), view: of(r.querySelector("select[name=view]")) };
+      });
+      assert.ok(cursors.projects.length > 0 && cursors.sources.length > 0, JSON.stringify(cursors));
+      assert.ok(cursors.projects.flat().every((c) => c === "pointer"), `every Projects chip shows the pointer ${JSON.stringify(cursors.projects)}`);
+      assert.ok(cursors.sources.flat().every((c) => c === "pointer"), `every Last change by chip shows the pointer ${JSON.stringify(cursors.sources)}`);
+      assert.equal(cursors.view, "pointer", "the view picker shows the pointer");
     });
   });
 }

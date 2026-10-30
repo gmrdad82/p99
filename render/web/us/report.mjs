@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   FAILED,
   GRACE,
@@ -34,6 +35,7 @@ import {
   write,
 } from "../us-lib/report.mjs";
 
+const LOCKUP_SHA256 = "100522278893631671db6534422f10c9a62b4ffcbb1c25b2c47517c42b222a45";
 const NOTE = Buffer.from("order 1042: card accepted, Pay disabled\n");
 const HIDE = S(".p99-new input[name=mask]");
 const NOTE_HIDDEN = "Passwords and the fields this site marks as private are blanked.";
@@ -405,6 +407,59 @@ export default async function (kit) {
       assert.equal(await p.locator(S("[data-view=list] .p99-tabs")).getAttribute("aria-label"), "Cards");
       const listed = await words(".p99-panel.is-open");
       assert.ok(!NOT.test(listed), `the list says ${listed.match(NOT)?.[0]}: ${listed}`);
+      assert.deepEqual(errors, []);
+    });
+  });
+
+  await kit.check("us-report-002 each capture checkbox sits on one row with its label", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    for (const scheme of ["light", "dark"]) {
+      const { p, errors } = await visit(kit, shop, { code, scheme });
+      await closing(p, async () => {
+        await p.evaluate(() => {
+          const note = document.createElement("p");
+          note.setAttribute("data-p99-redact", "");
+          note.textContent = "Grace Hopper · 12 Analytical Row";
+          note.style.cssText = "position:absolute;left:48px;top:96px;z-index:9;margin:0;width:360px;height:40px;background:#fff7d6;color:#1a1200";
+          document.body.append(note);
+        });
+        await openForm(p);
+        await shotReady(p);
+        await p.locator(HIDE).waitFor({ state: "visible", timeout: 10000 });
+        const rows = await p.evaluate(() =>
+          Array.from(document.querySelector("p99-root").shadowRoot.querySelectorAll(".p99-panel.is-open .p99-shots-pick > .p99-pick"), (d) => {
+            const box = d.querySelector("input").getBoundingClientRect();
+            const text = d.querySelector("label span").getBoundingClientRect();
+            return { role: d.dataset.role, dy: Math.abs((box.top + box.bottom) / 2 - (text.top + text.bottom) / 2), gap: text.left - box.right };
+          }),
+        );
+        assert.deepEqual(rows.map((r) => r.role), ["mask", "screenshot", "page", "region"], `${scheme}: ${JSON.stringify(rows)}`);
+        assert.ok(rows.every((r) => r.dy <= 2 && r.gap > 0 && r.gap < 24), `${scheme}: each box comes first, its label beside it on the same row ${JSON.stringify(rows)}`);
+        assert.deepEqual(errors, []);
+      });
+    }
+  });
+
+  await kit.check("us-report-001 the panel lockup keeps its tagline and alt text", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    const { p, errors } = await visit(kit, shop, { code });
+    await closing(p, async () => {
+      await openForm(p);
+      await p.waitForFunction(() => {
+        const i = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-lockup");
+        return i && i.complete && i.naturalWidth > 0;
+      }, null, { timeout: 20000 });
+      const lockup = await p.evaluate(async () => {
+        const i = document.querySelector("p99-root").shadowRoot.querySelector(".p99-panel.is-open .p99-lockup");
+        const box = i.getBoundingClientRect();
+        const bytes = new Uint8Array(await (await fetch(i.src)).arrayBuffer());
+        let raw = "";
+        for (const b of bytes) raw += String.fromCharCode(b);
+        return { path: new URL(i.src).pathname, alt: i.alt, shown: box.width > 0 && box.height > 0, bytes: btoa(raw) };
+      });
+      const sum = createHash("sha256").update(Buffer.from(lockup.bytes, "base64")).digest("hex");
+      assert.deepEqual({ path: lockup.path, alt: lockup.alt, shown: lockup.shown }, { path: "/_p99/art/lockup-dark.svg", alt: "P99, issue and feedback reporter", shown: true });
+      assert.equal(sum, LOCKUP_SHA256, "the lockup, its ISSUE & FEEDBACK REPORTER tagline included, is the one picked on 2026-10-14");
       assert.deepEqual(errors, []);
     });
   });

@@ -195,4 +195,24 @@ export default async function (kit) {
       assert.deepEqual(errors, []);
     });
   });
+
+  await kit.check("us-site-001 the panels background drifts slowly and stands still under reduced motion", async () => {
+    const code = await codeFor(kit, shop, GRACE);
+    const drift = async (reducedMotion) => {
+      const p = await kit.page({ reducedMotion });
+      return closing(p, async () => {
+        await p.goto(`${kit.siteUrl(shop, "/checkout")}#p99=${code}`);
+        await openForm(p);
+        return p.evaluate(() => {
+          const r = document.querySelector("p99-root").shadowRoot;
+          const cs = getComputedStyle(r.querySelector(".p99-panel.is-open"), "::before");
+          const running = r.getAnimations().filter((a) => a.animationName === "p99-drift" && a.playState === "running").length;
+          return { name: cs.animationName, duration: cs.animationDuration, count: cs.animationIterationCount, running };
+        });
+      });
+    };
+    assert.deepEqual(await drift("no-preference"), { name: "p99-drift", duration: "45s", count: "infinite", running: 1 }, "the texture drifts on a 45-second loop");
+    const still = await drift("reduce");
+    assert.deepEqual({ name: still.name, running: still.running }, { name: "none", running: 0 }, "with reduced motion asked for, it stands still");
+  });
 }
