@@ -475,7 +475,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -989,57 +989,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "pito-footer"
-version = "1.1.0"
-source = "git+https://github.com/gmrdad82/pito-footer?tag=v1.1.0#e7cb3731ed7f7440085e84382f6b6242c9f03673"
-dependencies = [
- "crossterm",
- "ratatui",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
-name = "pito-header"
-version = "1.1.2"
-source = "git+https://github.com/gmrdad82/pito-header?tag=v1.1.2#adeca3cdad3cbe6eaba26a10fa407ba271460e27"
-dependencies = [
- "crossterm",
- "ratatui",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
-name = "pito-hourglass"
-version = "1.0.2"
-source = "git+https://github.com/gmrdad82/pito-hourglass?tag=v1.0.2#85b766f2cd873e7a62b9288b423685768b71f28c"
-dependencies = [
- "ratatui",
- "unicode-segmentation",
-]
-
-[[package]]
-name = "pito-list"
-version = "1.2.0"
-source = "git+https://github.com/gmrdad82/pito-list?tag=v1.2.0#cce8b5b549dcd9786bbb370a7cae0da3a8e380ea"
-dependencies = [
- "crossterm",
- "ratatui",
- "unicode-segmentation",
- "unicode-width",
-]
-
-[[package]]
 name = "pito-tui"
-version = "1.4.0"
-source = "git+https://github.com/gmrdad82/pito-tui?tag=v1.4.0#00da5b4779716b30b62822eb51c97af146fd5ea8"
+version = "2.0.0"
+source = "git+https://github.com/gmrdad82/pito-tui?tag=v2.0.0#bdf0b575bc5e9d9fc3da65579b11fd1d69dcbcb4"
 dependencies = [
  "crossterm",
- "pito-footer",
- "pito-header",
- "pito-hourglass",
- "pito-list",
  "ratatui",
  "rustix",
  "serde_json",
@@ -1219,7 +1173,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

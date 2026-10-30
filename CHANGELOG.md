@@ -2,6 +2,12 @@
 
 All notable changes to P99 are listed here, newest first.
 
+## Unreleased
+
+### Changed
+
+- The TUI runs on pito-tui 2.0.0, which carries the header, footer, hourglass and list itself.
+
 ## v1.13.8 — 2026-10-29
 
 ### Changed
