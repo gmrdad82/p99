@@ -18,6 +18,7 @@ All notable changes to P99 are listed here, newest first.
 
 - The pop-up board, the panel and the P99 page keep one theme even before their background texture loads: a dark-mode board no longer shows dark cards on a light blue background, and the title and LIVE stay readable.
 - `p99 watch` prints a new card as `card`.
+- The TUI's project picker fits the screen however many projects a space has, says how many are above and below, and reaches every one.
 
 ## v1.13.7 — 2026-10-29
 
