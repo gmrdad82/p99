@@ -356,3 +356,7 @@ commit/97ad55ae0643:worker/src/links.js:104 history copy of the authenticator ma
 commit/97ad55ae0643:worker/test/invite-mail.test.mjs:117 history copy of the authenticator mail naming a password manager among authenticator apps; reworded at the tip
 commit/77711a965c5b:5 a commit message noting that a password manager's own items keep their word in the card rename; no reference or secret
 commit/9bce7ad7b2ca:.public-allow:357 history copy of a waiver line whose reason named a password manager; reworded at the tip
+assets/marks/p99.svg:0 the header comment is trimmed ahead of the next export of the marks; bin/marks pins that export once it lands
+assets/marks/p99-dark.svg:0 the header comment is trimmed ahead of the next export of the marks; bin/marks pins that export once it lands
+assets/marks/lockup.svg:0 the header comment is trimmed ahead of the next export of the marks; bin/marks pins that export once it lands
+assets/marks/lockup-dark.svg:0 the header comment is trimmed ahead of the next export of the marks; bin/marks pins that export once it lands
