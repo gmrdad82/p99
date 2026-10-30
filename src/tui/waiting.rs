@@ -14,7 +14,7 @@ use super::compose::{Draft, Filed, Place, unflat};
 use super::deck::{asked_behind, older, unrouted, wanted};
 use super::files::paths;
 use super::inbox::Inbox;
-use super::projects::{self, NONE_YET, Narrow, Shared, has};
+use super::projects::{self, NONE_YET, Narrow, Picker, Shared, has};
 use super::source::Source;
 
 pub const QUIET: Duration = Duration::from_millis(250);
@@ -26,7 +26,6 @@ pub const NEW_CARD: u64 = 0x99c4;
 pub const NEW_PROJECT: &str = "A new project…";
 
 enum Picking {
-    Projects,
     Waiting(Vec<(usize, String)>),
     Place(Vec<Place>),
     Kind(Option<Place>),
@@ -44,6 +43,7 @@ pub struct Around<S> {
     source: Source,
     reader: Inbox,
     picking: Option<Picking>,
+    chooser: Option<Picker>,
     turn: u64,
     scope: u64,
     now: Instant,
@@ -61,6 +61,7 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             shared,
             source,
             picking: None,
+            chooser: None,
             now: Instant::now(),
             palette,
             form: None,
@@ -245,6 +246,7 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
     fn free(&self) -> bool {
         !self.reading()
             && self.picking.is_none()
+            && self.chooser.is_none()
             && !self.inner.picking()
             && !self.inner.typing()
             && self.inner.crumb().is_none()
@@ -303,12 +305,24 @@ impl<S: Screen<Msg> + Narrow> Around<S> {
             cx.say(NONE_YET, Tone::Muted);
             return;
         }
-        self.picking = Some(Picking::Projects);
-        cx.pick(
-            Pick::new("Projects", projects::rows(&known, &chosen))
-                .selected(at)
-                .hints(projects::hints()),
-        );
+        self.chooser = Some(Picker::new(projects::rows(&known, &chosen), at));
+    }
+
+    fn chose_project(&mut self, choice: Option<usize>, cx: &mut Cx<'_, Msg>) {
+        match choice {
+            Some(0) => {
+                self.shared.choose(Vec::new());
+                self.apply(cx);
+            }
+            Some(at) => {
+                let name = self.shared.0.borrow().known.get(at - 1).cloned();
+                if let Some(name) = name {
+                    self.shared.toggle(&name);
+                    self.apply(cx);
+                }
+            }
+            None => {}
+        }
     }
 
     fn offer_waiting(&mut self, cards: Vec<(usize, Card)>, cx: &mut Cx<'_, Msg>) {
@@ -473,6 +487,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         } else {
             self.inner.draw(frame, area, palette);
         }
+        if let Some(chooser) = self.chooser.as_mut() {
+            chooser.draw(frame, area, palette);
+        }
     }
 
     fn moment(&mut self, now: Instant) {
@@ -522,6 +539,13 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
 
     fn key(&mut self, key: KeyEvent, cx: &mut Cx<'_, Msg>) {
         self.now = self.now.max(cx.now());
+        if let Some(chooser) = self.chooser.as_mut() {
+            if let Some(choice) = chooser.key(key) {
+                self.chooser = None;
+                self.chose_project(choice, cx);
+            }
+            return;
+        }
         if self.reading() {
             self.reader.key(key, cx);
             return;
@@ -558,6 +582,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn paste(&mut self, text: &str, cx: &mut Cx<'_, Msg>) {
+        if self.chooser.is_some() {
+            return;
+        }
         if self.reading() {
             self.reader.paste(text, cx);
         } else {
@@ -566,7 +593,7 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn mouse(&mut self, mouse: MouseEvent, area: Rect, cx: &mut Cx<'_, Msg>) {
-        if !self.reading() {
+        if !self.reading() && self.chooser.is_none() {
             self.inner.mouse(mouse, area, cx);
         }
     }
@@ -622,17 +649,6 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
 
     fn picked(&mut self, choice: Option<usize>, cx: &mut Cx<'_, Msg>) {
         match (self.picking.take(), choice) {
-            (Some(Picking::Projects), Some(0)) => {
-                self.shared.choose(Vec::new());
-                self.apply(cx);
-            }
-            (Some(Picking::Projects), Some(at)) => {
-                let name = self.shared.0.borrow().known.get(at - 1).cloned();
-                if let Some(name) = name {
-                    self.shared.toggle(&name);
-                    self.apply(cx);
-                }
-            }
             (Some(Picking::Waiting(rows)), Some(at)) => {
                 if let Some((space, key)) = rows.into_iter().nth(at) {
                     self.reader.open_key(space, None, key, cx);
@@ -662,6 +678,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn hints(&self) -> Vec<Hint<'_>> {
+        if self.chooser.is_some() {
+            return projects::hints().to_vec();
+        }
         if self.reading() {
             return self.reader.hints();
         }
@@ -708,6 +727,9 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
     }
 
     fn typing(&self) -> bool {
+        if self.chooser.is_some() {
+            return true;
+        }
         if self.reading() {
             self.reader.typing()
         } else {

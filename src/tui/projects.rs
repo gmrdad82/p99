@@ -1,9 +1,17 @@
 use std::cell::{Cell, RefCell};
+use std::fmt::Write;
 use std::rc::Rc;
 use std::time::Instant;
 
-use pito_tui::Cx;
+use pito_tui::crossterm::event::KeyEvent;
 use pito_tui::footer::Hint;
+use pito_tui::list::{Cell as Text, Column, Key, Keys, List, Row, Step};
+use pito_tui::ratatui::{
+    Frame,
+    layout::Rect,
+    widgets::{Block, BorderType, Clear},
+};
+use pito_tui::{Cx, Palette, text};
 
 use crate::card::ProjectList;
 
@@ -202,6 +210,116 @@ pub fn merge(lists: impl IntoIterator<Item = Vec<String>>) -> Vec<String> {
     names
 }
 
+const CANCEL: [Key; 2] = [Key::Esc, Key::Char('q')];
+const GAP: usize = 2;
+const NARROWEST: usize = 24;
+const TITLE: &str = " Projects ";
+const COLUMNS: [Column<'static>; 1] = [Column::new("", 4, 0).flex()];
+
+pub struct Picker {
+    list: List,
+    widest: usize,
+    above: String,
+    below: String,
+}
+
+impl Picker {
+    pub fn new(rows: Vec<String>, at: usize) -> Picker {
+        let widest = rows
+            .iter()
+            .map(|row| text::cells(row) + GAP)
+            .max()
+            .unwrap_or(0);
+        let mut list = List::new()
+            .with_rows(rows.into_iter().map(|row| Row::new([Text::new(row)])))
+            .keys(Keys::VIM);
+        list.select(at);
+        Picker {
+            list,
+            widest,
+            above: String::new(),
+            below: String::new(),
+        }
+    }
+
+    pub fn key(&mut self, key: KeyEvent) -> Option<Option<usize>> {
+        let key: Key = key.into();
+        if CANCEL.contains(&key) {
+            return Some(None);
+        }
+        match self.list.key(key) {
+            Step::Open(at) => Some(Some(at)),
+            _ => None,
+        }
+    }
+
+    pub fn draw(&mut self, frame: &mut Frame, area: Rect, palette: &Palette) {
+        let count = self.list.len();
+        let room = usize::from(area.height);
+        let spill = count + 2 > room;
+        let more = if spill { more_width(count) } else { 0 };
+        let wanted = (self.widest + 6)
+            .max(text::cells(TITLE) + more + 4)
+            .max(NARROWEST);
+        let width = u16::try_from(wanted).unwrap_or(u16::MAX).min(area.width);
+        let height = u16::try_from(count + 2)
+            .unwrap_or(u16::MAX)
+            .min(area.height);
+        let place = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 3,
+            width,
+            height,
+        );
+        frame.render_widget(Clear, place);
+        let block = Block::bordered()
+            .border_type(BorderType::Rounded)
+            .border_style(palette.rule)
+            .style(palette.base);
+        let inner = block.inner(place);
+        frame.render_widget(block, place);
+        let room = usize::from(place.width.saturating_sub(2));
+        frame
+            .buffer_mut()
+            .set_stringn(place.x + 1, place.y, TITLE, room, palette.selected);
+        let view = palette.view(&mut self.list, &COLUMNS).header(false);
+        frame.render_widget(view, inner);
+        self.above.clear();
+        self.below.clear();
+        if let Some((first, last, total)) = self.list.shown() {
+            if first > 1 {
+                let _ = write!(self.above, " ↑ {} more ", first - 1);
+            }
+            if total > last {
+                let _ = write!(self.below, " ↓ {} more ", total - last);
+            }
+        }
+        if place.height < 2 {
+            return;
+        }
+        let title = u16::try_from(text::cells(TITLE)).unwrap_or(u16::MAX);
+        let buf = frame.buffer_mut();
+        for (mark, y, beside) in [
+            (&self.above, place.y, title),
+            (&self.below, place.bottom() - 1, 0),
+        ] {
+            let cells = u16::try_from(text::cells(mark)).unwrap_or(u16::MAX);
+            if mark.is_empty() || cells.saturating_add(beside + 3) > place.width {
+                continue;
+            }
+            let x = place.right() - 2 - cells;
+            buf.set_string(x, y, mark, palette.muted);
+        }
+    }
+}
+
+fn more_width(count: usize) -> usize {
+    text::cells(" ↑  more ")
+        + count
+            .checked_ilog10()
+            .map_or(1, |digits| digits as usize + 1)
+}
+
 pub fn hints() -> [Hint<'static>; 3] {
     [
         Hint::new("enter", "choose or drop"),
@@ -265,6 +383,91 @@ mod tests {
             ["All projects", "  Mobile app", "✓ Storefront"]
         );
         assert_eq!(rows(&[], &[]), ["All projects"]);
+    }
+
+    fn press(code: pito_tui::crossterm::event::KeyCode) -> KeyEvent {
+        KeyEvent::new(code, pito_tui::crossterm::event::KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn the_picker_picks_with_enter_cancels_with_esc_or_q_and_holds_every_other_key() {
+        use pito_tui::crossterm::event::KeyCode;
+        let rows = rows(&names(&["Mobile app", "Storefront"]), &[]);
+        let mut picker = Picker::new(rows.clone(), 0);
+        for code in [KeyCode::Char('2'), KeyCode::Tab, KeyCode::Char('w')] {
+            assert_eq!(picker.key(press(code)), None);
+        }
+        assert_eq!(picker.key(press(KeyCode::End)), None);
+        assert_eq!(picker.key(press(KeyCode::Enter)), Some(Some(2)));
+        let mut picker = Picker::new(rows.clone(), 1);
+        assert_eq!(picker.key(press(KeyCode::Enter)), Some(Some(1)));
+        for code in [KeyCode::Esc, KeyCode::Char('q')] {
+            assert_eq!(Picker::new(rows.clone(), 0).key(press(code)), Some(None));
+        }
+    }
+
+    fn drawn(picker: &mut Picker, width: u16, height: u16) -> Vec<String> {
+        use pito_tui::ratatui::{Terminal, backend::TestBackend};
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).expect("a test terminal");
+        let palette = Palette::new(pito_tui::ratatui::style::Color::Blue);
+        terminal
+            .draw(|frame| picker.draw(frame, frame.area(), &palette))
+            .expect("the picker draws");
+        let text = pito_tui::dump::text(terminal.backend().buffer());
+        let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+        lines.resize(usize::from(height), String::new());
+        lines
+    }
+
+    fn forty() -> Vec<String> {
+        let known: Vec<String> = (1..=40).map(|n| format!("Project {n:02}")).collect();
+        rows(&known, &[])
+    }
+
+    #[test]
+    fn forty_projects_draw_in_the_area_with_what_is_hidden_above_and_below_named_on_the_border() {
+        for (width, height, shown) in [(120, 26, 24), (80, 16, 14)] {
+            let mut picker = Picker::new(forty(), 0);
+            let lines = drawn(&mut picker, width, height);
+            let top = lines
+                .iter()
+                .position(|l| l.contains("╭ Projects"))
+                .expect("a top border");
+            assert!(lines[top].contains('╮'), "{lines:#?}");
+            assert!(!lines[top].contains('↑'), "{lines:#?}");
+            let bottom = top + shown + 1;
+            assert!(
+                lines[bottom].contains(&format!("↓ {} more", 41 - shown)),
+                "{lines:#?}"
+            );
+            assert!(lines[bottom].contains('╰'), "{lines:#?}");
+            assert_eq!(
+                picker.key(press(pito_tui::crossterm::event::KeyCode::End)),
+                None
+            );
+            let lines = drawn(&mut picker, width, height);
+            assert!(
+                lines[top].contains(&format!("↑ {} more", 41 - shown)),
+                "{lines:#?}"
+            );
+            assert!(lines[top + shown].contains("Project 40"), "{lines:#?}");
+            assert!(!lines[bottom].contains('↓'), "{lines:#?}");
+        }
+    }
+
+    #[test]
+    fn a_picker_never_draws_wider_or_taller_than_its_area_and_drops_a_mark_with_no_room() {
+        let mut picker = Picker::new(forty(), 0);
+        let lines = drawn(&mut picker, 20, 6);
+        assert!(
+            lines[0].starts_with('╭') && lines[5].starts_with('╰'),
+            "{lines:#?}"
+        );
+        assert!(lines.iter().all(|l| l.chars().count() <= 20), "{lines:#?}");
+        assert!(!lines[0].contains('↑'), "{lines:#?}");
+        let mut few = Picker::new(rows(&names(&["Mobile app", "Storefront"]), &[]), 0);
+        let lines = drawn(&mut few, 60, 20);
+        assert!(lines.iter().all(|l| !l.contains(" more")), "{lines:#?}");
     }
 
     #[test]

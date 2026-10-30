@@ -544,3 +544,73 @@ fn us_triage_001_a_thread_lists_its_files_and_f_saves_one_beside_the_tui() {
         [9, 8, 7]
     );
 }
+
+fn forty_projects(req: &crate::stub::Req, _: &mut World) -> Option<Reply> {
+    (req.method == "GET" && req.path == "/_p99/v1/projects").then(|| {
+        let projects: Vec<serde_json::Value> = (1..=40)
+            .map(|n| json!({"name": format!("Project {n:02}"), "open": 1, "done": 0}))
+            .collect();
+        Reply::ok(json!({ "projects": projects }))
+    })
+}
+
+fn picker_rows(screen: &str) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = screen.lines().collect();
+    let top = lines.iter().position(|l| l.contains("╭ Projects"))?;
+    let byte = lines[top].find("╭ Projects")?;
+    let column = lines[top][..byte].chars().count();
+    let bottom = top
+        + 1
+        + lines
+            .iter()
+            .skip(top + 1)
+            .position(|l| l.chars().nth(column) == Some('╰'))?;
+    Some((top, bottom))
+}
+
+fn fits(screen: &str) -> bool {
+    let footer = screen
+        .lines()
+        .position(|l| l.contains("enter choose or drop"));
+    matches!((picker_rows(screen), footer), (Some((_, bottom)), Some(footer)) if bottom < footer)
+}
+
+#[test]
+fn us_triage_004_the_project_picker_fits_the_screen_and_scrolls_to_every_project() {
+    let desk = Desk::with(
+        "us-triage-004-forty",
+        World::new(vec![
+            Item::new(9, "Crème brûlée page is cold"),
+            Item::new(7, "The back office printer is jammed").hostless("Project 40"),
+        ]),
+        forty_projects,
+    );
+    for (size, hidden) in [("120x34", 18), ("80x24", 28)] {
+        let open = desk.screen(size, "p");
+        assert!(fits(&open), "{open}");
+        assert!(open.contains("All projects"), "{open}");
+        assert!(open.contains(&format!("↓ {hidden} more")), "{open}");
+        assert!(!open.contains("Project 40"), "{open}");
+
+        let last = desk.screen(size, "p end");
+        assert!(fits(&last), "{last}");
+        assert!(last.contains("Project 40"), "{last}");
+        assert!(last.contains(&format!("↑ {hidden} more")), "{last}");
+        assert!(!last.contains(" more ─╯"), "{last}");
+
+        let paged = desk.screen(size, "p pgdn down pgup pgup");
+        assert!(fits(&paged) && paged.contains("All projects"), "{paged}");
+
+        let picked = desk.screen(size, "p end enter");
+        assert!(picker_rows(&picked).is_none(), "{picked}");
+        assert!(picked.contains("in Project 40"), "{picked}");
+        assert!(has_key(&picked, "BUG-7"), "{picked}");
+        assert!(!has_key(&picked, "BUG-9"), "{picked}");
+
+        let board = desk.screen(size, "tab p G");
+        assert!(fits(&board) && board.contains("Project 40"), "{board}");
+        let narrowed = desk.screen(size, "tab p G enter");
+        assert!(picker_rows(&narrowed).is_none(), "{narrowed}");
+        assert!(narrowed.contains("Project 40"), "{narrowed}");
+    }
+}

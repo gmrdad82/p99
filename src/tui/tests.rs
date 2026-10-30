@@ -734,3 +734,98 @@ fn n_while_typing_a_filter_types_it() {
     assert!(!text.contains("New card in"), "{text}");
     assert!(text.contains("Filter n"), "{text}");
 }
+
+fn forty() -> Vec<String> {
+    (1..=40).map(|n| format!("Project {n:02}")).collect()
+}
+
+fn sized(app: &mut Run, (width, height): (u16, u16), keys: &str) -> String {
+    for key in dump::keys(keys).expect("every key has a name") {
+        app.tui.frame(width, height);
+        app.tui.key(key);
+        app.tui.settle();
+    }
+    dump::text(&app.tui.frame(width, height))
+}
+
+fn more(text: &str, arrow: char) -> Option<usize> {
+    text.match_indices(arrow).find_map(|(at, _)| {
+        let rest = text[at + arrow.len_utf8()..].strip_prefix(' ')?;
+        let digits = rest.chars().take_while(char::is_ascii_digit).count();
+        rest[digits..]
+            .starts_with(" more")
+            .then(|| rest[..digits].parse().ok())
+            .flatten()
+    })
+}
+
+fn picker_fits(text: &str) -> bool {
+    let lines: Vec<&str> = text.lines().collect();
+    let Some(top) = lines.iter().position(|line| line.contains("╭ Projects")) else {
+        return false;
+    };
+    let byte = lines[top].find("╭ Projects").unwrap_or(0);
+    let column = lines[top][..byte].chars().count();
+    let bottom = lines
+        .iter()
+        .skip(top + 1)
+        .position(|line| line.chars().nth(column) == Some('╰'));
+    let footer = lines
+        .iter()
+        .position(|line| line.contains("enter choose or drop"));
+    matches!((bottom, footer), (Some(bottom), Some(footer)) if top + 1 + bottom < footer)
+}
+
+#[test]
+fn forty_projects_fit_the_picker_at_120x34_and_80x24_and_the_last_one_is_reachable_and_picked() {
+    for (screen, size, hidden) in [
+        (INBOX, (120, 34), 18),
+        (INBOX, (80, 24), 28),
+        (BOARD, (120, 34), 18),
+        (BOARD, (80, 24), 28),
+    ] {
+        let mut app = run(sample());
+        settled(&mut app);
+        app.go(screen);
+        app.tui.event(screen, Msg::Projects(Ok(forty())));
+        app.tui.settle();
+        let open = sized(&mut app, size, "");
+        assert!(picker_fits(&open), "{open}");
+        assert!(open.contains("All projects"), "{open}");
+        assert_eq!(more(&open, '↓'), Some(hidden), "{open}");
+        assert_eq!(more(&open, '↑'), None, "{open}");
+        let paged = sized(&mut app, size, "pgdn down");
+        assert!(picker_fits(&paged), "{paged}");
+        assert!(more(&paged, '↑').is_some(), "{paged}");
+        assert!(more(&paged, '↓').is_some(), "{paged}");
+        let back = sized(&mut app, size, "pgup pgup");
+        assert!(back.contains("All projects"), "{back}");
+        assert_eq!(more(&back, '↑'), None, "{back}");
+        let end = sized(&mut app, size, "end");
+        assert!(picker_fits(&end), "{end}");
+        assert!(end.contains("Project 40"), "{end}");
+        assert_eq!(more(&end, '↑'), Some(hidden), "{end}");
+        assert_eq!(more(&end, '↓'), None, "{end}");
+        let held = sized(&mut app, size, "2 tab");
+        assert!(held.contains("Project 40") && picker_fits(&held), "{held}");
+        assert_eq!(app.tui.current(), Some(screen));
+        let home = sized(&mut app, size, "home");
+        assert!(home.contains("All projects"), "{home}");
+        assert_eq!(more(&home, '↑'), None, "{home}");
+        let picked = sized(&mut app, size, "end enter");
+        assert!(!picked.contains("╭ Projects"), "{picked}");
+        let narrowed = if screen == INBOX {
+            "in Project 40"
+        } else {
+            "Project 40"
+        };
+        assert!(picked.contains(narrowed), "{picked}");
+        app.tui.event(screen, Msg::Projects(Ok(forty())));
+        app.tui.settle();
+        let ticked = sized(&mut app, size, "G");
+        assert!(ticked.contains("✓ Project 40"), "{ticked}");
+        let closed = sized(&mut app, size, "q");
+        assert!(!closed.contains("╭ Projects"), "{closed}");
+        assert!(closed.contains(narrowed), "{closed}");
+    }
+}
