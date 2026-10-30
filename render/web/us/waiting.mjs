@@ -38,7 +38,7 @@ export default async function (kit) {
     }
   });
 
-  await check("us-waiting-001 landed and stuck cards never raise the blue count", async () => {
+  await check("us-waiting-001 the dots blue count on a site ignores landed and stuck cards", async () => {
     const t = tag();
     const at = where.blog;
     const owner = await ownerOn(kit, at);
