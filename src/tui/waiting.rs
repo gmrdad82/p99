@@ -777,6 +777,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
     }
 
+    fn lets_help(&self) -> bool {
+        self.chooser.is_some() || (!self.reading() && self.inner.lets_help())
+    }
+
     fn input(&self) -> Option<InputBar<'_>> {
         if self.reading() {
             self.reader.input()

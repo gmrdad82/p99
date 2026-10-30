@@ -1290,6 +1290,10 @@ impl Screen<Msg> for Board {
         self.lift.is_some() || (self.reading_thread() && self.reader.typing())
     }
 
+    fn lets_help(&self) -> bool {
+        self.lift.is_some()
+    }
+
     fn input(&self) -> Option<InputBar<'_>> {
         if self.reading_thread() {
             self.reader.input()

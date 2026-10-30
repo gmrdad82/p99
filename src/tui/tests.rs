@@ -886,6 +886,39 @@ fn the_footer_shows_the_keys_of_the_tab_and_the_card_in_front() {
 }
 
 #[test]
+fn question_mark_opens_the_keys_while_a_card_is_carried_or_the_projects_are_open() {
+    let mut app = run(sample());
+    app.go(BOARD);
+    let carrying = app.press("space");
+    assert!(footer(&carrying).contains("? help"), "{carrying}");
+    app.press("?");
+    app.tui.advance(Duration::from_secs(1));
+    let sheet = app.text();
+    assert!(app.tui.sheet().is_open(), "{sheet}");
+    assert!(sheet.contains("carrying a card"), "{sheet}");
+    app.press("esc");
+    assert!(!app.tui.sheet().is_open());
+    app.tui.advance(Duration::from_secs(1));
+    let still = app.text();
+    assert!(footer(&still).contains("←→↑↓ carry"), "{still}");
+    let put_back = app.press("esc");
+    assert!(footer(&put_back).contains("space pick up"), "{put_back}");
+    app.go(INBOX);
+    let picker = app.press("p");
+    assert!(picker.contains("Projects"), "{picker}");
+    assert!(footer(&picker).contains("? help"), "{picker}");
+    app.press("?");
+    assert!(app.tui.sheet().is_open());
+    app.press("esc");
+    assert!(!app.tui.sheet().is_open());
+    app.tui.advance(Duration::from_secs(1));
+    let still = app.text();
+    assert!(still.contains("Projects"), "{still}");
+    let closed = app.press("esc");
+    assert!(footer(&closed).contains("s status"), "{closed}");
+}
+
+#[test]
 fn a_tab_in_the_back_never_takes_the_keys_of_the_tab_in_front() {
     let mut app = run(sample());
     app.go(BOARD);

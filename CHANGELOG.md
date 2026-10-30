@@ -6,8 +6,8 @@ All notable changes to P99 are listed here, newest first.
 
 ### Changed
 
-- The TUI runs on pito-tui 2.1.0, which carries the header, footer, hourglass, list and keys itself.
-- `?` opens every key of the TUI, those of the screen first, with when each works and a search; the footer's hints come from the same keys, so they and what a key does never disagree.
+- The TUI runs on pito-tui 2.2.0, which carries the header, footer, hourglass, list and keys itself.
+- `?` opens every key of the TUI, those of the screen first, with when each works and a search; the footer's hints come from the same keys, so they and what a key does never disagree; `?` works while a card is carried and in the project picker too.
 
 ## v1.13.8 — 2026-10-29
 
