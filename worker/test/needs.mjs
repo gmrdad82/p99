@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, WAITING_LANES, useKit } from "../src/cards.js";
 import { useKit as useBoardsKit } from "../src/boards.js";
 import { backLane, leaveNeedsYou } from "../src/needs-you.js";
+import { PROJECT_MOVE } from "../src/cards-write.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const graceBot = { email: "grace@example.com", name: "Grace Hopper", agent: true, via: "pci·splicer·writer" };
@@ -97,12 +98,19 @@ async function leaveChecks(check) {
     assert.equal(none.seen.batches, 0);
   });
 
-  await check("an agent, a User, an item in no project or a closed card never reads the board", async () => {
-    for (const [actor, manager, item] of [[graceBot, true, row], [ada, false, row], [ada, true, { ...row, project: null, project_id: null }], [ada, true, { ...row, open: 0 }], [null, true, row]]) {
+  await check("an agent, a User or a closed card never reads the board", async () => {
+    for (const [actor, manager, item] of [[graceBot, true, row], [ada, false, row], [ada, true, { ...row, open: 0 }], [null, true, row]]) {
       const db = fakeDb(3, "Planned");
       assert.deepEqual((await leaveNeedsYou(context(db, actor, manager), item)).statements, []);
       assert.equal(db.seen.prepared.length, 0);
     }
+  });
+
+  await check("a card in no project leaves Needs you on an Owner's comment like any other card", async () => {
+    const db = fakeDb(3, "Planned");
+    const left = await leaveNeedsYou(context(db), { ...row, project: null, project_id: null, host: null });
+    assert.equal(left.statements.length, 3);
+    assert.match(left.statements[0].sql, /^UPDATE items SET label_id/);
   });
 
   await check("a move that lost its race announces nothing; a move that landed announces the lane and the place", async () => {
@@ -302,7 +310,6 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.ok(json.cards.length <= 500);
     assert.equal(json.count, json.cards.length);
     assert.ok(json.cards.every((cd) => WAITING_LANES.includes(cd.status)), JSON.stringify(json.cards.map((cd) => cd.status)));
-    assert.ok(json.cards.every((cd) => cd.project !== null));
     for (const cd of json.cards) assert.deepEqual(Object.keys(cd).sort(), CARD_FIELDS);
     const at = json.cards.map((cd) => cd.changed_at);
     assert.deepEqual(at, [...at].sort().reverse());
@@ -383,8 +390,9 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal(carded.json.card.status, "in-progress");
     assert.equal(counted(open, loud), openBefore);
     const dropped = await call("PATCH", `/_p99/v1/issues/${open}`, { actor: ada, body: { project: null } });
-    assert.equal(dropped.status, 200);
-    assert.equal(dropped.json.label, "In progress");
+    assert.equal(dropped.status, 400);
+    assert.equal(dropped.json.message, PROJECT_MOVE);
+    assert.equal((await card(open)).label, "In progress");
     assert.equal(counted(open, loud), openBefore);
     assert.equal(mailedSince(open, openSince), 0);
   });
@@ -405,15 +413,16 @@ export async function needsChecks({ call, browse, mint, check, issueBody, here, 
     assert.equal((await events(key, "comment")).length, 1);
   });
 
-  await check("an agent's --no-project sends a card back to its site's project and leaves its lane", async () => {
+  await check("no one takes a card out of every project: an agent's project null is refused and the card keeps its project and lane", async () => {
     const key = await file("Needs Uncard", "Stays a card");
     await status(key, "landed", graceBot);
-    const before = counted(key, ["label", "status"]);
+    const before = counted(key, ["label", "status", "project"]);
     const patched = await call("PATCH", `/_p99/v1/issues/${key}`, { actor: graceBot, body: { project: null } });
-    assert.equal(patched.status, 200, JSON.stringify(patched.json));
-    assert.equal(counted(key, ["label", "status"]), before);
+    assert.equal(patched.status, 400);
+    assert.equal(patched.json.message, PROJECT_MOVE);
+    assert.equal(counted(key, ["label", "status", "project"]), before);
     const still = await card(key);
-    assert.equal(still.project, (await call("GET", "/_p99/v1/hosts", { actor: ada })).json.hosts.find((h) => h.host === here).project);
+    assert.equal(still.project, "Needs Uncard");
     assert.equal(still.status, "landed");
   });
 

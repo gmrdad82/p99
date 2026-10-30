@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::card::{Card, Lane, Person, Source};
 
-pub const DEPRECATED: &str =
-    "p99 boards is deprecated: one board per space since 1.11; p99 board prints it";
 pub const OLD_WORKER: &str =
     "this Worker still has a board per person; run p99 deploy for the one board";
 pub const NO_LANES: &str = "this board has no lanes yet; run p99 deploy";
@@ -36,8 +34,8 @@ pub struct BoardCard {
     pub title: String,
     #[serde(
         default,
-        deserialize_with = "crate::card::host_in",
-        serialize_with = "crate::card::host_out"
+        deserialize_with = "crate::card::blank_in",
+        serialize_with = "crate::card::blank_out"
     )]
     pub host: String,
     #[serde(default)]
@@ -74,9 +72,7 @@ pub struct BoardQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
-    #[value(alias = "manager")]
     Owner,
-    #[value(alias = "person", alias = "reporter")]
     User,
 }
 
@@ -517,12 +513,15 @@ mod tests {
     }
 
     #[test]
-    fn the_role_words_and_their_aliases() {
+    fn the_role_words_are_owner_and_user_alone() {
         use clap::ValueEnum;
         assert_eq!(Role::of(true), Role::Owner);
         assert_eq!(Role::of(false).word(), "User");
-        assert_eq!(Role::from_str("manager", true).unwrap(), Role::Owner);
-        assert_eq!(Role::from_str("reporter", true).unwrap(), Role::User);
+        assert_eq!(Role::from_str("owner", true).unwrap(), Role::Owner);
+        assert_eq!(Role::from_str("user", true).unwrap(), Role::User);
+        for old in ["manager", "person", "reporter"] {
+            assert!(Role::from_str(old, true).is_err(), "{old}");
+        }
         assert_eq!(serde_json::to_string(&Role::Owner).unwrap(), "\"owner\"");
     }
 }

@@ -107,8 +107,6 @@ pub enum Command {
         arg_required_else_help = false
     )]
     Projects(ProjectsArgs),
-    #[command(about = "deprecated: prints the one board, as p99 board does")]
-    Boards(crate::boards::BoardsArgs),
     #[command(about = "print the one board: its seven lanes and their cards")]
     Board(crate::boards::BoardArgs),
     #[command(about = "assign a card to someone, or to no one")]
@@ -310,7 +308,6 @@ pub struct InviteArgs {
     pub email: String,
     #[arg(
         long,
-        alias = "manager",
         help = "make the person an Owner, who sees and changes every card"
     )]
     pub owner: bool,
@@ -479,7 +476,7 @@ pub struct AssignArgs {
 }
 
 #[derive(Debug, clap::Args)]
-#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file", "project", "no_project"])))]
+#[command(group(clap::ArgGroup::new("change").required(true).multiple(true).args(["title", "text", "text_file", "project"])))]
 pub struct EditArgs {
     #[arg(help = "the card's key, such as BUG-12, or its number")]
     pub key: String,
@@ -499,16 +496,10 @@ pub struct EditArgs {
     #[arg(
         long,
         value_name = "name",
-        conflicts_with_all = ["title", "text", "text_file", "no_project"],
-        help = "put the card in this project, in lane new"
+        conflicts_with_all = ["title", "text", "text_file"],
+        help = "move the card to this project; it keeps its lane"
     )]
     pub project: Option<String>,
-    #[arg(
-        long,
-        conflicts_with_all = ["title", "text", "text_file"],
-        help = "take the card out of its project, back to Inbox"
-    )]
-    pub no_project: bool,
 }
 
 #[derive(Debug, clap::Args)]
@@ -609,7 +600,6 @@ pub fn run(command: Command, global: &Global) -> Result<(), String> {
             renamed("move", "move");
             crate::boards::run_move(&config, global, &a)
         }
-        Command::Boards(a) => crate::boards::run_boards(&config, global, &a),
         Command::Board(a) => crate::boards::run_board(&config, global, &a),
         Command::Cards(a) => card::cards(&config, global, &a),
         Command::Card(a) => card::card(&config, global, &a),
@@ -1990,8 +1980,8 @@ fn show(config: &Config, global: &Global, args: &ShowArgs) -> Result<(), String>
 }
 
 fn edit(config: &Config, global: &Global, args: &EditArgs) -> Result<(), String> {
-    if args.project.is_some() || args.no_project {
-        return card::edit_project(config, global, args);
+    if let Some(project) = &args.project {
+        return card::edit_project(config, global, &args.key, args.host.as_deref(), project);
     }
     let body = match (&args.text, &args.text_file) {
         (Some(text), _) => Some(text_arg(text)?),

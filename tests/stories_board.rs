@@ -365,9 +365,9 @@ fn every_board_form_that_does_not_parse_is_claps_with_exit_2() {
         None,
     );
     unparsed(
-        &["boards", "set", "Web"],
-        "error: the following required arguments were not provided:\n  --columns <labels>\n",
-        Some("Usage: p99 boards set "),
+        &["boards"],
+        "error: unrecognized subcommand 'boards'",
+        Some("Usage: p99 "),
     );
     unparsed(
         &["card", "move", "FEAT-41"],
@@ -477,12 +477,7 @@ fn board_refusals_are_one_line_and_an_old_worker_says_deploy() {
         );
     }
     let old = Worker::start(old_worker);
-    for args in [
-        vec!["board"],
-        vec!["board", "--json"],
-        vec!["boards"],
-        vec!["boards", "--json"],
-    ] {
+    for args in [vec!["board"], vec!["board", "--json"]] {
         refused(
             &run(&old, "board_old", &args),
             "this Worker still has a board per person; run p99 deploy for the one board",
@@ -491,105 +486,24 @@ fn board_refusals_are_one_line_and_an_old_worker_says_deploy() {
 }
 
 #[test]
-fn boards_says_it_is_deprecated_and_prints_the_one_board_never_an_archive() {
+fn boards_is_no_command_and_never_asks_the_worker() {
     let worker = Worker::start(answers);
-    let out = run(&worker, "boards_text", &["boards"]);
-    assert_eq!(out.code, Some(0), "{}", out.stderr);
-    assert_eq!(
-        out.stderr,
-        "p99: p99 boards is deprecated: one board per space since 1.11; p99 board prints it\n"
-    );
-    assert_eq!(worker.last().path, "/v1/board");
-    let board = run(&worker, "boards_text", &["board"]);
-    assert_eq!(out.stdout, board.stdout);
-    assert!(!out.stdout.contains("archived"), "{}", out.stdout);
-
-    let json = run(&worker, "boards_json", &["boards", "--json"]);
-    let doc = json_of(&json);
-    assert!(json.stderr.is_empty(), "{}", json.stderr);
-    assert_eq!(doc, the_board());
-    assert!(doc.get("archived").is_none());
-}
-
-#[test]
-fn boards_never_asks_the_boards_route_a_1_13_worker_answers_410() {
-    let worker = Worker::start(answers);
-    let out = run(&worker, "boards_gone", &["boards"]);
-    assert_eq!(out.code, Some(0), "{}", out.stderr);
-    assert!(out.stdout.starts_with("New ("), "{}", out.stdout);
-    assert!(
-        worker
-            .seen()
-            .iter()
-            .all(|seen| !seen.path.starts_with("/v1/boards")),
-        "{:?}",
-        worker.seen()
-    );
-}
-
-#[test]
-fn boards_set_refuses_locally_and_never_asks_the_worker() {
-    for answer in [answers as Answer, old_worker as Answer] {
-        let worker = Worker::start(answer);
-        for json in [false, true] {
-            let mut args = vec![
-                "boards",
-                "set",
-                "Web",
-                "--columns",
-                "Inbox,QA ready,Done",
-                "--closes",
-                "Done",
-            ];
-            if json {
-                args.push("--json");
-            }
-            refused(
-                &run(&worker, "boards_set", &args),
-                "boards are one per space; see p99 board",
-            );
-        }
-        refused(
-            &run(
-                &worker,
-                "boards_set",
-                &[
-                    "boards",
-                    "set",
-                    "Web",
-                    "--columns",
-                    "Inbox,Done",
-                    "--closes",
-                    "Shipped",
-                ],
-            ),
-            "boards are one per space; see p99 board",
-        );
+    for args in [
+        vec!["boards"],
+        vec!["boards", "--json"],
+        vec!["boards", "--host", "shop.example.com"],
+        vec!["boards", "set", "Web", "--columns", "New,Done"],
+    ] {
+        let out = run(&worker, "boards_gone", &args);
+        assert_eq!(out.code, Some(2), "{args:?}: {}", out.stderr);
         assert!(
-            worker.seen().is_empty(),
-            "boards set asked the Worker: {:?}",
-            worker.seen()
+            out.stderr
+                .starts_with("error: unrecognized subcommand 'boards'"),
+            "{args:?}: {}",
+            out.stderr
         );
     }
-}
-
-#[test]
-fn boards_host_scopes_the_one_board_to_that_host() {
-    let worker = Worker::start(answers);
-    let out = run(
-        &worker,
-        "boards_host",
-        &["boards", "--host", "SHOP.example.com"],
-    );
-    assert_eq!(out.code, Some(0), "{}", out.stderr);
-    assert_eq!(worker.last().path, "/v1/board?host=shop.example.com");
-    let doc = json_of(&run(
-        &worker,
-        "boards_host",
-        &["boards", "--host", "shop.example.com", "--json"],
-    ));
-    assert_eq!(doc, the_board());
-    assert_eq!(worker.last().path, "/v1/board?host=shop.example.com");
+    assert!(worker.seen().is_empty(), "{:?}", worker.seen());
 }
 
 #[test]
@@ -881,6 +795,4 @@ fn board_json_passes_fields_the_cli_does_not_know_through_untouched() {
     let board = json_of(&run(&worker, "board_raw", &["board", "--json"]));
     assert_eq!(board["since"], "2026-10-22T09:00:00.000Z");
     assert_eq!(board["cards"][0]["checks"], json!(["ci"]));
-    let old = json_of(&run(&worker, "board_raw", &["boards", "--json"]));
-    assert_eq!(old, board);
 }

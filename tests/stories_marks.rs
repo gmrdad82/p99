@@ -110,7 +110,7 @@ fn the_inbox_marks_an_agent_with_a_robot_and_never_an_asterisk_after_a_name() {
 #[test]
 fn show_names_an_agent_reporter_with_the_robot_and_its_label() {
     let out = text(&["--demo", "show", "BUG-25"]);
-    assert!(out.contains("filed by Ada Lovelace 🤖 (pci)"), "{out}");
+    assert!(out.contains("filed by Ada Lovelace 🤖 (dispatch)"), "{out}");
     assert!(!out.contains('*'), "{out}");
 }
 
@@ -119,7 +119,7 @@ fn show_names_a_person_plainly_with_no_robot_and_no_label() {
     let out = text(&["--demo", "show", "FEAT-23"]);
     assert!(out.contains("filed by Ada Lovelace on"), "{out}");
     assert!(!out.contains("🤖"), "{out}");
-    assert!(!out.contains("(pci)"), "{out}");
+    assert!(!out.contains("(dispatch)"), "{out}");
 }
 
 #[test]
@@ -127,8 +127,8 @@ fn show_json_carries_via_on_an_agent_and_null_on_a_person() {
     let agent: serde_json::Value =
         serde_json::from_str(&text(&["--demo", "--json", "show", "BUG-25"])).unwrap();
     assert_eq!(agent["issue"]["reporter"]["agent"], true);
-    assert_eq!(agent["issue"]["reporter"]["via"], "pci");
-    assert_eq!(agent["events"][0]["via"], "pci");
+    assert_eq!(agent["issue"]["reporter"]["via"], "dispatch");
+    assert_eq!(agent["events"][0]["via"], "dispatch");
     let person: serde_json::Value =
         serde_json::from_str(&text(&["--demo", "--json", "show", "FEAT-23"])).unwrap();
     assert_eq!(person["issue"]["reporter"]["agent"], false);

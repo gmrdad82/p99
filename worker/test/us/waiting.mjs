@@ -54,4 +54,34 @@ export default async function (kit) {
     assert.equal(waiting.status, 200, JSON.stringify(waiting.json));
     assert.ok(!waiting.json.cards.some((c) => c.key === key), "the answered card no longer waits");
   });
+
+  await check("us-waiting-001 landed and stuck cards never raise the blue count", async () => {
+    const boss = await kit.mint("Emmy Noether", `emmy.waiting.${tag}@example.com`, { space: true }, true);
+    const counts = async () => {
+      const me = await kit.browse("GET", "/me?path=%2F", boss.secret);
+      assert.equal(me.status, 200, JSON.stringify(me.json));
+      const { needs_you, waiting, replies } = me.json.counts;
+      return { needs_you, waiting, blue: needs_you + replies };
+    };
+    const before = await counts();
+    assert.equal(typeof before.needs_you, "number");
+    assert.equal(typeof before.waiting, "number");
+
+    const landed = await file(`Shipped and waiting ${tag}`);
+    await status(landed, "landed");
+    const stuck = await file(`Blocked on the mixer ${tag}`);
+    await status(stuck, "stuck");
+    const quiet = await counts();
+    assert.deepEqual(quiet, { needs_you: before.needs_you, waiting: before.waiting + 2, blue: before.blue }, "Landed and Stuck count as waiting, never toward the blue count");
+
+    const asked = await file(`Pick a colour ${tag}`);
+    await status(asked, "needs-you");
+    const loud = await counts();
+    assert.deepEqual(loud, { needs_you: before.needs_you + 1, waiting: before.waiting + 3, blue: before.blue + 1 }, "Needs you counts toward both");
+
+    await status(asked, "done");
+    await status(landed, "done");
+    await status(stuck, "done");
+    assert.deepEqual(await counts(), before);
+  });
 }

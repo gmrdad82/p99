@@ -368,8 +368,8 @@ fn every_parse_error_is_claps_on_stderr_with_exit_2_and_nothing_on_stdout() {
         Some("Usage: p99 edit "),
     );
     unparsed(
-        &["edit", "BUG-12", "--project", "Splicer", "--no-project"],
-        "error: the argument '--project <name>' cannot be used with '--no-project'",
+        &["edit", "BUG-12", "--no-project"],
+        "error: unexpected argument '--no-project' found",
         Some("Usage: p99 edit "),
     );
     unparsed(
@@ -575,8 +575,7 @@ fn an_old_worker_says_deploy_on_every_card_command() {
     let patch = Worker::start(old_issue_patch);
     for args in [
         vec!["edit", "BUG-12", "--project", "Splicer"],
-        vec!["edit", "BUG-12", "--no-project"],
-        vec!["edit", "BUG-12", "--no-project", "--json"],
+        vec!["edit", "BUG-12", "--project", "Splicer", "--json"],
     ] {
         refused(
             &run(&patch, "old_worker", &args),
@@ -902,7 +901,7 @@ fn projects_add_and_rename_call_the_worker_and_keep_the_configs_mapping() {
 }
 
 #[test]
-fn edit_turns_an_item_into_a_card_and_back() {
+fn edit_moves_a_card_to_another_project_and_never_out_of_one() {
     let worker = Worker::start(answers);
     let made = json_of(&run(
         &worker,
@@ -920,18 +919,22 @@ fn edit_turns_an_item_into_a_card_and_back() {
     assert_eq!(seen.body, json!({"project":"Splicer"}));
     let text = run(&worker, "edit", &["edit", "12", "--project", "Splicer"]);
     assert_eq!(text.stdout, "BUG-12 is a card of Splicer, in New\n");
-    let back = json_of(&run(
-        &worker,
-        "edit",
-        &["edit", "BUG-12", "--no-project", "--json"],
-    ));
-    assert_eq!(back["key"], "BUG-12");
-    assert_eq!(back["title"], "Broken");
-    assert_eq!(back["id"], 12);
-    assert!(back.get("issue").is_none());
-    assert_eq!(worker.last().body, json!({"project":null}));
-    let text = run(&worker, "edit", &["edit", "BUG-12", "--no-project"]);
-    assert_eq!(text.stdout, "BUG-12 is out of its project, back in Inbox\n");
+    let calls = worker.seen().len();
+    let out = run(&worker, "edit", &["edit", "BUG-12", "--no-project"]);
+    assert_eq!(out.code, Some(2), "{}", out.stderr);
+    assert_eq!(
+        worker.seen().len(),
+        calls,
+        "a refused flag reached the Worker"
+    );
+    assert!(
+        worker
+            .seen()
+            .iter()
+            .all(|s| s.body.get("project") != Some(&Value::Null)),
+        "{:?}",
+        worker.seen()
+    );
 }
 
 fn actor_for(worker: &Worker, args: &[&str], env: &[(&str, &str)]) -> Value {
@@ -1137,41 +1140,6 @@ fn a_comment_on_a_card_in_no_project_goes_through_the_item_route_with_the_same_c
     assert_eq!(printed["attachments"], json!([]));
     let text = run(&worker, "not_a_card", &["card", "comment", "12", "hi"]);
     assert_eq!(text.stdout, "commented on 12\n");
-}
-
-#[test]
-fn edit_no_project_prints_the_items_summary_typed() {
-    let worker = Worker::start(answers);
-    let back = json_of(&run(
-        &worker,
-        "no_project",
-        &["edit", "BUG-12", "--no-project", "--json"],
-    ));
-    assert_eq!(back["key"], "BUG-12");
-    assert_eq!(back["kind"], "bug");
-    assert_eq!(back["comments"], 0);
-    let text = run(&worker, "no_project", &["edit", "12", "--no-project"]);
-    assert_eq!(text.stdout, "BUG-12 is out of its project, back in Inbox\n");
-    assert_eq!(worker.last().body, json!({"project":null}));
-}
-
-#[test]
-fn edit_no_project_on_an_item_that_is_no_card_says_so_and_changes_nothing() {
-    let worker = Worker::start(answers);
-    let text = run(&worker, "no_card", &["edit", "BUG-13", "--no-project"]);
-    assert_eq!(text.code, Some(0), "{}", text.stderr);
-    assert_eq!(text.stdout, "BUG-13 is in no project\n");
-    assert!(text.stderr.is_empty(), "{}", text.stderr);
-    let seen = worker.seen();
-    assert_eq!(seen.len(), 1);
-    assert_eq!(
-        (seen[0].method.as_str(), seen[0].path.as_str()),
-        ("GET", "/v1/issues/13")
-    );
-    let missing = run(&worker, "no_card", &["edit", "BUG-14", "--no-project"]);
-    assert_eq!(missing.code, Some(1));
-    assert!(missing.stdout.is_empty(), "{}", missing.stdout);
-    assert!(worker.seen().iter().all(|s| s.method != "PATCH"));
 }
 
 fn waiting_card(key: &str, status: &str, label: &str, at: &str) -> Value {

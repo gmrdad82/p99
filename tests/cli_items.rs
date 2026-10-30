@@ -1014,7 +1014,7 @@ fn delete_names_files_still_going_and_items_that_were_merged_into_it() {
         [
             "BUG-12 deleted with 1 comment and 3 files",
             "1 file still being removed from storage; the Worker retries every 15 minutes",
-            "BUG-14, BUG-15 were merged into it: unlinked, and back in the inbox",
+            "BUG-14, BUG-15 were merged into it: unlinked, and back in New",
         ]
     );
     assert_eq!(

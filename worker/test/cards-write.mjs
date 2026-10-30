@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { LANES, LANE_NAMES, PROJECT_RULE } from "../src/cards.js";
+import { PROJECT_MOVE } from "../src/cards-write.js";
 
 const ada = { email: "ada@example.com", name: "Ada Lovelace", agent: false };
 const graceBot = { email: "grace@example.com", name: "Grace Hopper", agent: true, via: "pci·splicer·writer" };
@@ -387,6 +388,26 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await issue(key)).comments.length, 2);
   });
 
+  await check("a card whose site is gone and that has no project still shows, lists, moves, takes links and comments, and moves to a project", async () => {
+    const item = await plain("Its site was removed");
+    assert.equal(d1count(`UPDATE items SET project_id = NULL, project = NULL, host = 'gone.example.com' WHERE id = ${idOf(item)} RETURNING 0 AS n`), 0);
+    const shown = await call("GET", `/_p99/v1/cards/${item}`, { actor: ada });
+    assert.equal(shown.status, 200, JSON.stringify(shown.json));
+    assert.deepEqual([shown.json.card.project, shown.json.card.host], [null, "gone.example.com"]);
+    const moved = await status(item, "planned");
+    assert.equal(moved.status, 200, JSON.stringify(moved.json));
+    assert.deepEqual([moved.json.card.status, moved.json.card.project], ["planned", null]);
+    const listed = await call("GET", "/_p99/v1/cards?status=planned&limit=500", { actor: ada });
+    assert.equal(listed.status, 200, JSON.stringify(listed.json));
+    assert.ok(listed.json.cards.some((cd) => cd.key === item), "it lists with every card");
+    assert.ok((await oneBoard()).cards.some((cd) => cd.key === item), "it stands on the one board");
+    assert.equal((await link(item, { ref: "acme/shop#3" })).status, 201);
+    assert.equal((await comment(item, { body: "Still here" })).status, 201);
+    const given = await call("PATCH", `/_p99/v1/issues/${item}`, { actor: ada, body: { project: "Splicer" } });
+    assert.equal(given.status, 200, JSON.stringify(given.json));
+    assert.deepEqual([given.json.card.project, given.json.card.status], ["Splicer", "planned"]);
+  });
+
   await check("a card filed on a site takes status, links and comments like any card, and an unknown key is no card", async () => {
     const item = await plain("Filed on a site");
     const moved = await status(item, "planned");
@@ -415,7 +436,7 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await browse("POST", `/cards/${key}/comments`, visitor.secret, { client_uid: randomUUID(), body: "x" })).status, 403);
   });
 
-  await check("PATCH project gives a card a project where it stands, renames it, and null sends it back to its site's project, in its lane, with its place", async () => {
+  await check("PATCH project moves a card to another project where it stands, in its lane, with its place, and null is refused", async () => {
     const item = await plain("Becomes a card");
     const patch = (body, actor = ada) => call("PATCH", `/_p99/v1/issues/${item}`, { actor, body });
     const made = await patch({ project: "  splicer " });
@@ -435,21 +456,14 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
 
     const placed = `SELECT count(*) AS n FROM board_positions WHERE item_id = ${idOf(item)} AND board_id = (SELECT id FROM boards WHERE cards = 1)`;
     assert.equal(d1count(placed), 1);
-    const back = await patch({ project: null });
-    assert.equal(back.status, 200, JSON.stringify(back.json));
-    assert.equal(back.json.key, item);
-    assert.equal(back.json.label, "Stuck");
-    assert.equal(back.json.stage, "in_progress");
-    assert.equal("card" in back.json, false);
+    const out = await patch({ project: null });
+    assert.equal(out.status, 400);
+    assert.equal(out.json.message, PROJECT_MOVE);
     assert.equal(d1count(placed), 1, "the card keeps its place on the one board");
-    events = (await issue(item)).events.filter((ev) => ev.kind === "project").map((ev) => ev.detail);
-    assert.deepEqual(events.at(-1), { from: "Paper", to: null });
     const after = await call("GET", `/_p99/v1/cards/${item}`, { actor: ada });
     assert.equal(after.status, 200, JSON.stringify(after.json));
-    assert.deepEqual([after.json.card.project, after.json.card.status], [await hostProject(), "stuck"]);
-    const noop = await patch({ project: null });
-    assert.equal(noop.status, 200);
-    assert.equal((await issue(item)).events.filter((ev) => ev.kind === "project").length, 3);
+    assert.deepEqual([after.json.card.project, after.json.card.status], ["Paper", "stuck"]);
+    assert.equal((await issue(item)).events.filter((ev) => ev.kind === "project").length, 2);
     const again = await patch({ project: "Paper" });
     assert.equal(again.json.card.status, "stuck");
     assert.equal(again.json.card.label, "Stuck");
@@ -471,26 +485,27 @@ export async function cardWriteChecks({ call, browse, mint, check, issueBody, he
     assert.equal((await issue(item)).issue.title, "Becomes a card");
     const far = await call("PATCH", `/_p99/v1/issues/${item}?host=${there}`, { actor: ada, body: { project: "Splicer" } });
     assert.equal(far.status, 404);
-    assert.equal((await issue(item)).events.filter((ev) => ev.kind === "project").length, 6);
+    assert.equal((await issue(item)).events.filter((ev) => ev.kind === "project").length, 4);
     const visitor = await mint("Ada Lovelace", "ada@example.com", [here]);
     const own = await browse("POST", "/issues", visitor.secret, issueBody({ title: "Mine to keep" }));
     assert.equal(own.status, 201);
     assert.equal((await browse("PATCH", `/issues/${own.json.key}`, visitor.secret, { project: "Splicer" })).status, 403);
   });
 
-  await check("an agent may give, rename and take away a card's project, and taken away it goes back to its site's project", async () => {
+  await check("an agent may move a card to another project, and never out of every project", async () => {
     const item = await plain("An agent's card");
     const patch = (body, actor = graceBot) => call("PATCH", `/_p99/v1/issues/${item}`, { actor, body });
-    assert.equal((await patch({ project: null })).status, 200, "nothing to take away from a card in its site's project");
+    const refused = await patch({ project: null });
+    assert.equal(refused.status, 400);
+    assert.equal(refused.json.message, PROJECT_MOVE);
     const given = await patch({ project: "Splicer" });
     assert.equal(given.status, 200, JSON.stringify(given.json));
     assert.equal(given.json.card.project, "Splicer");
     assert.equal((await patch({ project: "Paper" })).json.card.project, "Paper");
-    const back = await patch({ project: null });
-    assert.equal(back.status, 200, JSON.stringify(back.json));
+    assert.equal((await patch({ project: null })).status, 400);
     const stored = await issue(item);
-    assert.equal(stored.issue.project, await hostProject(), "a card whose project is taken away goes back to its site's project");
-    assert.deepEqual(stored.events.filter((ev) => ev.kind === "project").at(-1).detail, { from: "Paper", to: null });
+    assert.equal(stored.issue.project, "Paper");
+    assert.deepEqual(stored.events.filter((ev) => ev.kind === "project").at(-1).detail, { from: "Splicer", to: "Paper" });
     assert.equal(stored.events.filter((ev) => ev.kind === "project").at(-1).agent, true);
   });
 
