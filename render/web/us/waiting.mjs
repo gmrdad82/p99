@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { card, cast, closePage, ok, people, tag } from "../../../loop/triage-lib.mjs";
-import { GRACE, cardIn, clear, place, signed } from "../us-lib/lanes.mjs";
+import { GRACE, cardIn, clear, ownerOn, signed } from "../us-lib/lanes.mjs";
 
 export default async function (kit) {
   const { check } = kit;
@@ -40,18 +40,25 @@ export default async function (kit) {
 
   await check("us-waiting-001 landed and stuck cards never raise the blue count", async () => {
     const t = tag();
-    const at = "waits.example.com";
-    const owner = await place(kit, "Waits", at);
+    const at = where.blog;
+    const owner = await ownerOn(kit, at);
+    const countsNow = async () => (await kit.browse("GET", "/me?path=%2Fcheckout", owner, undefined, at)).json.counts;
+    const before = await countsNow();
     const keys = [];
     try {
-      keys.push(await cardIn(kit, "Waits", at, `Please look ${t}`, { status: "needs-you" }));
-      keys.push(await cardIn(kit, "Waits", at, `Shipped, check it ${t}`, { status: "landed" }));
-      keys.push(await cardIn(kit, "Waits", at, `Blocked on the vendor ${t}`, { status: "stuck" }));
-      const replied = await cardIn(kit, "Waits", at, `Asked Grace ${t}`);
+      keys.push(await cardIn(kit, "Blog", at, `Please look ${t}`, { status: "needs-you" }));
+      keys.push(await cardIn(kit, "Blog", at, `Shipped, check it ${t}`, { status: "landed" }));
+      keys.push(await cardIn(kit, "Blog", at, `Blocked on the vendor ${t}`, { status: "stuck" }));
+      const replied = await cardIn(kit, "Blog", at, `Asked Grace ${t}`);
       keys.push(replied);
       await signed(kit, "POST", `/cards/${replied}/comments`, { client_uid: randomUUID(), body: `Answered ${t}` }, GRACE);
-      const counts = (await kit.browse("GET", "/me?path=%2Fcheckout", owner, undefined, at)).json.counts;
-      assert.deepEqual({ needs_you: counts.needs_you, replies: counts.replies, waiting: counts.waiting }, { needs_you: 1, replies: 1, waiting: 3 }, JSON.stringify(counts));
+      const after = await countsNow();
+      assert.deepEqual(
+        { needs_you: after.needs_you - before.needs_you, replies: after.replies - before.replies, waiting: after.waiting - before.waiting },
+        { needs_you: 1, replies: 1, waiting: 3 },
+        JSON.stringify({ before, after }),
+      );
+      const blue = after.needs_you + after.replies;
 
       const page = await kit.page();
       try {
@@ -60,16 +67,16 @@ export default async function (kit) {
           const b = document.querySelector("p99-root")?.shadowRoot?.querySelector(".w .b:not(.f)");
           return b && !b.hidden;
         }, null, { timeout: 20000 });
-        const blue = await page.evaluate(() => {
+        const shown = await page.evaluate(() => {
           const b = document.querySelector("p99-root").shadowRoot.querySelector(".w .b:not(.f)");
-          return { text: b.querySelector(".n.u").textContent, label: b.ariaLabel };
+          return { text: b.querySelector(".n.u").textContent, waiting: Number(/^Your cards: (\d+) waiting/.exec(b.ariaLabel)?.[1]) };
         });
-        assert.deepEqual(blue, { text: "2", label: "Your cards: 2 waiting, 0 on this page" }, "Needs you plus the reply, never the Landed or Stuck card");
+        assert.deepEqual(shown, { text: blue > 99 ? "99+" : String(blue), waiting: blue }, `Needs you plus replies, never the Landed or Stuck cards ${JSON.stringify(after)}`);
       } finally {
         await closePage(page);
       }
     } finally {
-      await clear(kit, at, keys);
+      await clear(kit, keys);
     }
   });
 }

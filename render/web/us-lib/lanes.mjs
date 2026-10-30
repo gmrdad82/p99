@@ -23,15 +23,12 @@ export async function signed(kit, method, path, body, actor = ADA) {
   return r.json;
 }
 
-export async function place(kit, project, host) {
-  const made = await kit.call("POST", "/_p99/v1/projects", { actor: ADA, body: { name: project } });
-  assert.ok(made.status === 201 || made.status === 409, JSON.stringify(made.json));
-  await signed(kit, "PUT", `/hosts/${host}`, { env: "production", project, config: {} });
-  return (await kit.mint(ADA.name, ADA.email, [host], true)).secret;
+export async function ownerOn(kit, host, email = ADA.email) {
+  return (await kit.mint(ADA.name, email, [host], true)).secret;
 }
 
-export async function clear(kit, host, keys) {
-  for (const path of [...keys.map((key) => `/issues/${key}`), `/hosts/${host}`]) {
+export async function clear(kit, keys) {
+  for (const path of keys.map((key) => `/issues/${key}`)) {
     let r = await kit.call("DELETE", `/_p99/v1${path}`, { actor: ADA });
     for (let again = 0; again < 3 && r.status >= 500; again++) r = await kit.call("DELETE", `/_p99/v1${path}`, { actor: ADA });
     assert.ok(r.status < 300 || r.status === 404, `DELETE ${path}: ${r.status} ${JSON.stringify(r.json)}`);
