@@ -10,6 +10,10 @@ All notable changes to P99 are listed here, newest first.
 - The boards follow the approved drafts more closely: a web card shows its project and its assignee's face on its last row, the web board's header shows how many cards are done with a small bar, and a narrow TUI card still names its assignee (`@ada…`) instead of a lone `…`; a project too long for its card is still cut after a whole word.
 - The README and docs images show today's P99: cards everywhere, the polished boards and the two counts on ⋯.
 
+- `p99 boards`, `p99 invite --manager`, the role words `manager`, `person` and `reporter` (`--role` takes `owner` or `user`) and `p99 edit --no-project` are gone: a card moves to another project, never out of one.
+- Every card works on every card route and command, including a card whose site was removed and that has no project yet.
+- The README's numbers are measured again at 1.13.8 (loader 1,954 B gzipped, the board opens in 132 ms, a drag frame peaks at 6.2 ms), and a gate check keeps the README and the guides free of the old words.
+
 ### Fixed
 
 - The pop-up board, the panel and the P99 page keep one theme even before their background texture loads: a dark-mode board no longer shows dark cards on a light blue background, and the title and LIVE stay readable.
