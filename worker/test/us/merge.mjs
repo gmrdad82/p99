@@ -4,7 +4,7 @@ import { fileAs, places, reporter, tag, thread, uniqueTitle } from "../us-suppor
 export default async function (kit) {
   const { shop, blog } = places(kit);
 
-  await kit.check("us-merge-001 a merge across projects the owner cannot reach is refused", async () => {
+  await kit.check("us-merge-001 a merge from a project out of reach is refused", async () => {
     const mark = tag();
     const mary = await kit.mint("Mary Jackson", `mary.${mark}@example.com`, [shop], true);
     const grace = await reporter(kit, shop, "Grace Hopper", mark);

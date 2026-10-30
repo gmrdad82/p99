@@ -104,7 +104,7 @@ export async function linkChecks({ base, call, browse, check, here, there, sent,
     assert.equal(setup.text.includes(renewed.json.secret), false);
   });
 
-  await check("the CLI's relink puts a person's new code only in their mail, and the owner's only on the command's stdout", async () => {
+  await check("the CLI's relink puts a person's new code only in their mail, and the one who ran it gets theirs only on the command's stdout", async () => {
     const dir = join(work, "links");
     rmSync(dir, { recursive: true, force: true });
     mkdirSync(join(dir, "bin"), { recursive: true });

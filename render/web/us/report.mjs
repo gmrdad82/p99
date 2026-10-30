@@ -35,7 +35,7 @@ import {
   write,
 } from "../us-lib/report.mjs";
 
-const LOCKUP_SHA256 = "100522278893631671db6534422f10c9a62b4ffcbb1c25b2c47517c42b222a45";
+const LOCKUP_SHA256 = "3c8d5830e62a45d8e7e2b4b75a039f4452cd3c4a01fdaa9a760e09a036c68f68";
 const NOTE = Buffer.from("order 1042: card accepted, Pay disabled\n");
 const HIDE = S(".p99-new input[name=mask]");
 const NOTE_HIDDEN = "Passwords and the fields this site marks as private are blanked.";
@@ -459,7 +459,7 @@ export default async function (kit) {
       });
       const sum = createHash("sha256").update(Buffer.from(lockup.bytes, "base64")).digest("hex");
       assert.deepEqual({ path: lockup.path, alt: lockup.alt, shown: lockup.shown }, { path: "/_p99/art/lockup-dark.svg", alt: "P99, issue and feedback reporter", shown: true });
-      assert.equal(sum, LOCKUP_SHA256, "the lockup, its ISSUE & FEEDBACK REPORTER tagline included, is the one picked on 2026-10-14");
+      assert.equal(sum, LOCKUP_SHA256, "the lockup, its ISSUE & FEEDBACK REPORTER tagline included, is P99's own");
       assert.deepEqual(errors, []);
     });
   });

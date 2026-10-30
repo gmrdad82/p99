@@ -53,7 +53,7 @@ export async function triageStories({ call, browse, mint, check, red, issueBody,
   assert.equal(lanes[6].closes, true, JSON.stringify(lanes));
   const laneIds = (await call("GET", "/_p99/v1/labels", { actor: ADA })).json.labels.map((l) => l.id);
 
-  await check("triage: the owner finds an item by any word, without accents, Hebrew or Arabic without their marks, by emoji or by key; % _ and \\ match only themselves; no match is an empty list; an over-long query is refused plainly", async () => {
+  await check("triage: an Owner finds an item by any word, without accents, Hebrew or Arabic without their marks, by emoji or by key; % _ and \\ match only themselves; no match is an empty list; an over-long query is refused plainly", async () => {
     const titles = {
       creme: "Crème brûlée page is cold",
       hebrew: "הַכַּפְתּוֹר בדף שָׁלוֹם לא עובד",

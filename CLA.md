@@ -2,7 +2,7 @@
 
 Version 1.0
 
-Thank you for your interest in contributing to P99 ("We" or "Us"). "We" and "Us" mean Cătălin Ilinca, the owner of P99, and his successors in interest.
+Thank you for your interest in contributing to P99 ("We" or "Us"). "We" and "Us" mean Cătălin Ilinca, who owns P99, and his successors in interest.
 
 This contributor agreement ("Agreement") documents the rights granted by contributors to Us. To make this document effective, sign it as [CONTRIBUTING.md](CONTRIBUTING.md) describes: with the signing statement in the description of Your first pull request and a line added to [CLA-SIGNERS.md](CLA-SIGNERS.md) in that pull request. This is a legally binding document, so please read it carefully before agreeing to it.
 
@@ -96,4 +96,4 @@ Our acceptance is the merge of that pull request.
 
 ---
 
-This Agreement is adapted from the [Harmony Individual Contributor License Agreement (HA-CLA-I)](https://www.harmonyagreements.org/), version 1.0 of July 4, 2011, by Harmony Agreements, licensed under the [Creative Commons Attribution 3.0 Unported License](https://creativecommons.org/licenses/by/3.0/). Changes from the template: the project, the owner, the Material and the signing are filled in; the Outbound Licence is the template's Option Five; the bracketed affiliates and the media licence list are dropped; Section 3(d) states which third-party work a Contribution may include; the governing law is set; the signature block is replaced by the signing statement. This adapted Agreement is licensed under the same Creative Commons Attribution 3.0 Unported License.
+This Agreement is adapted from the [Harmony Individual Contributor License Agreement (HA-CLA-I)](https://www.harmonyagreements.org/), version 1.0 of July 4, 2011, by Harmony Agreements, licensed under the [Creative Commons Attribution 3.0 Unported License](https://creativecommons.org/licenses/by/3.0/). Changes from the template: the project, its owner, the Material and the signing are filled in; the Outbound Licence is the template's Option Five; the bracketed affiliates and the media licence list are dropped; Section 3(d) states which third-party work a Contribution may include; the governing law is set; the signature block is replaced by the signing statement. This adapted Agreement is licensed under the same Creative Commons Attribution 3.0 Unported License.

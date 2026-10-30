@@ -289,7 +289,7 @@ export default async function (kit) {
     const p = await openList(kit, shop, owner);
     await closing(p, async () => {
       const options = await statusOptions(p);
-      assert.deepEqual(options.map(([, text]) => text), ["Open", "Closed", "Any", ...LANES], `the Owner's Status lists the lanes (${JSON.stringify(options)})`);
+      assert.deepEqual(options.map(([, text]) => text), ["Open", "Closed", "Any", ...LANES], `an Owner's Status lists the lanes (${JSON.stringify(options)})`);
       const asked = p.waitForRequest((r) => { const u = new URL(r.url()); return u.pathname === "/_p99/api/issues" && u.searchParams.get("label") === "Planned"; });
       await p.locator(S(".p99-filters select[name=status]")).selectOption("lane:Planned");
       const u = new URL((await asked).url());

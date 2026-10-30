@@ -23,7 +23,7 @@ Each space has one board, and its lanes are the only statuses. Their words are f
 
 `needs you`, with the space, is the same word as `needs-you`. Any other word is clap's `invalid value` error, exit 2, listing the seven.
 
-Any Owner may rename the lanes (`p99 labels rename needs-you "Waiting on me"`); the words keep naming them by position. A card's priority is its place in its lane, one order for the whole space, which any Owner changes (`p99 card move FEAT-41 --to stuck --before FEAT-40`). Any Owner moves a card from lane to lane with `p99 card status`, `p99 card move`, or in the TUI. An agent acting for an Owner does all of it as that Owner would, Done included: `p99 card status <KEY> done` from an agent closes the card as fixed, and its history shows the Owner's name with 🤖.
+Any Owner may rename the lanes (`p99 labels rename needs-you "Waiting on me"`); the words keep naming them by position. A card's priority is its place in its lane, one order for the whole space, which any Owner changes (`p99 card move FEAT-41 --to stuck --before FEAT-40`). Any Owner moves a card from lane to lane with `p99 card status`, `p99 card move`, or in the TUI. An agent acting for an Owner does all of it as that Owner would, Done included: `p99 card status <KEY> done` from an agent closes the card as fixed, and its history shows that Owner's name with 🤖.
 
 The one board shows every card; a filter narrows it (`p99 board --project Splicer`, `--host`). A close from anywhere else, such as a merge or a GitHub pull request, puts a card in the last lane, and a reopen puts it back on one of the others.
 

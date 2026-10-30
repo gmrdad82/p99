@@ -135,7 +135,7 @@ export async function codeChecks({ call, browse, mint, check, issueBody, here, t
     ]);
   });
 
-  await check("an Owner-only answer names the Owner, never a manager", async () => {
+  await check("an Owner-only answer names Owners, never a manager", async () => {
     const user = await mint("Grace Hopper", "grace.words@example.com", [here]);
     const refused = await browse("GET", "/people", user.secret);
     assert.equal(refused.status, 403);
