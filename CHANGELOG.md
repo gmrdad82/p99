@@ -6,8 +6,10 @@ All notable changes to P99 are listed here, newest first.
 
 ### Changed
 
-- The TUI runs on pito-tui 2.2.0, which carries the header, footer, hourglass, list and keys itself.
+- The TUI runs on pito-tui 2.3.0, which carries the header, footer, hourglass, list, keys and text selection itself.
 - `?` opens every key of the TUI, those of the screen first, with when each works and a search; the footer's hints come from the same keys, so they and what a key does never disagree; `?` works while a card is carried and in the project picker too.
+- On the board, which takes the mouse, a drag over the header or the footer selects their text and copies it on release; a drag on a card still carries it, and a click still chooses it. The other screens leave the mouse to the terminal, so its own selection works there as before.
+- A list column too narrow for its first word keeps the start of it (`Ques…`, `shop.exam…`) instead of a lone `…`; a card's foot still cuts its project after a whole word.
 
 ## v1.13.8 — 2026-10-29
 

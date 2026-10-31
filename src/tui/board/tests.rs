@@ -246,6 +246,15 @@ fn a_narrow_card_shortens_its_assignee_and_never_draws_a_lone_ellipsis_for_it() 
 }
 
 #[test]
+fn a_card_foot_keeps_whole_words_of_its_project_or_shows_a_lone_ellipsis() {
+    assert_eq!(whole("Mobile app", 10), "Mobile app");
+    assert_eq!(whole("Mobile app", 8), "Mobile…");
+    assert_eq!(whole("Storefront", 10), "Storefront");
+    assert_eq!(whole("Storefront", 9), "…");
+    assert_eq!(whole("Storefront", 2), "…");
+}
+
+#[test]
 fn the_selected_card_is_lit_and_done_cards_read_muted() {
     let mut app = shown();
     let buffer = app.frame();

@@ -777,6 +777,10 @@ impl<S: Screen<Msg> + Narrow> Screen<Msg> for Around<S> {
         }
     }
 
+    fn drags(&self) -> bool {
+        self.chooser.is_none() && !self.reading() && self.inner.drags()
+    }
+
     fn lets_help(&self) -> bool {
         self.chooser.is_some() || (!self.reading() && self.inner.lets_help())
     }

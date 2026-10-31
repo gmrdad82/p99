@@ -1,7 +1,11 @@
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pito_tui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+use pito_tui::crossterm::event::{
+    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 use pito_tui::ratatui::buffer::Buffer;
+use pito_tui::select::Clip;
 use pito_tui::{Flow, Palette, Tui, dump};
 
 use crate::license::State;
@@ -928,4 +932,97 @@ fn a_tab_in_the_back_never_takes_the_keys_of_the_tab_in_front() {
     assert!(!footer(&codes).contains("n new card"), "{codes}");
     let codes = app.event(BOARD, Msg::Labels(Ok(Vec::new())));
     assert!(!footer(&codes).contains("space pick up"), "{codes}");
+}
+
+#[derive(Clone, Default)]
+struct Copied(Arc<Mutex<Vec<String>>>);
+
+impl Copied {
+    fn all(&self) -> Vec<String> {
+        self.0.lock().expect("the copies are whole").clone()
+    }
+}
+
+impl Clip for Copied {
+    fn osc(&mut self, _sequence: &str) {}
+
+    fn command(&mut self, text: &str) {
+        self.0
+            .lock()
+            .expect("the copies are whole")
+            .push(text.to_owned());
+    }
+}
+
+fn copying() -> (Run, Copied) {
+    let copied = Copied::default();
+    let source = sample();
+    let mut tui = build(source.clone(), State::Free, palette()).clipboard(copied.clone());
+    tui.start();
+    tui.settle();
+    let mut app = Run {
+        tui,
+        source,
+        palette: palette(),
+    };
+    app.text();
+    app.advance(Duration::from_secs(1));
+    (app, copied)
+}
+
+fn cell(text: &str, word: &str) -> (u16, u16) {
+    text.lines()
+        .enumerate()
+        .find_map(|(y, line)| {
+            let at = line.find(word)?;
+            let x = line[..at].chars().count();
+            Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?))
+        })
+        .unwrap_or_else(|| panic!("{word} is drawn:\n{text}"))
+}
+
+fn drag(app: &mut Run, from: (u16, u16), to: (u16, u16)) -> String {
+    app.mouse(MouseEventKind::Down(MouseButton::Left), from.0, from.1);
+    app.mouse(MouseEventKind::Drag(MouseButton::Left), to.0, to.1);
+    app.mouse(MouseEventKind::Up(MouseButton::Left), to.0, to.1);
+    app.text()
+}
+
+#[test]
+fn a_drag_over_the_cards_copies_what_it_covers() {
+    let (mut app, copied) = copying();
+    let (x, y) = cell(&app.text(), "BUG-11");
+    let shown = drag(&mut app, (x, y), (x + 5, y));
+    assert_eq!(copied.all(), ["BUG-11"], "{shown}");
+    let opened = app.press("enter");
+    assert!(opened.contains("Cards / BUG-11"), "{opened}");
+}
+
+#[test]
+fn the_board_header_stays_selectable_while_a_drag_on_the_board_carries_a_card() {
+    let (mut app, copied) = copying();
+    let board = app.go(BOARD);
+    let (x, y) = cell(&board, "P99");
+    drag(&mut app, (x, y), (x + 2, y));
+    assert_eq!(copied.all(), ["P99"]);
+    let board = app.text();
+    let (x, y) = cell(&board, "FEAT-9");
+    assert!(board.contains("In progress 6"), "{board}");
+    drag(&mut app, (x + 1, y + 1), (x + 46, y + 1));
+    let moved = app.advance(Duration::from_secs(1));
+    assert_eq!(copied.all(), ["P99"], "{moved}");
+    assert!(moved.contains("In progress 7"), "{moved}");
+}
+
+#[test]
+fn a_click_on_a_board_card_still_chooses_it_and_copies_nothing() {
+    let (mut app, copied) = copying();
+    let board = app.go(BOARD);
+    let (x, y) = cell(&board, "BUG-11");
+    app.mouse(MouseEventKind::Down(MouseButton::Left), x + 1, y);
+    app.mouse(MouseEventKind::Up(MouseButton::Left), x + 1, y);
+    let clicked = app.text();
+    assert!(copied.all().is_empty(), "{clicked}");
+    let opened = app.press("enter");
+    assert!(opened.contains("Board / BUG-11"), "{opened}");
 }

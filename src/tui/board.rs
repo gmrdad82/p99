@@ -957,10 +957,7 @@ fn draw_card(
     }
     let mut parts = Vec::new();
     if let Some(project) = card.project.as_deref().filter(|_| room > 2) {
-        parts.push((
-            format!(" {} ", text::clip(project, room - 2)),
-            palette.accent,
-        ));
+        parts.push((format!(" {} ", whole(project, room - 2)), palette.accent));
     }
     edge(
         buf,
@@ -991,9 +988,22 @@ fn handle(who: &str, room: usize) -> Option<String> {
     snip(who, room.saturating_sub(1)).map(|s| format!("@{s}"))
 }
 
+fn whole(text: &str, room: usize) -> String {
+    match text::cut(text, room) {
+        None => text.to_owned(),
+        Some(kept)
+            if text[kept.len()..].starts_with(char::is_whitespace)
+                || kept.ends_with(['/', '-', '_']) =>
+        {
+            format!("{kept}…")
+        }
+        Some(_) => "…".to_owned(),
+    }
+}
+
 fn snip(text: &str, room: usize) -> Option<String> {
     let clipped = text::clip(text, room);
-    if text::cells(&clipped) > 1 {
+    if text::cells(clipped.strip_suffix('…').unwrap_or(&clipped)) > 1 {
         return Some(clipped);
     }
     let kept = fits(text, room.saturating_sub(1));
@@ -1292,6 +1302,10 @@ impl Screen<Msg> for Board {
 
     fn lets_help(&self) -> bool {
         self.lift.is_some()
+    }
+
+    fn drags(&self) -> bool {
+        self.view.is_some() && !self.reading_thread()
     }
 
     fn input(&self) -> Option<InputBar<'_>> {
