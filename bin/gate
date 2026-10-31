@@ -2,25 +2,66 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
+
+usage() {
+  echo "usage: bin/gate [--fast | checks | tests [<shard> <shards>] | release | web | worker]" >&2
+  exit 2
+}
+
+checks() {
+  if [ -d .dev ]; then .dev/bin/story-check; fi
+  bin/no-old-words
+  cargo fmt --check
+  cargo clippy --all-targets -- -D warnings
+}
+
+tests() {
+  if ! cargo nextest --version >/dev/null 2>&1; then
+    if [ "${1:-1}" = 1 ]; then cargo test --quiet; fi
+  elif [ $# -eq 2 ]; then
+    cargo nextest run --no-tests=pass --partition "hash:$1/$2"
+  else
+    cargo nextest run --no-tests=pass
+  fi
+}
+
+release() {
+  cargo build --release
+  bin/budget
+}
+
+web() {
+  (cd render/web && npm ci --no-fund --no-audit)
+  node --test render/web/coverage.test.mjs
+}
+
+worker() {
+  (cd worker && npm ci --no-fund --no-audit && npm test)
+}
+
 case "${1:-}" in
-  --fast | '') ;;
-  *)
-    echo "usage: bin/gate [--fast]" >&2
-    exit 2
+  checks | release | web | worker)
+    [ $# -eq 1 ] || usage
+    "$1"
     ;;
+  tests)
+    [ $# -eq 1 ] || [ $# -eq 3 ] || usage
+    shift
+    tests "$@"
+    ;;
+  --fast)
+    [ $# -eq 1 ] || usage
+    checks
+    tests
+    echo "fast gate: green (the full gate is plain bin/gate)"
+    ;;
+  '')
+    checks
+    tests
+    release
+    web
+    worker
+    echo "gate: green"
+    ;;
+  *) usage ;;
 esac
-if [ -d .dev ]; then .dev/bin/story-check; fi
-bin/no-old-words
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --no-tests=pass; else cargo test --quiet; fi
-if [ "${1:-}" = --fast ]; then
-  echo "fast gate: green (the full gate is plain bin/gate)"
-  exit 0
-fi
-cargo build --release
-bin/budget
-(cd render/web && npm ci --no-fund --no-audit)
-(cd worker && npm ci --no-fund --no-audit && npm test)
-node --test render/web/coverage.test.mjs
-echo "gate: green"
