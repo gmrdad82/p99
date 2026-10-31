@@ -194,7 +194,8 @@ P99 is one of [PITO MD](https://pitomd.com)'s open tools. Its terminal UI is bui
 
 ```
 bin/gate --fast   # fmt, clippy -D warnings, the unit tests
-bin/gate          # the same plus the release build
+bin/gate          # the same plus the release build, the budget and the Worker's tests
+bin/gate tests 1 2   # one part alone: checks, tests (or one shard of them), release, web or worker
 bin/budget        # the loader's 2,048-byte gzipped budget
 cd worker && npm ci && npm test   # the Worker's tests on a local wrangler dev
 ```
